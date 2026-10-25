@@ -443,6 +443,43 @@ static void fill_state(Cpu *c) {
     if (ry > 16000) b |= 1ull << 21;
     if (rx > 16000) b |= 1ull << 22;
     if (ry < -16000) b |= 1ull << 23;
+    {   // LARECOMP_INPUT_REC=<file>: log every change of the pad state (presented frame, buttons, sticks);
+        // LARECOMP_INPUT_REPLAY=<file>: play such a log back exactly (the state at frame N is the last entry <= N)
+        extern uint64_t renderer_present_count(void);
+        static FILE *rec;
+        static int rec_on = -1;
+        static struct { uint64_t f, b; int32_t lx, ly, rx, ry; } *tape;
+        static size_t ntape;
+        if (rec_on < 0) {
+            rec_on = getenv("LARECOMP_INPUT_REC") != NULL;
+            if (rec_on) rec = fopen(getenv("LARECOMP_INPUT_REC"), "w");
+            if (getenv("LARECOMP_INPUT_REPLAY")) {
+                FILE *rf = fopen(getenv("LARECOMP_INPUT_REPLAY"), "r");
+                unsigned long long f, bb;
+                int l1, l2, r1, r2;
+                size_t cap = 0;
+                while (rf && fscanf(rf, "%llu %llx %d %d %d %d", &f, &bb, &l1, &l2, &r1, &r2) == 6) {
+                    if (ntape == cap) { cap = cap ? cap * 2 : 1024; tape = realloc(tape, cap * sizeof *tape); }
+                    tape[ntape].f = f; tape[ntape].b = bb; tape[ntape].lx = l1; tape[ntape].ly = l2; tape[ntape].rx = r1; tape[ntape++].ry = r2;
+                }
+                if (rf) fclose(rf);
+                LOG("[input] replaying %zu pad states from %s\n", ntape, getenv("LARECOMP_INPUT_REPLAY"));
+            }
+        }
+        uint64_t fr = renderer_present_count();
+        if (ntape) {
+            b = 0; lx = ly = rx = ry = 0;
+            size_t lo = 0, hi = ntape;  // last entry with f <= fr
+            while (lo < hi) { size_t mid = (lo + hi) / 2; if (tape[mid].f <= fr) lo = mid + 1; else hi = mid; }
+            if (lo) { b = tape[lo - 1].b; lx = tape[lo - 1].lx; ly = tape[lo - 1].ly; rx = tape[lo - 1].rx; ry = tape[lo - 1].ry; }
+        }
+        static uint64_t pb; static int32_t plx, ply, prx, pry;
+        if (rec && (b != pb || lx != plx || ly != ply || rx != prx || ry != pry)) {
+            fprintf(rec, "%llu %llx %d %d %d %d\n", (unsigned long long)fr, (unsigned long long)b, lx, ly, rx, ry);
+            fflush(rec);
+            pb = b; plx = lx; ply = ly; prx = rx; pry = ry;
+        }
+    }
     *(uint64_t *)(s + 8) = b;
     static uint64_t last_b;
     if (b != last_b && getenv("LARECOMP_INPUT")) LOG("[input] id %#x buttons %#llx (sampling %lld, lr %llx)\n", id, (unsigned long long)b, (long long)sampling, c->x[30]);

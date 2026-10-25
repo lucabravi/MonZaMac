@@ -1559,12 +1559,30 @@ static int sampler_slots(int n, __strong id<MTLSamplerState> *smp, NvnSamplerDes
 }
 
 // (diagnostics) depth array layers noted while binding in a debug frame, dumped as raw floats once the GPU has finished
-typedef struct { __strong id<MTLTexture> tex; int idx, slot, layer; } ArrPend;
+typedef struct { __strong id<MTLTexture> tex; int idx, slot, layer; bool stencil; } ArrPend;
 static ArrPend g_arr_pend[16];
 static int g_arr_n;
 static void dump_pending_arrays(void) {
     for (int k = 0; k < g_arr_n; k++) {
         id<MTLTexture> t = g_arr_pend[k].tex;
+        if (g_arr_pend[k].stencil) {  // the stencil aspect of a depth-stencil texture, one byte per pixel
+            NSUInteger sn = t.width * t.height;
+            id<MTLBuffer> sb = [dev newBufferWithLength:sn options:MTLResourceStorageModeShared];
+            id<MTLCommandBuffer> sc = [renderer_queue() commandBuffer];
+            id<MTLBlitCommandEncoder> sbl = [sc blitCommandEncoder];
+            [sbl copyFromTexture:t sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
+                      sourceSize:MTLSizeMake(t.width, t.height, 1) toBuffer:sb destinationOffset:0
+          destinationBytesPerRow:t.width destinationBytesPerImage:sn options:MTLBlitOptionStencilFromDepthStencil];
+            [sbl endEncoding];
+            [sc commit];
+            [sc waitUntilCompleted];
+            char sp[128];
+            snprintf(sp, sizeof sp, "build/stc_%03d_%d.u8", g_arr_pend[k].idx, g_arr_pend[k].slot);
+            FILE *sf = fopen(sp, "wb");
+            if (sf) { fwrite(sb.contents, 1, sn, sf); fclose(sf); }
+            g_arr_pend[k].tex = nil;
+            continue;
+        }
         NSUInteger n = t.width * t.height * 4;
         id<MTLBuffer> rb = [dev newBufferWithLength:n options:MTLResourceStorageModeShared];
         id<MTLCommandBuffer> c = [renderer_queue() commandBuffer];
@@ -1598,11 +1616,13 @@ static void bind_textures(int stage, ShaderInfo *si) {
         }
         id<MTLTexture> tex = nil;
         id<MTLSamplerState> smp = nil;
+        NvnTexture *e_dbg_tex = NULL;  // (diagnostics) the guest texture behind this slot
         uint32_t tic = h & 0xFFFFF, tsc = (uint32_t)(h >> 20) & 0xFFF;
         tex_sc[stage][i][0] = tex_sc[stage][i][1] = 1;
         if (i < 64) tex_wh[stage][i][0] = tex_wh[stage][i][1] = 0;
         if (h && st.tpool && tic < (uint32_t)st.tpool->count) {
             NvnTexEntry *e = &((NvnTexEntry *)st.tpool->entries)[tic];
+            e_dbg_tex = e->tex;
             if (e->tex) tex = st_->stencil ? stencil_texture(e->tex) : sampled_texture_ex(e->tex, &e->view, e->has_view, st_->type, st_->is_image);
             if (e->tex && i < 64) {
                 renderer_texture_scale(e->tex, &tex_sc[stage][i][0], &tex_sc[stage][i][1]);
@@ -1694,6 +1714,23 @@ static void bind_textures(int stage, ShaderInfo *si) {
         NvnSamplerDesc *sd = h && st.spool && tsc < (uint32_t)st.spool->count ? &((NvnSamplerDesc *)st.spool->entries)[tsc] : NULL;
         if (sd) smp = sampler_for(sd);
         if (!tex) tex = dummy_texture(st_->type, st_->scalar_kind);
+        {   // LARECOMP_DUMMY_TEX=<fs addr>:<slot>,...: bind the neutral dummy texture to these fragment shader inputs (A/B tests)
+            static uint64_t dfs[8];
+            static int dslot[8], nd = -1;
+            if (nd < 0) {
+                nd = 0;
+                for (const char *q = getenv("LARECOMP_DUMMY_TEX"); q && *q && nd < 8;) {
+                    char *e;
+                    dfs[nd] = strtoull(q, &e, 16);
+                    dslot[nd++] = *e == ':' ? (int)strtol(e + 1, &e, 10) : -1;
+                    q = e;
+                    while (*q == ',') q++;
+                }
+            }
+            if (stage == 1 && st.program)
+                for (int k = 0; k < nd; k++)
+                    if (dfs[k] == st.program->stages[1].code_addr && dslot[k] == i) tex = dummy_texture(st_->type, st_->scalar_kind);
+        }
         if (!smp) smp = default_sampler();
         if (g_debug_frame && tex.textureType == MTLTextureType2D && stage == 1) {
             static int dn;
@@ -1705,6 +1742,11 @@ static void bind_textures(int stage, ShaderInfo *si) {
             renderer_save_texture(tex, path);
             snprintf(path, sizeof path, "build/dtex_%03d_%d_a.png", dn - 1, i);
             renderer_save_texture_alpha(tex, path);
+        }
+        if (g_debug_frame && st_->stencil && stage == 1 && e_dbg_tex && g_arr_n < 16) {  // (diagnostics) the stencil being sampled
+            static int sn;
+            id<MTLTexture> base = renderer_texture(e_dbg_tex, nil, false);
+            if (base.pixelFormat == MTLPixelFormatDepth32Float_Stencil8) g_arr_pend[g_arr_n++] = (ArrPend){base, sn++, i, 0, true};
         }
         if (g_debug_frame && tex.textureType == MTLTextureType2DArray && stage == 1 && tex.width >= 512 && !st_->is_image) {
             // (diagnostics) array textures (shadow cascades...): every layer (up to 4) as its own image
