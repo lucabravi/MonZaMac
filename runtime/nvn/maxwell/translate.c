@@ -2065,11 +2065,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         int pd = (int)bits(w, 48, 3);
         if (c->stage == STAGE_VERTEX && !c->glsl) {
             set_reg(c, d, R(a));  // no SIMD-group functions in MSL vertex functions: lane-local value
-        } else if (c->glsl) {  // (all stages: Vulkan subgroups. A quad xor - lane mask < 4 - is the subgroup xor in the quad)
-            static const char *const fn[] = {"subgroupShuffle", "subgroupShuffleUp", "subgroupShuffleDown", "subgroupShuffleXor"};
-            sprintf(t, "%s(%s, uint(%s))", fn[mode], R(a), bv);
-            set_reg(c, d, t);
-        } else if (getenv("LARECOMP_OLD_SHFL")) {  // (A/B: the previous translation, clamp / segment ignored, predicate always true)
+        } else if (!c->glsl && getenv("LARECOMP_OLD_SHFL")) {  // (A/B: the previous translation, clamp / segment ignored, predicate always true)
             static const char *const fn[] = {"simd_shuffle", "simd_shuffle_up", "simd_shuffle_down", "simd_shuffle_xor"};
             sprintf(t, "%s(%s, ushort(%s))", fn[mode], R(a), bv);
             set_reg(c, d, t);
@@ -2079,6 +2075,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             // As the hardware (PTX shfl.sync): c = clamp (bits 0-4) | segment mask (bits 8-12); a lane outside its segment
             // keeps its own value and its predicate is false. Z-A's culling compute builds prefix sums with SHFL.UP and
             // masks the invalid lanes with that predicate: always-true corrupted the counts (characters popped in and out).
+            // GLSL (all stages, Vulkan subgroups) the same, as Ryujinx's Shuffle helpers.
             char cb[48];
             const char *cx = bits(w, 29, 1) ? (sprintf(cb, "%uu", (unsigned)bits(w, 34, 13)), cb) : R((int)bits(w, 39, 8));
             static const char *const srcx[] = {"(bb & ~sg & 31u) | mn", "lane - bb", "lane + bb", "lane ^ bb"};
@@ -2088,7 +2085,8 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
                          "      uint bb = %s; uint src = %s; bool ok = %s;\n", cx, bv, srcx[mode], okx[mode]);
             if (d != RZ) {
                 c->reg_used[d] = 1;
-                sp(&c->body, "      r%d = ok ? simd_shuffle(%s, ushort(src & 31u)) : %s;\n", d, R(a), R(a));
+                sp(&c->body, c->glsl ? "      r%d = ok ? subgroupShuffle(%s, src & 31u) : %s;\n"
+                                     : "      r%d = ok ? simd_shuffle(%s, ushort(src & 31u)) : %s;\n", d, R(a), R(a));
             }
             if (pd != PT) { c->pred_used[pd] = 1; sp(&c->body, "      p%d = ok;\n", pd); }
             sp(&c->body, "    }\n");
