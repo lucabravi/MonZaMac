@@ -234,6 +234,9 @@ static int run_cases(void) {
         {"sured ba", STAGE_FRAGMENT, false, 1, 0x4c98ull << 48 | 0xfull << 39 | 2ull << 34 | (IMAGE_HANDLE_BASE / 4) << 20 | PT_ | 5,
          0xeb5ull << 52 | 5ull << 39 | 3ull << 33 | 1 << 23 | PT_ | 4,
          "atomic_fetch_add(uint2(uint(int(r0) >> 2), r1), uint4(r4, 0u, 0u, 0u))", NULL},
+        // SHFL.UP in GLSL: clamp / segment from c, predicate = the source lane is valid (as in MSL)
+        {"shfl up glsl", STAGE_COMPUTE, true, 0, 0xef1ull << 52 | 0ull << 48 | 1ull << 34 | 1 << 30 | 1 << 29 | 1 << 28 | 1 << 20 | PT_ | 1 << 8 | 3, 0,
+         "r3 = ok ? subgroupShuffle(r1, src & 31u) : r1;\n      p0 = ok;", NULL},
     };
     int bad = 0;
     for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
