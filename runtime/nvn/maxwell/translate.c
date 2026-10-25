@@ -1102,6 +1102,7 @@ static void emit_surface(Ctx *c, uint64_t w) {
         drop_surface(c, w, "image handle is not a driver cbuf image word"); return;
     }
     if (dim != 3 && dim != 4) { drop_surface(c, w, "dimension is not 2D / 2D array"); return; }
+    bool ba = red && bits(w, 23, 1);  // SURED .BA: x is a byte offset (SUST.B's bit 23 is part of its RGBA mask)
     const char *op[] = {"add", "min", "max", NULL, NULL, "and", "or", "xor"};
     int rop = (int)bits(w, 24, 3), size = (int)bits(w, 20, 3);
     if (red && (!op[rop] || size > 1)) { drop_surface(c, w, "reduction op / size"); return; }
@@ -1112,7 +1113,8 @@ static void emit_surface(Ctx *c, uint64_t w) {
     t->is_image = true;
     t->scalar_kind = c->key && ((c->key->img_uint >> ik) & 1) ? 2 : c->key && ((c->key->img_sint >> ik) & 1) ? 1 : 0;
     char xy[64], layer[32] = "";
-    snprintf(xy, sizeof xy, "uint2(%s, %s)", R(crd), R(crd + 1));
+    // (.BA: x in bytes, shifted by the 4-byte element size, per Ryujinx's EmitSured)
+    snprintf(xy, sizeof xy, ba ? "uint2(uint(int(%s) >> 2), %s)" : "uint2(%s, %s)", R(crd), R(crd + 1));
     if (array) snprintf(layer, sizeof layer, ", %s", R(crd + 2));
     if (red) {
         if (t->scalar_kind == 0) { drop_surface(c, w, "reduction on a float image"); return; }
