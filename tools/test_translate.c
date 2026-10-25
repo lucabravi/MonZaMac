@@ -218,6 +218,9 @@ static int run_cases(void) {
         // TEXS 2D.LL.DC (info 5): lod = Rb, dref = Rb+1 (yuzu; Ryujinx's EmitTexs reads them the other way round)
         {"texs 2d ll dc", STAGE_FRAGMENT, false, 0, 0xd8ull << 56 | 5ull << 53 | 255ull << 28 | 4 << 20 | PT_ | 1 << 8, 0,
          "sample_compare(s0, float2(as_type<float>(r1), as_type<float>(r2)), as_type<float>(r5), level(as_type<float>(r4)))", NULL},
+        // TEXS ARRAY_2D.LZ.DC (info 9): the layer is clamped like the other array lookups
+        {"texs 2d array lz dc", STAGE_FRAGMENT, false, 0, 0xd8ull << 56 | 9ull << 53 | 255ull << 28 | 4 << 20 | PT_ | 1 << 8, 0,
+         "min(r1, t0.get_array_size() - 1u)", NULL},
         // TEXS 1D.LZ in GLSL: level 0, not an implicit LOD
         {"texs 1d lz glsl", STAGE_FRAGMENT, true, 0, 0xd8ull << 56 | 0ull << 53 | 255ull << 28 | 4 << 20 | PT_ | 1 << 8, 0,
          "textureLod(t0, as_f(r1), 0.0f)", NULL},
