@@ -1,0 +1,1025 @@
+// Real offscreen Metal regressions; no game files or window are needed.
+#include "../runtime/nvn/renderer.m"
+
+void metal_test_bootstrap(void);
+
+#define CHECK(c, message) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d: %s\n", __func__, __LINE__, message); exit(1); } } while (0)
+
+static NvnTexture test_texture(uint32_t target, uint32_t width, uint32_t height, uint32_t layers,
+                               uint32_t levels, uint32_t format, uint32_t samples) {
+    NvnTexture t = {.target = target, .format = format, .flags = 8, .width = width, .height = height,
+                    .depth = layers, .levels = levels, .samples = samples, .swizzle = {2, 3, 4, 5}};
+    t.layout = (TexLayout){.width = width, .height = height, .depth = 1, .layers = layers,
+                           .levels = levels, .fmt = nvn_format_info(format)};
+    tegra_layout_init(&t.layout);
+    return t;
+}
+
+static void check_gpu(void) {
+    renderer_flush();
+    CHECK(!last_cb.error, "production command buffer failed");
+}
+
+static id<MTLBuffer> read_texture(id<MTLTexture> tex, NSUInteger slice, NSUInteger level, NSUInteger bpp) {
+    check_gpu();
+    NSUInteger w = MAX((NSUInteger)1, tex.width >> level), h = MAX((NSUInteger)1, tex.height >> level);
+    NSUInteger row = (w * bpp + 255) & ~(NSUInteger)255;
+    id<MTLBuffer> out = [dev newBufferWithLength:row * h options:MTLResourceStorageModeShared];
+    id<MTLCommandBuffer> cmd = [renderer_queue() commandBuffer];
+    id<MTLBlitCommandEncoder> bl = [cmd blitCommandEncoder];
+    [bl copyFromTexture:tex sourceSlice:slice sourceLevel:level sourceOrigin:MTLOriginMake(0, 0, 0)
+             sourceSize:MTLSizeMake(w, h, 1) toBuffer:out destinationOffset:0
+     destinationBytesPerRow:row destinationBytesPerImage:row * h];
+    [bl endEncoding]; [cmd commit]; [cmd waitUntilCompleted];
+    CHECK(!cmd.error, "readback command buffer failed");
+    return out;
+}
+
+static void destroy_texture(NvnTexture *t) {
+    check_gpu();
+    backend_texture_destroyed(t);
+    renderer_flush();
+}
+
+static void smoke(void) {
+    NvnTexture t = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    struct { TexRefRec ref; float color[4]; } ct = {.ref.tex = (uint64_t)&t, .color = {1, 0, 0, 1}};
+    uint64_t commands[128] = {0}, report[2] = {0};
+    CmdRec *r = (CmdRec *)commands;
+    r->op = CMD_CLEAR_TEXTURE; r->size = (sizeof *r + sizeof ct + 7) & ~7u; r->x[4] = 15;
+    memcpy(r->extra, &ct, sizeof ct);
+    r = (CmdRec *)((uint8_t *)r + r->size);
+    r->op = CMD_REPORT_COUNTER; r->size = sizeof *r; r->x[0] = 1; r->x[1] = (uint64_t)report;
+    r = (CmdRec *)((uint8_t *)r + r->size); r->op = CMD_END;
+    backend_execute((uint64_t)commands);
+    id<MTLBuffer> out = read_texture(renderer_texture(&t, nil, true), 0, 0, 4);
+    for (int y = 0; y < 4; y++) for (int x = 0; x < 4; x++) {
+        const uint8_t *px = (const uint8_t *)out.contents + y * 256 + x * 4;
+        CHECK(px[0] == 255 && px[1] == 0 && px[2] == 0 && px[3] == 255, "clear/report smoke pixel");
+    }
+    CHECK(report[0] != 0 && report[1] != 0, "visible sample report and timestamp");
+    destroy_texture(&t);
+}
+
+static void view_array_count(void) {
+    NvnTexture t = test_texture(4, 8, 8, 8, 1, 0x25, 1);
+    NvnTextureView v = {.setmask = 2, .min_layer = 0, .num_layers = 1};
+    id<MTLTexture> got = view_texture(&t, &v, true, false, nil);
+    CHECK(got.arrayLength == 1, "explicit first-layer view exposes exactly one layer");
+    destroy_texture(&t);
+}
+
+static void view_bounds(void) {
+    NvnTexture t = test_texture(4, 128, 128, 8, 8, 0x25, 1);
+    NvnTextureView v = {.setmask = 3};
+    for (unsigned start = 8; start <= 9; start++) {
+        v.base_level = v.min_layer = start;
+        id<MTLTexture> got = view_texture(&t, &v, true, false, nil);
+        CHECK(got.mipmapLevelCount == 1 && got.arrayLength == 1, "out-of-range starts retain a nonempty final subresource");
+        CHECK(got.parentRelativeLevel == 7 && got.parentRelativeSlice == 7, "starts are clamped before counts are derived");
+    }
+    v.base_level = v.min_layer = 0; v.num_levels = v.num_layers = UINT16_MAX;
+    id<MTLTexture> got = view_texture(&t, &v, true, false, nil);
+    CHECK(got.mipmapLevelCount == 8 && got.arrayLength == 8, "oversized explicit counts cannot overflow the bounds check");
+    destroy_texture(&t);
+}
+
+static void view_cube_faces(void) {
+    NvnTexture cube = test_texture(8, 8, 8, 6, 4, 0x25, 1);
+    NvnTextureView face = {.setmask = 2, .min_layer = 5, .num_layers = 1};
+    id<MTLTexture> got = view_texture(&cube, &face, true, true, nil);
+    CHECK(got.textureType == MTLTextureType2D && got.parentRelativeSlice == 5, "cube face 5 must not become face 0");
+    NvnTextureView mip = {.setmask = 1, .base_level = 1, .num_levels = 1};
+    got = view_texture(&cube, &mip, true, false, nil);
+    CHECK(got.textureType == MTLTextureTypeCube && got.mipmapLevelCount == 1, "mip-restricted cube retains all six faces");
+    destroy_texture(&cube);
+    NvnTexture array = test_texture(9, 8, 8, 12, 1, 0x25, 1);
+    face.min_layer = 11;
+    got = view_texture(&array, &face, true, true, nil);
+    CHECK(got.textureType == MTLTextureType2D && got.parentRelativeSlice == 11, "cube-array face 11 is independently renderable");
+    destroy_texture(&array);
+}
+
+static void view_zero_swizzle(void) {
+    NvnTexture t = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    NvnTextureView v = {.setmask = 8, .swizzle = {0, 0, 0, 0}};
+    id<MTLTexture> got = apply_swizzle(renderer_texture(&t, nil, false), &t, &v, true);
+    CHECK(got.swizzle.red == MTLTextureSwizzleZero && got.swizzle.green == MTLTextureSwizzleZero &&
+          got.swizzle.blue == MTLTextureSwizzleZero && got.swizzle.alpha == MTLTextureSwizzleZero,
+          "explicit zero swizzle is not identity");
+    destroy_texture(&t);
+}
+
+static void view_sampled_cube_face(void) {
+    NvnTexture cube = test_texture(8, 8, 8, 6, 1, 0x25, 1);
+    NvnTextureView face = {.setmask = 2, .min_layer = 5, .num_layers = 1};
+    id<MTLTexture> got = view_texture(&cube, &face, true, false, nil);
+    CHECK(got.textureType == MTLTextureType2D && got.parentRelativeSlice == 5, "sampled cube face keeps its selected face as a compatible 2D view");
+    got = sampled_texture(&cube, &face, true, TEXTYPE_2D);
+    CHECK(got.textureType == MTLTextureType2D && got.width == 8, "sampled face must reach the shader without a dummy substitute");
+    destroy_texture(&cube);
+}
+
+static void view_partial_cube_range(void) {
+    NvnTexture cube = test_texture(9, 8, 8, 12, 1, 0x25, 1);
+    NvnTextureView view = {.setmask = 2, .min_layer = 1, .num_layers = 2};
+    for (int render = 0; render <= 1; render++) {
+        id<MTLTexture> got = view_texture(&cube, &view, true, render, nil);
+        CHECK(got.textureType == MTLTextureType2DArray && got.arrayLength == 2 && got.parentRelativeSlice == 1,
+              "partial cube face range is a 2D array for sampling and rendering");
+    }
+    view.num_layers = 6;
+    id<MTLTexture> got = view_texture(&cube, &view, true, false, nil);
+    CHECK(got.textureType == MTLTextureType2DArray && got.arrayLength == 6 && got.parentRelativeSlice == 1,
+          "six unaligned faces cannot form a cube");
+    view.min_layer = 6;
+    got = view_texture(&cube, &view, true, false, nil);
+    CHECK(got.textureType == MTLTextureTypeCubeArray && got.arrayLength == 1 && got.parentRelativeSlice == 6,
+          "a whole aligned cube retains its cube type");
+    destroy_texture(&cube);
+}
+
+static void view_chain_cleanup(void) {
+    int initial_views = g_views_live;
+    NvnTexture texture = test_texture(4, 8, 8, 2, 2, 0x25, 1);
+    NvnTextureView view = {.setmask = 1 | 8, .base_level = 1, .num_levels = 1};
+    id<MTLTexture> partial = view_texture(&texture, &view, true, false, nil);
+    (void)apply_swizzle(partial, &texture, &view, true);
+    CHECK(g_views_live > initial_views, "fixture must create a retained native view chain");
+    destroy_texture(&texture);
+    CHECK(g_views_live == initial_views, "destroying a texture must release every cached descendant view");
+}
+
+static void bind_targets(NvnTexture *color, NvnTexture *depth, NvnTexture *second) {
+    end_pass();
+    memset(&st.rt, 0, sizeof st.rt);
+    st.rt.ncolor = second ? 2 : color ? 1 : 0;
+    st.rt.color[0] = color; st.rt.color[1] = second; st.rt.depth = depth; st.rt_dirty = true;
+    st.viewport[0][0] = st.viewport[0][1] = 0;
+    st.viewport[0][2] = st.viewport[0][3] = 4;
+    st.scissor[0][0] = st.scissor[0][1] = 0;
+    st.scissor[0][2] = st.scissor[0][3] = 4;
+}
+
+static void prepare_draw(void) {
+    // Synthetic ISA fixture written for this test: a0 -> clip position; constant green fragment output.
+    static uint64_t vs[128], fs[128];
+    static NvnProgram program;
+    if (!program.stage_mask) {
+        const uint64_t schedule = 0x001f8000fc0007e0ull;
+        vs[16] = schedule;
+        vs[17] = 0xefd8000000000000ull | (3ull << 47) | (0x80ull << 20) | (7ull << 16) | (255ull << 8);
+        vs[18] = 0xeff0000000000000ull | (3ull << 47) | (0x70ull << 20) | (7ull << 16);
+        vs[19] = 0xeff0000000000000ull | (3ull << 47) | (0x80ull << 20) | (7ull << 16);
+        vs[20] = schedule;
+        vs[21] = 0xe30000000007000full;
+        vs[22] = 0xe2400fffff87000full;
+        *(uint32_t *)((uint8_t *)fs + 0x78) = 15;
+        fs[16] = schedule;
+        fs[17] = 0x0100000000070000ull;
+        fs[18] = 0x0100000000070001ull | ((uint64_t)0x3f800000 << 20);
+        fs[19] = 0x0100000000070002ull;
+        fs[20] = schedule;
+        fs[21] = 0x0100000000070003ull | ((uint64_t)0x3f800000 << 20);
+        fs[22] = 0xe30000000007000full;
+        fs[23] = 0xe2400fffff87000full;
+        program.stage_mask = 3;
+        program.stages[0] = (NvnShaderStage){.stage = 0, .code_addr = (uint64_t)vs, .const_offset = 0xc0};
+        program.stages[1] = (NvnShaderStage){.stage = 1, .code_addr = (uint64_t)fs, .const_offset = 0xc0};
+    }
+    st.program = &program;
+    st.ds[0] = 1; st.ds[1] = st.rt.depth != NULL; st.ds[2] = 8;
+    st.poly[0] = 0;
+    const float vertices[3][4] = {{-1, -1, 0, 1}, {3, -1, 0, 1}, {-1, 3, 0, 1}};
+    memcpy(g_guest_buffer.contents, vertices, sizeof vertices);
+    st.nattrib = st.nstream = 1; st.attrib[0] = 0x2e;
+    st.stream[0][0] = 16; st.stream[0][1] = 0;
+    st.vbuf[0] = (Range){.addr = (uint64_t)g_guest_buffer.contents, .size = sizeof vertices};
+}
+
+static void fullscreen_draw(uint32_t instances) {
+    CmdRec r = {.op = CMD_DRAW_ARRAYS, .size = sizeof(CmdRec), .x = {4, 0, 3, 0, instances}};
+    draw(&r, false);
+}
+
+static void expect_rgba_slice(NvnTexture *t, unsigned slice, uint8_t red, uint8_t green, uint8_t blue) {
+    id<MTLBuffer> out = read_texture(renderer_texture(t, nil, true), slice, 0, 4);
+    for (int y = 0; y < 4; y++) for (int x = 0; x < 4; x++) {
+        const uint8_t *p = (const uint8_t *)out.contents + y * 256 + x * 4;
+        CHECK(p[0] == red && p[1] == green && p[2] == blue && p[3] == 255, "unexpected color pixel");
+    }
+}
+
+static void expect_rgba(NvnTexture *t, uint8_t red, uint8_t green, uint8_t blue) {
+    expect_rgba_slice(t, 0, red, green, blue);
+}
+
+static void expect_depth_slice(NvnTexture *t, unsigned slice, float want) {
+    id<MTLBuffer> out = read_texture(renderer_texture(t, nil, true), slice, 0, 4);
+    for (int y = 0; y < 4; y++) for (int x = 0; x < 4; x++) {
+        float got = *(const float *)((const uint8_t *)out.contents + y * 256 + x * 4);
+        if (fabsf(got - want) > 0.00001f) fprintf(stderr, "depth got %.8g, want %.8g\n", got, want);
+        CHECK(fabsf(got - want) < 0.00001f, "unexpected depth pixel");
+    }
+}
+
+static void expect_depth(NvnTexture *t, float want) { expect_depth_slice(t, 0, want); }
+
+static void clear_bias(void) {
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    NvnTexture depth = test_texture(1, 4, 4, 1, 1, 0x33, 1);
+    bind_targets(&color, &depth, NULL); prepare_draw();
+    st.poly[3] = 4; st.poly_offset[1] = -1048576;
+    fullscreen_draw(1);
+    clear(-1, 0, NULL, 0, true, 0.5f, false, 0, 0);
+    expect_depth(&depth, 0.5f);
+    destroy_texture(&color); destroy_texture(&depth);
+}
+
+static void clear_wireframe(void) {
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    bind_targets(&color, NULL, NULL);
+    const float black[4] = {0, 0, 0, 1}, red[4] = {1, 0, 0, 1};
+    clear(0, 0, black, 15, false, 0, false, 0, 0);
+    prepare_draw(); st.poly[2] = 1; fullscreen_draw(1);
+    clear(0, 0, red, 15, false, 0, false, 0, 0);
+    expect_rgba(&color, 255, 0, 0);
+    destroy_texture(&color);
+}
+
+static void clear_bias_restore(void) {
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    NvnTexture depth = test_texture(1, 4, 4, 1, 1, 0x33, 1);
+    bind_targets(&color, &depth, NULL); prepare_draw();
+    st.poly[3] = 4; st.poly_offset[1] = -1048576;
+    fullscreen_draw(1);
+    clear(-1, 0, NULL, 0, true, 0.75f, false, 0, 0);
+    fullscreen_draw(1);
+    expect_depth(&depth, 0.4375f);
+    destroy_texture(&color); destroy_texture(&depth);
+}
+
+static void clear_layouts(void) {
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    NvnTexture second = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    NvnTexture half = test_texture(1, 4, 4, 1, 1, 0x29, 1);
+    const float red[4] = {1, 0, 0, 1};
+    bind_targets(&color, NULL, &second);
+    clear(0, 0, red, 15, false, 0, false, 0, 0);
+    bind_targets(&color, NULL, &half);
+    clear(0, 0, red, 15, false, 0, false, 0, 0);
+    expect_rgba(&color, 255, 0, 0);
+    destroy_texture(&color); destroy_texture(&second); destroy_texture(&half);
+}
+
+static void clear_multisample_depth(void) {
+    CHECK([dev supportsTextureSampleCount:4], "device must support four samples for this test");
+    NvnTexture depth = test_texture(1, 4, 4, 1, 1, 0x33, 1);
+    NvnTexture msaa = test_texture(1, 4, 4, 1, 1, 0x33, 4);
+    bind_targets(NULL, &depth, NULL);
+    clear(-1, 0, NULL, 0, true, 0.5f, false, 0, 0);
+    bind_targets(NULL, &msaa, NULL);
+    clear(-1, 0, NULL, 0, true, 0.5f, false, 0, 0);
+    check_gpu();
+    destroy_texture(&depth); destroy_texture(&msaa);
+}
+
+static void draw_multisample_depth(void) {
+    CHECK([dev supportsTextureSampleCount:4], "device must support four samples for this test");
+    NvnTexture depth = test_texture(1, 4, 4, 1, 1, 0x33, 1);
+    NvnTexture msaa = test_texture(1, 4, 4, 1, 1, 0x33, 4);
+    bind_targets(NULL, &depth, NULL); prepare_draw();
+    // Same vertex program, with a fragment stage that has no color outputs.
+    static NvnProgram program;
+    static uint64_t fragment[128];
+    program = *st.program;
+    memcpy(fragment, (const void *)(uintptr_t)program.stages[1].code_addr, sizeof fragment);
+    *(uint32_t *)((uint8_t *)fragment + 0x78) = 0;
+    program.stages[1].code_addr = (uint64_t)fragment;
+    st.program = &program;
+    fullscreen_draw(1); expect_depth(&depth, 0.5f);
+    bind_targets(NULL, &msaa, NULL);
+    fullscreen_draw(1); check_gpu();
+    bind_targets(NULL, &depth, NULL);
+    fullscreen_draw(1); expect_depth(&depth, 0.5f);
+    destroy_texture(&depth); destroy_texture(&msaa);
+}
+
+static void draw_layers(NvnTexture *color, NvnTexture *depth, unsigned count) {
+    bind_targets(color, depth, NULL);
+    begin_pass();
+    static id<MTLLibrary> library;
+    if (!library) {
+        NSError *error = nil;
+        library = [dev newLibraryWithSource:@"#include <metal_stdlib>\nusing namespace metal;\n"
+            "struct V { float4 pos [[position]]; uint layer [[render_target_array_index]]; };"
+            "vertex V vs(uint vid [[vertex_id]], uint iid [[instance_id]]) {"
+            "float2 p = float2((vid << 1) & 2, vid & 2); return {float4(p * 2 - 1, 0.5, 1), iid}; }"
+            "fragment float4 fs() { return float4(0,1,0,1); } fragment void fs_none() {}"
+                                     options:nil error:&error];
+        CHECK(library != nil, "layer fixture shader compiles");
+    }
+    MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
+    pd.vertexFunction = [library newFunctionWithName:@"vs"];
+    pd.fragmentFunction = [library newFunctionWithName:color ? @"fs" : @"fs_none"];
+    pd.inputPrimitiveTopology = MTLPrimitiveTopologyClassTriangle;
+    attachment_formats(pd);
+    NSError *error = nil;
+    id<MTLRenderPipelineState> pipe = [dev newRenderPipelineStateWithDescriptor:pd error:&error];
+    CHECK(pipe != nil, "layer fixture pipeline");
+    MTLDepthStencilDescriptor *ds = [MTLDepthStencilDescriptor new];
+    ds.depthCompareFunction = MTLCompareFunctionAlways; ds.depthWriteEnabled = depth != NULL;
+    [enc setDepthStencilState:[dev newDepthStencilStateWithDescriptor:ds]];
+    [enc setRenderPipelineState:pipe];
+    [enc setViewport:(MTLViewport){0, 0, 4, 4, 0, 1}];
+    [enc setScissorRect:(MTLScissorRect){0, 0, 4, 4}];
+    [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3 instanceCount:count];
+    check_gpu();
+    for (unsigned layer = 0; layer < count; layer++) {
+        if (color) {
+            id<MTLBuffer> out = read_texture(renderer_texture(color, nil, true), layer, 0, 4);
+            for (int y = 0; y < 4; y++) for (int x = 0; x < 4; x++) {
+                const uint8_t *p = (const uint8_t *)out.contents + y * 256 + x * 4;
+                CHECK(p[0] == 0 && p[1] == 255 && p[2] == 0 && p[3] == 255, "shader-selected layer must receive the triangle");
+            }
+        }
+        if (depth) {
+            id<MTLBuffer> out = read_texture(renderer_texture(depth, nil, true), layer, 0, 4);
+            for (int y = 0; y < 4; y++) for (int x = 0; x < 4; x++) {
+                float got = *(const float *)((const uint8_t *)out.contents + y * 256 + x * 4);
+                CHECK(fabsf(got - 0.5f) < 0.00001f, "depth layers must receive the triangle, including without color attachments");
+            }
+        }
+    }
+}
+
+static void layer_single(void) {
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    draw_layers(&color, NULL, 1);
+    destroy_texture(&color);
+}
+
+static void layer_color_array(void) {
+    NvnTexture color = test_texture(4, 4, 4, 3, 1, 0x25, 1);
+    draw_layers(&color, NULL, 3);
+    destroy_texture(&color);
+}
+
+static void layer_mixed_depth(void) {
+    NvnTexture color = test_texture(4, 4, 4, 3, 1, 0x25, 1);
+    NvnTexture depth = test_texture(4, 4, 4, 2, 1, 0x33, 1);
+    draw_layers(&color, &depth, 2);
+    destroy_texture(&color); destroy_texture(&depth);
+}
+
+static void layer_depth_only(void) {
+    NvnTexture depth = test_texture(4, 4, 4, 3, 1, 0x33, 1);
+    draw_layers(NULL, &depth, 3);
+    destroy_texture(&depth);
+}
+
+static void clear_layered(void) {
+    NvnTexture color = test_texture(4, 4, 4, 3, 1, 0x25, 1);
+    NvnTexture depth = test_texture(4, 4, 4, 2, 1, 0x33, 1);
+    bind_targets(&color, &depth, NULL);
+    const float red[] = {1, 0, 0, 1};
+    clear(0, 0, red, 15, true, 0.75f, false, 0, 0);
+    for (unsigned layer = 0; layer < 2; layer++) {
+        expect_rgba_slice(&color, layer, 255, 0, 0);
+        expect_depth_slice(&depth, layer, 0.75f);
+    }
+    destroy_texture(&color); destroy_texture(&depth);
+}
+
+static void clear_mip_extent(void) {
+    NvnTexture color = test_texture(1, 8, 8, 1, 2, 0x25, 1);
+    bind_targets(&color, NULL, NULL);
+    st.rt.has_cview[0] = 1;
+    st.rt.cview[0] = (NvnTextureView){.setmask = 1, .base_level = 1, .num_levels = 1};
+    st.scissor[0][2] = st.scissor[0][3] = 16384;
+    const float red[] = {1, 0, 0, 1};
+    clear(0, 0, red, 15, false, 0, false, 0, 0);
+    id<MTLBuffer> out = read_texture(renderer_texture(&color, nil, true), 0, 1, 4);
+    for (int y = 0; y < 4; y++) for (int x = 0; x < 4; x++) {
+        const uint8_t *p = (const uint8_t *)out.contents + y * 256 + x * 4;
+        CHECK(p[0] == 255 && p[1] == 0 && p[2] == 0 && p[3] == 255, "clear/scissor extent must use the selected mip dimensions");
+    }
+    destroy_texture(&color);
+}
+
+static void clear_minimum_extent(bool with_depth) {
+    NvnTexture color = test_texture(1, 8, 8, 1, 1, 0x25, 1);
+    NvnTexture small = test_texture(1, 4, 4, 1, 1, with_depth ? 0x33 : 0x25, 1);
+    bind_targets(&color, with_depth ? &small : NULL, with_depth ? NULL : &small);
+    st.scissor[0][2] = st.scissor[0][3] = 16384;
+    const float red[] = {1, 0, 0, 1};
+    clear(0, 0, red, 15, with_depth, 0.75f, false, 0, 0);
+    // The common pass covers only the first 4x4 pixels of the larger color attachment.
+    expect_rgba(&color, 255, 0, 0);
+    if (with_depth) expect_depth(&small, 0.75f);
+    destroy_texture(&color); destroy_texture(&small);
+}
+
+static void clear_minimum_color_extent(void) { clear_minimum_extent(false); }
+static void clear_minimum_depth_extent(void) { clear_minimum_extent(true); }
+
+static void stencil_without_attachment(void) {
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    NvnTexture depth = test_texture(1, 4, 4, 1, 1, 0x33, 1);
+    const float black[] = {0, 0, 0, 1};
+    for (int use_depth = 0; use_depth <= 1; use_depth++) {
+        bind_targets(&color, use_depth ? &depth : NULL, NULL); prepare_draw();
+        st.ds[0] = st.ds[1] = 0; st.ds[3] = 1; st.ds[4] = 0x11; // both stencil faces NEVER
+        clear(0, 0, black, 15, false, 0, false, 0, 0);
+        fullscreen_draw(1); expect_rgba(&color, 0, 255, 0);
+    }
+    destroy_texture(&color); destroy_texture(&depth);
+}
+
+static void depth_attachment_cache(void) {
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    NvnTexture depth = test_texture(1, 4, 4, 1, 1, 0x33, 1);
+    const float black[] = {0, 0, 0, 1};
+    for (int phase = 0; phase < 3; phase++) {
+        bind_targets(&color, phase == 1 ? NULL : &depth, NULL); prepare_draw();
+        st.ds[0] = 1; st.ds[1] = 0; st.ds[2] = 1; // depth NEVER with unchanged guest state
+        clear(0, 0, black, 15, false, 0, false, 0, 0);
+        fullscreen_draw(1); expect_rgba(&color, 0, phase == 1 ? 255 : 0, 0);
+    }
+    destroy_texture(&color); destroy_texture(&depth);
+}
+
+static void stencil_attachment_cache(void) {
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    NvnTexture depth = test_texture(1, 4, 4, 1, 1, 0x33, 1);
+    NvnTexture stencil = test_texture(1, 4, 4, 1, 1, 0x35, 1);
+    const float black[] = {0, 0, 0, 1};
+    for (int phase = 0; phase < 3; phase++) {
+        bind_targets(&color, phase == 1 ? &depth : &stencil, NULL); prepare_draw();
+        st.ds[0] = st.ds[1] = 0; st.ds[3] = 1; st.ds[4] = 0x11;
+        clear(0, 0, black, 15, false, 0, false, 0, 0);
+        fullscreen_draw(1); expect_rgba(&color, 0, phase == 1 ? 255 : 0, 0);
+    }
+    destroy_texture(&color); destroy_texture(&depth); destroy_texture(&stencil);
+}
+
+static void stencil_only_depth_ignored(void) {
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    NvnTexture stencil = test_texture(1, 4, 4, 1, 1, 0x31, 1);
+    bind_targets(&color, &stencil, NULL); prepare_draw();
+    st.ds[0] = 1; st.ds[1] = 0; st.ds[2] = 1;
+    fullscreen_draw(1); expect_rgba(&color, 0, 255, 0);
+    destroy_texture(&color); destroy_texture(&stencil);
+}
+
+static void direct_zero_instances(bool indexed) {
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    bind_targets(&color, NULL, NULL); prepare_draw();
+    const float black[4] = {0, 0, 0, 1};
+    clear(0, 0, black, 15, false, 0, false, 0, 0);
+    CmdRec r = {.op = CMD_DRAW_ARRAYS, .size = sizeof(CmdRec), .x = {4, 0, 3, 0, 0}};
+    if (indexed) {
+        const uint16_t indices[] = {0, 1, 2};
+        memcpy((uint8_t *)g_guest_buffer.contents + 128, indices, sizeof indices);
+        r.op = CMD_DRAW_ELEMENTS; r.x[1] = 1; r.x[3] = (uint64_t)g_guest_buffer.contents + 128;
+    }
+    draw(&r, indexed);
+    expect_rgba(&color, 0, 0, 0);
+    r.x[indexed ? 6 : 4] = 1;
+    draw(&r, indexed);
+    expect_rgba(&color, 0, 255, 0);
+    destroy_texture(&color);
+}
+
+static void zero_array_instances(void) { direct_zero_instances(false); }
+static void zero_indexed_instances(void) { direct_zero_instances(true); }
+
+static void raster_discard_restore(void) {
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    bind_targets(&color, NULL, NULL); prepare_draw();
+    // A unique vertex address keeps both variants cold regardless of earlier test cases.
+    static NvnProgram program;
+    static uint64_t vertex[128];
+    program = *st.program;
+    memcpy(vertex, (const void *)(uintptr_t)program.stages[0].code_addr, sizeof vertex);
+    program.stages[0].code_addr = (uint64_t)vertex;
+    st.program = &program;
+    const float black[] = {0, 0, 0, 1};
+    clear(0, 0, black, 15, false, 0, false, 0, 0);
+    g_raster_discard = true; fullscreen_draw(1); expect_rgba(&color, 0, 0, 0);
+    g_raster_discard = false; fullscreen_draw(1); expect_rgba(&color, 0, 255, 0);
+    destroy_texture(&color);
+}
+
+static void check_xfb_instances(unsigned stream) {
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    bind_targets(&color, NULL, NULL); prepare_draw();
+    st.attrib[0] = 0x2e | (stream << 8);
+    st.nstream = stream + 1; st.stream[stream][0] = 16; st.vbuf[stream] = st.vbuf[0];
+    static uint8_t control[0x800];
+    *(uint32_t *)(control + 0x4dc) = 1;
+    *(uint16_t *)(control + 0x6dc) = 4;
+    st.program->stages[0].control = control;
+    st.program->stage_mask = 1;
+    g_xfb_on = g_raster_discard = true;
+    g_xfb_addr[0] = g_gwin_base + 1024; g_xfb_size[0] = 12;
+    uint32_t *out = (uint32_t *)((uint8_t *)g_guest_buffer.contents + 1024);
+    for (int i = 0; i < 3; i++) out[i] = 0xdeadbeef;
+    fullscreen_draw(0); check_gpu();
+    for (int i = 0; i < 3; i++) CHECK(out[i] == 0xdeadbeef, "zero-instance transform feedback must not write guest memory");
+    fullscreen_draw(1); check_gpu();
+    CHECK(out[0] == 0xbf800000 && out[1] == 0x40400000 && out[2] == 0xbf800000,
+          "one-instance transform feedback writes the three vertex x values");
+    st.program->stage_mask = 3; st.program->stages[0].control = NULL;
+    g_xfb_on = g_raster_discard = g_xfb_dirty = false;
+    memset(g_xfb_addr, 0, sizeof g_xfb_addr); memset(g_xfb_size, 0, sizeof g_xfb_size);
+    destroy_texture(&color);
+}
+
+static void zero_xfb_instances(void) { check_xfb_instances(0); }
+static void xfb_stream_four(void) { check_xfb_instances(4); }
+
+static void vertex_stream_fifteen(void) {
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    bind_targets(&color, NULL, NULL); prepare_draw();
+    st.attrib[0] = 0x2e | (15u << 8);
+    st.nstream = 16; st.stream[15][0] = 16; st.vbuf[15] = st.vbuf[0];
+    fullscreen_draw(1); expect_rgba(&color, 0, 255, 0);
+    destroy_texture(&color);
+}
+
+static void vertex_stream_layout_cache(void) {
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    bind_targets(&color, NULL, NULL); prepare_draw();
+    static NvnProgram program;
+    static uint64_t vertex[128];
+    program = *st.program;
+    const uint64_t schedule = 0x001f8000fc0007e0ull;
+    unsigned at = 16;
+#define VINS(w) do { if (!(at & 3)) vertex[at++] = schedule; vertex[at++] = (w); } while (0)
+    VINS(0xefd8000000000000ull | (3ull << 47) | (0x80ull << 20) | (7ull << 16) | (255ull << 8));
+    // Sum zero-valued attributes into position.x, so all streams and the unbound attribute 16 are consumed.
+    for (unsigned attr = 1; attr <= 16; attr++) {
+        VINS(0xefd8000000000004ull | ((0x80ull + 16 * attr) << 20) | (7ull << 16) | (255ull << 8));
+        VINS(0x5c58000000000000ull | (4ull << 20) | (7ull << 16));
+    }
+    // An active constant at native slot 16 must survive assignment of the high vertex streams.
+    VINS(0x4c98078000000005ull | (16ull << 34) | (7ull << 16));
+    VINS(0x5c58000000000000ull | (5ull << 20) | (7ull << 16));
+    VINS(0x0100000000070006ull | (0xc0000000ull << 20)); // -2.0
+    VINS(0x5c58000000000000ull | (6ull << 20) | (7ull << 16));
+    VINS(0xeff0000000000000ull | (3ull << 47) | (0x70ull << 20) | (7ull << 16));
+    VINS(0xe30000000007000full); VINS(0xe2400fffff87000full);
+#undef VINS
+    program.stages[0].code_addr = (uint64_t)vertex;
+    program.stages[0].const_offset = sizeof vertex;
+    st.program = &program; st.nattrib = st.nstream = 16;
+    memset((uint8_t *)g_guest_buffer.contents + 2048, 0, 128);
+    memset((uint8_t *)g_guest_buffer.contents + 4096, 0, 128);
+    *(float *)((uint8_t *)g_guest_buffer.contents + 8192) = 2.0f;
+    st.ubuf[0][13] = (Range){.addr = g_gwin_base + 8192, .size = 256};
+    for (unsigned s = 0; s < 16; s++) {
+        st.attrib[s] = 0x2e | (s << 8);
+        if (s) {
+            st.stream[s][0] = 0;
+            st.vbuf[s] = (Range){.addr = g_gwin_base + 2048, .size = 128};
+        }
+    }
+    st.vbuf[15].addr = g_gwin_base + 4096; st.stream[15][0] = 16;
+    const float black[] = {0, 0, 0, 1};
+    clear(0, 0, black, 15, false, 0, false, 0, 0);
+    fullscreen_draw(1); expect_rgba(&color, 0, 255, 0);
+    *(float *)((uint8_t *)g_guest_buffer.contents + 4096 + 16) = -8;
+    st.stream[15][0] = 32;
+    clear(0, 0, black, 15, false, 0, false, 0, 0);
+    fullscreen_draw(1); expect_rgba(&color, 0, 255, 0);
+    memset((uint8_t *)g_guest_buffer.contents + 4096, 0, 128); st.stream[15][0] = 16;
+    clear(0, 0, black, 15, false, 0, false, 0, 0);
+    fullscreen_draw(1); expect_rgba(&color, 0, 255, 0);
+    destroy_texture(&color);
+}
+
+static void gpu_indirect_instances(bool indexed) {
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    bind_targets(&color, NULL, NULL); prepare_draw();
+    const float black[4] = {0, 0, 0, 1};
+    const uint16_t indices[] = {0, 1, 2};
+    memcpy((uint8_t *)g_guest_buffer.contents + 128, indices, sizeof indices);
+    uint32_t *args = (uint32_t *)((uint8_t *)g_guest_buffer.contents + 2048);
+    CmdRec r = {.op = CMD_DRAW_ARRAYS_INDIRECT, .size = sizeof(CmdRec), .x = {4, g_gwin_base + 2048}};
+    if (indexed) {
+        r.op = CMD_DRAW_ELEMENTS_INDIRECT; r.x[1] = 1; r.x[2] = g_gwin_base + 128; r.x[3] = g_gwin_base + 2048;
+    }
+    for (int visible = 1; visible >= 0; visible--) {
+        clear(0, 0, black, 15, false, 0, false, 0, 0);
+        args[0] = 3; args[1] = !visible; args[2] = args[3] = args[4] = 0;
+        uint32_t count = (uint32_t)visible;
+        id<MTLBuffer> update = [dev newBufferWithBytes:&count length:sizeof count options:MTLResourceStorageModeShared];
+        end_pass();
+        id<MTLBlitCommandEncoder> bl = [cb() blitCommandEncoder];
+        [bl copyFromBuffer:update sourceOffset:0 toBuffer:g_guest_buffer destinationOffset:2052 size:4];
+        [bl endEncoding];
+        CHECK(args[1] == (uint32_t)!visible, "the CPU must still see the stale indirect count before submission");
+        draw_indirect(&r);
+        expect_rgba(&color, 0, visible ? 255 : 0, 0);
+    }
+    destroy_texture(&color);
+}
+
+static void gpu_indirect_arrays(void) { gpu_indirect_instances(false); }
+static void gpu_indirect_indexed(void) { gpu_indirect_instances(true); }
+
+static NvnSamplerDesc test_sampler(void) {
+    return (NvnSamplerDesc){.min_filter = 3, .mag_filter = 1, .wrap = {7, 7, 7},
+                            .lod_max = 1000, .max_aniso = 1};
+}
+
+static void sample_pixel(id<MTLTexture> texture, NvnSamplerDesc *desc, float u, float v, float lod, float out[4]) {
+    static id<MTLComputePipelineState> pipe;
+    if (!pipe) {
+        NSString *source = @"#include <metal_stdlib>\nusing namespace metal;\n"
+            "kernel void sample_pixel(texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]],"
+            "constant float4 &p [[buffer(0)]], device float4 &out [[buffer(1)]]) {"
+            "out = t.sample(s, p.xy, level(p.z)); }";
+        NSError *error = nil;
+        id<MTLLibrary> library = [dev newLibraryWithSource:source options:nil error:&error];
+        CHECK(library != nil, "sampler fixture shader compiles");
+        pipe = [dev newComputePipelineStateWithFunction:[library newFunctionWithName:@"sample_pixel"] error:&error];
+        CHECK(pipe != nil, "sampler fixture pipeline");
+    }
+    id<MTLSamplerState> sampler = sampler_for(desc);
+    CHECK(sampler != nil, "production sampler creation");
+    id<MTLBuffer> result = [dev newBufferWithLength:16 options:MTLResourceStorageModeShared];
+    for (int i = 0; i < 4; i++) ((float *)result.contents)[i] = NAN;
+    id<MTLCommandBuffer> cmd = [renderer_queue() commandBuffer];
+    id<MTLComputeCommandEncoder> compute = [cmd computeCommandEncoder];
+    const float p[] = {u, v, lod, 0};
+    [compute setComputePipelineState:pipe]; [compute setTexture:texture atIndex:0];
+    [compute setSamplerState:sampler atIndex:0]; [compute setBytes:p length:sizeof p atIndex:0];
+    [compute setBuffer:result offset:0 atIndex:1];
+    [compute dispatchThreads:MTLSizeMake(1, 1, 1) threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
+    [compute endEncoding]; [cmd commit]; [cmd waitUntilCompleted];
+    CHECK(!cmd.error, "sampler GPU command buffer");
+    memcpy(out, result.contents, 16);
+}
+
+static void sampler_reduction(void) {
+    MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR32Float
+                                                                               width:2 height:2 mipmapped:YES];
+    td.storageMode = MTLStorageModeShared;
+    id<MTLTexture> texture = [dev newTextureWithDescriptor:td];
+    const float texels[] = {0, 1, 1, 1}, mip = 1, want[] = {0.75f, 0, 1};
+    [texture replaceRegion:MTLRegionMake2D(0, 0, 2, 2) mipmapLevel:0 withBytes:texels bytesPerRow:8];
+    [texture replaceRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:1 withBytes:&mip bytesPerRow:4];
+    for (unsigned mf = 3; mf <= 5; mf += 2) for (unsigned reduction = 0; reduction < 3; reduction++) {
+        NvnSamplerDesc desc = test_sampler(); desc.min_filter = mf; desc.reduction = reduction;
+        float got[4]; sample_pixel(texture, &desc, 0.5f, 0.5f, 0, got);
+        fprintf(stderr, "sampler min=%u reduction=%u got=%g want=%g\n", mf, reduction, got[0], want[reduction]);
+        CHECK(fabsf(got[0] - want[reduction]) < 0.00001f, "MIN/MAX must reduce the contributing texels instead of averaging");
+        CFRelease(desc.backend);
+    }
+}
+
+static void sampler_border(void) {
+    MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                                                               width:1 height:1 mipmapped:NO];
+    td.storageMode = MTLStorageModeShared;
+    id<MTLTexture> texture = [dev newTextureWithDescriptor:td];
+    const uint8_t red[] = {255, 0, 0, 255};
+    [texture replaceRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0 withBytes:red bytesPerRow:4];
+    const float colors[][4] = {{0, 0, 0, 0}, {0, 0, 0, 1}, {1, 1, 1, 1}};
+    const float coords[][2] = {{-1, 0.5f}, {0.5f, 2}};
+    for (unsigned color = 0; color < 3; color++) {
+        NvnSamplerDesc desc = test_sampler(); desc.min_filter = desc.mag_filter = 0;
+        desc.wrap[0] = desc.wrap[1] = 5; memcpy(desc.border, colors[color], 16);
+        for (unsigned coord = 0; coord < 2; coord++) {
+            float got[4]; sample_pixel(texture, &desc, coords[coord][0], coords[coord][1], 0, got);
+            for (int c = 0; c < 4; c++) {
+                fprintf(stderr, "border=%u axis=%u component=%d got=%g want=%g\n", color, coord, c, got[c], colors[color][c]);
+                CHECK(fabsf(got[c] - colors[color][c]) < 0.00001f, "out-of-range sample must return the requested standard border color");
+            }
+        }
+        CFRelease(desc.backend);
+    }
+}
+
+static void sampler_bias(void) {
+    MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                                                               width:4 height:4 mipmapped:YES];
+    td.storageMode = MTLStorageModeShared;
+    id<MTLTexture> texture = [dev newTextureWithDescriptor:td];
+    const uint32_t colors[] = {0xff0000ff, 0xff00ff00, 0xffff0000};
+    for (unsigned level = 0; level < 3; level++) {
+        unsigned width = 4 >> level; uint32_t pixels[16];
+        for (unsigned i = 0; i < width * width; i++) pixels[i] = colors[level];
+        [texture replaceRegion:MTLRegionMake2D(0, 0, width, width) mipmapLevel:level withBytes:pixels bytesPerRow:width * 4];
+    }
+    const struct { float bias, lod, want[4]; } cases[] = {
+        {-1, 1, {1, 0, 0, 1}}, {0, 1, {0, 1, 0, 1}}, {1, 0, {0, 1, 0, 1}}, {1, 1, {0, 0, 1, 1}},
+    };
+    for (unsigned mf = 3; mf <= 5; mf += 2) for (unsigned i = 0; i < sizeof cases / sizeof *cases; i++) {
+        NvnSamplerDesc desc = test_sampler(); desc.min_filter = mf; desc.lod_bias = cases[i].bias;
+        float got[4]; sample_pixel(texture, &desc, 0.5f, 0.5f, cases[i].lod, got);
+        fprintf(stderr, "sampler min=%u bias=%g lod=%g got=(%g,%g,%g,%g)\n", mf, desc.lod_bias, cases[i].lod, got[0], got[1], got[2], got[3]);
+        for (int c = 0; c < 4; c++) CHECK(fabsf(got[c] - cases[i].want[c]) < 0.00001f, "sampler bias must select the expected colored mip even with explicit LOD");
+        CFRelease(desc.backend);
+    }
+}
+
+static bool native_sampler_available(void) {
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
+    if (@available(macOS 26.0, *)) return true;
+#endif
+    return false;
+}
+
+enum { TEX_FETCH, TEX_SAMPLE, TEX_GATHER, TEX_MISSING_SHAPE, TEX_FEEDBACK, TEX_MODE_COUNT };
+
+static void typed_texture_reads(bool compute, int sample) {
+    // One shader/handle is rebound across scalar kinds, then reused: both fast and slow program keys must vary.
+    const struct { uint32_t format, bits, view_format; } cases[] = {
+        {0x03, 173, 0}, {0x0b, 0xf1234567, 0}, {0x0c, 0xffffffe9, 0},
+        {0x0a, 0x3f200000, 0}, {0x0b, 0xfffffffe, 0x0c}, {0x03, 173, 0},
+    };
+    NvnTexture output = test_texture(1, 4, 4, 1, 1, 0x0b, 1);
+    static NvnProgram graphics[TEX_MODE_COUNT], dispatch[TEX_MODE_COUNT];
+    static uint64_t fragment[TEX_MODE_COUNT][128], kernel[TEX_MODE_COUNT][32];
+    const uint64_t schedule = 0x001f8000fc0007e0ull;
+    const uint64_t lookup = sample == TEX_GATHER
+        ? 0xc800000000000000ull | (2ull << 54) | (8ull << 36) | (1ull << 31) | (2ull << 28) | (6ull << 20) | (7ull << 16) | (4ull << 8)
+        : (sample ? 0xd000000000000000ull : 0xd200000000000000ull) |
+            (1ull << 59) | ((sample == TEX_MISSING_SHAPE ? 11ull : 2ull) << 53) | (8ull << 36) | (255ull << 28) | (5ull << 20) | (7ull << 16) | (4ull << 8);
+    const uint64_t coord = sample ? 0x3f000000ull : 0;
+    if (!kernel[sample][0]) {
+        kernel[sample][0] = kernel[sample][4] = kernel[sample][8] = schedule;
+        kernel[sample][1] = 0x0100000000070004ull | (coord << 20);
+        kernel[sample][2] = 0x0100000000070005ull | (coord << 20);
+        kernel[sample][3] = lookup;
+        kernel[sample][5] = 0x0100000000070008ull | ((uint64_t)(uint32_t)(g_gwin_base + 512) << 20);
+        kernel[sample][6] = 0x0100000000070009ull | ((g_gwin_base >> 32) << 20);
+        kernel[sample][7] = 0xeed8000000000000ull | (4ull << 48) | (1ull << 45) | (7ull << 16) | (8ull << 8);
+        kernel[sample][9] = 0xe30000000007000full; kernel[sample][10] = 0xe2400fffff87000full;
+        dispatch[sample].stage_mask = 1u << STAGE_COMPUTE;
+        dispatch[sample].stages[5] = (NvnShaderStage){.stage = 5, .code_addr = (uint64_t)kernel[sample], .const_offset = sizeof kernel[sample]};
+    }
+    for (unsigned c = 0; c < sizeof cases / sizeof *cases; c++) {
+        if (sample == TEX_FEEDBACK && cases[c].format == 0x03) continue; // this case reads back 32-bit render targets
+        uint32_t want = sample == TEX_MISSING_SHAPE ? 0 : cases[c].bits;
+        NvnTexture source = test_texture(1, 4, 4, 1, 1, cases[c].format, 1);
+        bind_targets(&source, NULL, NULL);
+        const uint32_t color[] = {cases[c].bits, 0, 0, 1};
+        clear(0, 0, color, 15, false, 0, false, 0, 0);
+        NvnTexEntry entries[2] = {{0}, {.tex = &source}};
+        if (cases[c].view_format) {
+            entries[1].has_view = 1;
+            entries[1].view = (NvnTextureView){.setmask = 4, .format = cases[c].view_format};
+        }
+        NvnDescPool textures = {.entries = entries, .count = 2};
+        NvnSamplerDesc sampler = {.lod_max = 1000, .max_aniso = 1};
+        NvnDescPool samplers = {.entries = &sampler, .count = 1};
+        st.tpool = &textures; st.spool = &samplers;
+        if (compute) {
+            st.program = &dispatch[sample]; st.tex[5][0] = 1;
+            uint32_t *result = (uint32_t *)((uint8_t *)g_guest_buffer.contents + 512);
+            *result = 0xdeadbeef;
+            dispatch_compute(1, 1, 1); check_gpu();
+            fprintf(stderr, "compute mode=%d format=%#x view=%#x got=%#x want=%#x\n", sample, cases[c].format, cases[c].view_format, *result, want);
+            CHECK(*result == want, "compute texture read preserves raw integer or float bits across bindings");
+        } else {
+            NvnTexture *destination = sample == TEX_FEEDBACK ? &source : &output;
+            bind_targets(destination, NULL, NULL); prepare_draw();
+            if (!graphics[sample].stage_mask) {
+                graphics[sample] = *st.program;
+                uint64_t *fs = fragment[sample];
+                *(uint32_t *)((uint8_t *)fs + 0x78) = 1;
+                fs[16] = fs[20] = schedule;
+                fs[17] = 0x0100000000070004ull | (coord << 20);
+                fs[18] = 0x0100000000070005ull | (coord << 20);
+                fs[19] = lookup;
+                fs[21] = 0xe30000000007000full; fs[22] = 0xe2400fffff87000full;
+                graphics[sample].stages[1].code_addr = (uint64_t)fs;
+            }
+            st.program = &graphics[sample]; st.tex[1][0] = 1;
+            fullscreen_draw(1);
+            id<MTLBuffer> readback = read_texture(renderer_texture(destination, nil, true), 0, 0, 4);
+            uint32_t got = *(uint32_t *)readback.contents;
+            fprintf(stderr, "graphics mode=%d format=%#x view=%#x got=%#x want=%#x\n", sample, cases[c].format, cases[c].view_format, got, want);
+            for (int y = 0; y < 4; y++) for (int x = 0; x < 4; x++)
+                CHECK(*(uint32_t *)((uint8_t *)readback.contents + y * 256 + x * 4) == want,
+                      "fragment texture read preserves raw integer or float bits across bindings");
+        }
+        destroy_texture(&source);
+        if (sampler.backend) CFRelease(sampler.backend);
+        st.tpool = st.spool = NULL;
+    }
+    destroy_texture(&output);
+}
+
+static void typed_fragment_fetch(void) { typed_texture_reads(false, TEX_FETCH); }
+static void typed_fragment_sample(void) { typed_texture_reads(false, TEX_SAMPLE); }
+static void typed_compute_fetch(void) { typed_texture_reads(true, TEX_FETCH); }
+static void typed_compute_sample(void) { typed_texture_reads(true, TEX_SAMPLE); }
+static void typed_fragment_gather(void) { typed_texture_reads(false, TEX_GATHER); }
+static void typed_compute_gather(void) { typed_texture_reads(true, TEX_GATHER); }
+static void typed_fragment_fallback(void) { typed_texture_reads(false, TEX_MISSING_SHAPE); }
+static void typed_compute_fallback(void) { typed_texture_reads(true, TEX_MISSING_SHAPE); }
+static void typed_fragment_feedback(void) { typed_texture_reads(false, TEX_FEEDBACK); }
+static void typed_feedback_cleanup(void) {
+    int initial_views = g_views_live;
+    NSUInteger initial_snapshots = g_snap_copies.count;
+    typed_texture_reads(false, TEX_FEEDBACK);
+    fprintf(stderr, "feedback cleanup: views=%d (initial%d) snapshots=%lu (initial%lu)\n", g_views_live, initial_views,
+            (unsigned long)g_snap_copies.count, (unsigned long)initial_snapshots);
+    CHECK(g_snap_copies.count == initial_snapshots && g_views_live == initial_views,
+          "destroying feedback sources must release snapshots and all cached snapshot views");
+    NvnTexEntry empty = {0};
+    CHECK(feedback_sample(&empty, nil) == nil, "an unbound descriptor must still reach its normal fallback after feedback cleanup");
+}
+
+static void feedback_mip_chain(bool depth) {
+    // Each pass reads the preceding mip of the same texture, as in a depth pyramid.
+    static id<MTLLibrary> library;
+    if (!library) {
+        NSError *error = nil;
+        library = [dev newLibraryWithSource:@"#include <metal_stdlib>\nusing namespace metal;\n"
+            "vertex float4 mip_vs(uint v [[vertex_id]]) { return float4(float2((v << 1) & 2, v & 2) * 2 - 1, 0, 1); }\n"
+            "fragment float4 mip_color(texture2d<float, access::read> t [[texture(0)]], constant uint &lod [[buffer(0)]]) {"
+            "return float4(t.read(uint2(0), lod).r + 0.125, 0, 0, 1); }\n"
+            "struct D { float z [[depth(any)]]; };\n"
+            "fragment D mip_depth(depth2d<float> t [[texture(0)]], constant uint &lod [[buffer(0)]]) {"
+            "return D{t.read(uint2(0), lod) + 0.125}; }\n" options:nil error:&error];
+        if (!library) fprintf(stderr, "%s\n", error.localizedDescription.UTF8String);
+        CHECK(library != nil, "mip-chain fixture shaders compile");
+    }
+    NvnTexture texture = test_texture(1, 8, 8, 1, 4, depth ? 0x33 : 0x0a, 1);
+    NvnTexEntry entries[2] = {{0}, {.tex = &texture}};
+    NvnDescPool pool = {.entries = entries, .count = 2};
+    ShaderInfo vi = {0}, fi = {.ntex = 1};
+    fi.tex[0].handle_offset = 0x20; fi.tex[0].type = TEXTYPE_2D;
+    Prog *program = [Prog new]; program->vi = &vi; program->fi = &fi;
+    st.tpool = &pool; st.tex[1][0] = 1;
+    MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
+    pd.vertexFunction = [library newFunctionWithName:@"mip_vs"];
+    pd.fragmentFunction = [library newFunctionWithName:depth ? @"mip_depth" : @"mip_color"];
+    if (depth) pd.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+    else pd.colorAttachments[0].pixelFormat = MTLPixelFormatR32Float;
+    NSError *error = nil;
+    id<MTLRenderPipelineState> pipeline = [dev newRenderPipelineStateWithDescriptor:pd error:&error];
+    CHECK(pipeline != nil, "mip-chain fixture pipeline");
+    MTLDepthStencilDescriptor *dd = [MTLDepthStencilDescriptor new];
+    dd.depthWriteEnabled = depth; dd.depthCompareFunction = MTLCompareFunctionAlways;
+    id<MTLDepthStencilState> ds = [dev newDepthStencilStateWithDescriptor:dd];
+    for (unsigned round = 0; round < 2; round++) {
+        float seed = 0.25f + round * 0.125f;
+        for (unsigned level = 0; level < 4; level++) {
+            bind_targets(depth ? NULL : &texture, depth ? &texture : NULL, NULL);
+            NvnTextureView view = {.setmask = 1, .base_level = level, .num_levels = 1};
+            if (depth) st.rt.dview = view, st.rt.has_dview = 1;
+            else st.rt.cview[0] = view, st.rt.has_cview[0] = 1;
+            const float color[] = {level ? 0.875f : seed, 0, 0, 1};
+            clear(0, 0, color, 15, depth, color[0], false, 0, 0);
+        }
+        for (unsigned level = 1; level < 4; level++) {
+            bind_targets(depth ? NULL : &texture, depth ? &texture : NULL, NULL);
+            NvnTextureView view = {.setmask = 1, .base_level = level, .num_levels = 1};
+            if (depth) st.rt.dview = view, st.rt.has_dview = 1;
+            else st.rt.cview[0] = view, st.rt.has_cview[0] = 1;
+            st.ds[0] = st.ds[1] = depth;
+            resolve_feedback(program);
+            id<MTLTexture> sampled = sampled_texture(&texture, NULL, false, TEXTYPE_2D);
+            sampled = feedback_sample(&entries[1], sampled);
+            begin_pass();
+            NSUInteger size = 8u >> level;
+            [enc setRenderPipelineState:pipeline]; [enc setDepthStencilState:ds];
+            [enc setViewport:(MTLViewport){0, 0, size, size, 0, 1}];
+            [enc setScissorRect:(MTLScissorRect){0, 0, size, size}];
+            [enc setFragmentTexture:sampled atIndex:0];
+            unsigned lod = level - 1;
+            [enc setFragmentBytes:&lod length:sizeof lod atIndex:0];
+            [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+            end_pass(); snapshots_invalidate(&texture);
+        }
+        for (unsigned level = 1; level < 4; level++) {
+            id<MTLBuffer> out = read_texture(renderer_texture(&texture, nil, true), 0, level, 4);
+            float want = seed + level * 0.125f, got = *(float *)out.contents;
+            fprintf(stderr, "mip-chain depth=%d round=%u level=%u got=%g want=%g\n", depth, round, level, got, want);
+            for (unsigned y = 0; y < (8u >> level); y++) for (unsigned x = 0; x < (8u >> level); x++)
+                CHECK(fabsf(*(float *)((uint8_t *)out.contents + y * 256 + x * 4) - want) < 0.00001f,
+                      "each mip must read the preceding mip, including after the base changes");
+        }
+    }
+    destroy_texture(&texture); st.tpool = NULL;
+}
+
+static void feedback_mip_color(void) { feedback_mip_chain(false); }
+static void feedback_mip_depth(void) { feedback_mip_chain(true); }
+
+static void feedback_base_alias(void) {
+    for (unsigned mode = 0; mode < 3; mode++) {
+        NvnTexture texture = test_texture(1, 4, 4, 1, mode == 2 ? 1 : 2, 0x0a, 1);
+        bind_targets(&texture, NULL, NULL);
+        const float color[] = {0.25f, 0, 0, 1};
+        clear(0, 0, color, 15, false, 0, false, 0, 0);
+        if (mode == 0) {
+            bind_targets(&texture, NULL, &texture);
+            st.rt.has_cview[1] = 1;
+            st.rt.cview[1] = (NvnTextureView){.setmask = 1, .base_level = 1, .num_levels = 1};
+        } else {
+            st.rt.has_cview[0] = 1;
+            st.rt.cview[0] = (NvnTextureView){.setmask = mode == 2 ? 1 : 0, .base_level = 3, .num_levels = 1};
+        }
+        NvnTexEntry entries[2] = {{0}, {.tex = &texture}};
+        NvnDescPool pool = {.entries = entries, .count = 2};
+        ShaderInfo vi = {0}, fi = {.ntex = 1}; fi.tex[0].handle_offset = 0x20;
+        Prog *program = [Prog new]; program->vi = &vi; program->fi = &fi;
+        st.tpool = &pool; st.tex[1][0] = 1;
+        resolve_feedback(program); check_gpu();
+        CHECK(nfeedback == 1, "an effective mip-zero attachment still requires a feedback snapshot");
+        id<MTLTexture> copy = feedback_sample(&entries[1], renderer_texture(&texture, nil, true));
+        NvnSamplerDesc sampler = test_sampler(); float got[4];
+        sample_pixel(copy, &sampler, 0.5f, 0.5f, 0, got);
+        CHECK(fabsf(got[0] - 0.25f) < 0.00001f, "the base-alias snapshot preserves native GPU texture contents");
+        if (sampler.backend) CFRelease(sampler.backend);
+        destroy_texture(&texture); st.tpool = NULL;
+    }
+}
+
+typedef void (*TestFn)(void);
+static const struct { const char *name, *group; TestFn run; bool needs_sampler26; } tests[] = {
+    {"smoke", "smoke", smoke},
+    {"view-array-count", "views", view_array_count},
+    {"view-bounds", "views", view_bounds},
+    {"view-cube-faces", "views", view_cube_faces},
+    {"view-zero-swizzle", "views", view_zero_swizzle},
+    {"view-sampled-cube-face", "views", view_sampled_cube_face},
+    {"view-partial-cube-range", "views", view_partial_cube_range},
+    {"view-chain-cleanup", "views", view_chain_cleanup},
+    {"clear-bias", "clears", clear_bias},
+    {"clear-wireframe", "clears", clear_wireframe},
+    {"clear-bias-restore", "clears", clear_bias_restore},
+    {"clear-layouts", "clears", clear_layouts},
+    {"clear-multisample-depth", "clears", clear_multisample_depth},
+    {"draw-multisample-depth", "draws", draw_multisample_depth},
+    {"layer-single", "layers", layer_single},
+    {"layer-color-array", "layers", layer_color_array},
+    {"layer-mixed-depth", "layers", layer_mixed_depth},
+    {"layer-depth-only", "layers", layer_depth_only},
+    {"clear-layered", "clears", clear_layered},
+    {"clear-mip-extent", "clears", clear_mip_extent},
+    {"clear-minimum-color-extent", "clears", clear_minimum_color_extent},
+    {"clear-minimum-depth-extent", "clears", clear_minimum_depth_extent},
+    {"stencil-without-attachment", "aspects", stencil_without_attachment},
+    {"depth-attachment-cache", "aspects", depth_attachment_cache},
+    {"stencil-attachment-cache", "aspects", stencil_attachment_cache},
+    {"stencil-only-depth-ignored", "aspects", stencil_only_depth_ignored},
+    {"zero-array-instances", "draws", zero_array_instances},
+    {"zero-indexed-instances", "draws", zero_indexed_instances},
+    {"zero-xfb-instances", "draws", zero_xfb_instances},
+    {"xfb-stream-four", "streams", xfb_stream_four},
+    {"vertex-stream-fifteen", "streams", vertex_stream_fifteen},
+    {"vertex-stream-layout-cache", "streams", vertex_stream_layout_cache},
+    {"gpu-indirect-arrays", "draws", gpu_indirect_arrays},
+    {"gpu-indirect-indexed", "draws", gpu_indirect_indexed},
+    {"raster-discard-restore", "draws", raster_discard_restore},
+    {"sampler-reduction", "samplers", sampler_reduction, true},
+    {"sampler-border", "samplers", sampler_border},
+    {"sampler-bias", "samplers", sampler_bias, true},
+    {"typed-fragment-fetch", "types", typed_fragment_fetch},
+    {"typed-fragment-sample", "types", typed_fragment_sample},
+    {"typed-compute-fetch", "types", typed_compute_fetch},
+    {"typed-compute-sample", "types", typed_compute_sample},
+    {"typed-fragment-gather", "types", typed_fragment_gather},
+    {"typed-compute-gather", "types", typed_compute_gather},
+    {"typed-fragment-fallback", "types", typed_fragment_fallback},
+    {"typed-compute-fallback", "types", typed_compute_fallback},
+    {"typed-fragment-feedback", "types", typed_fragment_feedback},
+    {"typed-feedback-cleanup", "types", typed_feedback_cleanup},
+    {"feedback-mip-color", "feedback", feedback_mip_color},
+    {"feedback-mip-depth", "feedback", feedback_mip_depth},
+    {"feedback-base-alias", "feedback", feedback_base_alias},
+};
+
+int metal_renderer_test_main(int argc, char **argv) { @autoreleasepool {
+    setenv("LARECOMP_SYNC_SHADERS", "1", 1);
+    setenv("LARECOMP_NO_SHADER_WARM", "1", 1);
+    char temporary[] = "/tmp/pokeza-metal-tests-XXXXXX";
+    CHECK(mkdtemp(temporary) && chdir(temporary) == 0, "test working directory");
+    metal_test_bootstrap();
+    if (!dev) { fprintf(stderr, "SKIP: no Metal device\n"); return 77; }
+    const char *selection = argc > 1 ? argv[1] : "all";
+    unsigned ran = 0, skipped = 0;
+    for (unsigned i = 0; i < sizeof tests / sizeof *tests; i++) {
+        if (strcmp(selection, "all") && strcmp(selection, tests[i].name) && strcmp(selection, tests[i].group)) continue;
+        if (tests[i].needs_sampler26 && !native_sampler_available()) {
+            fprintf(stderr, "SKIP %s: requires macOS 26 and SDK 26\n", tests[i].name); skipped++; continue;
+        }
+        fprintf(stderr, "RUN %s\n", tests[i].name);
+        tests[i].run(); check_gpu(); renderer_reset(); ran++;
+        fprintf(stderr, "PASS %s\n", tests[i].name);
+    }
+    CHECK(ran + skipped != 0, "unknown test selection");
+    [[NSFileManager defaultManager] removeItemAtPath:@(temporary) error:nil];
+    if (ran) fprintf(stderr, "PASS: %u Metal renderer tests on %s\n", ran, dev.name.UTF8String);
+    if (skipped) fprintf(stderr, "SKIP: %u tests requiring newer sampler APIs\n", skipped);
+    return ran ? 0 : 77;
+}}

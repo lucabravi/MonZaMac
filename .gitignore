@@ -1,0 +1,30 @@
+# your own game files and what's made from them (building from source puts them here)
+input/
+extracted/
+generated/
+generated-*/
+# Nintendo fonts (users import their own; only the README ships)
+/fonts/*
+!/fonts/README.md
+# build output, caches, saves and settings
+build/
+/cache/
+save/
+save.*/
+/larecomp.ini
+# tools and Python environments (machine-specific)
+tools/venv/
+venv/
+__pycache__/
+.DS_Store
+
+# texture dumps and HD packs (game art: users make their own)
+/textures/
+/mods/
+/tools/hdtools/
+# 2.0.2 working set (game content and derived files: never committed)
+extracted-202/
+extracted-100/
+work-202/
+# your own keys (local only)
+.keys/
