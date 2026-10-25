@@ -652,7 +652,7 @@ static bool glsl_texs(Ctx *c, uint64_t w, bool fetch, int *slot_out, char *call,
         case 8: slot = tex_slot(c, index, TEXTYPE_2D_ARRAY, false, true); co[0] = fa1; co[1] = fb;
             glsl_sample(c, call, slot, co, ALAYER(A, slot), NULL, 1, "0.0f", NULL); break;
         case 9: slot = tex_slot(c, index, TEXTYPE_2D_ARRAY, true, true); co[0] = fa1; co[1] = fb;
-            glsl_sample(c, call, slot, co, A, fb1, 1, "0.0f", NULL); break;
+            glsl_sample(c, call, slot, co, ALAYER(A, slot), fb1, 1, "0.0f", NULL); break;
         case 10: slot = tex_slot(c, index, TEXTYPE_3D, false, false); co[0] = fa; co[1] = fa1; co[2] = fb;
             glsl_sample(c, call, slot, co, NULL, NULL, 0, NULL, NULL); break;
         case 11: slot = tex_slot(c, index, TEXTYPE_3D, false, false); co[0] = fa; co[1] = fa1; co[2] = fb;
@@ -734,7 +734,7 @@ static void emit_texs(Ctx *c, uint64_t w, bool fetch) {
         case 8: slot = tex_slot(c, index, TEXTYPE_2D_ARRAY, false, true);
             sprintf(call, "t%d.sample(s%d, float2(%s, %s), %s, level(0))", slot, slot, F(A1), F(Bv), ALAYER(A, slot)); break;
         case 9: slot = tex_slot(c, index, TEXTYPE_2D_ARRAY, true, true);
-            sprintf(call, "float4(t%d.sample_compare(s%d, float2(%s, %s), %s, %s, level(0)))", slot, slot, F(A1), F(Bv), A, F(B1)); break;
+            sprintf(call, "float4(t%d.sample_compare(s%d, float2(%s, %s), %s, %s, level(0)))", slot, slot, F(A1), F(Bv), ALAYER(A, slot), F(B1)); break;
         case 10: slot = tex_slot(c, index, TEXTYPE_3D, false, false);
             sprintf(call, "t%d.sample(s%d, float3(%s, %s, %s))", slot, slot, F(A), F(A1), F(Bv)); break;
         case 11: slot = tex_slot(c, index, TEXTYPE_3D, false, false);
