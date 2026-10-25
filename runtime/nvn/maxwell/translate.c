@@ -1531,7 +1531,8 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         else if (sfmt == 1) sprintf(srcv, "float(as_type<half2>(%s)[%d])", B(false), (int)bits(w, 41, 1));
         else strcpy(srcv, F(B(true)));
         const char *x = NA(srcv, bits(w, 45, 1), bits(w, 49, 1));
-        int mode = (int)((bits(w, 39, 2)) | (bits(w, 42, 1) << 2));
+        // integer rounding only without a format change; otherwise bits 39-40 are the conversion's rounding (per Ryujinx's EmitF2F)
+        int mode = dfmt == sfmt ? (int)((bits(w, 39, 2)) | (bits(w, 42, 1) << 2)) : 0;
         switch (mode) {
         case 4: sprintf(t, "rint(%s)", x); break;
         case 5: sprintf(t, "floor(%s)", x); break;

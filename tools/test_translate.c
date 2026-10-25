@@ -224,6 +224,9 @@ static int run_cases(void) {
         // TEXS 1D.LZ in GLSL: level 0, not an implicit LOD
         {"texs 1d lz glsl", STAGE_FRAGMENT, true, 0, 0xd8ull << 56 | 0ull << 53 | 255ull << 28 | 4 << 20 | PT_ | 1 << 8, 0,
          "textureLod(t0, as_f(r1), 0.0f)", NULL},
+        // F2F.F16.F32 with bits 39-40 = RM and bit 42 set: a conversion rounding mode, not floor()
+        {"f2f f16.f32 no integer round", STAGE_FRAGMENT, false, 0, 0x5ca8ull << 48 | 1ull << 42 | 1ull << 39 | 2 << 20 | PT_ | 2 << 10 | 1 << 8, 0,
+         "half(as_type<float>(r2))", "floor(as_type"},
         // F2F.F32.F32.FLOOR: integer rounding without a format change
         {"f2f f32.f32 floor", STAGE_FRAGMENT, false, 0, 0x5ca8ull << 48 | 1ull << 42 | 1ull << 39 | 2 << 20 | PT_ | 2 << 10 | 2 << 8, 0,
          "floor(as_type<float>(r2))", NULL},
