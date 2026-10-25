@@ -2450,7 +2450,10 @@ static void draw(CmdRec *r, bool indexed) {
                     while (*p == ',') p++;
                 }
             }
-            for (int i = 0; i < nskip; i++) if (last_hash == skip[i]) { stat_skipped++; return; }
+            if (nskip) {  // (also the MSL hash, fsh= in the [draw] log: stable across runs, unlike shader addresses)
+                uint64_t mh = pr && pr->fi && pr->fi->msl ? fnv64(pr->fi->msl) : 0;
+                for (int i = 0; i < nskip; i++) if (last_hash == skip[i] || (mh && mh == skip[i])) { stat_skipped++; return; }
+            }
             {   // LARECOMP_SKIP_FSADDR=a1,a2,...: the same by guest fragment shader address (the `fs=` of the [draw] log)
                 static uint64_t askip[16];
                 static int naskip = -1;
@@ -3287,6 +3290,61 @@ static void op_ring_dump(int back) {
     }
     LOG("\n");
 }
+// (diagnostics) LARECOMP_PROBE=x,y: in a debug frame, log every command after which a 32x32 block of colour target 0
+// changed (draws of every kind, clears, copies) - who paints a given spot. Ends the pass per command: debug frames only.
+static void probe_step(const CmdRec *r) {
+    static int px = -2, py;
+    static uint64_t frame = ~0ull, prev_addr;
+    static uint32_t prev_op;
+    static NvnTexture *prev_rt, *seen_rt[16];
+    static uint32_t seen_sum[16];
+    if (px == -2) { px = -1; if (getenv("LARECOMP_PROBE")) sscanf(getenv("LARECOMP_PROBE"), "%d,%d", &px, &py); }
+    if (px < 0 || !g_debug_frame) return;
+    extern uint64_t renderer_present_count(void);
+    if (renderer_present_count() != frame) {  // a new capture: forget targets the game may have destroyed since
+        frame = renderer_present_count();
+        prev_rt = NULL;
+        memset(seen_rt, 0, sizeof seen_rt);
+    }
+    if (prev_rt && prev_rt->backend) {  // what the previous command did to its target
+        end_pass();
+        id<MTLTexture> t = renderer_texture(prev_rt, nil, true);
+        MTLPixelFormat f = t.pixelFormat;
+        NSUInteger bpp = f == MTLPixelFormatRGBA32Float ? 16 : (f == MTLPixelFormatRGBA16Float || f == MTLPixelFormatRG32Float) ? 8
+                       : (f == MTLPixelFormatR8Unorm || f == MTLPixelFormatR8Uint) ? 1 : 4;
+        NSUInteger x0 = MIN((NSUInteger)px, t.width - 32), y0 = MIN((NSUInteger)py, t.height - 32);
+        id<MTLBuffer> pb = [dev newBufferWithLength:32 * 32 * bpp options:MTLResourceStorageModeShared];
+        id<MTLBlitCommandEncoder> bl = [cb() blitCommandEncoder];
+        [bl copyFromTexture:t sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(x0, y0, 0) sourceSize:MTLSizeMake(32, 32, 1)
+                   toBuffer:pb destinationOffset:0 destinationBytesPerRow:32 * bpp destinationBytesPerImage:32 * 32 * bpp];
+        [bl endEncoding];
+        renderer_flush();
+        uint32_t sum = 0;
+        const uint8_t *q = pb.contents;
+        for (NSUInteger k = 0; k < 32 * 32 * bpp; k++) sum = sum * 31 + q[k];
+        int slot = -1;
+        for (int k = 0; k < 16; k++) if (seen_rt[k] == prev_rt) slot = k;
+        if (slot < 0) for (int k = 0; k < 16 && slot < 0; k++) if (!seen_rt[k]) { slot = k; seen_rt[k] = prev_rt; seen_sum[k] = 0; }
+        if (slot >= 0 && sum != seen_sum[slot]) {
+            const uint8_t *c = q + (16 * 32 + 16) * bpp;
+            LOG("[probe] pass %d rt %llx f%#x changed after op %u fs %llx | centre %02x %02x %02x %02x\n", debug_pass_no,
+                (unsigned long long)prev_rt->addr, prev_rt->format, prev_op, (unsigned long long)prev_addr, c[0], c[1], c[2], bpp > 3 ? c[3] : 0);
+            seen_sum[slot] = sum;
+        }
+        st.rt_dirty = true;
+    }
+    prev_rt = NULL;
+    bool writes = (r->op >= CMD_CLEAR_COLOR && r->op <= CMD_DRAW_ELEMENTS_INDIRECT) || r->op == CMD_DRAW_TEXTURE ||
+                  r->op == CMD_DRAW_XFB || r->op == CMD_MULTI_DRAW_ARRAYS_INDIRECT_COUNT || r->op == CMD_MULTI_DRAW_ELEMENTS_INDIRECT_COUNT ||
+                  (r->op >= CMD_COPY_BUFFER_TO_TEXTURE && r->op <= CMD_DOWNSAMPLE) || r->op == CMD_DISCARD_COLOR;
+    NvnTexture *rt = st.rt.ncolor ? st.rt.color[0] : NULL;
+    if (writes && rt && rt->width >= 32 && rt->height >= 32) {
+        prev_rt = rt;
+        prev_op = r->op;
+        prev_addr = st.program ? st.program->stages[1].code_addr : 0;
+    }
+}
+
 static void exec_list(uint64_t handle, int depth) {
     uint64_t p = handle;
     for (int guard = 0; guard < 10000000; guard++) {
@@ -3294,6 +3352,7 @@ static void exec_list(uint64_t handle, int depth) {
         void *x = r->extra;
         if (r->op < CMD_COUNT) op_counts[r->op]++;
         op_ring_push(r);
+        probe_step(r);
         switch (r->op) {
         case CMD_END: return;
         case CMD_JUMP: p = r->x[0]; continue;
