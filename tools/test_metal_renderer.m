@@ -735,6 +735,18 @@ static bool native_sampler_available(void) {
 
 enum { TEX_FETCH, TEX_SAMPLE, TEX_GATHER, TEX_MISSING_SHAPE, TEX_FEEDBACK, TEX_MODE_COUNT };
 
+// A float clear of an integer target converts the value (Pokémon Z-A clears its R8_UINT shadow caster map with 1.0).
+static void clear_float_uint(void) {
+    NvnTexture t = test_texture(1, 4, 4, 1, 1, 0x03, 1);
+    bind_targets(&t, NULL, NULL); prepare_draw();
+    const float one[4] = {1, 1, 1, 1};
+    clear(0, 0, one, 15, false, 0, false, 0, 0);
+    id<MTLBuffer> out = read_texture(renderer_texture(&t, nil, true), 0, 0, 1);
+    fprintf(stderr, "float clear 1.0 of R8_UINT -> %u\n", *(const uint8_t *)out.contents);
+    CHECK(*(const uint8_t *)out.contents == 1, "float clear of an integer target converts the value");
+    destroy_texture(&t);
+}
+
 static void typed_texture_reads(bool compute, int sample) {
     // One shader/handle is rebound across scalar kinds, then reused: both fast and slow program keys must vary.
     const struct { uint32_t format, bits, view_format; } cases[] = {
@@ -768,7 +780,9 @@ static void typed_texture_reads(bool compute, int sample) {
         NvnTexture source = test_texture(1, 4, 4, 1, 1, cases[c].format, 1);
         bind_targets(&source, NULL, NULL);
         const uint32_t color[] = {cases[c].bits, 0, 0, 1};
-        clear(0, 0, color, 15, false, 0, false, 0, 0);
+        // raw bits through the integer clears (ClearColorui / ClearColori); a float clear converts the value
+        int kind = renderer_format_is_uint(cases[c].format) ? 2 : renderer_format_is_sint(cases[c].format) ? 1 : 0;
+        clear(0, kind, color, 15, false, 0, false, 0, 0);
         NvnTexEntry entries[2] = {{0}, {.tex = &source}};
         if (cases[c].view_format) {
             entries[1].has_view = 1;
@@ -947,6 +961,7 @@ static void feedback_base_alias(void) {
 typedef void (*TestFn)(void);
 static const struct { const char *name, *group; TestFn run; bool needs_sampler26; } tests[] = {
     {"smoke", "smoke", smoke},
+    {"clear-float-uint", "clears", clear_float_uint},
     {"view-array-count", "views", view_array_count},
     {"view-bounds", "views", view_bounds},
     {"view-cube-faces", "views", view_cube_faces},

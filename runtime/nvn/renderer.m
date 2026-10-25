@@ -664,12 +664,25 @@ static void clear(int index, int kind, const void *color, uint32_t mask, bool de
     if (kind < 0 || kind > 2) kind = 0;  // (records from older encoders may carry garbage here)
     // Metal rejects a float4 output on an integer attachment (and vice versa), and NVN callers don't always
     // match the clear kind to the target's format (DiscardColor is recorded as a float clear). Trust the format.
+    int rec_kind = kind;
     if (index >= 0 && index < st.rt.ncolor && st.rt.color[index]) {
         uint32_t f = st.rt.color[index]->format;
         if (renderer_format_is_uint(f)) kind = 2;
         else if (renderer_format_is_sint(f)) kind = 1;
         else kind = 0;
-
+    }
+    // A float clear of an integer target converts the value, as the hardware does (Ryujinx too): Pokémon Z-A clears
+    // its R8_UINT shadow caster-class map with ClearColor(1.0) and expects 1. Its raw bits saturated to 255, every
+    // empty texel then named a caster class, and the shadow mask self-shadowed the characters (faceted streaks).
+    uint32_t conv[4];
+    if (index >= 0 && color && rec_kind == 0 && kind != 0) {
+        const float *fc = (const float *)color;
+        for (int i = 0; i < 4; i++) {
+            float v = isnan(fc[i]) ? 0.0f : fc[i];
+            if (kind == 2) conv[i] = v <= 0.0f ? 0u : v >= 4294967040.0f ? 0xFFFFFFFFu : (uint32_t)v;
+            else conv[i] = (uint32_t)(int32_t)(v <= -2147483648.0f ? -2147483648.0f : v >= 2147483520.0f ? 2147483520.0f : v);
+        }
+        color = conv;
     }
     begin_pass();
     if (g_debug_frame) {
@@ -1583,18 +1596,18 @@ static void dump_pending_arrays(void) {
             g_arr_pend[k].tex = nil;
             continue;
         }
-        NSUInteger n = t.width * t.height * 4;
+        NSUInteger bpp = t.pixelFormat == MTLPixelFormatR8Uint ? 1 : 4, n = t.width * t.height * bpp;
         id<MTLBuffer> rb = [dev newBufferWithLength:n options:MTLResourceStorageModeShared];
         id<MTLCommandBuffer> c = [renderer_queue() commandBuffer];
         id<MTLBlitCommandEncoder> bb = [c blitCommandEncoder];
         [bb copyFromTexture:t sourceSlice:g_arr_pend[k].layer sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
                  sourceSize:MTLSizeMake(t.width, t.height, 1) toBuffer:rb destinationOffset:0
-             destinationBytesPerRow:t.width * 4 destinationBytesPerImage:n options:MTLBlitOptionNone];
+             destinationBytesPerRow:t.width * bpp destinationBytesPerImage:n options:MTLBlitOptionNone];
         [bb endEncoding];
         [c commit];
         [c waitUntilCompleted];
         char path[128];
-        snprintf(path, sizeof path, "build/arr_%03d_%d_L%d.f32", g_arr_pend[k].idx, g_arr_pend[k].slot, g_arr_pend[k].layer);
+        snprintf(path, sizeof path, bpp == 1 ? "build/arr_%03d_%d_L%d.u8" : "build/arr_%03d_%d_L%d.f32", g_arr_pend[k].idx, g_arr_pend[k].slot, g_arr_pend[k].layer);
         FILE *ff = fopen(path, "wb");
         if (ff) { fwrite(rb.contents, 1, n, ff); fclose(ff); }
         g_arr_pend[k].tex = nil;
@@ -1714,7 +1727,7 @@ static void bind_textures(int stage, ShaderInfo *si) {
         NvnSamplerDesc *sd = h && st.spool && tsc < (uint32_t)st.spool->count ? &((NvnSamplerDesc *)st.spool->entries)[tsc] : NULL;
         if (sd) smp = sampler_for(sd);
         if (!tex) tex = dummy_texture(st_->type, st_->scalar_kind);
-        {   // LARECOMP_DUMMY_TEX=<fs addr>:<slot>,...: bind the neutral dummy texture to these fragment shader inputs (A/B tests)
+        {   // LARECOMP_DUMMY_TEX=<fs addr or fsh>:<slot>,...: bind the neutral dummy texture to these fragment shader inputs (A/B tests)
             static uint64_t dfs[8];
             static int dslot[8], nd = -1;
             if (nd < 0) {
@@ -1727,9 +1740,11 @@ static void bind_textures(int stage, ShaderInfo *si) {
                     while (*q == ',') q++;
                 }
             }
-            if (stage == 1 && st.program)
+            if (stage == 1 && st.program && nd) {
+                uint64_t mh = fnv64(si->msl ? si->msl : "");  // (address or MSL hash: addresses move between runs)
                 for (int k = 0; k < nd; k++)
-                    if (dfs[k] == st.program->stages[1].code_addr && dslot[k] == i) tex = dummy_texture(st_->type, st_->scalar_kind);
+                    if ((dfs[k] == st.program->stages[1].code_addr || dfs[k] == mh) && dslot[k] == i) tex = dummy_texture(st_->type, st_->scalar_kind);
+            }
         }
         if (!smp) smp = default_sampler();
         if (g_debug_frame && tex.textureType == MTLTextureType2D && stage == 1) {
@@ -1760,7 +1775,8 @@ static void bind_textures(int stage, ShaderInfo *si) {
                 LOG("[dtex]   %s array %lux%lu fmt %lu layer %lu\n", path, (unsigned long)tex.width, (unsigned long)tex.height,
                     (unsigned long)tex.pixelFormat, (unsigned long)l);
                 if (lv) renderer_save_texture(lv, path);
-                if (tex.pixelFormat == MTLPixelFormatDepth32Float && g_arr_n < 16) g_arr_pend[g_arr_n++] = (ArrPend){tex, idx, i, (int)l};
+                if ((tex.pixelFormat == MTLPixelFormatDepth32Float || tex.pixelFormat == MTLPixelFormatR8Uint) && g_arr_n < 16)
+                    g_arr_pend[g_arr_n++] = (ArrPend){tex, idx, i, (int)l};
             }
         }
         if (stage == 0) { [enc setVertexTexture:tex atIndex:i]; [enc setVertexSamplerState:smp atIndex:i]; }
@@ -2015,7 +2031,7 @@ static id<MTLBuffer> expand_indices(uint32_t mode, uint32_t count, const void *i
 static void debug_draw(Prog *pr, CmdRec *r, bool indexed) {
     static uint64_t dump_fs = 1;
     if (dump_fs == 1) { const char *e = getenv("LARECOMP_DUMP_UBO"); dump_fs = e ? strtoull(e, NULL, 16) : 0; }
-    if (dump_fs && st.program && st.program->stages[1].code_addr == dump_fs) {
+    if (dump_fs && st.program && (st.program->stages[1].code_addr == dump_fs || fnv64(pr->fi->msl ? pr->fi->msl : "") == dump_fs)) {  // (address or MSL hash: addresses move between runs)
         for (int i = 0; i < 18; i++) {
             if (!st.ubuf[1][i].addr) continue;
             const float *f = (const float *)(uintptr_t)st.ubuf[1][i].addr;
@@ -3399,7 +3415,20 @@ static void exec_list(uint64_t handle, int depth) {
             }
             break;
         }
-        case CMD_SET_POLYGON_OFFSET: memcpy(st.poly_offset, r->f, sizeof st.poly_offset); break;
+        case CMD_SET_POLYGON_OFFSET:
+            memcpy(st.poly_offset, r->f, sizeof st.poly_offset);
+            if (getenv("LARECOMP_LOG_BIAS")) {  // (diagnostics) every distinct value the game sets, raw argument registers too
+                static float seen[32][3];
+                static int nseen;
+                bool dup = false;
+                for (int k = 0; k < nseen; k++) dup |= !memcmp(seen[k], r->f, sizeof seen[k]);
+                if (!dup && nseen < 32) {
+                    memcpy(seen[nseen++], r->f, sizeof seen[0]);
+                    LOG("[bias] set factor %g units %g clamp %g (x1 %#llx x2 %#llx f3 %g)\n", r->f[0], r->f[1], r->f[2],
+                        (unsigned long long)r->x[0], (unsigned long long)r->x[1], r->f[3]);
+                }
+            }
+            break;
         case CMD_SET_PRIMITIVE_RESTART: st.prim_restart = r->x[0] != 0; st.restart_index = (uint32_t)r->x[1]; break;
         case CMD_SET_COPY_STRIDES: st.copy_row_stride = r->x[0]; st.copy_image_stride = r->x[1]; break;
         case CMD_CLEAR_COLOR: {
