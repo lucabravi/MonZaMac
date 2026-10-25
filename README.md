@@ -62,9 +62,10 @@ The offset describes GPU-backed indirect arguments; CPU-decoded indirect draws s
 
 ## Credits and license
 
-MonZaMac is a fork of **[LAS Recomp](https://github.com/peiikai/LASRecomp)** by **Peiikai**, whose recompiler, runtime
-and NVN/Maxwell shader work it builds on (made for *The Legend of Zelda: Link's Awakening*), and of its Pokémon Z-A
-fork. Contributors and third-party components are listed in [CREDITS.md](CREDITS.md).
+MonZaMac is a fork of **[PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp)** (branch `pokemon-za`) by
+**Hexveil404**, the Pokémon Legends: Z-A port of **[LAS Recomp](https://github.com/peiikai/LASRecomp)** by **Peiikai**,
+whose recompiler, runtime and NVN/Maxwell shader work it builds on (made for *The Legend of Zelda: Link's Awakening*).
+Contributors and third-party components are listed in [CREDITS.md](CREDITS.md).
 
-The code is under the [MIT License](LICENSE) (LAS Recomp © Peiikai; MonZaMac's additions under the same license). This is a fan
+The code is under the [MIT License](LICENSE) (LAS Recomp © Peiikai; the Z-A port and MonZaMac's additions under the same license). This is a fan
 project, not affiliated with, endorsed by or sponsored by Nintendo, Game Freak or The Pokémon Company.
