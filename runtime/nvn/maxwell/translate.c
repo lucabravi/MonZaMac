@@ -633,8 +633,8 @@ static bool glsl_texs(Ctx *c, uint64_t w, bool fetch, int *slot_out, char *call,
     sprintf(fb, "as_type<float>(%s)", Bv); sprintf(fb1, "as_type<float>(%s)", B1);
     if (!fetch) {
         switch (info) {
-        case 0: slot = tex_slot(c, index, TEXTYPE_1D, false, false); co[0] = fa;
-            glsl_sample(c, call, slot, co, NULL, NULL, 0, NULL, NULL); break;
+        case 0: slot = tex_slot(c, index, TEXTYPE_1D, false, false); co[0] = fa;  // (1D.LZ: level 0, per Ryujinx)
+            glsl_sample(c, call, slot, co, NULL, NULL, 1, "0.0f", NULL); break;
         case 1: slot = tex_slot(c, index, TEXTYPE_2D, false, false); co[0] = fa; co[1] = fb;
             glsl_sample(c, call, slot, co, NULL, NULL, 0, NULL, NULL); break;
         case 2: slot = tex_slot(c, index, TEXTYPE_2D, false, false); co[0] = fa; co[1] = fb;
