@@ -1,9 +1,10 @@
 # Credits and third-party components
 
-MonZaMac is a fork of **[LAS Recomp](https://github.com/peiikai/LASRecomp)** by **Peiikai**, a static recompilation of
-*The Legend of Zelda: Link's Awakening*, and of its Pokémon Legends: Z-A fork. The recompiler, the runtime and the
-NVN/Maxwell shader work come from those projects. The lists below are inherited from LAS Recomp: they name everyone who
-contributed to it. Components that only the Zelda randomizer or the Windows / Linux builds used are no longer part of
+MonZaMac is a fork of **[PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp)** (branch `pokemon-za`) by
+**[Hexveil404](https://github.com/Hexveil404)**, who ported **[LAS Recomp](https://github.com/peiikai/LASRecomp)** to
+Pokémon Legends: Z-A. LAS Recomp, by **[Peiikai](https://github.com/peiikai)**, is a static recompilation of
+*The Legend of Zelda: Link's Awakening*; the recompiler, the runtime and the NVN/Maxwell shader work come from it. The
+list below is inherited from LAS Recomp: it names everyone who contributed to it. Components that only the Zelda randomizer or the Windows / Linux builds used are no longer part of
 MonZaMac and are not listed.
 
 **Contributors** - thank you to everyone who has sent code (GitHub handles, in order of first contribution):
