@@ -23,6 +23,8 @@ Settings g_settings = {
     .movie_audio = true,
     .show_fps = false,
     .dof = true,
+    .fxaa = true,
+    .bloom = true,
     .upscaler = UPSCALE_SHARP,  // (MetalFX on macOS, AMD FSR 1 on Windows)
 };
 
@@ -88,6 +90,8 @@ void settings_load(void) {
         else if (!strcmp(key, "show_fps")) g_settings.show_fps = atoi(val) != 0;
         else if (!strcmp(key, "fps60")) g_settings.fps60 = atoi(val) != 0;
         else if (!strcmp(key, "depth_of_field")) g_settings.dof = atoi(val) != 0;
+        else if (!strcmp(key, "game_fxaa")) g_settings.fxaa = atoi(val) != 0;
+        else if (!strcmp(key, "bloom")) g_settings.bloom = atoi(val) != 0;
         else if (!strcmp(key, "resolution")) {
             int n = atoi(val);
             g_settings.res_mode = !strcmp(val, "1.5x") ? RES_X15 :
@@ -130,6 +134,8 @@ void settings_save(void) {
     fprintf(f, "show_fps = %d\n", g_settings.show_fps);
     fprintf(f, "fps60 = %d\n", g_settings.fps60);
     fprintf(f, "depth_of_field = %d\n", g_settings.dof);
+    fprintf(f, "game_fxaa = %d\n", g_settings.fxaa);
+    fprintf(f, "bloom = %d\n", g_settings.bloom);
     fprintf(f, "upscaler = %s\n", g_settings.upscaler == UPSCALE_METALFX ? "metalfx" : g_settings.upscaler == UPSCALE_FSR1 ? "fsr1" : "bilinear");
     fprintf(f, "antialias = %s\n", g_settings.antialias == AA_SMAA ? "smaa" : "off");
     if (g_settings.res_mode == RES_DYNAMIC) fprintf(f, "resolution = dynamic\n");

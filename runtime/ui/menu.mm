@@ -499,11 +499,17 @@ static void tab_display(void) {
     opt_choice("Anti-aliasing", &g_settings.antialias, aa, 2, AA_OFF,
                "Smooths jagged edges of the game image before it is scaled to the window. SMAA: finds the edges and "
                "blends only along them, so textures stay sharp. Most useful at a lower internal resolution.");
-    {   // Pokémon Z-A's depth of field (runtime/hle/framepace.c rt_za_dof): the same patch build as the frame mode
+    {   // Pokémon Z-A's own effects (runtime/hle/za_mods.c): the same patch build as the frame mode
         extern bool g_za_frame_hook;
-        if (g_za_frame_hook)
+        if (g_za_frame_hook) {
+            opt_toggle("Game FXAA", &g_settings.fxaa, true,
+                       "The game's own anti-aliasing, a light blur over the whole image. Off: sharper, with more jagged "
+                       "edges (SMAA above can smooth them instead).");
             opt_toggle("Depth of field", &g_settings.dof, true,
                        "The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.");
+            opt_toggle("Bloom", &g_settings.bloom, true,
+                       "The game's glow around bright light. Off: no glow, a plainer image.");
+        }
     }
 
     opt_end();
