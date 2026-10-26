@@ -30,8 +30,9 @@ the log lines (not the PNG dumps if they contain game art you are unsure about).
 
 ## Building
 
-See the README. In short: put your own game files in `extracted/`, then
-`gmake B=build/za202 GEN=generated-202 -j8` (GNU Make 4: `brew install make`).
+See the README. In short: `tools/build_nstool.sh`, then `tools/extract_game.sh base.nsp update.nsp` (your own dumps and
+`.keys/prod.keys`), then `gmake B=build/za202 GEN=generated-202 gen` and `gmake B=build/za202 GEN=generated-202 -j8`
+(GNU Make 4: `brew install make`). Coding agents: see [AGENTS.md](AGENTS.md).
 
 ## Project layout
 
