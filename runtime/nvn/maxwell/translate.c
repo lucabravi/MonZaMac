@@ -1850,17 +1850,19 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
     } else if (OPM(0x5c38000000000000ull, 0xfff8000000000000ull) || OPM(0x4c38000000000000ull, 0xfff8000000000000ull) ||
                OPM(0x3838000000000000ull, 0xfef8000000000000ull)) {  // IMUL
         // .HI (bit 39): the high word, A signed (bit 40), B signed (bit 41)
-        if (bits(w, 39, 1)) {
-            if (bits(w, 40, 1) != bits(w, 41, 1)) { fail(c, "imul.hi mixed signedness"); return; }
+        if (bits(w, 39, 1) && bits(w, 40, 1) != bits(w, 41, 1))  // mixed: the 64-bit product of a sign- and a zero-extended word
+            sprintf(t, bits(w, 40, 1) ? "uint(ulong(long(int(%s)) * long(%s)) >> 32)" : "uint(ulong(long(%s) * long(int(%s))) >> 32)",
+                    R(a), B(false));
+        else if (bits(w, 39, 1))
             sprintf(t, bits(w, 40, 1) ? "uint(mulhi(int(%s), int(%s)))" : "mulhi(%s, %s)", R(a), B(false));
-        }
         else sprintf(t, "(%s * %s)", R(a), B(false));
         set_reg(c, d, t);
     } else if (OPM(0x1f00000000000000ull, 0xff00000000000000ull)) {  // IMUL32I (.HI bit 53, A / B signed bits 54 / 55)
-        if (bits(w, 53, 1)) {
-            if (bits(w, 54, 1) != bits(w, 55, 1)) { fail(c, "imul32i.hi mixed signedness"); return; }
+        if (bits(w, 53, 1) && bits(w, 54, 1) != bits(w, 55, 1))
+            sprintf(t, bits(w, 54, 1) ? "uint(ulong(long(int(%s)) * long(0x%08xu)) >> 32)" : "uint(ulong(long(%s) * long(int(0x%08xu))) >> 32)",
+                    R(a), (uint32_t)bits(w, 20, 32));
+        else if (bits(w, 53, 1))
             sprintf(t, bits(w, 54, 1) ? "uint(mulhi(int(%s), int(0x%08xu)))" : "mulhi(%s, 0x%08xu)", R(a), (uint32_t)bits(w, 20, 32));
-        }
         else sprintf(t, "(%s * 0x%08xu)", R(a), (uint32_t)bits(w, 20, 32));
         set_reg(c, d, t);
     } else if (OPM(0x5ce0000000000000ull, 0xfff8000000000000ull) || OPM(0x4ce0000000000000ull, 0xfff8000000000000ull) ||

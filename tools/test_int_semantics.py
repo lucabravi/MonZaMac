@@ -2,7 +2,7 @@
 """Integer ops of runtime/nvn/maxwell/translate.c against reference formulas (Ryujinx's / yuzu's semantics): each
 instruction is translated alone (compute, MSL), the expression assigned to its destination is compiled as C++ (uint /
 ulong / long as in MSL) and compared with the reference over random and edge-case register values.
-Covers SHF, IADD3 (half select, .LS / .RS), FLO, SHR, IMUL32I.HI. Needs cc + c++.
+Covers SHF, IADD3 (half select, .LS / .RS), FLO, SHR, IMUL / IMUL32I .HI. Needs cc + c++.
 SHF boundary reference: Mesa NAK's hardware-tested folding, including the signed shift fix in
 https://github.com/chaotic-cx/mesa-mirror/commit/d3e917ea031bc3c50644cd20c601d7005c57793e .
 usage: tools/test_int_semantics.py
@@ -103,9 +103,13 @@ def cases():
                 a, n = "reverse_bits(r1)" if brev else "r1", "(r2 & 31u)" if wrap else "r2"
                 ref = f"({n} < 32u ? (uint)((int){a} >> {n}) : (uint)((int){a} >> 31))" if sg else f"({n} < 32u ? {a} >> {n} : 0u)"
                 yield f"SHR wrap {wrap} brev {brev} signed {sg}", enc(0x5c28, wrap << 39 | brev << 40 | sg << 48), ref
-    for sg in (0, 1):
-        yield f"IMUL32I.HI signed {sg}", (0x1f << 56) | 9 | (1 << 8) | (0x9abcdef1 << 20) | (7 << 16) | bit(53) | (sg * (bit(54) | bit(55))), \
-            "(uint)(((int64_t)(int)r1 * (int64_t)(int)0x9abcdef1u) >> 32)" if sg else "(uint)(((uint64_t)r1 * 0x9abcdef1ull) >> 32)"
+    for sa in (0, 1):
+        for sb in (0, 1):
+            A, B = ("(int64_t)(int)r1" if sa else "(int64_t)r1"), ("(int64_t)(int)r2" if sb else "(int64_t)r2")
+            yield f"IMUL.HI signed {sa}{sb}", enc(0x5c38, bit(39) | sa << 40 | sb << 41), f"(uint)((uint64_t)({A} * {B}) >> 32)"
+            A, B = ("(int64_t)(int)r1" if sa else "(int64_t)r1"), ("(int64_t)(int)0x9abcdef1u" if sb else "(int64_t)0x9abcdef1u")
+            yield f"IMUL32I.HI signed {sa}{sb}", (0x1f << 56) | 9 | (1 << 8) | (0x9abcdef1 << 20) | (7 << 16) | bit(53) | sa << 54 | sb << 55, \
+                f"(uint)((uint64_t)({A} * {B}) >> 32)"
 
 
 def rejected_cases():
@@ -115,10 +119,6 @@ def rejected_cases():
     yield "IADD3 reserved shift", enc(0x5cc0, 3 << 37, 3)
     for flag in (47, 48):
         yield f"IADD3 shift with flag {flag}", enc(0x5cc0, (1 << 37) | bit(flag), 3)
-    for sign in (40, 41):
-        yield f"IMUL.HI mixed sign {sign}", enc(0x5c38, bit(39) | bit(sign))
-    for sign in (54, 55):
-        yield f"IMUL32I.HI mixed sign {sign}", (0x1f << 56) | 9 | (1 << 8) | (1 << 20) | (7 << 16) | bit(53) | bit(sign)
 
 
 def main():
