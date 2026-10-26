@@ -2763,7 +2763,7 @@ static void draw(CmdRec *r, bool indexed) {
         if (pobj) { cache[pk] = pobj; g_archive_hits++; }
     }
     if (!pobj) {
-        if (sync_shaders()) {
+        if (sync_shaders() || r->x[2] <= 6) {  // a full-screen draw waits for its pipeline too, as for its program (prog_ready_or_wait)
             NSError *err;
             pobj = TIMED_COMPILE([dev newRenderPipelineStateWithDescriptor:pd error:&err]);
             if (!pobj) {
