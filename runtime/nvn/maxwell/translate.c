@@ -2337,8 +2337,8 @@ static const char glsl_prelude[] =
     "vec2 saturate(vec2 x) { return vec2(saturate(x.x), saturate(x.y)); }\n"
     "float fmin(float a, float b) { return isnan(a) ? b : (isnan(b) ? a : min(a, b)); }\n"
     "float fmax(float a, float b) { return isnan(a) ? b : (isnan(b) ? a : max(a, b)); }\n"
-    "float fmz_mul(float a, float b) { return (floatBitsToUint(a) << 1) == 0u || (floatBitsToUint(b) << 1) == 0u ? 0.0f : a * b; }\n"
-    "float fmz_fma(float a, float b, float c) { return (floatBitsToUint(a) << 1) == 0u || (floatBitsToUint(b) << 1) == 0u ? c : fma(a, b, c); }\n"
+    "float fmz_mul(float a, float b) { return (floatBitsToUint(a) & 0x7F800000u) == 0u || (floatBitsToUint(b) & 0x7F800000u) == 0u ? 0.0f : a * b; }\n"
+    "float fmz_fma(float a, float b, float c) { return (floatBitsToUint(a) & 0x7F800000u) == 0u || (floatBitsToUint(b) & 0x7F800000u) == 0u ? c : fma(a, b, c); }\n"
     "vec2 fmz_mul(vec2 a, vec2 b) { return vec2(fmz_mul(a.x, b.x), fmz_mul(a.y, b.y)); }\n"
     "vec2 fmz_fma(vec2 a, vec2 b, vec2 c) { return vec2(fmz_fma(a.x, b.x, c.x), fmz_fma(a.y, b.y, c.y)); }\n"
     "uint clz(uint v) { return v == 0u ? 32u : uint(31 - findMSB(v)); }\n"
@@ -2646,10 +2646,11 @@ ShaderInfo *maxwell_translate(const uint8_t *blob, size_t max_size, int stage, c
     sp(&s, "static inline uint bfe_s(uint v, uint ctl) { uint pos = ctl & 0xFFu, len = (ctl >> 8) & 0xFFu; if (len == 0u) return 0u; if (pos >= 32u) return (int(v) < 0) ? 0xFFFFFFFFu : 0u; return uint(extract_bits(int(v), pos, min(len, 32u - pos))); }\n");
     sp(&s, "static inline uint bfi(uint ins, uint ctl, uint base) { uint pos = ctl & 0xFFu, len = (ctl >> 8) & 0xFFu; if (len == 0u || pos >= 32u) return base; return insert_bits(base, ins, pos, min(len, 32u - pos)); }\n");
     sp(&s, "static inline float fswzadd(float a, float b, uint swz, uint lane) { uint m = (swz >> ((lane & 3u) * 2u)) & 3u; float ma = m == 1u ? -1.0f : (m == 3u ? 0.0f : 1.0f); float mb = m == 2u ? -1.0f : 1.0f; return a * ma + b * mb; }\n");
-    // FMUL / FFMA .FMZ (D3D9 rule: 0 * anything, Inf and NaN too, is 0; as yuzu). The zero test is on the bits: with fast
-    // math a float compare against 0 lets the compiler fold the select into the plain product
-    sp(&s, "static inline float fmz_mul(float a, float b) { return (as_type<uint>(a) << 1) == 0u || (as_type<uint>(b) << 1) == 0u ? 0.0f : a * b; }\n");
-    sp(&s, "static inline float fmz_fma(float a, float b, float c) { return (as_type<uint>(a) << 1) == 0u || (as_type<uint>(b) << 1) == 0u ? c : fma(a, b, c); }\n");
+    // FMUL / FFMA .FMZ (D3D9 rule: 0 * anything, Inf and NaN too, is 0; as yuzu). .FMZ also flushes denormals, so a zero
+    // exponent counts as 0. The test is on the bits: with fast math a float compare against 0 lets the compiler fold the
+    // select into the plain product
+    sp(&s, "static inline float fmz_mul(float a, float b) { return (as_type<uint>(a) & 0x7F800000u) == 0u || (as_type<uint>(b) & 0x7F800000u) == 0u ? 0.0f : a * b; }\n");
+    sp(&s, "static inline float fmz_fma(float a, float b, float c) { return (as_type<uint>(a) & 0x7F800000u) == 0u || (as_type<uint>(b) & 0x7F800000u) == 0u ? c : fma(a, b, c); }\n");
     sp(&s, "static inline float2 fmz_mul(float2 a, float2 b) { return float2(fmz_mul(a.x, b.x), fmz_mul(a.y, b.y)); }\n");
     sp(&s, "static inline float2 fmz_fma(float2 a, float2 b, float2 c) { return float2(fmz_fma(a.x, b.x, c.x), fmz_fma(a.y, b.y, c.y)); }\n");
     sp(&s, "static inline uint2 rsc(uint2 c, float4 s) { return (s.x == 1.0f && s.y == 1.0f) ? c : uint2(floor((float2(c) + 0.5f) * s.xy)); }\n");
