@@ -2161,8 +2161,50 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
 }
 
 // ------------------------------------------------------------------ program assembly
-static bool is_branch_target_op(uint64_t w) {
-    return ((w & 0xfff0000000000020ull) == 0xe240000000000000ull);
+static bool has_flow_target(uint64_t w) {
+    uint64_t op = w & 0xfff0000000000020ull;
+    return op == 0xe240000000000000ull || op == 0xe290000000000000ull ||
+           op == 0xe2a0000000000000ull || op == 0xe2b0000000000000ull;
+}
+
+// A per-invocation PC loop does not reconverge lanes at BRK: an early lane can
+// sample or shuffle while its neighbours are still executing the loop. Keep a
+// simple PBK region in its own structured loop, then resume with all lanes.
+// Other token stacks and crossing edges retain the existing dispatcher.
+static uint32_t *break_regions(const uint64_t *code, size_t end) {
+    uint32_t *regions = calloc(end + 1, sizeof *regions);
+    if (!regions) return NULL;
+    for (size_t j = 1; j < end; j++) {
+        if (j % 4 && (code[j] & 0xfff0000000000000ull) == 0xe250000000000000ull)
+            return regions; // BRX may enter any instruction, including a region's interior.
+    }
+    // ponytail: scan edges per PBK; index them if translation profiling warrants it.
+    for (size_t i = 1; i < end; i++) {
+        if (!(i % 4) || (code[i] & 0xfff0000000000020ull) != 0xe2a0000000000000ull) continue;
+        uint32_t begin = norm_target((int64_t)i * 8 + 8);
+        uint32_t target = norm_target((int64_t)i * 8 + 8 + sbits(code[i], 20, 24));
+        if ((target & 7) || target <= begin || target / 8 >= end) continue;
+        bool valid = true, has_break = false;
+        for (size_t j = 1; j < end && valid; j++) {
+            if (!(j % 4)) continue;
+            uint32_t pc = (uint32_t)j * 8;
+            uint64_t op = code[j] & 0xfff0000000000000ull;
+            bool inside = pc >= begin && pc < target;
+            if (inside) {
+                if (op == 0xe340000000000000ull) has_break = true;
+                if (op == 0xe290000000000000ull || op == 0xe2a0000000000000ull ||
+                    op == 0xe2b0000000000000ull || op == 0xe350000000000000ull ||
+                    (code[j] & 0xfff8000000000000ull) == 0xf0f8000000000000ull)
+                    valid = false;
+            }
+            if (has_flow_target(code[j])) {
+                uint32_t to = norm_target((int64_t)pc + 8 + sbits(code[j], 20, 24));
+                if (inside ? (to < begin || to > target) : (to >= begin && to < target)) valid = false;
+            }
+        }
+        if (valid && has_break) regions[i] = target;
+    }
+    return regions;
 }
 
 // ------------------------------------------------------------------ GLSL output
@@ -2526,10 +2568,7 @@ ShaderInfo *maxwell_translate(const uint8_t *blob, size_t max_size, int stage, c
         if (i % 4 == 0) continue;
         uint64_t w = ((const uint64_t *)code)[i];
         uint32_t pc = (uint32_t)(i * 8);
-        bool is_flow = (w & 0xfff0000000000020ull) == 0xe240000000000000ull ||
-                       (w & 0xfff0000000000020ull) == 0xe290000000000000ull ||
-                       (w & 0xfff0000000000020ull) == 0xe2a0000000000000ull ||
-                       (w & 0xfff0000000000020ull) == 0xe2b0000000000000ull;
+        bool is_flow = has_flow_target(w);
         if (is_flow) {
             int64_t t = norm_target((int64_t)pc + 8 + sbits(w, 20, 24));
             if (t >= 0 && (size_t)(t / 8) < end) label[t / 8] = 1;
@@ -2542,16 +2581,23 @@ ShaderInfo *maxwell_translate(const uint8_t *blob, size_t max_size, int stage, c
         if ((w & 0xfff8000000000000ull) == 0xf0f8000000000000ull || (w & 0xfff0000000000000ull) == 0xe340000000000000ull ||
             (w & 0xfff0000000000000ull) == 0xe350000000000000ull)
             any_branch = true;
-        (void)is_branch_target_op;
     }
+    uint32_t *regions = any_branch ? break_regions((const uint64_t *)code, end) : NULL;
+    if (any_branch && !regions) fail(c, "allocating break regions");
     // translate
     bool dbg = maxwell_dbg_code && blob == maxwell_dbg_code && stage == STAGE_FRAGMENT;
     static int annotate = -1;
     if (annotate < 0) annotate = getenv("LARECOMP_SAVE_MSL") != NULL;
     c->branchy = any_branch;
+    uint32_t region_end = 0;
     for (size_t i = 0; i < end && !c->fail; i++) {
         if (i % 4 == 0) continue;
         uint32_t pc = (uint32_t)(i * 8);
+        if (region_end && pc == region_end) {
+            sp(&c->body, "    pc = %uu; break;\n    default: exit_now = true; break;\n    }\n    }\n", region_end);
+            sp(&c->body, "    if (exit_now || guard >= 100000u || pc != %uu) { exit_now = true; break; }\n", region_end);
+            region_end = 0;
+        }
         if (any_branch && label[i]) sp(&c->body, "  case %uu:\n", pc);
         if (annotate) sp(&c->body, "    // pc %x: %016llx\n", pc, (unsigned long long)((const uint64_t *)code)[i]);
         emit_insn(c, ((const uint64_t *)code)[i], pc);
@@ -2561,9 +2607,17 @@ ShaderInfo *maxwell_translate(const uint8_t *blob, size_t max_size, int stage, c
             if (half) sp(&c->body, c->glsl ? "    dbgv = unpackHalf2x16(r%d)[%d];\n" : "    dbgv = float(as_type<half2>(r%d)[%d]);\n", rr, half - 1);
             else sp(&c->body, "    dbgv = as_type<float>(r%d);\n", rr);
         }
+        if (regions && regions[i]) {
+            region_end = regions[i];
+            uint32_t begin = norm_target((int64_t)pc + 8);
+            sp(&c->body, "    pc = %uu;\n    for (; guard < 100000u && pc != %uu && !exit_now; guard++) {\n    switch (pc) {\n",
+               begin, region_end);
+            if (!label[begin / 8]) sp(&c->body, "  case %uu:\n", begin);
+        }
         info->num_insts++;
     }
     free(label);
+    free(regions);
     // (MSL: more textures than sampler slots take a slot table, at a buffer index the vertex stage's streams use)
     if (!c->glsl && stage == STAGE_VERTEX && info->ntex > MSL_MAX_SAMPLERS)
         fail(c, "%d textures in a vertex shader (Metal: %d samplers)", info->ntex, MSL_MAX_SAMPLERS);

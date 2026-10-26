@@ -1386,6 +1386,48 @@ static void audit_shuffle(void) {
     CHECK(!bad,"shuffle register amounts and UP clamp must preserve the hardware value and validity predicate");
 }
 
+static void break_reconvergence(void) {
+    // Every lane leaves this PBK loop after a different number of iterations.
+    // The following SHFL must see its neighbour's completed loop result.
+    static uint64_t code[32]; static NvnProgram program; static uint8_t control[0x754];
+    *(uint32_t *)(control + 0x748) = 32;
+    const unsigned loop_pc = 6 * 8, end_pc = 15 * 8;
+    uint64_t ops[] = {
+        0xf0c8000000070000ull, // R0 = lane
+        0x010000000007f009ull, // R9 = 0
+        0x010000000017f00bull, // R11 = 1
+        0xe2a0000000000000ull | ((uint64_t)(end_pc - 5 * 8 - 8) << 20),
+        0x5b6d038000070907ull, // P0 = R9 >= R0
+        0xe34000000000000full, // @P0 BRK
+        (0x1full << 56) | (1664525ull << 20) | (7ull << 16) | (11ull << 8) | 11,
+        0x1c00000000000000ull | (1013904223ull << 20) | (7ull << 16) | (11ull << 8) | 11,
+        0x1c00000000170909ull, // R9++
+        0xe24000000007000full | ((uint64_t)((loop_pc - 13 * 8 - 8) & 0xffffff) << 20),
+        0x50b0000000070f00ull, // unreachable NOP
+        0xef10000000000000ull | (3ull << 30) | (1ull << 29) | (1ull << 28) | (7171ull << 34) |
+            (1ull << 20) | (7ull << 16) | (11ull << 8) | 8, // R8 = SHFL.BFLY R11,1
+        (0x1full << 56) | (4ull << 20) | (7ull << 16) | 10,
+        0x010000000007f014ull | ((uint64_t)(uint32_t)(g_gwin_base + 512) << 20),
+        0x010000000007f015ull | ((g_gwin_base >> 32) << 20),
+        (0x5cc0ull << 48) | (255ull << 39) | (10ull << 20) | (7ull << 16) | (20ull << 8) | 20,
+        0xeed8000000000000ull | (4ull << 48) | (1ull << 45) | (7ull << 16) | (20ull << 8) | 8,
+    };
+    compute_fixture(code, &program, ops, sizeof ops / sizeof *ops);
+    program.stages[5].control = control; st.program = &program;
+    uint32_t *out = (uint32_t *)((uint8_t *)g_guest_buffer.contents + 512);
+    for (unsigned lane = 0; lane < 32; lane++) out[lane] = 0xdeadbeef;
+    dispatch_compute(1, 1, 1); check_gpu();
+    unsigned bad = 0;
+    for (unsigned lane = 0; lane < 32; lane++) {
+        uint32_t want = 1;
+        for (unsigned iteration = 0; iteration < (lane ^ 1); iteration++) want = want * 1664525u + 1013904223u;
+        if (out[lane] != want) {
+            fprintf(stderr, "BRK lane%u got=%u want=%u\n", lane, out[lane], want); bad++;
+        }
+    }
+    CHECK(!bad, "lanes must reconverge after BRK before exchanging loop results");
+}
+
 static void audit_shadow_array(void) {
     NvnTexture depth=test_texture(4,4,4,2,1,0x33,1);
     bind_targets(NULL,&depth,NULL);
@@ -1606,6 +1648,7 @@ typedef void (*TestFn)(void);
 static const struct { const char *name, *group; TestFn run; bool needs_sampler26; } tests[] = {
     {"smoke", "smoke", smoke},
     {"live-shader-pipeline", "live", live_shader_pipeline},
+    {"break-reconvergence", "flow", break_reconvergence},
     {"compute-image-store", "images", compute_image_store},
     {"compute-image-feedback", "images", compute_image_feedback},
     {"compute-image-ownership", "images", compute_image_ownership},
