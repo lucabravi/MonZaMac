@@ -63,6 +63,7 @@ static struct {
     uint32_t channel_mask;
     uint8_t color_state[4], ds[8], ms[0x18], poly[4];
     float poly_offset[3];  // factor, units, clamp (nvnCommandBufferSetPolygonOffsetClamp)
+    uint8_t depth_clamp;   // nvnCommandBufferSetDepthClamp
     uint32_t attrib[16];
     int nattrib;
     uint32_t stream[16][2];
@@ -742,6 +743,7 @@ static void clear(int index, int kind, const void *color, uint32_t mask, bool de
     [enc setCullMode:MTLCullModeNone];
     [enc setTriangleFillMode:MTLTriangleFillModeFill];
     [enc setDepthBias:0 slopeScale:0 clamp:0];
+    [enc setDepthClipMode:MTLDepthClipModeClip];
     last_bias_enc = nil;  // the next guest draw must restore its cached bias on this encoder
     int w, h;
     pass_size(&w, &h);
@@ -2783,6 +2785,11 @@ static void draw(CmdRec *r, bool indexed) {
     bool ccw = st.poly[1] == 1;
     [enc setFrontFacingWinding:(ccw != vkey.flip_y) ? MTLWindingCounterClockwise : MTLWindingClockwise];
     [enc setTriangleFillMode:st.poly[2] == 1 ? MTLTriangleFillModeLines : MTLTriangleFillModeFill];
+    // Depth clamp: Z-A's shadow casters outside the light's clip planes (the NPCs' shadows on the plaza) are clamped, not
+    // clipped (as ZA Recomp 4d5174e). LARECOMP_NO_DEPTH_CLAMP=1 ignores it (A/B).
+    static int noclamp = -1;
+    if (noclamp < 0) noclamp = getenv("LARECOMP_NO_DEPTH_CLAMP") != NULL;
+    [enc setDepthClipMode:st.depth_clamp && !noclamp ? MTLDepthClipModeClamp : MTLDepthClipModeClip];
     {   // polygon offset (decals on floors: without it they z-fight). Enables: bit 2 = fill (NVN PolygonOffsetEnable)
         static float last[3] = {0, 0, 0};
         float f[3] = {0, 0, 0};
@@ -3480,6 +3487,7 @@ static void exec_list(uint64_t handle, int depth) {
             break;
         }
         case CMD_SET_RASTERIZER_DISCARD: g_raster_discard = r->x[0] & 1; break;
+        case CMD_SET_DEPTH_CLAMP: st.depth_clamp = r->x[0] & 1; break;
         case CMD_BIND_BLEND: { uint8_t *b = x; memcpy(st.blend[b[0] & 7], b, 8); break; }
         case CMD_BIND_CHANNEL_MASK: memcpy(&st.channel_mask, x, 4); break;
         case CMD_BIND_COLOR: memcpy(st.color_state, x, 4); break;
