@@ -216,11 +216,11 @@ static int run_cases(void) {
         {"tlds 2d array glsl", STAGE_FRAGMENT, true, 0, 0xdaull << 56 | 8ull << 53 | 255ull << 28 | 2 << 20 | PT_ | 1 << 8, 0,
          "texelFetch(t0, ivec3(ivec2(rsc(uvec2(r2, r3), rscale[1])), int(r1)), 0)", NULL},
         // TEXS 2D.LL.DC (info 5): lod = Rb, dref = Rb+1 (yuzu; Ryujinx's EmitTexs reads them the other way round)
-        {"texs 2d ll dc", STAGE_FRAGMENT, false, 0, 0xd8ull << 56 | 5ull << 53 | 255ull << 28 | 4 << 20 | PT_ | 1 << 8, 0,
-         "sample_compare(s0, float2(as_type<float>(r1), as_type<float>(r2)), as_type<float>(r5), level(as_type<float>(r4)))", NULL},
+        {"texs 2d ll dc", STAGE_FRAGMENT, false, 0, 0xd8ull << 56 | 5ull << 53 | 255ull << 28 | 4 << 20 | PT_ | 2 << 8, 0,
+         "sample_compare(s0, float2(as_type<float>(r2), as_type<float>(r3)), as_type<float>(r5), level(as_type<float>(r4)))", NULL},
         // TEXS ARRAY_2D.LZ.DC (info 9): the layer is clamped like the other array lookups
-        {"texs 2d array lz dc", STAGE_FRAGMENT, false, 0, 0xd8ull << 56 | 9ull << 53 | 255ull << 28 | 4 << 20 | PT_ | 1 << 8, 0,
-         "min(r1, t0.get_array_size() - 1u)", NULL},
+        {"texs 2d array lz dc", STAGE_FRAGMENT, false, 0, 0xd8ull << 56 | 9ull << 53 | 255ull << 28 | 4 << 20 | PT_ | 2 << 8, 0,
+         "min(r2, t0.get_array_size() - 1u)", NULL},
         // TEXS 1D.LZ in GLSL: level 0, not an implicit LOD
         {"texs 1d lz glsl", STAGE_FRAGMENT, true, 0, 0xd8ull << 56 | 0ull << 53 | 255ull << 28 | 4 << 20 | PT_ | 1 << 8, 0,
          "textureLod(t0, as_f(r1), 0.0f)", NULL},
@@ -236,7 +236,7 @@ static int run_cases(void) {
          "atomic_fetch_add(uint2(uint(int(r0) >> 2), r1), uint4(r4, 0u, 0u, 0u))", NULL},
         // SHFL.UP in GLSL: clamp / segment from c, predicate = the source lane is valid (as in MSL)
         {"shfl up glsl", STAGE_COMPUTE, true, 0, 0xef1ull << 52 | 0ull << 48 | 1ull << 34 | 1 << 30 | 1 << 29 | 1 << 28 | 1 << 20 | PT_ | 1 << 8 | 3, 0,
-         "r3 = ok ? subgroupShuffle(r1, src & 31u) : r1;\n      p0 = ok;", NULL},
+         "uint shuffled = subgroupShuffle(r1, src & 31u);\n    r3 = ok ? shuffled : r1;\n      p0 = ok;", NULL},
     };
     int bad = 0;
     for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
