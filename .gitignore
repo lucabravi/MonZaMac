@@ -14,6 +14,7 @@ save.*/
 /larecomp.ini
 # tools and Python environments (machine-specific)
 tools/venv/
+tools/nstool/
 venv/
 __pycache__/
 .DS_Store
