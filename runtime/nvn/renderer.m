@@ -1058,13 +1058,14 @@ static id<MTLBinaryArchive> g_archive;
 static dispatch_queue_t g_archive_q;
 static int g_archive_dirty;  // pipelines added since the last save (on g_archive_q)
 static int g_archive_hits;   // pipelines found in the archive this run (render thread)
+static NSURL *g_archive_url; // absolute, fixed at open: the working directory may be gone at exit (the tests delete it)
 
 static void pipeline_archive_save(void) {  // on g_archive_q
     if (!g_archive_dirty) return;
     // write next to the file and rename: the open archive may still be reading the old one
+    NSURL *tmp = [g_archive_url URLByAppendingPathExtension:@"tmp"];
     NSError *err;
-    if ([g_archive serializeToURL:[NSURL fileURLWithPath:@"cache/pipelines.bin.tmp"] error:&err] &&
-        rename("cache/pipelines.bin.tmp", "cache/pipelines.bin") == 0) {
+    if ([g_archive serializeToURL:tmp error:&err] && rename(tmp.fileSystemRepresentation, g_archive_url.fileSystemRepresentation) == 0) {
         LOG("[shader] pipeline archive saved (%d new, %d found in it this run)\n", g_archive_dirty, g_archive_hits);
         g_archive_dirty = 0;
     } else LOG("[shader] pipeline archive save failed: %s\n", err ? err.localizedDescription.UTF8String : strerror(errno));
@@ -1077,8 +1078,9 @@ static id<MTLBinaryArchive> pipeline_archive(void) {
     dispatch_once(&once, ^{
         if (getenv("LARECOMP_NO_PIPELINE_ARCHIVE") && atoi(getenv("LARECOMP_NO_PIPELINE_ARCHIVE"))) return;
         mkdir("cache", 0755);
+        g_archive_url = [NSURL fileURLWithPath:@"cache/pipelines.bin"].absoluteURL;
         MTLBinaryArchiveDescriptor *ad = [MTLBinaryArchiveDescriptor new];
-        if (access("cache/pipelines.bin", R_OK) == 0) ad.url = [NSURL fileURLWithPath:@"cache/pipelines.bin"];
+        if (access(g_archive_url.fileSystemRepresentation, R_OK) == 0) ad.url = g_archive_url;
         NSError *err;
         g_archive = [dev newBinaryArchiveWithDescriptor:ad error:&err];
         if (!g_archive && ad.url) {  // made by another OS / GPU, or damaged: start a new one
@@ -1095,7 +1097,9 @@ static id<MTLBinaryArchive> pipeline_archive(void) {
 }
 
 static void pipeline_archive_add(MTLRenderPipelineDescriptor *pd) {
-    if (!g_archive) return;
+    // vertex-only pipelines (transform feedback: no fragment stage, rasterizer off) made the whole save fail on the Mac;
+    // they stay on the usual async path
+    if (!g_archive || !pd.rasterizationEnabled) return;
     dispatch_async(g_archive_q, ^{
         NSError *err;
         pd.binaryArchives = nil;  // (our own copy) never look the archive up while adding to it
