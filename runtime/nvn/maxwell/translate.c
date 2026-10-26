@@ -894,7 +894,7 @@ static void emit_tld4s(Ctx *c, uint64_t w) {
 // TLD4 (gather; per Ryujinx's EmitTld4): Ra = [array index], coordinates; Rb = [offsets: one (.AOFFI) or two
 // (.PTP: four texels, 6-bit signed x / y at bits 0 / 8, 16 / 24)], [depth reference]. The WMask components go to
 // consecutive registers from Rd. GLSL gather offsets must be constant: the coordinates move instead, and .PTP takes
-// one gather per texel (component i of textureGatherOffsets comes from offset i).
+// one gather per texel: component i is texel i0j0 (gather .w) of the footprint at offset i, as textureGatherOffsets.
 static const char *tld4_next(Ctx *c, int *r, char *buf) {
     const char *s = reg(c, *r, buf);
     if (*r != RZ) (*r)++;
@@ -948,7 +948,7 @@ static void emit_tld4(Ctx *c, uint64_t w) {
         char mcall[4096];
         if (ngather == 4) {
             const char *vector = c->info->tex[slot].scalar_kind == 2 ? "uint4" : c->info->tex[slot].scalar_kind == 1 ? "int4" : "float4";
-            snprintf(mcall, sizeof mcall, "%s((%s).x, (%s).y, (%s).z, (%s).w)", vector, gather[0], gather[1], gather[2], gather[3]);
+            snprintf(mcall, sizeof mcall, "%s((%s).w, (%s).w, (%s).w, (%s).w)", vector, gather[0], gather[1], gather[2], gather[3]);
         }
         else
             snprintf(mcall, sizeof mcall, "%s", gather[0]);
@@ -977,7 +977,7 @@ static void emit_tld4(Ctx *c, uint64_t w) {
     char call[4096];
     if (ngather == 4) {
         const char *vector = c->info->tex[slot].scalar_kind == 2 ? "uvec4" : c->info->tex[slot].scalar_kind == 1 ? "ivec4" : "vec4";
-        snprintf(call, sizeof call, "%s((%s).x, (%s).y, (%s).z, (%s).w)", vector, gather[0], gather[1], gather[2], gather[3]);
+        snprintf(call, sizeof call, "%s((%s).w, (%s).w, (%s).w, (%s).w)", vector, gather[0], gather[1], gather[2], gather[3]);
     }
     else
         snprintf(call, sizeof call, "%s", gather[0]);

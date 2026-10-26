@@ -38,7 +38,7 @@ difference or a gap worth an in-game check; **n/a** not translated (the shader f
 | TLD4S fields | component 52-53, .AOFFI 51, .DC 50, .F16 = bit 55 (0xdf8) | ok |
 | TLD4S coordinates | x Ra, y Rb; with .DC or .AOFFI y Ra+1 | ok |
 | TLD4S .AOFFI + .DC | offsets Rb (6-bit at 0 / 8), dref Rb+1 | ok per yuzu; Ryujinx reads dref first (Rb) and the offsets from Rb+1. **unsure** |
-| TLD4 | Dim 28-30, WMask 31-34, .DC 50, toff 54-55, component 56-57; Ra: layer, coords; Rb: offsets (1, or 2 for .PTP), dref; .PTP texel k from register k/2, bits (k&1)*16 / +8 | ok (1D / 3D dims n/a) |
+| TLD4 | Dim 28-30, WMask 31-34, .DC 50, toff 54-55, component 56-57; Ra: layer, coords; Rb: offsets (1, or 2 for .PTP), dref; .PTP texel k from register k/2, bits (k&1)*16 / +8; component k = texel i0j0 (gather .w) at offset k (ARB_gpu_shader5, yuzu textureGatherOffsets) | fixed: was component k of gather k |
 | TEX | Dim 28-30, WMask 31-34, .DC 50, .AOFFI 54, LOD mode 55-57; Ra: layer, coords; Rb: lod / bias, offsets, dref | ok |
 | TEX 3D + .AOFFI | z offset (bits 8-11) | **unsure**: only x / y offsets are emitted |
 | TEX array index | yuzu masks it to 16 bits | **unsure** (as TLDS 8) |
