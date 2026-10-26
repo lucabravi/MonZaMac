@@ -121,6 +121,77 @@ static void safe_math_compute(void) {
     st.ubuf[5][1] = (Range){0};
 }
 
+static void integer_opcode_semantics(void) {
+#define REG_OP(top, flags) (((uint64_t)(top) << 48) | 9ull | (1ull << 8) | (7ull << 16) | (2ull << 20) | (flags))
+    static const struct { const char *name; uint64_t opcode; uint32_t input[3], want; bool predicate; uint32_t want_gpr; } cases[] = {
+        {"SHF.R.U64 register 40", REG_OP(0x5cf8, (3ull << 39) | (2ull << 37)), {0, 40, 0x100}, 1},
+        {"SHF.L.U64 register 40", REG_OP(0x5bf8, (3ull << 39) | (2ull << 37)), {1, 40, 0}, 0x100},
+        {"SHF.R.S64 clamps 64", REG_OP(0x5cf8, (3ull << 39) | (3ull << 37)), {0, 64, 0x80000000}, 0xffffffff},
+        {"SHF.R.U64 clamps 100", REG_OP(0x5cf8, (3ull << 39) | (2ull << 37)), {0xffffffff, 100, 1}, 0},
+        {"SHF.R.U64 immediate 40", (0x38f8ull << 48) | (3ull << 39) | (2ull << 37) | (40ull << 20) | (7ull << 16) | (1ull << 8) | 9,
+            {0, 0, 0x100}, 1},
+        {"IADD3 half selection", REG_OP(0x5cc0, (3ull << 39) | (1ull << 35) | (1ull << 31)), {0x12345678, 1, 0xabcd0002}, 0x567b},
+        {"IADD3.RS preserves carry", REG_OP(0x5cc0, (3ull << 39) | (1ull << 37)), {0xffffffff, 1, 2}, 0x10002},
+        {"IADD3.LS", REG_OP(0x5cc0, (3ull << 39) | (2ull << 37)), {1, 2, 3}, 0x30003},
+        {"FLO.SH", REG_OP(0x5c30, 1ull << 41), {0, 0x100, 0}, 23},
+        {"FLO inverted zero", REG_OP(0x5c30, 1ull << 40), {0, 0xffffffff, 0}, 0xffffffff},
+        {"FLO.SH signed", REG_OP(0x5c30, (1ull << 48) | (1ull << 41)), {0, 0xfffffffe, 0}, 31},
+        {"SHR.W", REG_OP(0x5c28, 1ull << 39), {0x80000000, 32, 0}, 0x80000000},
+        {"SHR.BREV", REG_OP(0x5c28, 1ull << 40), {1, 0, 0}, 0x80000000},
+        {"SHR.W signed", REG_OP(0x5c28, (1ull << 48) | (1ull << 39)), {0x80000000, 32, 0}, 0x80000000},
+        {"IMUL32I.HI unsigned", (0x1full << 56) | (1ull << 53) | (0x9abcdef1ull << 20) | (7ull << 16) | (1ull << 8) | 9,
+            {0xffffffff, 0, 0}, 0x9abcdef0},
+        {"IMUL32I.HI signed", (0x1full << 56) | (7ull << 53) | (2ull << 20) | (7ull << 16) | (1ull << 8) | 9,
+            {0x80000000, 0, 0}, 0xffffffff},
+        {"LOP3 predicate true", REG_OP(0x5be0, (3ull << 39) | (1ull << 36) | (0x96ull << 28)), {0, 0, 0}, 1, true},
+        {"LOP3 predicate zero", REG_OP(0x5be0, (3ull << 39) | (2ull << 36) | (0x96ull << 28)), {0, 0, 0}, 1, true},
+        {"LOP3 predicate nonzero", REG_OP(0x5be0, (3ull << 39) | (3ull << 36) | (0x96ull << 28)), {1, 0, 0}, 1, true, 1},
+        {"LOP3 predicate zero false", REG_OP(0x5be0, (3ull << 39) | (2ull << 36) | (0x96ull << 28)), {1, 0, 0}, 0, true, 1},
+        {"LOP3 predicate nonzero false", REG_OP(0x5be0, (3ull << 39) | (3ull << 36) | (0x96ull << 28)), {0, 0, 0}, 0, true},
+        {"LOP3 predicate false", REG_OP(0x5be0, (3ull << 39) | (0x96ull << 28)), {1, 0, 0}, 0, true, 1},
+    };
+#undef REG_OP
+    enum { count = sizeof cases / sizeof *cases };
+    static uint64_t code[count][32];
+    static NvnProgram programs[count];
+    unsigned bad = 0;
+    for (unsigned i = 0; i < count; i++) {
+        uint64_t instructions[12]; unsigned n = 0;
+        for (unsigned k = 0; k < 3; k++) instructions[n++] = 0x010000000007f000ull | ((uint64_t)cases[i].input[k] << 20) | (k + 1);
+        if (cases[i].predicate && !cases[i].want)
+            instructions[n++] = 0x5090000000000000ull | (7ull << 39) | (7ull << 29) | (7ull << 16) | (7ull << 12) | 7; // P0 = PT && PT && PT
+        instructions[n++] = cases[i].opcode;
+        if (cases[i].predicate) {
+            instructions[n++] = 0x010000000017f004ull;  // r4 = 1
+            instructions[n++] = 0x5ca0000000000000ull | (255ull << 20) | (7ull << 16) | (4ull << 8) | 10; // r10 = P0 ? r4 : RZ
+        }
+        instructions[n++] = 0x010000000007f014ull | ((uint64_t)(uint32_t)(g_gwin_base + 512) << 20);
+        instructions[n++] = 0x010000000007f015ull | ((g_gwin_base >> 32) << 20);
+        instructions[n++] = 0xeed8000000000000ull | ((cases[i].predicate ? 5ull : 4ull) << 48) | (1ull << 45) | (7ull << 16) | (20ull << 8) | 9;
+        instructions[n++] = 0xe30000000007000full;
+        instructions[n++] = 0xe2400fffff87000full;
+        unsigned at = 0;
+        for (unsigned k = 0; k < n; k++) {
+            if (!(at & 3)) code[i][at++] = 0x001f8000fc0007e0ull;
+            code[i][at++] = instructions[k];
+        }
+        programs[i].stage_mask = 1u << STAGE_COMPUTE;
+        programs[i].stages[5] = (NvnShaderStage){.stage = 5, .code_addr = (uint64_t)code[i], .const_offset = sizeof code[i]};
+        st.program = &programs[i];
+        uint32_t *result = (uint32_t *)((uint8_t *)g_guest_buffer.contents + 512);
+        result[0] = result[1] = 0xdeadbeef;
+        dispatch_compute(1, 1, 1); check_gpu();
+        if (cases[i].predicate) {
+            fprintf(stderr, "integer %s: pred=%08x/%08x gpr=%08x/%08x\n", cases[i].name, result[1], cases[i].want, result[0], cases[i].want_gpr);
+            if (result[1] != cases[i].want || result[0] != cases[i].want_gpr) bad++;
+        } else {
+            fprintf(stderr, "integer %s: got=%08x want=%08x\n", cases[i].name, *result, cases[i].want);
+            if (*result != cases[i].want) bad++;
+        }
+    }
+    CHECK(bad == 0, "integer opcode results and destination predicates must match the reference vectors");
+}
+
 static void check_png(const char *path, const uint8_t want[3]) {
     NSData *data = [NSData dataWithContentsOfFile:@(path)];
     CHECK(data != nil, "screenshot PNG was written");
@@ -1216,9 +1287,54 @@ static void shadow_fallback(void) {
     }
 }
 
+static void surface_handle_provenance(void) {
+    static uint64_t code[3][128];
+    static NvnProgram programs[3];
+    unsigned bad = 0;
+    for (unsigned computed = 0; computed < 3; computed++) {
+        NvnTexture output = test_texture(1, 4, 4, 1, 1, 0x0a, 1);
+        NvnTexture screen = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+        bind_targets(&output, NULL, NULL);
+        const float initial[4] = {1, 0, 0, 1};
+        clear(0, 0, initial, 15, false, 0, false, 0, 0);
+        bind_targets(&screen, NULL, NULL); prepare_draw();
+        programs[computed] = *st.program;
+        st.scissor[0][2] = st.scissor[0][3] = 1; // one fragment writes the image
+        NvnTexEntry entries[2] = {{0}, {.tex = &output}};
+        NvnDescPool pool = {.entries = entries, .count = 2};
+        st.tpool = &pool; st.img[1][0] = 1;
+        uint64_t words[5]; unsigned n = 0;
+        words[n++] = (0x4c98ull << 48) | (15ull << 39) | (2ull << 34) | ((uint64_t)(IMAGE_HANDLE_BASE / 4) << 20) | (7ull << 16) | 9;
+        if (computed == 1) words[n++] = (0x5be0ull << 48) | (3ull << 39) | (2ull << 20) | (7ull << 16) | (1ull << 8) | 9; // LOP3.P writes handle zero
+        if (computed == 2) words[n++] = (0x5c40ull << 48) | (2ull << 20) | (7ull << 16) | (1ull << 8) | 9; // LOP.P writes handle zero
+        words[n++] = (0xeb2ull << 52) | (9ull << 39) | (3ull << 33) | (1ull << 20) | (7ull << 16) | 4; // SUST.B writes r4=0 at (0,0)
+        words[n++] = 0xe30000000007000full; words[n++] = 0xe2400fffff87000full;
+        *(uint32_t *)((uint8_t *)code[computed] + 0x78) = 15;
+        unsigned at = 16;
+        for (unsigned i = 0; i < n; i++) {
+            if (!(at & 3)) code[computed][at++] = 0x001f8000fc0007e0ull;
+            code[computed][at++] = words[i];
+        }
+        programs[computed].stages[1] = (NvnShaderStage){.stage = 1, .code_addr = (uint64_t)code[computed], .const_offset = sizeof code[computed]};
+        st.program = &programs[computed];
+        fullscreen_draw(1); check_gpu();
+        id<MTLBuffer> data = read_texture(renderer_texture(&output, nil, true), 0, 0, 4);
+        for (unsigned y = 0; y < 4; y++) for (unsigned x = 0; x < 4; x++) {
+            float got = *(const float *)((const uint8_t *)data.contents + y * 256 + x * 4);
+            float want = computed || x || y ? 1 : 0;
+            fprintf(stderr, "surface handle computed=%u pixel=%u,%u got=%g want=%g\n", computed, x, y, got, want);
+            if (got != want) bad++;
+        }
+        destroy_texture(&output); destroy_texture(&screen); st.tpool = NULL;
+    }
+    CHECK(bad == 0, "a modified handle must not write to its former constant-buffer image");
+}
+
 typedef void (*TestFn)(void);
 static const struct { const char *name, *group; TestFn run; bool needs_sampler26; } tests[] = {
     {"smoke", "smoke", smoke},
+    {"integer-opcode-semantics", "integers", integer_opcode_semantics},
+    {"surface-handle-provenance", "integers", surface_handle_provenance},
     {"ldc64-overlap", "sibling", ldc64_overlap},
     {"program-readiness", "sibling", program_readiness},
     {"shadow-fallback", "sibling", shadow_fallback},

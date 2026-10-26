@@ -1570,16 +1570,32 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
     } else if (OPM(0x5cc0000000000000ull, 0xfff0000000000000ull) || OPM(0x4cc0000000000000ull, 0xfff0000000000000ull) ||
                OPM(0x38c0000000000000ull, 0xfef0000000000000ull)) {  // IADD3
         bool wcc3 = bits(w, 47, 1), x3 = bits(w, 48, 1);
+        // register form: each source may be one 16-bit half (bits 35 / 33 / 31: 1 low, 2 high), and A + B may be shifted
+        // by 16 before C is added (bits 37-38: 1 right, with the carry out of the sum as its bit 16; 2 left). Per Ryujinx's
+        // EmitIadd3 and yuzu's IADD3.
+        bool r3 = (w >> 52) == 0x5cc;
+        int lrs = r3 ? (int)bits(w, 37, 2) : 0, part[3] = {r3 ? (int)bits(w, 35, 2) : 0, r3 ? (int)bits(w, 33, 2) : 0,
+                                                            r3 ? (int)bits(w, 31, 2) : 0};
+        if (lrs == 3 || part[0] == 3 || part[1] == 3 || part[2] == 3) { fail(c, "iadd3 lrs / half select 3"); return; }
+        if (lrs && (wcc3 || x3)) { fail(c, "iadd3 .cc / .x with a shift"); return; }
+        char s3[3][160];
+        const char *src3[3] = {R(a), B(false), R((int)bits(w, 39, 8))};
+        for (int i = 0; i < 3; i++) {
+            const char *neg = bits(w, 51 - i, 1) ? "-" : "";
+            if (part[i] == 1) sprintf(s3[i], "%s(%s & 0xFFFFu)", neg, src3[i]);
+            else if (part[i] == 2) sprintf(s3[i], "%s(%s >> 16)", neg, src3[i]);
+            else sprintf(s3[i], "%s%s", neg, src3[i]);
+        }
         if (wcc3 || x3) {  // carry in/out (64-bit address math)
             c->uses_cc = true;
-            sp(&c->body, "    { ulong sum = ulong(%s%s) + ulong(%s%s) + ulong(%s%s)%s;\n", bits(w, 51, 1) ? "-" : "", R(a),
-               bits(w, 50, 1) ? "-" : "", B(false), bits(w, 49, 1) ? "-" : "", R((int)bits(w, 39, 8)), x3 ? " + ulong(cc)" : "");
+            sp(&c->body, "    { ulong sum = ulong(%s) + ulong(%s) + ulong(%s)%s;\n", s3[0], s3[1], s3[2], x3 ? " + ulong(cc)" : "");
             if (wcc3) sp(&c->body, "      cc = uint(sum >> 32) & 1u;\n");
             if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = uint(sum);\n", d); }
             sp(&c->body, "    }\n");
         } else {
-            sprintf(t, "(%s%s + %s%s + %s%s)", bits(w, 51, 1) ? "-" : "", R(a), bits(w, 50, 1) ? "-" : "", B(false),
-                    bits(w, 49, 1) ? "-" : "", R((int)bits(w, 39, 8)));
+            if (lrs == 1) sprintf(t, "(uint((ulong(uint(%s)) + ulong(uint(%s))) >> 16) + %s)", s3[0], s3[1], s3[2]);
+            else if (lrs == 2) sprintf(t, "(((%s + %s) << 16) + %s)", s3[0], s3[1], s3[2]);
+            else sprintf(t, "(%s + %s + %s)", s3[0], s3[1], s3[2]);
             set_reg(c, d, t);
         }
     } else if (OPM(0x5c18000000000000ull, 0xfff8000000000000ull) || OPM(0x4c18000000000000ull, 0xfff8000000000000ull) ||
@@ -1630,10 +1646,14 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         set_reg(c, d, t);
     } else if (OPM(0x5c28000000000000ull, 0xfff8000000000000ull) || OPM(0x4c28000000000000ull, 0xfff8000000000000ull) ||
                OPM(0x3828000000000000ull, 0xfef8000000000000ull)) {  // SHR
+        // .W (bit 39) wraps the amount, else it clamps; .BREV (bit 40) reverses A's bits first (per Ryujinx's EmitShr)
         const char *bv = B(false);
-        bool sgn = bits(w, 48, 1);
-        if (sgn) sprintf(t, "uint(int(%s) >> min(%s, 31u))", R(a), bv);
-        else sprintf(t, "((%s) >= 32u ? 0u : (%s >> (%s)))", bv, R(a), bv);
+        bool sgn = bits(w, 48, 1), wrap = bits(w, 39, 1);
+        char av[64];
+        if (bits(w, 40, 1)) sprintf(av, "reverse_bits(%s)", R(a)); else strcpy(av, R(a));
+        if (wrap) sprintf(t, sgn ? "uint(int(%s) >> (%s & 31u))" : "(%s >> (%s & 31u))", av, bv);
+        else if (sgn) sprintf(t, "uint(int(%s) >> min(%s, 31u))", av, bv);
+        else sprintf(t, "((%s) >= 32u ? 0u : (%s >> (%s)))", bv, av, bv);
         set_reg(c, d, t);
     } else if (OPM(0x5c40000000000000ull, 0xfff8000000000000ull) || OPM(0x4c40000000000000ull, 0xfff8000000000000ull) ||
                OPM(0x3840000000000000ull, 0xfef8000000000000ull)) {  // LOP
@@ -1649,7 +1669,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             c->pred_used[pd] = 1;
             int pop = (int)bits(w, 44, 2);
             sp(&c->body, "    { uint res = %s;\n", t);
-            if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = res;\n", d); }
+            set_reg(c, d, "res");
             sp(&c->body, "      p%d = %s; }\n", pd, pop == 2 ? "(res == 0u)" : pop == 3 ? "(res != 0u)" : pop == 1 ? "true" : "false");
         } else {
             set_reg(c, d, t);
@@ -1682,7 +1702,16 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             else { strcat(e, " | "); strcat(e, term); }
         }
         sprintf(t, "(%s)", e);
-        set_reg(c, d, t);
+        int pd = (w >> 56) == 0x5b ? (int)bits(w, 48, 3) : PT;  // register form: predicate from the result, as LOP's
+        if (pd != PT) {
+            int pop = (int)bits(w, 36, 2);
+            c->pred_used[pd] = 1;
+            sp(&c->body, "    { uint res = %s;\n", t);
+            set_reg(c, d, "res");
+            sp(&c->body, "      p%d = %s; }\n", pd, pop == 2 ? "(res == 0u)" : pop == 3 ? "(res != 0u)" : pop == 1 ? "true" : "false");
+        } else {
+            set_reg(c, d, t);
+        }
     } else if (OPM(0x5c00000000000000ull, 0xfff8000000000000ull) || OPM(0x4c00000000000000ull, 0xfff8000000000000ull) ||
                OPM(0x3800000000000000ull, 0xfef8000000000000ull)) {  // BFE
         const char *bv = B(false);
@@ -1792,8 +1821,14 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         }
     } else if (OPM(0x5c30000000000000ull, 0xfff8000000000000ull) || OPM(0x4c30000000000000ull, 0xfff8000000000000ull) ||
                OPM(0x3830000000000000ull, 0xfef8000000000000ull)) {  // FLO
+        // NegB (bit 40) inverts the source; .SH (bit 41) returns the bit's distance from the top (31 - index), not found
+        // stays 0xFFFFFFFF (per Ryujinx's EmitFlo and yuzu's FLO)
+        char bb[300], f[700];
         const char *bv = B(false);
-        sprintf(t, bits(w, 48, 1) ? "(int(%s) < 0 ? (31u - clz(~%s)) : (31u - clz(%s)))" : "(31u - clz(%s))", bv, bv, bv);
+        if (bits(w, 40, 1)) { sprintf(bb, "(~%s)", bv); bv = bb; }
+        sprintf(f, bits(w, 48, 1) ? "(int(%s) < 0 ? (31u - clz(~%s)) : (31u - clz(%s)))" : "(31u - clz(%s))", bv, bv, bv);
+        if (bits(w, 41, 1)) sprintf(t, "(%s == 0xFFFFFFFFu ? 0xFFFFFFFFu : (%s ^ 31u))", f, f);
+        else strcpy(t, f);
         set_reg(c, d, t);
     } else if (OPM(0x5c08000000000000ull, 0xfff8000000000000ull) || OPM(0x4c08000000000000ull, 0xfff8000000000000ull) ||
                OPM(0x3808000000000000ull, 0xfef8000000000000ull)) {  // POPC
@@ -1801,11 +1836,19 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         set_reg(c, d, t);
     } else if (OPM(0x5c38000000000000ull, 0xfff8000000000000ull) || OPM(0x4c38000000000000ull, 0xfff8000000000000ull) ||
                OPM(0x3838000000000000ull, 0xfef8000000000000ull)) {  // IMUL
-        if (bits(w, 39, 1)) sprintf(t, bits(w, 40, 1) ? "uint(mulhi(int(%s), int(%s)))" : "mulhi(%s, %s)", R(a), B(false));
+        // .HI (bit 39): the high word, A signed (bit 40), B signed (bit 41)
+        if (bits(w, 39, 1)) {
+            if (bits(w, 40, 1) != bits(w, 41, 1)) { fail(c, "imul.hi mixed signedness"); return; }
+            sprintf(t, bits(w, 40, 1) ? "uint(mulhi(int(%s), int(%s)))" : "mulhi(%s, %s)", R(a), B(false));
+        }
         else sprintf(t, "(%s * %s)", R(a), B(false));
         set_reg(c, d, t);
-    } else if (OPM(0x1f00000000000000ull, 0xff00000000000000ull)) {  // IMUL32I
-        sprintf(t, "(%s * 0x%08xu)", R(a), (uint32_t)bits(w, 20, 32));
+    } else if (OPM(0x1f00000000000000ull, 0xff00000000000000ull)) {  // IMUL32I (.HI bit 53, A / B signed bits 54 / 55)
+        if (bits(w, 53, 1)) {
+            if (bits(w, 54, 1) != bits(w, 55, 1)) { fail(c, "imul32i.hi mixed signedness"); return; }
+            sprintf(t, bits(w, 54, 1) ? "uint(mulhi(int(%s), int(0x%08xu)))" : "mulhi(%s, 0x%08xu)", R(a), (uint32_t)bits(w, 20, 32));
+        }
+        else sprintf(t, "(%s * 0x%08xu)", R(a), (uint32_t)bits(w, 20, 32));
         set_reg(c, d, t);
     } else if (OPM(0x5ce0000000000000ull, 0xfff8000000000000ull) || OPM(0x4ce0000000000000ull, 0xfff8000000000000ull) ||
                OPM(0x38e0000000000000ull, 0xfef8000000000000ull)) {  // I2I
@@ -1841,11 +1884,21 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         set_reg(c, d, t);
     } else if (OPM(0x5cf8000000000000ull, 0xfff8000000000000ull) || OPM(0x38f8000000000000ull, 0xfef8000000000000ull) ||
                OPM(0x5bf8000000000000ull, 0xfff8000000000000ull) || OPM(0x36f8000000000000ull, 0xfef8000000000000ull)) {  // SHF
+        // (Rc:Ra) shifted as 64 bits (per Ryujinx's EmitShf / yuzu's SHF). Max shift (bits 37-38): 32, or 64 for .U64 / .S64
+        // (64-bit shifts: an amount past 31 moves Rc into the low word); .W (bit 50) wraps the amount, else it clamps.
+        // The immediate form's amount is 6 bits: the max shift field sits inside the generic 20-bit immediate.
+        // Limit/wrap behavior follows Mesa NAK's hardware-tested OpShf folding (d3e917ea), including sign fill at 64.
         bool right = (w >> 56) == 0x5c || (w >> 57) == (0x38 >> 1);
-        const char *sh = ((w >> 60) == 3) ? B(false) : R((int)bits(w, 20, 8));
-        const char *hi = R((int)bits(w, 39, 8));
-        if (right) sprintf(t, "uint((((ulong(%s) << 32) | ulong(%s)) >> (%s & 31u)))", hi, R(a), sh);
-        else sprintf(t, "uint((((ulong(%s) << 32) | ulong(%s)) << (%s & 31u)) >> 32)", hi, R(a), sh);
+        int maxs = (int)bits(w, 37, 2), lim = maxs >= 2 ? 64 : 32;
+        if (maxs == 1) { fail(c, "shf max shift 1"); return; }
+        char shb[16], n[96], v[160];
+        const char *sh = ((w >> 60) == 3) ? (sprintf(shb, "%uu", (unsigned)bits(w, 20, 6)), shb) : R((int)bits(w, 20, 8));
+        if (bits(w, 50, 1)) sprintf(n, "(%s & %du)", sh, lim - 1);
+        else sprintf(n, "min(%s, %du)", sh, lim);
+        sprintf(v, "((ulong(%s) << 32) | ulong(%s))", R((int)bits(w, 39, 8)), R(a));
+        if (right && maxs == 3) sprintf(t, "uint(long(%s) >> min(%s, 63u))", v, n);  // .S64: an amount of 64 fills with the sign
+        else if (right) sprintf(t, "(%s >= 64u ? 0u : uint(%s >> %s))", n, v, n);
+        else sprintf(t, "(%s >= 64u ? 0u : uint((%s << %s) >> 32))", n, v, n);
         set_reg(c, d, t);
     } else if (OPM(0xeed0000000000000ull, 0xfff8000000000000ull) || OPM(0xeed8000000000000ull, 0xfff8000000000000ull)) {  // LDG / STG
         bool store = bits(w, 51, 1);
@@ -2122,7 +2175,8 @@ static void glsl_rewrite(Ctx *c, Str *o, const char *src) {
         {"int4", "ivec4"}, {"uint2", "uvec2"}, {"uint3", "uvec3"}, {"uint4", "uvec4"}, {"bool2", "bvec2"},
         {"ulong", "uint64_t"}, {"rsqrt", "inversesqrt"}, {"rint", "roundEven"}, {"front_facing", "gl_FrontFacing"},
         {"point_coord", "gl_PointCoord"}, {"lane", "gl_SubgroupInvocationID"}, {"vid", "uint(gl_VertexIndex)"},
-        {"iid", "uint(gl_InstanceIndex)"}, {"rt_layer", "uint(gl_Layer)"},
+        {"iid", "uint(gl_InstanceIndex)"}, {"rt_layer", "uint(gl_Layer)"}, {"long", "int64_t"},
+        {"reverse_bits", "bitfieldReverse"},
     };
     const char *p = src;
     while (*p) {
