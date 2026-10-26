@@ -378,7 +378,8 @@ static bool emit_half(Ctx *c, uint64_t w) {
                 sprintf(ib, "0x%08xu", himm(w)); bv = ib;
             }
         }
-        sprintf(t, kind == 0 ? "(%s + %s)" : "(%s * %s)", HS(R(a), swa, nega, absa), HS(bv, swb, negb, absb));
+        bool fmz = kind == 1 && bits(w, form == 3 ? 55 : 39, 2) == 2;
+        sprintf(t, kind == 0 ? "(%s + %s)" : fmz ? "fmz_mul(%s, %s)" : "(%s * %s)", HS(R(a), swa, nega, absa), HS(bv, swb, negb, absb));
         hstore(c, d, t, merge, sat);
         return true;
     }
@@ -415,13 +416,16 @@ static bool emit_half(Ctx *c, uint64_t w) {
             swb = 0; swc = (int)bits(w, 53, 2);
             sprintf(ib, "0x%08xu", himm(w)); bv = ib; cv = R((int)bits(w, 39, 8));
             break;
-        default:  // 32I: c = d
-            merge = 0; sat = false; negb = false; negc = bits(w, 51, 1);
-            swa = (int)bits(w, 47, 2); swb = 0; swc = 0;
+        default:  // 32I: c = d. The immediate fills bits 20-51, so the fields sit above it, as yuzu's HFMA2_32I (Ryujinx
+                  // reads NegC 51 and ASwizzle 47-48 inside the immediate)
+            merge = 0; sat = false; negb = false; negc = bits(w, 52, 1);
+            swa = (int)bits(w, 53, 2); swb = 0; swc = 0;
             sprintf(ib, "0x%08xu", (uint32_t)bits(w, 20, 32)); bv = ib; cv = R(d);
             break;
         }
-        sprintf(t, "fma(%s, %s, %s)", HS(R(a), swa, false, false), HS(bv, swb, negb, false), HS(cv, swc, negc, false));
+        bool fmz = bits(w, form == 0 ? 37 : form == 4 ? 55 : 57, 2) == 2;
+        sprintf(t, fmz ? "fmz_fma(%s, %s, %s)" : "fma(%s, %s, %s)", HS(R(a), swa, false, false), HS(bv, swb, negb, false),
+                HS(cv, swc, negc, false));
         hstore(c, d, t, merge, sat);
         return true;
     }
@@ -2333,6 +2337,8 @@ static const char glsl_prelude[] =
     "float fmax(float a, float b) { return isnan(a) ? b : (isnan(b) ? a : max(a, b)); }\n"
     "float fmz_mul(float a, float b) { return (floatBitsToUint(a) << 1) == 0u || (floatBitsToUint(b) << 1) == 0u ? 0.0f : a * b; }\n"
     "float fmz_fma(float a, float b, float c) { return (floatBitsToUint(a) << 1) == 0u || (floatBitsToUint(b) << 1) == 0u ? c : fma(a, b, c); }\n"
+    "vec2 fmz_mul(vec2 a, vec2 b) { return vec2(fmz_mul(a.x, b.x), fmz_mul(a.y, b.y)); }\n"
+    "vec2 fmz_fma(vec2 a, vec2 b, vec2 c) { return vec2(fmz_fma(a.x, b.x, c.x), fmz_fma(a.y, b.y, c.y)); }\n"
     "uint clz(uint v) { return v == 0u ? 32u : uint(31 - findMSB(v)); }\n"
     "uint popcount(uint v) { return uint(bitCount(v)); }\n"
     "uint mulhi(uint a, uint b) { uint hi, lo; umulExtended(a, b, hi, lo); return hi; }\n"
@@ -2642,6 +2648,8 @@ ShaderInfo *maxwell_translate(const uint8_t *blob, size_t max_size, int stage, c
     // math a float compare against 0 lets the compiler fold the select into the plain product
     sp(&s, "static inline float fmz_mul(float a, float b) { return (as_type<uint>(a) << 1) == 0u || (as_type<uint>(b) << 1) == 0u ? 0.0f : a * b; }\n");
     sp(&s, "static inline float fmz_fma(float a, float b, float c) { return (as_type<uint>(a) << 1) == 0u || (as_type<uint>(b) << 1) == 0u ? c : fma(a, b, c); }\n");
+    sp(&s, "static inline float2 fmz_mul(float2 a, float2 b) { return float2(fmz_mul(a.x, b.x), fmz_mul(a.y, b.y)); }\n");
+    sp(&s, "static inline float2 fmz_fma(float2 a, float2 b, float2 c) { return float2(fmz_fma(a.x, b.x, c.x), fmz_fma(a.y, b.y, c.y)); }\n");
     sp(&s, "static inline uint2 rsc(uint2 c, float4 s) { return (s.x == 1.0f && s.y == 1.0f) ? c : uint2(floor((float2(c) + 0.5f) * s.xy)); }\n");
     sp(&s, "static inline float2 hx(uint v, uint swz) { if (swz == 1u) return float2(as_type<float>(v)); float2 h = float2(as_type<half2>(v)); return swz == 2u ? h.xx : swz == 3u ? h.yy : h; }\n");
     // merges on half2 lanes rather than with integer masks: on an M1 (macOS 15.0.1) the Metal compiler miscompiled
