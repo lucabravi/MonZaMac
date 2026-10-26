@@ -2555,7 +2555,7 @@ static void draw(CmdRec *r, bool indexed) {
             }
         }
         g_cur_fs_hash = last_hash;
-        if (last_hash == 0x71fe31bbf03c3515ull && getenv("LARECOMP_LOG_INDOOR")) {
+        if (last_hash == 0x71fe31bbf03c3515ull && ENV("LARECOMP_LOG_INDOOR")) {
             static uint64_t lf;
             extern uint64_t renderer_present_count(void);
             if (renderer_present_count() != lf) {
@@ -2798,7 +2798,7 @@ static void draw(CmdRec *r, bool indexed) {
         if (g_live_bias_on) memcpy(f, g_live_bias_val, sizeof f);
         else if ((st.poly[3] & 4) && !off) memcpy(f, st.poly_offset, sizeof f);
         static int nlog;
-        if ((st.poly[3] & 4) && nlog < 3 && getenv("LARECOMP_LOG_BIAS")) { nlog++; LOG("[bias] factor %g units %g clamp %g\n", st.poly_offset[0], st.poly_offset[1], st.poly_offset[2]); }
+        if ((st.poly[3] & 4) && nlog < 3 && ENV("LARECOMP_LOG_BIAS")) { nlog++; LOG("[bias] factor %g units %g clamp %g\n", st.poly_offset[0], st.poly_offset[1], st.poly_offset[2]); }
         if (memcmp(f, last, sizeof f) || enc != last_bias_enc) {
             [enc setDepthBias:f[1] slopeScale:f[0] clamp:f[2]];
             memcpy(last, f, sizeof f);
@@ -3569,7 +3569,7 @@ static void exec_list(uint64_t handle, int depth) {
         }
         case CMD_SET_POLYGON_OFFSET:
             memcpy(st.poly_offset, r->f, sizeof st.poly_offset);
-            if (getenv("LARECOMP_LOG_BIAS")) {  // (diagnostics) every distinct value the game sets, raw argument registers too
+            if (ENV("LARECOMP_LOG_BIAS")) {  // (diagnostics) every distinct value the game sets, raw argument registers too
                 static float seen[32][3];
                 static int nseen;
                 bool dup = false;
