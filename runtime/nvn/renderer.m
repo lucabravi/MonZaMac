@@ -785,7 +785,7 @@ static int cbuf_base = 3, tex_base = 8;
     id<MTLFunction> vs, fs;
     ShaderInfo *vi, *fi;
     uint64_t vs_addr, fs_addr;  // guest shader code addresses, for failure logs
-    bool failed;
+    _Atomic bool failed;  // published by async compilation, read by get_program and draw waits
     _Atomic bool ready;  // functions compiled (async compile: draws are skipped until then)
     bool ov_active;      // live shader override applied (build/dbgcmd): ov_path is the source to reload
     char ov_path[256];
@@ -1004,14 +1004,33 @@ static void shader_cache_note(const char *vs, const char *fs) {
     }
 }
 
+// Compile options for the game's shaders (vs: keep invariance for depth-equal passes). LARECOMP_SAFE_MATH=1 turns
+// Metal's fast math off: it may fold isnan / NaN-propagating min/max and reassociate, unlike the Switch (A/B for
+// NaN-like colour artifacts; strahlender-xnu compiles everything with fp math_mode(safe) for this reason).
+static MTLCompileOptions *game_shader_opts(bool vs) {
+    static MTLCompileOptions *o[2];
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        bool safe = getenv("LARECOMP_SAFE_MATH") && atoi(getenv("LARECOMP_SAFE_MATH"));
+        for (int i = 0; i < 2; i++) {
+            o[i] = [MTLCompileOptions new];
+            o[i].preserveInvariance = i == 1;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+            if (safe) o[i].fastMathEnabled = NO;
+#pragma clang diagnostic pop
+        }
+        if (safe) LOG("[metal] LARECOMP_SAFE_MATH: shaders compiled without fast math\n");
+    });
+    return o[vs];
+}
+
 void shader_cache_warm(void) {
     static int started;
     if (started++ || getenv("LARECOMP_NO_SHADER_WARM")) return;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         DIR *d = opendir("cache/shaders");
         if (!d) return;
-        MTLCompileOptions *vopts = [MTLCompileOptions new];
-        vopts.preserveInvariance = YES;
         double t0 = now_ms();
         int n = 0;
         struct dirent *e;
@@ -1021,7 +1040,7 @@ void shader_cache_warm(void) {
             snprintf(path, sizeof path, "cache/shaders/%s", e->d_name);
             NSString *src = [NSString stringWithContentsOfFile:@(path) encoding:NSUTF8StringEncoding error:nil];
             if (!src) continue;
-            @autoreleasepool { (void)[dev newLibraryWithSource:src options:e->d_name[0] == 'v' ? vopts : nil error:nil]; }
+            @autoreleasepool { (void)[dev newLibraryWithSource:src options:game_shader_opts(e->d_name[0] == 'v') error:nil]; }
             n++;
         }
         closedir(d);
@@ -1074,15 +1093,12 @@ static NvnProgram g_comp_prog;  // the stages bound so far (a game may bind them
 
 static void compile_program(Prog *pr) {
     NSError *err = nil;
-    static MTLCompileOptions *vopts;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ vopts = [MTLCompileOptions new]; vopts.preserveInvariance = YES; });
     double t0 = now_ms();
     // LARECOMP_SHADER_SALT=<text>: tag sources so Metal's disk cache misses (measure cold first-use compiles)
     NSString *salt = getenv("LARECOMP_SHADER_SALT") ? [NSString stringWithFormat:@"\n// %s\n", getenv("LARECOMP_SHADER_SALT")] : @"";
-    id<MTLLibrary> vl = [dev newLibraryWithSource:[@(pr->vi->msl) stringByAppendingString:salt] options:vopts error:&err];
+    id<MTLLibrary> vl = [dev newLibraryWithSource:[@(pr->vi->msl) stringByAppendingString:salt] options:game_shader_opts(true) error:&err];
     if (!vl) { LOG("[shader] VS compile failed (%llx): %s\n%s\n", pr->vs_addr, err.localizedDescription.UTF8String, pr->vi->msl); pr->failed = true; return; }
-    id<MTLLibrary> fl = pr->fi->msl ? [dev newLibraryWithSource:[@(pr->fi->msl) stringByAppendingString:salt] options:nil error:&err] : nil;
+    id<MTLLibrary> fl = pr->fi->msl ? [dev newLibraryWithSource:[@(pr->fi->msl) stringByAppendingString:salt] options:game_shader_opts(false) error:&err] : nil;
     if (!fl && pr->fi->msl) { LOG("[shader] FS compile failed (%llx): %s\n%s\n", pr->fs_addr, err.localizedDescription.UTF8String, pr->fi->msl); pr->failed = true; return; }
     pr->vs = [vl newFunctionWithName:@"main0"];
     pr->fs = fl ? [fl newFunctionWithName:@"main0"] : nil;
@@ -1329,6 +1345,46 @@ static MTLTextureType mtl_type_for(int t) {
     case TEXTYPE_1D_ARRAY: return MTLTextureType1DArray;
     default: return MTLTextureType2D;
     }
+}
+
+// Shadow slots (depth2d, sample_compare) need a depth texture: with nothing usable bound they get a 1x1 Depth32Float
+// cleared to 1.0 (lit under less / less-equal, as an empty shadow map) instead of the RGBA8 dummy, which compares as 0
+// (in shadow) and is not a valid depth2d binding. (As LASRecomp c7e85df.)
+static id<MTLTexture> shadow_slot_texture(id<MTLTexture> tex, const ShaderTexture *st_) {
+    if (tex && tex.textureType != MTLTextureType2DMultisample)
+        switch (tex.pixelFormat) {
+        case MTLPixelFormatDepth16Unorm: case MTLPixelFormatDepth32Float: case MTLPixelFormatDepth32Float_Stencil8: return tex;
+        default: break;
+        }
+    int type = st_->type;
+    if (type != TEXTYPE_2D && type != TEXTYPE_2D_ARRAY && type != TEXTYPE_CUBE && type != TEXTYPE_CUBE_ARRAY) return tex;
+    static id<MTLTexture> t[10];
+    static bool logged;
+    if (!logged) { logged = true; LOG("[metal] shadow slot without a depth texture (format %lu): 1x1 depth dummy (once)\n", tex ? (unsigned long)tex.pixelFormat : 0ul); }
+    if (!t[type]) {
+        MTLTextureDescriptor *d = [MTLTextureDescriptor new];
+        d.pixelFormat = MTLPixelFormatDepth32Float;
+        d.width = d.height = 1;
+        d.textureType = mtl_type_for(type);
+        if (type == TEXTYPE_2D_ARRAY || type == TEXTYPE_CUBE_ARRAY) d.arrayLength = 1;
+        d.storageMode = MTLStorageModePrivate;
+        d.usage = MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget;
+        id<MTLTexture> dt = [dev newTextureWithDescriptor:d];
+        if (!dt) return tex;
+        id<MTLCommandBuffer> cb = [renderer_queue() commandBuffer];  // (committed now: runs before the current one)
+        for (NSUInteger sl = 0; sl < (type == TEXTYPE_CUBE || type == TEXTYPE_CUBE_ARRAY ? 6 : 1); sl++) {
+            MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
+            rp.depthAttachment.texture = dt;
+            rp.depthAttachment.slice = sl;
+            rp.depthAttachment.loadAction = MTLLoadActionClear;
+            rp.depthAttachment.storeAction = MTLStoreActionStore;
+            rp.depthAttachment.clearDepth = 1.0;
+            [[cb renderCommandEncoderWithDescriptor:rp] endEncoding];
+        }
+        [cb commit];
+        t[type] = dt;
+    }
+    return t[type];
 }
 
 // NVN texture/view component swizzle (same enum values as MTLTextureSwizzle), applied as a view.
@@ -1726,6 +1782,7 @@ static void bind_textures(int stage, ShaderInfo *si) {
         }
         NvnSamplerDesc *sd = h && st.spool && tsc < (uint32_t)st.spool->count ? &((NvnSamplerDesc *)st.spool->entries)[tsc] : NULL;
         if (sd) smp = sampler_for(sd);
+        if (st_->shadow) tex = shadow_slot_texture(tex, st_);
         if (!tex) tex = dummy_texture(st_->type, st_->scalar_kind);
         {   // LARECOMP_DUMMY_TEX=<fs addr or fsh>:<slot>,...: bind the neutral dummy texture to these fragment shader inputs (A/B tests)
             static uint64_t dfs[8];
@@ -1876,7 +1933,7 @@ static CsProg *compute_program(NvnProgram *p) {
         FILE *f = fopen(path, "w"); if (f) { fputs(cp->si->msl, f); fclose(f); }
     }
     NSError *err = nil;
-    id<MTLLibrary> lib = TIMED_COMPILE([dev newLibraryWithSource:@(cp->si->msl) options:nil error:&err]);
+    id<MTLLibrary> lib = TIMED_COMPILE([dev newLibraryWithSource:@(cp->si->msl) options:game_shader_opts(false) error:&err]);
     id<MTLFunction> f = lib ? [lib newFunctionWithName:@"main0"] : nil;
     cp->pipe = f ? TIMED_COMPILE([dev newComputePipelineStateWithFunction:f error:&err]) : nil;
     if (!cp->pipe) {
@@ -1961,6 +2018,7 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
         NvnSamplerDesc *sd = h && st.spool && tsc < (uint32_t)st.spool->count ? &((NvnSamplerDesc *)st.spool->entries)[tsc] : NULL;
         if (sd) smp = sampler_for(sd);
         if (!smp) smp = default_sampler();
+        if (st_->shadow) tex = shadow_slot_texture(tex, st_);
         [ce setTexture:tex ? tex : dummy_texture(st_->type, st_->scalar_kind) atIndex:i];
         if (cmapped) { msmp[i] = smp; mdesc[i] = sd; }
         else [ce setSamplerState:smp atIndex:i];
@@ -2152,7 +2210,7 @@ static bool live_override_fs(Prog *pr, const char *path) {
     if (!ok) { free(b); return false; }
     b[n] = 0;
     NSError *err = nil;
-    id<MTLLibrary> fl = TIMED_COMPILE([dev newLibraryWithSource:@(b) options:nil error:&err]);
+    id<MTLLibrary> fl = TIMED_COMPILE([dev newLibraryWithSource:@(b) options:game_shader_opts(false) error:&err]);
     id<MTLFunction> fn = fl ? [fl newFunctionWithName:@"main0"] : nil;
     if (!fn) {
         LOG("[dbgcmd] FS %llx: compile failed: %s\n", (unsigned long long)pr->fs_addr, err.localizedDescription.UTF8String);
@@ -2329,6 +2387,19 @@ static bool dbg_budget(int *n, uint64_t *frame, int limit) {
     return g_debug_frame && (*n)++ < limit;
 }
 
+// A draw of a handful of vertices - a full-screen pass: post-processing, a menu's backdrop, the composite into the
+// window image - whose program is still compiling is waited for (a few ms, once) rather than skipped: skipping one left
+// the whole frame black. Scene draws are still skipped until ready. (As ZA Recomp's Vulkan wait_built, 302bd07.)
+static bool prog_ready_or_wait(Prog *pr, const CmdRec *r) {
+    if (!pr || pr->ready) return pr != nil;
+    if (r->x[2] > 6) return false;
+    double t0 = now_ms();
+    while (!pr->ready && !pr->failed && now_ms() - t0 < 2000) usleep(1000);
+    static int n;
+    if (n++ < 20) LOG("[metal] full-screen draw waited %.1f ms for its program\n", now_ms() - t0);
+    return pr->ready;
+}
+
 // (diagnostics) classify a dropped draw. get_program returns nil both for a program missing a stage and for one whose
 // shader never compiled, so the stage mask is what tells them apart; missing text is usually the second kind.
 static void prog_skip_stat(Prog *pr, NvnProgram *p, CmdRec *r) {
@@ -2398,7 +2469,7 @@ static void draw(CmdRec *r, bool indexed) {
     }
     vkey.xfb_void = g_raster_discard || !(st.program->stage_mask & 2);
     Prog *pr = get_program(st.program, &vkey, &fkey);
-    if (!pr || !pr->ready) { prog_skip_stat(pr, st.program, r); return; }
+    if (!prog_ready_or_wait(pr, r)) { prog_skip_stat(pr, st.program, r); return; }
     if (g_rt_plane < 0 && pr->vi->writes_layer && st.rt.ncolor && st.rt.color[0] && st.rt.color[0]->target == 2 &&
         st.rt.color[0]->depth > 1) {  // (target 2: 3D)
         uint32_t ni = indexed ? (uint32_t)r->x[6] : (uint32_t)r->x[4], nb = indexed ? (uint32_t)r->x[5] : (uint32_t)r->x[3];
@@ -2427,7 +2498,7 @@ static void draw(CmdRec *r, bool indexed) {
         if (mirror_draw(composite)) {  // (the vertex flip mirrors a composite drawn with uvs, the fragment one a
             vkey.flip_x = fkey.flip_x = true;  // composite reading pixel positions; get_program keys on vkey)
             pr = get_program(st.program, &vkey, &fkey);
-            if (!pr || !pr->ready) { prog_skip_stat(pr, st.program, r); return; }
+            if (!prog_ready_or_wait(pr, r)) { prog_skip_stat(pr, st.program, r); return; }
         }
     }
     {   // The hash of the current fragment shader's code (debug logs, LARECOMP_SKIP_FSHASH, g_cur_fs_hash)

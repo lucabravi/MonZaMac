@@ -62,6 +62,65 @@ static void smoke(void) {
     destroy_texture(&t);
 }
 
+// Schedule words and termination are fixture data, not copied game instructions.
+static void compute_fixture(uint64_t code[32], NvnProgram *p, const uint64_t *ops, unsigned count) {
+    unsigned at = 0;
+    for (unsigned i = 0; i < count + 2; i++) {
+        if (!(at & 3)) code[at++] = 0x001f8000fc0007e0ull;
+        code[at++] = i < count ? ops[i] : i == count ? 0xe30000000007000full : 0xe2400fffff87000full;
+    }
+    p->stage_mask = 1u << STAGE_COMPUTE;
+    p->stages[5] = (NvnShaderStage){.stage = 5, .code_addr = (uint64_t)code, .const_offset = 32 * sizeof *code};
+}
+
+static void ldc64_overlap(void) {
+    static uint64_t code[3][32];
+    static NvnProgram programs[3];
+    uint32_t constants[8] = {0, 16, 0xcafebabe, 0, 0, 0xbad, 0, 0};
+    unsigned bad = 0;
+    st.ubuf[5][1] = (Range){.addr = (uint64_t)constants, .size = sizeof constants}; // hardware CB4
+    for (unsigned i = 0; i < 3; i++) {
+        uint64_t ops[] = {
+            0x010000000007f000ull | (4ull << 20) | (4 + i), // address 4 in R4, R5, or R6
+            0xef90000000000000ull | (5ull << 48) | (4ull << 36) | (7ull << 16) | ((4ull + i) << 8) | 4,
+            0x010000000007f002ull | ((uint64_t)(uint32_t)(g_gwin_base + 512) << 20),
+            0x010000000007f003ull | ((g_gwin_base >> 32) << 20),
+            0xeed8000000000000ull | (5ull << 48) | (1ull << 45) | (7ull << 16) | (2ull << 8) | 4,
+        };
+        compute_fixture(code[i], &programs[i], ops, sizeof ops / sizeof *ops);
+        st.program = &programs[i];
+        uint32_t *out = (uint32_t *)((uint8_t *)g_guest_buffer.contents + 512);
+        out[0] = out[1] = 0xdeadbeef;
+        dispatch_compute(1, 1, 1); check_gpu();
+        fprintf(stderr, "LDC64 address R%u got=%08x,%08x want=00000010,cafebabe\n", 4 + i, out[0], out[1]);
+        if (out[0] != 16 || out[1] != 0xcafebabe) bad++;
+    }
+    st.ubuf[5][1] = (Range){0};
+    CHECK(bad == 0, "LDC64 must use the original address for both words when source and destination overlap");
+}
+
+static void safe_math_compute(void) {
+    // Load zero at runtime: prevent constant folding of the NaN-producing arithmetic.
+    uint32_t zero[4] = {0};
+    st.ubuf[5][1] = (Range){.addr = (uint64_t)zero, .size = sizeof zero};
+    static uint64_t code[32]; static NvnProgram program;
+    uint64_t ops[] = {
+        (0x4c98ull << 48) | (15ull << 39) | (4ull << 34) | (7ull << 16) | 4,
+        (0x5080ull << 48) | (4ull << 20) | (7ull << 16) | (4ull << 8) | 5, // RCP R5, R4
+        (0x5c68ull << 48) | (5ull << 20) | (7ull << 16) | (4ull << 8) | 6, // FMUL R6, R4, R5
+        0x010000000007f008ull | ((uint64_t)(uint32_t)(g_gwin_base + 512) << 20),
+        0x010000000007f009ull | ((g_gwin_base >> 32) << 20),
+        0xeed8000000000000ull | (4ull << 48) | (1ull << 45) | (7ull << 16) | (8ull << 8) | 6,
+    };
+    compute_fixture(code, &program, ops, sizeof ops / sizeof *ops); st.program = &program;
+    uint32_t *out = (uint32_t *)((uint8_t *)g_guest_buffer.contents + 512); *out = 0xdeadbeef;
+    dispatch_compute(1, 1, 1); check_gpu();
+    fprintf(stderr, "safe math compute=%s got=%08x\n", getenv("LARECOMP_SAFE_MATH") ?: "default", *out);
+    if (getenv("LARECOMP_SAFE_MATH") && atoi(getenv("LARECOMP_SAFE_MATH")))
+        CHECK((*out & 0x7f800000u) == 0x7f800000u && (*out & 0x007fffffu), "safe compute math must preserve NaN");
+    st.ubuf[5][1] = (Range){0};
+}
+
 static void integer_opcode_semantics(void) {
 #define REG_OP(top, flags) (((uint64_t)(top) << 48) | 9ull | (1ull << 8) | (7ull << 16) | (2ull << 20) | (flags))
     static const struct { const char *name; uint64_t opcode; uint32_t input[3], want; bool predicate; uint32_t want_gpr; } cases[] = {
@@ -1101,6 +1160,133 @@ static void feedback_base_alias(void) {
     }
 }
 
+static Prog *source_program(const char *fragment) {
+    Prog *pr = [Prog new];
+    pr->vi = calloc(1, sizeof *pr->vi); pr->fi = calloc(1, sizeof *pr->fi);
+    pr->vi->msl = strdup("#include <metal_stdlib>\nusing namespace metal;\n"
+        "vertex float4 main0(uint v [[vertex_id]]) { return float4(float2((v<<1)&2,v&2)*2-1,0,1); }");
+    pr->fi->msl = strdup(fragment);
+    return pr;
+}
+
+static void free_source_program(Prog *pr) {
+    free(pr->vi->msl); free(pr->fi->msl); free(pr->vi); free(pr->fi);
+}
+
+static void program_readiness(void) {
+    CmdRec r = {.op = CMD_DRAW_ARRAYS, .x = {4, 0, 7}};
+    CHECK(!prog_ready_or_wait(nil, &r), "a missing program cannot draw");
+    Prog *pr = source_program("#include <metal_stdlib>\nusing namespace metal; fragment float4 main0() { return float4(0,1,0,1); }");
+    dispatch_semaphore_t gate = dispatch_semaphore_create(0);
+    dispatch_group_t work = dispatch_group_create();
+    dispatch_group_async(work, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        dispatch_semaphore_wait(gate, DISPATCH_TIME_FOREVER);
+        compile_program(pr);
+    });
+    CHECK(!prog_ready_or_wait(pr, &r), "larger draws skip while real compilation is pending");
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_MSEC), dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        dispatch_semaphore_signal(gate);
+    });
+    r.x[2] = 6; // inclusive boundary of the small-draw wait
+    CHECK(prog_ready_or_wait(pr, &r), "a small draw must wait for actual shader functions");
+    dispatch_group_wait(work, DISPATCH_TIME_FOREVER);
+    CHECK(pr->vs && pr->fs, "ready publishes both compiled shader functions");
+    free_source_program(pr);
+
+    pr = source_program("this is intentionally invalid MSL for the compilation-failure test");
+    Prog *failed = pr;
+    double start = now_ms();
+    dispatch_group_async(work, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ compile_program(failed); });
+    CHECK(!prog_ready_or_wait(pr, &r), "a failed compile cannot draw");
+    double elapsed = now_ms() - start;
+    dispatch_group_wait(work, DISPATCH_TIME_FOREVER);
+    CHECK(pr->failed && elapsed < 1500, "failed compilation must release the wait before its two-second timeout");
+    fprintf(stderr, "expected compilation failure released the wait after %.1f ms\n", elapsed);
+    free_source_program(pr);
+}
+
+static void safe_math_graphics(void) {
+    const char *source = "#include <metal_stdlib>\nusing namespace metal;\n"
+        "fragment float4 main0(constant float &x [[buffer(0)]]) { return float4(isnan(x*(1.0f/x)),0,0,1); }";
+    Prog *pr = source_program(source); compile_program(pr);
+    CHECK(pr->ready, "safe-math graphics fixture compiles through production options");
+    NvnTexture output = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    for (unsigned live = 0; live < 2; live++) {
+        if (live) {
+            FILE *f = fopen("safe-override.metal", "w"); CHECK(f != NULL, "live override source");
+            fputs(source, f); fclose(f);
+            char *previous = pr->fi->msl;
+            CHECK(live_override_fs(pr, "safe-override.metal"), "live override compiles");
+            free(previous);
+        }
+        bind_targets(&output, NULL, NULL); begin_pass();
+        MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
+        pd.vertexFunction = pr->vs; pd.fragmentFunction = pr->fs; attachment_formats(pd);
+        NSError *error = nil;
+        id<MTLRenderPipelineState> pipeline = [dev newRenderPipelineStateWithDescriptor:pd error:&error];
+        CHECK(pipeline != nil, "safe math render pipeline");
+        float zero = 0;
+        [enc setRenderPipelineState:pipeline]; [enc setFragmentBytes:&zero length:sizeof zero atIndex:0];
+        [enc setViewport:(MTLViewport){0,0,4,4,0,1}]; [enc setScissorRect:(MTLScissorRect){0,0,4,4}];
+        [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        id<MTLBuffer> result = read_texture(renderer_texture(&output, nil, true), 0, 0, 4);
+        uint8_t red = *(const uint8_t *)result.contents;
+        fprintf(stderr, "safe math graphics=%s live=%u isnan=%u\n", getenv("LARECOMP_SAFE_MATH") ?: "default", live, red);
+        if (getenv("LARECOMP_SAFE_MATH") && atoi(getenv("LARECOMP_SAFE_MATH")))
+            CHECK(red == 255, "safe graphics and live override must retain isnan for runtime zero times infinity");
+    }
+    destroy_texture(&output); free_source_program(pr);
+}
+
+static void shadow_fallback(void) {
+    const char *source = "#include <metal_stdlib>\nusing namespace metal;\n"
+        "kernel void s2(depth2d<float> t [[texture(0)]], sampler s [[sampler(0)]], device float *o [[buffer(0)]], constant float3 &d [[buffer(1)]]) { *o=t.sample_compare(s,float2(0.5),0.5,level(0)); }\n"
+        "kernel void sa(depth2d_array<float> t [[texture(0)]], sampler s [[sampler(0)]], device float *o [[buffer(0)]], constant float3 &d [[buffer(1)]]) { *o=t.sample_compare(s,float2(0.5),0,0.5,level(0)); }\n"
+        "kernel void sc(depthcube<float> t [[texture(0)]], sampler s [[sampler(0)]], device float *o [[buffer(0)]], constant float3 &d [[buffer(1)]]) { *o=t.sample_compare(s,d,0.5,level(0)); }\n"
+        "kernel void ss(depthcube_array<float> t [[texture(0)]], sampler s [[sampler(0)]], device float *o [[buffer(0)]], constant float3 &d [[buffer(1)]]) { *o=t.sample_compare(s,d,0,0.5,level(0)); }\n";
+    NSError *error = nil;
+    id<MTLLibrary> library = [dev newLibraryWithSource:@(source) options:nil error:&error];
+    if (!library) fprintf(stderr, "%s\n", error.localizedDescription.UTF8String);
+    CHECK(library != nil, "shadow comparison fixtures compile");
+    MTLSamplerDescriptor *sd = [MTLSamplerDescriptor new]; sd.compareFunction = MTLCompareFunctionLessEqual;
+    id<MTLSamplerState> sampler = [dev newSamplerStateWithDescriptor:sd];
+    const struct { int type; const char *entry; unsigned faces; } cases[] = {
+        {TEXTYPE_2D,"s2",1}, {TEXTYPE_2D_ARRAY,"sa",1}, {TEXTYPE_CUBE,"sc",6}, {TEXTYPE_CUBE_ARRAY,"ss",6},
+    };
+    const float direction[6][4] = {{1,0,0,0},{-1,0,0,0},{0,1,0,0},{0,-1,0,0},{0,0,1,0},{0,0,-1,0}};
+    id<MTLTexture> color = [dev newTextureWithDescriptor:[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:1 height:1 mipmapped:NO]];
+    for (unsigned i = 0; i < sizeof cases / sizeof *cases; i++) {
+        ShaderTexture shape = {.type = cases[i].type, .shadow = true};
+        id<MTLComputePipelineState> pipe = [dev newComputePipelineStateWithFunction:[library newFunctionWithName:@(cases[i].entry)] error:&error];
+        CHECK(pipe != nil, "shadow comparison pipeline");
+        MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float width:1 height:1 mipmapped:NO];
+        desc.textureType = mtl_type_for(shape.type); desc.storageMode = MTLStorageModePrivate;
+        desc.usage = MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget;
+        id<MTLTexture> valid = [dev newTextureWithDescriptor:desc]; CHECK(valid != nil, "valid depth input");
+        id<MTLCommandBuffer> init = [renderer_queue() commandBuffer];
+        for (unsigned face = 0; face < cases[i].faces; face++) {
+            MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
+            rp.depthAttachment.texture = valid; rp.depthAttachment.slice = face;
+            rp.depthAttachment.clearDepth = 0.25; rp.depthAttachment.loadAction = MTLLoadActionClear; rp.depthAttachment.storeAction = MTLStoreActionStore;
+            [[init renderCommandEncoderWithDescriptor:rp] endEncoding];
+        }
+        [init commit];
+        for (unsigned input = 0; input < 3; input++) for (unsigned face = 0; face < cases[i].faces; face++) {
+            end_pass(); (void)cb(); // fallback initialization must precede this already-created, uncommitted buffer
+            id<MTLTexture> texture = shadow_slot_texture(input == 0 ? nil : input == 1 ? color : valid, &shape);
+            id<MTLBuffer> result = [dev newBufferWithLength:4 options:MTLResourceStorageModeShared];
+            *(float *)result.contents = -1;
+            id<MTLComputeCommandEncoder> ce = [cb() computeCommandEncoder];
+            [ce setComputePipelineState:pipe]; [ce setTexture:texture atIndex:0]; [ce setSamplerState:sampler atIndex:0];
+            [ce setBuffer:result offset:0 atIndex:0]; [ce setBytes:direction[face] length:16 atIndex:1];
+            [ce dispatchThreads:MTLSizeMake(1,1,1) threadsPerThreadgroup:MTLSizeMake(1,1,1)]; [ce endEncoding]; check_gpu();
+            float want = input == 2 ? 0 : 1, got = *(float *)result.contents;
+            fprintf(stderr, "shadow shape=%d input=%u face=%u got=%g want=%g\n", shape.type, input, face, got, want);
+            CHECK(got == want, "missing or color shadow inputs must be lit; valid depth must preserve its comparison");
+        }
+    }
+}
+
 static void surface_handle_provenance(void) {
     static uint64_t code[3][128];
     static NvnProgram programs[3];
@@ -1149,6 +1335,11 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"smoke", "smoke", smoke},
     {"integer-opcode-semantics", "integers", integer_opcode_semantics},
     {"surface-handle-provenance", "integers", surface_handle_provenance},
+    {"ldc64-overlap", "sibling", ldc64_overlap},
+    {"program-readiness", "sibling", program_readiness},
+    {"shadow-fallback", "sibling", shadow_fallback},
+    {"safe-math-graphics", "sibling", safe_math_graphics},
+    {"safe-math-compute", "sibling", safe_math_compute},
     {"screenshot-2d", "screenshots", screenshot_2d},
     {"screenshot-volume", "screenshots", screenshot_volume},
     {"screenshot-volume-r16", "screenshots", screenshot_volume_r16},
