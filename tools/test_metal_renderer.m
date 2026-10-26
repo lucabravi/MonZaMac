@@ -1651,7 +1651,7 @@ static void pipeline_archive_reload(void) {  // a pipeline built once is found i
     renderer_save_pipeline_archive();  // waits for the background add, then writes the file
     CHECK(g_archive_dirty == 0 && access("cache/pipelines.bin", R_OK) == 0, "pipeline archive saved to disk");
     MTLBinaryArchiveDescriptor *ad = [MTLBinaryArchiveDescriptor new];
-    ad.url = [NSURL fileURLWithPath:@"cache/pipelines.bin"];
+    ad.url = [NSURL fileURLWithPath:@"cache/pipelines.bin"].absoluteURL;
     NSError *err = nil;
     id<MTLBinaryArchive> loaded = [dev newBinaryArchiveWithDescriptor:ad error:&err];
     CHECK(loaded != nil, "saved pipeline archive loads back");
@@ -1766,6 +1766,7 @@ int metal_renderer_test_main(int argc, char **argv) { @autoreleasepool {
         fprintf(stderr, "PASS %s\n", tests[i].name);
     }
     CHECK(ran + skipped != 0, "unknown test selection");
+    renderer_save_pipeline_archive();  // now, while the directory still exists (exit would save again otherwise)
     [[NSFileManager defaultManager] removeItemAtPath:@(temporary) error:nil];
     if (ran) fprintf(stderr, "PASS: %u Metal renderer tests on %s\n", ran, dev.name.UTF8String);
     if (skipped) fprintf(stderr, "SKIP: %u tests requiring newer sampler APIs\n", skipped);
