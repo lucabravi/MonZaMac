@@ -1656,7 +1656,7 @@ static void pipeline_archive_reload(void) {  // a pipeline built once is found i
     id<MTLBinaryArchive> loaded = [dev newBinaryArchiveWithDescriptor:ad error:&err];
     CHECK(loaded != nil, "saved pipeline archive loads back");
     destroy_texture(&color);
-    g_archive = loaded;  // as on the next run
+    g_archive_read = loaded;  // as on the next run
     renderer_reset();    // forget the built pipelines and programs
     int hits = g_archive_hits;
     color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
