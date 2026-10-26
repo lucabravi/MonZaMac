@@ -66,6 +66,7 @@ typedef struct {
     bool uses_branches, uses_cc, uses_local, uses_vid, uses_iid, uses_frag_coord, uses_front_facing, uses_lane, uses_layer;
     uint8_t out_comp[32];  // vertex: output components written per varying (transform feedback order)
     bool uses_rscale;  // resolution-scale table (fragment/compute only)
+    uint32_t txq_z;    // (MSL) texture slots whose TXQ dimension reads z: tz<slot>(level) is emitted with the final type
     bool warned_surface;  // a dropped bindless surface op was noted
     int32_t reg_cbsrc[256];  // registers last loaded straight from a constant buffer: ((cbuf << 16) | byte offset) + 1, else 0
     uint32_t flat_mask;           // fragment inputs using constant (flat) interpolation
@@ -1376,25 +1377,26 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             if (c->stage != STAGE_VERTEX) {
                 c->uses_rscale = true;
                 sp(&c->body, "    { uint lv = %s; uvec4 q = uvec4(uint(floor(float(tsize%d(int(lv)).x) / rscale[%d].x + 0.5f)), "
-                   "uint(floor(float(tsize%d(int(lv)).y) / rscale[%d].y + 0.5f)), 1u, uint(textureQueryLevels(t%d)));\n",
-                   R(a), slot, slot + 1, slot, slot + 1, slot);
+                   "uint(floor(float(tsize%d(int(lv)).y) / rscale[%d].y + 0.5f)), uint(tsize%d(int(lv)).z), uint(textureQueryLevels(t%d)));\n",
+                   R(a), slot, slot + 1, slot, slot + 1, slot, slot);
             } else {
-                sp(&c->body, "    { uint lv = %s; uvec4 q = uvec4(uint(tsize%d(int(lv)).x), uint(tsize%d(int(lv)).y), 1u, uint(textureQueryLevels(t%d)));\n",
-                   R(a), slot, slot, slot);
+                sp(&c->body, "    { uint lv = %s; uvec4 q = uvec4(uint(tsize%d(int(lv)).x), uint(tsize%d(int(lv)).y), uint(tsize%d(int(lv)).z), uint(textureQueryLevels(t%d)));\n",
+                   R(a), slot, slot, slot, slot);
             }
             int n = 0;
             for (int i = 0; i < 4; i++)
                 if (mask & (1u << i)) { c->reg_used[d + n] = 1; sp(&c->body, "      r%d = q[%d];\n", d + n, i); n++; }
             sp(&c->body, "    }\n");
-        } else if (qt == 1) {  // dimension
+        } else if (qt == 1) {  // dimension (z: depth or layers, as Ryujinx's TextureQuerySize; 1 for 1D / 2D / cube)
+            if (slot < 32) c->txq_z |= 1u << slot;
             if (c->stage != STAGE_VERTEX) {  // report the guest size of scaled allocations
                 c->uses_rscale = true;
                 sp(&c->body, "    { uint lv = %s; uint4 q = uint4(uint(round(float(t%d.get_width(lv)) / rscale[%d].x)), "
-                   "uint(round(float(t%d.get_height(lv)) / rscale[%d].y)), 1, t%d.get_num_mip_levels());\n",
-                   R(a), slot, slot + 1, slot, slot + 1, slot);
+                   "uint(round(float(t%d.get_height(lv)) / rscale[%d].y)), tz%d(lv), t%d.get_num_mip_levels());\n",
+                   R(a), slot, slot + 1, slot, slot + 1, slot, slot);
             } else {
-                sp(&c->body, "    { uint lv = %s; uint4 q = uint4(t%d.get_width(lv), t%d.get_height(lv), 1, t%d.get_num_mip_levels());\n",
-                   R(a), slot, slot, slot);
+                sp(&c->body, "    { uint lv = %s; uint4 q = uint4(t%d.get_width(lv), t%d.get_height(lv), tz%d(lv), t%d.get_num_mip_levels());\n",
+                   R(a), slot, slot, slot, slot);
             }
             int n = 0;
             for (int i = 0; i < 4; i++)
@@ -2733,6 +2735,13 @@ ShaderInfo *maxwell_translate(const uint8_t *blob, size_t max_size, int stage, c
         else if (t->stencil && !c->glsl) sp(&args, ", texture2d<uint> t%d [[texture(%d)]]", i, i);  // (stencil view: uint bits)
         else sp(&args, ", %s%s<%s> t%d [[texture(%d)]]", t->shadow ? "depth" : "texture", tn, scalar, i, i);
         if (!smap) sp(&args, ", sampler s%d [[sampler(%d)]]", i, i);
+    }
+    for (int i = 0; i < info->ntex; i++) {
+        if (i >= 32 || !(c->txq_z >> i & 1)) continue;
+        int ty = info->tex[i].type;
+        if (ty == TEXTYPE_3D) sp(&s, "#define tz%d(l) t%d.get_depth(l)\n", i, i);
+        else if (ty == TEXTYPE_2D_ARRAY || ty == TEXTYPE_CUBE_ARRAY || ty == TEXTYPE_1D_ARRAY) sp(&s, "#define tz%d(l) t%d.get_array_size()\n", i, i);
+        else sp(&s, "#define tz%d(l) 1u\n", i);
     }
     if (stage == STAGE_VERTEX) {
         sp(&s, "vertex %s main0(VIn in [[stage_in]], uint vid [[vertex_id]], uint iid [[instance_id]]%s%s) {\n",
