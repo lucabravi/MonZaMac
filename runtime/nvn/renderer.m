@@ -1100,11 +1100,27 @@ static id<MTLBinaryArchive> pipeline_archive(void) {
     return g_archive;
 }
 
-static void pipeline_archive_add(MTLRenderPipelineDescriptor *pd) {
-    if (!g_archive || !pd.rasterizationEnabled) return;  // vertex-only (transform feedback): nothing to save
+// Metal drops a fragment stage that has no effect: nothing written to a colour channel an attachment keeps, no depth, no
+// discard (depth-only passes). Such a pipeline can save on its own and still fail the whole archive next to the others
+// ("expecting 'fragment' stage in pipeline no. N" in test-metal-renderer, every pipeline having saved alone; its
+// depth-only draw-multisample-depth is the likely one). Those pipelines, and vertex-only ones (transform feedback), stay on
+// the usual async path.
+static bool pipeline_archivable(MTLRenderPipelineDescriptor *pd, Prog *pr) {
+    if (!pd.rasterizationEnabled || !pr->fi) return false;
+    if (pr->fi->writes_depth || pr->fi->uses_discard) return true;
+    for (int i = 0; i < 8; i++) {
+        MTLColorWriteMask w = pd.colorAttachments[i].writeMask;
+        uint32_t keep = (w & MTLColorWriteMaskRed ? 1 : 0) | (w & MTLColorWriteMaskGreen ? 2 : 0) |
+                        (w & MTLColorWriteMaskBlue ? 4 : 0) | (w & MTLColorWriteMaskAlpha ? 8 : 0);
+        if (pd.colorAttachments[i].pixelFormat && (pr->fi->out_mask >> (i * 4) & keep)) return true;
+    }
+    return false;
+}
+
+static void pipeline_archive_add(MTLRenderPipelineDescriptor *pd, Prog *pr) {
+    if (!g_archive || !pipeline_archivable(pd, pr)) return;
     dispatch_async(g_archive_q, ^{
-        // Some pipelines build but cannot be saved (on the Mac: "expecting 'fragment' stage in pipeline no. N", with
-        // colour attachments too), and one of them in the archive fails every later save: save each alone first.
+        // a pipeline that cannot be saved even alone would fail every later save too: save each alone first
         NSURL *probe = [g_archive_url URLByAppendingPathExtension:@"probe"];
         NSError *err;
         pd.binaryArchives = nil;  // (our own copy) built from its functions alone
@@ -2774,7 +2790,7 @@ static void draw(CmdRec *r, bool indexed) {
         pd.binaryArchives = @[g_archive_read];
         pobj = [dev newRenderPipelineStateWithDescriptor:pd options:MTLPipelineOptionFailOnBinaryArchiveMiss reflection:nil error:nil];
         pd.binaryArchives = nil;
-        if (pobj) { cache[pk] = pobj; g_archive_hits++; pipeline_archive_add([pd copy]); }  // the new file keeps what is still used
+        if (pobj) { cache[pk] = pobj; g_archive_hits++; pipeline_archive_add([pd copy], pr); }  // the new file keeps what is still used
     }
     if (!pobj) {
         if (sync_shaders() || r->x[2] <= 6) {  // a full-screen draw waits for its pipeline too, as for its program (prog_ready_or_wait)
@@ -2784,7 +2800,7 @@ static void draw(CmdRec *r, bool indexed) {
                 static int n;
                 if (n++ < 10) LOG("[metal] pipeline failed: %s\n", err.localizedDescription.UTF8String);
                 pobj = [NSNull null];
-            } else pipeline_archive_add([pd copy]);
+            } else pipeline_archive_add([pd copy], pr);
             cache[pk] = pobj;
         } else {
             cache[pk] = pending;
@@ -2793,7 +2809,7 @@ static void draw(CmdRec *r, bool indexed) {
             double t0 = now_ms();
             [dev newRenderPipelineStateWithDescriptor:pd completionHandler:^(id<MTLRenderPipelineState> ps, NSError *e) {
                 if (!ps) { static int n; if (n++ < 10) LOG("[metal] pipeline failed: %s\n", e.localizedDescription.UTF8String); }
-                else pipeline_archive_add(pdc);
+                else pipeline_archive_add(pdc, pr);
                 @synchronized(ready_pipes) { ready_pipes[k] = ps ? (id)ps : (id)[NSNull null]; }
                 @synchronized(cache) { stat_compile_ms += now_ms() - t0; }
                 __atomic_fetch_add(&stat_compiles, 1, __ATOMIC_RELAXED);
