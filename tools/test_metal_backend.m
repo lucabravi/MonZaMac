@@ -7,6 +7,9 @@ void metal_test_bootstrap(void) {
     dev = MTLCreateSystemDefaultDevice();
     if (!dev) return;
     queue = [dev newCommandQueue];
+    MTLSamplerDescriptor *sampler = [MTLSamplerDescriptor new];
+    sampler.minFilter = sampler.magFilter = MTLSamplerMinMagFilterLinear;
+    present_sampler = [dev newSamplerStateWithDescriptor:sampler];
     gwin_done = true;
     // Indirect commands use the same guest-address checks as the game, so keep this tiny mapping in that range.
     g_guest_buffer = [dev newBufferWithBytesNoCopy:(void *)(uintptr_t)address length:16384
