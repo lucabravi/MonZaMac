@@ -126,6 +126,9 @@ static const char *pred(Ctx *c, int p, bool neg, char *buf) {
 #define P(p, n) pred(c, (p), (n), alloca(16))
 
 static const char *cbuf_ref(Ctx *c, int idx, int64_t off, const char *dyn, char *buf) {
+    // NVN keeps the draw's base instance in driver word c0[0x644]; vertex shaders add it to the instance id, which the
+    // hardware counts from 0 (nxnative, Z-A's occlusion boxes). Read it from the draw itself, indirect draws included.
+    if (!dyn && idx == 0 && off == 0x644 && c->stage == STAGE_VERTEX) { strcpy(buf, "biid"); return buf; }
     c->info->cbuf_mask |= 1u << idx;
     if (off + 16 > (int64_t)c->info->cbuf_size[idx]) c->info->cbuf_size[idx] = (uint32_t)((off + 16 + 255) & ~255);
     if (dyn) c->info->cbuf_dynamic |= 1u << idx;
@@ -226,8 +229,8 @@ static void icmp_expr(char *out, int op, const char *a, const char *b, bool is_s
 }
 
 // ------------------------------------------------------------------ attributes
-// Maxwell attribute space: 0x70 position, 0x80 + 16*i generic attribute i, 0x2F8 instance id,
-// 0x2FC vertex id, 0x3FC front facing, 0x6C point size.
+// Maxwell attribute space: 0x70 position, 0x80 + 16*i generic attribute i, 0x2F8 instance id (from 0: Metal's
+// instance_id includes the base instance), 0x2FC vertex id, 0x3FC front facing, 0x6C point size.
 static void attr_load(Ctx *c, int dst, uint32_t addr, const char *idx) {
     char e[256];
     if (idx) { fail(c, "indexed attribute load"); return; }
@@ -239,7 +242,7 @@ static void attr_load(Ctx *c, int dst, uint32_t addr, const char *idx) {
             int kind = c->key ? c->key->attr_kind[a] : 0;
             if (kind == 0) sprintf(e, "as_type<uint>(in.a%d[%d])", a, comp);
             else sprintf(e, "as_type<uint>(in.a%d[%d])", a, comp);
-        } else if (addr == 0x2F8) { c->uses_iid = true; strcpy(e, "iid"); }
+        } else if (addr == 0x2F8) { c->uses_iid = true; strcpy(e, "(iid - biid)"); }
         else if (addr == 0x2FC) { c->uses_vid = true; strcpy(e, "vid"); }
         else { sprintf(e, "0u /* attr %#x */", addr); }
     } else if (c->stage == STAGE_FRAGMENT) {
@@ -2230,7 +2233,7 @@ static void glsl_rewrite(Ctx *c, Str *o, const char *src) {
         {"int4", "ivec4"}, {"uint2", "uvec2"}, {"uint3", "uvec3"}, {"uint4", "uvec4"}, {"bool2", "bvec2"},
         {"ulong", "uint64_t"}, {"rsqrt", "inversesqrt"}, {"rint", "roundEven"}, {"front_facing", "gl_FrontFacing"},
         {"point_coord", "gl_PointCoord"}, {"lane", "gl_SubgroupInvocationID"}, {"vid", "uint(gl_VertexIndex)"},
-        {"iid", "uint(gl_InstanceIndex)"}, {"rt_layer", "uint(gl_Layer)"}, {"long", "int64_t"},
+        {"iid", "uint(gl_InstanceIndex)"}, {"biid", "uint(gl_BaseInstance)"}, {"rt_layer", "uint(gl_Layer)"}, {"long", "int64_t"},
         {"reverse_bits", "bitfieldReverse"},
     };
     const char *p = src;
@@ -2320,6 +2323,7 @@ static const char glsl_prelude[] =
     "#extension GL_KHR_shader_subgroup_ballot : require\n"
     "#extension GL_EXT_texture_shadow_lod : require\n"
     "#extension GL_ARB_shader_viewport_layer_array : enable\n"
+    "#extension GL_ARB_shader_draw_parameters : enable\n"
     "#define cbr(cb, off) cb[min((off) >> 4, uint(cb.length() - 1))][((off) >> 2) & 3u]\n"
     "uint as_u(float x) { return floatBitsToUint(x); }\n"
     "vec4 stc(uvec4 v) { return uintBitsToFloat(v); }\n"
@@ -2747,7 +2751,7 @@ ShaderInfo *maxwell_translate(const uint8_t *blob, size_t max_size, int stage, c
         else sp(&s, "#define tz%d(l) 1u\n", i);
     }
     if (stage == STAGE_VERTEX) {
-        sp(&s, "vertex %s main0(VIn in [[stage_in]], uint vid [[vertex_id]], uint iid [[instance_id]]%s%s) {\n",
+        sp(&s, "vertex %s main0(VIn in [[stage_in]], uint vid [[vertex_id]], uint iid [[instance_id]], uint biid [[base_instance]]%s%s) {\n",
            key && key->xfb_void ? "void" : "VOut",
            (maxwell_dbg_vs && blob == maxwell_dbg_vs) ? ", device float4 *dbgout [[buffer(29)]]" : "",
            args.buf ? args.buf : "");
