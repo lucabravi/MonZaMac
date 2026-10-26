@@ -19,3 +19,6 @@ void metal_test_bootstrap(void) {
     g_gwin_max = g_guest_buffer.length;
     renderer_init(dev);
 }
+
+// Advance only the upload-cache frame for ownership regressions; no window or fake renderer is needed.
+void metal_test_next_texture_frame(void) { g_frame_counter++; }
