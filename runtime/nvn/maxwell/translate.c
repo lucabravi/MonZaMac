@@ -2072,21 +2072,21 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             if (pd != PT) { c->pred_used[pd] = 1; sp(&c->body, "    p%d = true;\n", pd); }
             goto shfl_done;
         } else {
-            // As the hardware (PTX shfl.sync): c = clamp (bits 0-4) | segment mask (bits 8-12); a lane outside its segment
-            // keeps its own value and its predicate is false. Z-A's culling compute builds prefix sums with SHFL.UP and
-            // masks the invalid lanes with that predicate: always-true corrupted the counts (characters popped in and out).
-            // GLSL (all stages, Vulkan subgroups) the same, as Ryujinx's Shuffle helpers.
+            // PTX shfl.sync: c = clamp | segment mask << 8, b uses only its low five bits. UP tests maxLane as
+            // its lower bound (NVIDIA / yuzu; older Ryujinx used minLane). An invalid source keeps the local value.
             char cb[48];
             const char *cx = bits(w, 29, 1) ? (sprintf(cb, "%uu", (unsigned)bits(w, 34, 13)), cb) : R((int)bits(w, 39, 8));
             static const char *const srcx[] = {"(bb & ~sg & 31u) | mn", "lane - bb", "lane + bb", "lane ^ bb"};
-            static const char *const okx[] = {"src <= mx", "int(lane) - int(bb) >= int(mn)", "src <= mx", "src <= mx"};
+            static const char *const okx[] = {"src <= mx", "int(lane) - int(bb) >= int(mx)", "src <= mx", "src <= mx"};
             c->uses_lane = true;
             sp(&c->body, "    { uint sc = %s; uint sg = (sc >> 8) & 31u, cl = sc & 31u; uint mn = lane & sg; uint mx = mn | (cl & ~sg & 31u);\n"
-                         "      uint bb = %s; uint src = %s; bool ok = %s;\n", cx, bv, srcx[mode], okx[mode]);
+                         "      uint bb = (%s) & 31u; uint src = %s; bool ok = %s;\n", cx, bv, srcx[mode], okx[mode]);
             if (d != RZ) {
-                c->reg_used[d] = 1;
-                sp(&c->body, c->glsl ? "      r%d = ok ? subgroupShuffle(%s, src & 31u) : %s;\n"
-                                     : "      r%d = ok ? simd_shuffle(%s, ushort(src & 31u)) : %s;\n", d, R(a), R(a));
+                // Every active source lane must participate, even when its own destination is invalid.
+                sp(&c->body, c->glsl ? "      uint shuffled = subgroupShuffle(%s, src & 31u);\n"
+                                     : "      uint shuffled = simd_shuffle(%s, ushort(src & 31u));\n", R(a));
+                sprintf(t, "ok ? shuffled : %s", R(a));
+                set_reg(c, d, t);
             }
             if (pd != PT) { c->pred_used[pd] = 1; sp(&c->body, "      p%d = ok;\n", pd); }
             sp(&c->body, "    }\n");

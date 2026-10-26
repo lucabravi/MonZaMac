@@ -36,9 +36,19 @@ fi
 rm -f "$OUT"/dump/*
 PER=$(( (COUNT + JOBS - 1) / JOBS ))
 i=0
+pids=""
 while [ $i -lt "$JOBS" ]; do
   "$OUT/test_translate" runtime/nvn/maxwell/translate.c "$PER" $((i * 7919 + ${SEED:-1})) "$MODE" "$OUT/dump" > "$OUT/log_$i.txt" 2>&1 &
+  pids="$pids $!"
   i=$((i + 1))
 done
-wait
-cat "$OUT"/log_*.txt
+status=0
+for pid in $pids; do
+  wait "$pid" || status=1
+done
+i=0
+while [ $i -lt "$JOBS" ]; do
+  cat "$OUT/log_$i.txt"
+  i=$((i + 1))
+done
+exit "$status"
