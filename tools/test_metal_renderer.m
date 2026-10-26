@@ -3,6 +3,7 @@
 #import <ImageIO/ImageIO.h>
 
 void metal_test_bootstrap(void);
+void metal_test_next_texture_frame(void);
 
 #define CHECK(c, message) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d: %s\n", __func__, __LINE__, message); exit(1); } } while (0)
 
@@ -1435,9 +1436,150 @@ static void audit_sured_bytes(void) {
     CHECK(!bad,"byte-addressed reductions must update x/4 while ordinary reductions use texel x");
 }
 
+static NvnProgram *compute_image_fixture(bool reduction, bool array) {
+    static uint64_t code[4][32];
+    static NvnProgram programs[4];
+    unsigned mode = (reduction ? 2u : 0u) + array;
+    if (!programs[mode].stage_mask) {
+        uint64_t ops[] = {
+            (0x4c98ull << 48) | (15ull << 39) | (4ull << 34) | (7ull << 16) | 4,
+            (0x4c98ull << 48) | (15ull << 39) | (4ull << 34) | (1ull << 20) | (7ull << 16),
+            (0x4c98ull << 48) | (15ull << 39) | (4ull << 34) | (2ull << 20) | (7ull << 16) | 1,
+            (0x4c98ull << 48) | (15ull << 39) | (4ull << 34) | (3ull << 20) | (7ull << 16) | 2,
+            (0x4c98ull << 48) | (15ull << 39) | (2ull << 34) | ((uint64_t)(IMAGE_HANDLE_BASE / 4) << 20) | (7ull << 16) | 9,
+            ((reduction ? 0xeb5ull : 0xeb2ull) << 52) | (9ull << 39) | ((array ? 4ull : 3ull) << 33) |
+                ((reduction ? 0ull : 1ull) << 20) | (7ull << 16) | 4,
+        };
+        compute_fixture(code[mode], &programs[mode], ops, sizeof ops / sizeof *ops);
+    }
+    return &programs[mode];
+}
+
+static void compute_images(bool reduction, bool array, bool view) {
+    const struct { uint32_t format, value, view_format; } cases[] = {
+        {0x0a, 0x3f400000}, {0x0b, 17}, {0x0c, 0xffffffe9}, {0x0b, 0xfffffff7, 0x0c}, {0x0a, 0x3f400000},
+    };
+    unsigned bad = 0;
+    for (unsigned c = reduction ? 1 : 0; c < (reduction ? 4 : 5); c++) {
+        NvnTexture output = test_texture(array || view ? 4 : 1, view ? 8 : 4, view ? 8 : 4, array || view ? 3 : 1, view ? 3 : 1, cases[c].format, 1);
+        output.swizzle[0] = 5; output.swizzle[3] = 2; // writes must ignore sampled swizzles
+        NvnTexture decoy = test_texture(1, 4, 4, 1, 1, 0x0a, 1); // sampled kind stays float as image kinds change
+        id<MTLTexture> native = renderer_texture(&output, nil, true);
+        id<MTLCommandBuffer> init = [renderer_queue() commandBuffer];
+        for (unsigned layer = 0; layer < output.depth; layer++) for (unsigned level = 0; level < output.levels; level++) {
+            MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
+            rp.colorAttachments[0].texture = native; rp.colorAttachments[0].slice = layer; rp.colorAttachments[0].level = level;
+            rp.colorAttachments[0].loadAction = MTLLoadActionClear; rp.colorAttachments[0].storeAction = MTLStoreActionStore;
+            rp.colorAttachments[0].clearColor = MTLClearColorMake(0,0,0,0);
+            [[init renderCommandEncoderWithDescriptor:rp] endEncoding];
+        }
+        [init commit];
+        bind_targets(&decoy, NULL, NULL); const float sentinel[4] = {1,0,0,1}; clear(0,0,sentinel,15,false,0,false,0,0);
+        NvnTexEntry entries[3] = {{0}, {.tex = &output}, {.tex = &decoy}};
+        if (view) { entries[1].has_view = true; entries[1].view = (NvnTextureView){.setmask=3, .base_level=1, .num_levels=1, .min_layer=1, .num_layers=1}; }
+        if (cases[c].view_format) { entries[1].has_view = true; entries[1].view.setmask |= 4; entries[1].view.format = cases[c].view_format; }
+        NvnDescPool textures = {.entries=entries,.count=3}; st.tpool = &textures;
+        st.img[5][0] = 1; st.tex[5][0] = 2;
+        uint32_t value[4] = {cases[c].value, 1, 2, 1};
+        st.ubuf[5][1] = (Range){.addr=(uint64_t)value,.size=sizeof value}; st.program = compute_image_fixture(reduction, array);
+        dispatch_compute(1,1,1); check_gpu();
+        if (reduction) { dispatch_compute(1,1,1); check_gpu(); }
+        for (unsigned layer = 0; layer < output.depth; layer++) for (unsigned level = 0; level < output.levels; level++) {
+            id<MTLBuffer> result = read_texture(native,layer,level,4);
+            unsigned width = output.width >> level, height = output.height >> level;
+            for (unsigned y = 0; y < height; y++) for (unsigned x = 0; x < width; x++) {
+                bool target = x==1 && y==2 && level==(view ? 1u : 0u) && layer==(array || view ? 1u : 0u);
+                uint32_t want = target ? (reduction ? 2 * cases[c].value : cases[c].value) : 0;
+                uint32_t got = *(const uint32_t *)((const uint8_t *)result.contents + y*256 + x*4);
+                if (got != want) { fprintf(stderr,"compute image format=%#x layer=%u level=%u pixel=%u,%u got=%08x want=%08x\n",cases[c].format,layer,level,x,y,got,want);bad++; }
+            }
+        }
+        id<MTLBuffer> unchanged = read_texture(renderer_texture(&decoy,nil,true),0,0,4);
+        for (unsigned y=0;y<4;y++) for (unsigned x=0;x<4;x++)
+            CHECK(*(const uint32_t *)((const uint8_t *)unchanged.contents+y*256+x*4)==0x3f800000,
+                  "image writes must leave every sampled-table decoy pixel intact");
+        fprintf(stderr,"compute image reduction=%d array=%d view=%d format=%#x viewformat=%#x verified\n",reduction,array,view,cases[c].format,cases[c].view_format);
+        destroy_texture(&output); destroy_texture(&decoy); st.tpool = NULL; st.ubuf[5][1] = (Range){0};
+    }
+    CHECK(bad==0,"compute writes and atomics must use the image's selected subresource and scalar type");
+}
+
+static void compute_image_store(void) { compute_images(false,false,false); }
+static void compute_image_array(void) { compute_images(false,true,false); }
+static void compute_image_view(void) { compute_images(false,false,true); }
+static void compute_image_atomic(void) { compute_images(true,false,false); }
+static void compute_image_atomic_array(void) { compute_images(true,true,false); }
+
+static void compute_image_missing(void) {
+    NvnTexture image = test_texture(1,4,4,1,1,0x0a,1);
+    bind_targets(&image,NULL,NULL); const float zero[4]={0}; clear(0,0,zero,15,false,0,false,0,0);
+    NvnTexEntry entries[2]={{0},{.tex=&image}}; NvnDescPool pool={.entries=entries,.count=2};st.tpool=&pool;
+    uint32_t value[4]={0x3f000000,0,0,0};st.ubuf[5][1]=(Range){.addr=(uint64_t)value,.size=sizeof value};
+    st.program=compute_image_fixture(false,false);st.img[5][0]=0;
+    dispatch_compute(1,1,1);check_gpu(); // a store to an unbound image must have a writable fallback
+    id<MTLBuffer> result=read_texture(renderer_texture(&image,nil,true),0,0,4);
+    CHECK(*(uint32_t*)result.contents==0,"an unbound image must not modify a former descriptor");
+    st.img[5][0]=1;dispatch_compute(1,1,1);check_gpu();
+    result=read_texture(renderer_texture(&image,nil,true),0,0,4);
+    CHECK(*(uint32_t*)result.contents==0x3f000000,"rebind after an unbound image must write the actual image");
+    destroy_texture(&image);st.tpool=NULL;st.ubuf[5][1]=(Range){0};
+}
+
+static void compute_image_ownership(void) {
+    NvnTexture image = test_texture(1,4,4,1,1,0x0b,1);
+    image.flags |= 0x10; image.stride = 16; // CPU-written linear textures are checked every frame
+    uint64_t size = tegra_total_size(&image.layout);
+    CHECK(size <= 4096 && !(size & 3), "CPU-backed image fixture fits the reserved guest storage");
+    uint32_t *storage = (uint32_t *)((uint8_t *)g_guest_buffer.contents + 2048);
+    for (unsigned i=0;i<size/4;i++) storage[i]=11;
+    image.addr=(uint64_t)storage;
+    id<MTLTexture> native=renderer_texture(&image,nil,false); // upload the initial CPU contents without making it a target
+    id<MTLBuffer> result=read_texture(native,0,0,4);
+    CHECK(*(uint32_t*)result.contents==11,"an image's initial CPU contents must be uploaded");
+    NvnTexEntry entries[2]={{0},{.tex=&image}};NvnDescPool pool={.entries=entries,.count=2};st.tpool=&pool;st.img[5][0]=1;
+    uint32_t value[4]={5,1,2,0};st.ubuf[5][1]=(Range){.addr=(uint64_t)value,.size=sizeof value};
+    st.program=compute_image_fixture(true,false);dispatch_compute(1,1,1);check_gpu();
+    result=read_texture(native,0,0,4);
+    CHECK(*(uint32_t*)((uint8_t*)result.contents+2*256+4)==16,"first reduction starts with uploaded image data");
+    memset(storage,0x7a,size);metal_test_next_texture_frame();
+    dispatch_compute(1,1,1);check_gpu();result=read_texture(native,0,0,4);
+    uint32_t got=*(uint32_t*)((uint8_t*)result.contents+2*256+4);
+    fprintf(stderr,"CPU-backed image second reduction got=%08x want=00000015\n",got);
+    CHECK(got==21,"later CPU upload probes must preserve GPU-owned image results");
+    destroy_texture(&image);st.tpool=NULL;st.ubuf[5][1]=(Range){0};
+}
+
+static void compute_image_feedback(void) {
+    NvnTexture image=test_texture(1,4,4,1,1,0x0a,1);
+    bind_targets(&image,NULL,NULL);const float initial[4]={0.25f,0,0,1};clear(0,0,initial,15,false,0,false,0,0);
+    NvnTexEntry entries[2]={{0},{.tex=&image}};NvnDescPool pool={.entries=entries,.count=2};st.tpool=&pool;st.tex[1][0]=1;
+    ShaderInfo vi={.stage=STAGE_VERTEX},fi={.stage=STAGE_FRAGMENT,.ntex=1};
+    fi.tex[0]=(ShaderTexture){.handle_offset=0x20,.type=TEXTYPE_2D};
+    Prog *graphics=[Prog new];graphics->vi=&vi;graphics->fi=&fi;
+    resolve_feedback(graphics);check_gpu();
+    CHECK(nfeedback==1,"fixture must create a real read-only render-target feedback snapshot");
+    id<MTLTexture> snapshot=feedback_copy[0];
+    st.program=compute_image_fixture(false,false);st.img[5][0]=1;
+    uint32_t value[4]={0x3f400000,0,0,0};st.ubuf[5][1]=(Range){.addr=(uint64_t)value,.size=sizeof value};
+    dispatch_compute(1,1,1);check_gpu();
+    id<MTLBuffer> original=read_texture(renderer_texture(&image,nil,true),0,0,4);
+    id<MTLBuffer> previous=read_texture(snapshot,0,0,4);
+    CHECK(*(uint32_t*)original.contents==0x3f400000,"image writes must reach the actual resource after a feedback pass");
+    CHECK(*(uint32_t*)previous.contents==0x3e800000,"image writes must not modify the read-only feedback snapshot");
+    destroy_texture(&image);st.tpool=NULL;st.ubuf[5][1]=(Range){0};
+}
+
 typedef void (*TestFn)(void);
 static const struct { const char *name, *group; TestFn run; bool needs_sampler26; } tests[] = {
     {"smoke", "smoke", smoke},
+    {"compute-image-store", "images", compute_image_store},
+    {"compute-image-feedback", "images", compute_image_feedback},
+    {"compute-image-ownership", "images", compute_image_ownership},
+    {"compute-image-missing", "images", compute_image_missing},
+    {"compute-image-array", "images", compute_image_array},
+    {"compute-image-view", "images", compute_image_view},
+    {"compute-image-atomic", "images", compute_image_atomic},
+    {"compute-image-atomic-array", "images", compute_image_atomic_array},
     {"audit-f2f", "audit", audit_f2f},
     {"audit-shuffle", "audit", audit_shuffle},
     {"audit-shadow-array", "audit", audit_shadow_array},

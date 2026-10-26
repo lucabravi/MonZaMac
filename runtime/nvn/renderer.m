@@ -1311,11 +1311,15 @@ static id<MTLSamplerState> default_sampler(void) {
 }
 
 static uint64_t g_cur_fs_hash;
-static id<MTLTexture> dummy_texture(int type, int kind) {
-    static id<MTLTexture> t[10][3];
-    if (!t[type][kind]) {
+static id<MTLTexture> dummy_texture_ex(int type, int kind, bool image) {
+    static id<MTLTexture> t[2][10][3];
+    if (!t[image][type][kind]) {
         MTLTextureDescriptor *d = [MTLTextureDescriptor new];
-        d.pixelFormat = kind == 2 ? MTLPixelFormatRGBA8Uint : kind == 1 ? MTLPixelFormatRGBA8Sint : MTLPixelFormatRGBA8Unorm;
+        d.pixelFormat = image ? (kind == 2 ? MTLPixelFormatR32Uint : kind == 1 ? MTLPixelFormatR32Sint : MTLPixelFormatR32Float)
+                             : (kind == 2 ? MTLPixelFormatRGBA8Uint : kind == 1 ? MTLPixelFormatRGBA8Sint : MTLPixelFormatRGBA8Unorm);
+        d.usage = MTLTextureUsageShaderRead | (image ? MTLTextureUsageShaderWrite : 0);
+        if (@available(macOS 14.0, *))
+            if (image && kind) d.usage |= MTLTextureUsageShaderAtomic;
         d.width = d.height = 1;
         d.textureType = type == TEXTYPE_CUBE ? MTLTextureTypeCube : type == TEXTYPE_3D ? MTLTextureType3D
                       : type == TEXTYPE_2D_ARRAY ? MTLTextureType2DArray : type == TEXTYPE_1D ? MTLTextureType1D
@@ -1330,9 +1334,13 @@ static id<MTLTexture> dummy_texture(int type, int kind) {
                 [texture replaceRegion:MTLRegionMake3D(0, 0, 0, 1, 1, 1) mipmapLevel:0 withBytes:zero bytesPerRow:4];
             else
                 [texture replaceRegion:MTLRegionMake3D(0, 0, 0, 1, 1, 1) mipmapLevel:0 slice:sl withBytes:zero bytesPerRow:4 bytesPerImage:4];
-        t[type][kind] = texture;
+        t[image][type][kind] = texture;
     }
-    return t[type][kind];
+    return t[image][type][kind];
+}
+
+static id<MTLTexture> dummy_texture(int type, int kind) {
+    return dummy_texture_ex(type, kind, false);
 }
 
 static MTLTextureType mtl_type_for(int t) {
@@ -1429,7 +1437,7 @@ static id<MTLTexture> hdr_const_tex(void) {
 static id<MTLTexture> sampled_texture_ex(NvnTexture *t, const NvnTextureView *v, bool has_view, int want_type, bool image) {
     static int hdr29, hdr29_tick;
     if (!(hdr29_tick++ & 255)) hdr29 = access("build/hdr29", F_OK) == 0;
-    if (hdr29 && t->format == 0x29) {
+    if (!image && hdr29 && t->format == 0x29) {
         static int once;
         if (!once++) LOG("[hdr29] sampling 0x29 textures as 1.0\n");
         return hdr_const_tex();
@@ -1452,9 +1460,11 @@ static id<MTLTexture> sampled_texture_ex(NvnTexture *t, const NvnTextureView *v,
             if (nlog++ < 30) LOG("[tex] type mismatch: fs %llx want %lu have %lu (%ux%ux%u target %u fmt %#x arr %lu)\n", (unsigned long long)g_cur_fs_hash, (unsigned long)want,
                                  (unsigned long)tex.textureType, t->width, t->height, t->depth, t->target, t->format, (unsigned long)tex.arrayLength);
             uint32_t format = has_view && (v->setmask & 4) ? v->format : t->format;
-            return dummy_texture(want_type, rt_kind(format));
+            return dummy_texture_ex(want_type, rt_kind(format), image);
         }
     }
+    // Upload initial CPU data first, then protect shader-written results from later upload probes.
+    if (image && tex) renderer_mark_gpu_owned(t);
     return image ? tex : apply_swizzle(tex, t, v, has_view);  // (a swizzled view can't be written: images keep the identity)
 }
 
@@ -1493,9 +1503,18 @@ static void snapshots_invalidate(NvnTexture *t) {  // NULL = all
     for (int i = 0; i < 8; i++) if ((!t || snap_tex[i] == t) && snap_ok[i]) { snap_ok[i] = false; snap_why[i] = snap_reason; }
 }
 
+static uint64_t shader_texture_handle(int stage, const ShaderTexture *texture) {
+    uint32_t base = texture->is_image ? IMAGE_HANDLE_BASE : 0x20;
+    uint32_t count = texture->is_image ? 8 : 32;
+    uint32_t offset = texture->handle_offset - base;
+    if (offset >= count * 8) return 0;
+    uint32_t slot = offset / 8;
+    return texture->is_image ? st.img[stage][slot] : st.tex[stage][slot];
+}
+
 static NvnTexture *shader_texture_object(int stage, ShaderTexture *st_) {
-    int slot = ((int)st_->handle_offset - 0x20) / 8;
-    uint64_t h = (slot >= 0 && slot < 32) ? st.tex[stage][slot] : 0;
+    if (st_->is_image) return NULL; // image writes must target the original allocation, never a feedback snapshot
+    uint64_t h = shader_texture_handle(stage, st_);
     uint32_t tic = h & 0xFFFFF;
     if (!h || !st.tpool || tic >= (uint32_t)st.tpool->count) return NULL;
     return ((NvnTexEntry *)st.tpool->entries)[tic].tex;
@@ -1677,12 +1696,7 @@ static void bind_textures(int stage, ShaderInfo *si) {
     NvnSamplerDesc *mdesc[64];
     for (int i = 0; i < si->ntex; i++) {
         ShaderTexture *st_ = &si->tex[i];
-        int slot = ((int)st_->handle_offset - 0x20) / 8;  // 64-bit handles from offset 0x20
-        uint64_t h = (slot >= 0 && slot < 32) ? st.tex[stage][slot] : 0;
-        if (st_->is_image) {  // images: their own handle table at IMAGE_HANDLE_BASE
-            int k = ((int)st_->handle_offset - IMAGE_HANDLE_BASE) / 8;
-            h = (k >= 0 && k < 8) ? st.img[stage][k] : 0;
-        }
+        uint64_t h = shader_texture_handle(stage, st_);
         id<MTLTexture> tex = nil;
         id<MTLSamplerState> smp = nil;
         NvnTexture *e_dbg_tex = NULL;  // (diagnostics) the guest texture behind this slot
@@ -1697,7 +1711,7 @@ static void bind_textures(int stage, ShaderInfo *si) {
                 renderer_texture_scale(e->tex, &tex_sc[stage][i][0], &tex_sc[stage][i][1]);
                 tex_wh[stage][i][0] = e->tex->width; tex_wh[stage][i][1] = e->tex->height;
             }
-                tex = feedback_sample(e, tex);
+            if (!st_->is_image) tex = feedback_sample(e, tex);
             if (g_debug_frame && e->tex && e->tex->addr) {
                 uint64_t total = tegra_total_size(&e->tex->layout), nz = 0;
                 const uint8_t *p = (const uint8_t *)(uintptr_t)e->tex->addr;
@@ -1783,7 +1797,7 @@ static void bind_textures(int stage, ShaderInfo *si) {
         NvnSamplerDesc *sd = h && st.spool && tsc < (uint32_t)st.spool->count ? &((NvnSamplerDesc *)st.spool->entries)[tsc] : NULL;
         if (sd) smp = sampler_for(sd);
         if (st_->shadow) tex = shadow_slot_texture(tex, st_);
-        if (!tex) tex = dummy_texture(st_->type, st_->scalar_kind);
+        if (!tex) tex = dummy_texture_ex(st_->type, st_->scalar_kind, st_->is_image);
         {   // LARECOMP_DUMMY_TEX=<fs addr or fsh>:<slot>,...: bind the neutral dummy texture to these fragment shader inputs (A/B tests)
             static uint64_t dfs[8];
             static int dslot[8], nd = -1;
@@ -1800,7 +1814,7 @@ static void bind_textures(int stage, ShaderInfo *si) {
             if (stage == 1 && st.program && nd) {
                 uint64_t mh = fnv64(si->msl ? si->msl : "");  // (address or MSL hash: addresses move between runs)
                 for (int k = 0; k < nd; k++)
-                    if ((dfs[k] == st.program->stages[1].code_addr || dfs[k] == mh) && dslot[k] == i) tex = dummy_texture(st_->type, st_->scalar_kind);
+                    if ((dfs[k] == st.program->stages[1].code_addr || dfs[k] == mh) && dslot[k] == i) tex = dummy_texture_ex(st_->type, st_->scalar_kind, st_->is_image);
             }
         }
         if (!smp) smp = default_sampler();
@@ -1910,7 +1924,8 @@ static CsProg *compute_program(NvnProgram *p) {
     if (!ss->code_addr) return NULL;
     ShaderKey k = {0};
     texture_key(5, &k);
-    NSString *key = [NSString stringWithFormat:@"%llx/%x/%x/%x", ss->code_addr, k.stencil_slots, k.sint_slots, k.uint_slots];
+    NSString *key = [NSString stringWithFormat:@"%llx/%x/%x/%x/%x/%x", ss->code_addr, k.stencil_slots, k.sint_slots,
+                    k.uint_slots, k.img_sint, k.img_uint];
     NSMutableDictionary *progs = g_cs_progs;
     if (!progs) progs = g_cs_progs = [NSMutableDictionary new];
     NSValue *v = progs[key];
@@ -2003,23 +2018,22 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
     NvnSamplerDesc *mdesc[64];
     for (int i = 0; i < si->ntex; i++) {
         ShaderTexture *st_ = &si->tex[i];
-        int slot = ((int)st_->handle_offset - 0x20) / 8;
-        uint64_t h = (slot >= 0 && slot < 32) ? st.tex[5][slot] : 0;
+        uint64_t h = shader_texture_handle(5, st_);
         id<MTLTexture> tex = nil;
         id<MTLSamplerState> smp = nil;
         uint32_t tic = h & 0xFFFFF, tsc = (uint32_t)(h >> 20) & 0xFFF;
         tex_sc[0][i][0] = tex_sc[0][i][1] = 1;
         if (h && st.tpool && tic < (uint32_t)st.tpool->count) {
             NvnTexEntry *e = &((NvnTexEntry *)st.tpool->entries)[tic];
-            if (e->tex) tex = st_->stencil ? stencil_texture(e->tex) : sampled_texture(e->tex, &e->view, e->has_view, st_->type);
+            if (e->tex) tex = st_->stencil ? stencil_texture(e->tex) : sampled_texture_ex(e->tex, &e->view, e->has_view, st_->type, st_->is_image);
             if (e->tex && i < 64) renderer_texture_scale(e->tex, &tex_sc[0][i][0], &tex_sc[0][i][1]);
-            tex = feedback_sample(e, tex);
+            if (!st_->is_image) tex = feedback_sample(e, tex);
         }
         NvnSamplerDesc *sd = h && st.spool && tsc < (uint32_t)st.spool->count ? &((NvnSamplerDesc *)st.spool->entries)[tsc] : NULL;
         if (sd) smp = sampler_for(sd);
         if (!smp) smp = default_sampler();
         if (st_->shadow) tex = shadow_slot_texture(tex, st_);
-        [ce setTexture:tex ? tex : dummy_texture(st_->type, st_->scalar_kind) atIndex:i];
+        [ce setTexture:tex ? tex : dummy_texture_ex(st_->type, st_->scalar_kind, st_->is_image) atIndex:i];
         if (cmapped) { msmp[i] = smp; mdesc[i] = sd; }
         else [ce setSamplerState:smp atIndex:i];
     }
