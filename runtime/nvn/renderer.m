@@ -1054,7 +1054,7 @@ void shader_cache_warm(void) {
 // cache/pipelines.bin. The next run opens that file (no compiling) and looks new pipelines up in it first: a hit is
 // built at once, so its draws are not skipped while it compiles. The archive read from the file is only looked up;
 // this run's pipelines (hits included) go into a new one, written on a background queue, which then replaces the file
-// (on the Mac, saving an archive loaded from a file failed, and a run that added to it hung).
+// (on the Mac, saving an archive loaded from a file failed with "Invalid URL").
 // LARECOMP_NO_PIPELINE_ARCHIVE=1 turns it off (A/B); delete cache/ to reset it.
 static id<MTLBinaryArchive> g_archive;       // this run's pipelines, saved to the file (on g_archive_q only)
 static id<MTLBinaryArchive> g_archive_read;  // the last run's file, only looked up (render thread)
@@ -1062,7 +1062,6 @@ static dispatch_queue_t g_archive_q;
 static int g_archive_dirty;  // pipelines added since the last save (on g_archive_q)
 static int g_archive_hits;   // pipelines found in the archive this run (render thread)
 static NSURL *g_archive_url; // absolute, fixed at open: the working directory may be gone at exit (the tests delete it)
-static NSMutableArray<NSString *> *g_archive_names;  // (diagnostics) each added pipeline, in order: a failed save names one by number
 
 static void pipeline_archive_save(void) {  // on g_archive_q
     if (!g_archive_dirty) return;
@@ -1072,14 +1071,7 @@ static void pipeline_archive_save(void) {  // on g_archive_q
     if ([g_archive serializeToURL:tmp error:&err] && rename(tmp.fileSystemRepresentation, g_archive_url.fileSystemRepresentation) == 0) {
         LOG("[shader] pipeline archive saved (%d new, %d found in it this run)\n", g_archive_dirty, g_archive_hits);
         g_archive_dirty = 0;
-        return;
-    }
-    NSString *e = err ? err.localizedDescription : @(strerror(errno));
-    LOG("[shader] pipeline archive save failed: %s\n", e.UTF8String);
-    NSRange at = [e rangeOfString:@"pipeline no. '"];
-    int n = at.location == NSNotFound ? -1 : [e substringFromIndex:NSMaxRange(at)].intValue;
-    for (int i = n - 1; i <= n; i++)  // (counted from 0 or 1: both neighbours)
-        if (i >= 0 && i < (int)g_archive_names.count) LOG("[shader]   added #%d: %s\n", i, g_archive_names[i].UTF8String);
+    } else LOG("[shader] pipeline archive save failed: %s\n", err ? err.localizedDescription.UTF8String : strerror(errno));
 }
 
 void renderer_save_pipeline_archive(void) { if (g_archive_q) dispatch_sync(g_archive_q, ^{ pipeline_archive_save(); }); }
@@ -1102,39 +1094,32 @@ static id<MTLBinaryArchive> pipeline_archive(void) {
         g_archive = [dev newBinaryArchiveWithDescriptor:ad error:&err];
         if (!g_archive) { g_archive_read = nil; LOG("[shader] no pipeline archive: %s\n", err.localizedDescription.UTF8String); return; }
         LOG("[shader] pipeline archive %s\n", g_archive_read ? "loaded" : "new");
-        g_archive_names = [NSMutableArray new];
         g_archive_q = dispatch_queue_create("pipeline-archive", DISPATCH_QUEUE_SERIAL);
         atexit(renderer_save_pipeline_archive);
     });
     return g_archive;
 }
 
-// Metal drops a fragment stage that has no effect (no colour written to an attachment, no depth, no discard: depth-only
-// passes), and a vertex-only pipeline has none; with either in it the whole save failed on the Mac ("expecting
-// 'fragment' stage in pipeline no. N"). Those pipelines stay on the usual async path.
-static bool pipeline_archivable(MTLRenderPipelineDescriptor *pd, Prog *pr) {
-    if (!pd.rasterizationEnabled || !pr->fi) return false;
-    if (pr->fi->writes_depth || pr->fi->uses_discard) return true;
-    for (int i = 0; i < 8; i++)
-        if ((pr->fi->out_mask >> (i * 4) & 0xF) && pd.colorAttachments[i].pixelFormat && pd.colorAttachments[i].writeMask) return true;
-    return false;
-}
-
-static void pipeline_archive_add(MTLRenderPipelineDescriptor *pd, Prog *pr) {
-    if (!g_archive || !pipeline_archivable(pd, pr)) return;
+static void pipeline_archive_add(MTLRenderPipelineDescriptor *pd) {
+    if (!g_archive || !pd.rasterizationEnabled) return;  // vertex-only (transform feedback): nothing to save
     dispatch_async(g_archive_q, ^{
+        // Some pipelines build but cannot be saved (on the Mac: "expecting 'fragment' stage in pipeline no. N", with
+        // colour attachments too), and one of them in the archive fails every later save: save each alone first.
+        NSURL *probe = [g_archive_url URLByAppendingPathExtension:@"probe"];
         NSError *err;
         pd.binaryArchives = nil;  // (our own copy) built from its functions alone
-        if (![g_archive addRenderPipelineFunctionsWithDescriptor:pd error:&err]) {
+        id<MTLBinaryArchive> one = [dev newBinaryArchiveWithDescriptor:[MTLBinaryArchiveDescriptor new] error:&err];
+        bool ok = one && [one addRenderPipelineFunctionsWithDescriptor:pd error:&err] && [one serializeToURL:probe error:&err] &&
+                  [g_archive addRenderPipelineFunctionsWithDescriptor:pd error:&err];
+        unlink(probe.fileSystemRepresentation);
+        if (!ok) {
             static int n;
-            if (n++ < 10) LOG("[shader] pipeline archive add failed: %s\n", err.localizedDescription.UTF8String);
+            if (n++ < 10) LOG("[shader] pipeline archive: %s left out: %s\n", pd.label.UTF8String, err.localizedDescription.UTF8String);
             return;
         }
-        [g_archive_names addObject:[NSString stringWithFormat:@"%@ c0 %lu/%lu d %lu s %lu", pd.label,
-                                    (unsigned long)pd.colorAttachments[0].pixelFormat, (unsigned long)pd.colorAttachments[0].writeMask,
-                                    (unsigned long)pd.depthAttachmentPixelFormat, (unsigned long)pd.rasterSampleCount]];
         // save 30 s after the first unsaved add, so a crash loses little; exit and the screenshot tests save too.
-        // shortcut: each save rewrites the whole file, fine for a few thousand pipelines; append-only if it gets slow
+        // shortcut: each save rewrites the whole file and each pipeline is built twice more in the background, fine for
+        // a few thousand pipelines; append-only files if it gets slow
         if (g_archive_dirty++ == 0)
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC), g_archive_q, ^{ pipeline_archive_save(); });
     });
@@ -2789,7 +2774,7 @@ static void draw(CmdRec *r, bool indexed) {
         pd.binaryArchives = @[g_archive_read];
         pobj = [dev newRenderPipelineStateWithDescriptor:pd options:MTLPipelineOptionFailOnBinaryArchiveMiss reflection:nil error:nil];
         pd.binaryArchives = nil;
-        if (pobj) { cache[pk] = pobj; g_archive_hits++; pipeline_archive_add([pd copy], pr); }  // the new file keeps what is still used
+        if (pobj) { cache[pk] = pobj; g_archive_hits++; pipeline_archive_add([pd copy]); }  // the new file keeps what is still used
     }
     if (!pobj) {
         if (sync_shaders() || r->x[2] <= 6) {  // a full-screen draw waits for its pipeline too, as for its program (prog_ready_or_wait)
@@ -2799,7 +2784,7 @@ static void draw(CmdRec *r, bool indexed) {
                 static int n;
                 if (n++ < 10) LOG("[metal] pipeline failed: %s\n", err.localizedDescription.UTF8String);
                 pobj = [NSNull null];
-            } else pipeline_archive_add([pd copy], pr);
+            } else pipeline_archive_add([pd copy]);
             cache[pk] = pobj;
         } else {
             cache[pk] = pending;
@@ -2808,7 +2793,7 @@ static void draw(CmdRec *r, bool indexed) {
             double t0 = now_ms();
             [dev newRenderPipelineStateWithDescriptor:pd completionHandler:^(id<MTLRenderPipelineState> ps, NSError *e) {
                 if (!ps) { static int n; if (n++ < 10) LOG("[metal] pipeline failed: %s\n", e.localizedDescription.UTF8String); }
-                else pipeline_archive_add(pdc, pr);
+                else pipeline_archive_add(pdc);
                 @synchronized(ready_pipes) { ready_pipes[k] = ps ? (id)ps : (id)[NSNull null]; }
                 @synchronized(cache) { stat_compile_ms += now_ms() - t0; }
                 __atomic_fetch_add(&stat_compiles, 1, __ATOMIC_RELAXED);
