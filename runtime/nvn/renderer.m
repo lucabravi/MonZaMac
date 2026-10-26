@@ -2194,9 +2194,8 @@ static void debug_draw(Prog *pr, CmdRec *r, bool indexed) {
 
 // ---- pipeline cache keyed by a hash of the raw state that shapes the pipeline (avoids building a
 // descriptor and a string key per draw)
-// Pipelines are keyed by their shader functions' addresses: a reboot frees the old functions, so keys carry the
-// boot generation (a build still in flight can't land on a new function at a reused address).
-static unsigned g_boot_gen;
+// Shader function addresses may be reused after reloads or reboots. Include their generation in slow-cache keys.
+static unsigned g_pipeline_gen;
 static NSMutableDictionary *g_ready_pipes;
 
 #define PIPE_TAB 8192
@@ -2233,6 +2232,7 @@ static bool live_override_fs(Prog *pr, const char *path) {
     }
     pr->fi->msl = b;  // (the translated source leaks: diagnostic path)
     pr->fs = fn;
+    g_pipeline_gen++; // old slow-cache entries must not match recycled native function addresses
     pr->ov_active = true;
     snprintf(pr->ov_path, sizeof pr->ov_path, "%s", path);
     memset(pipe_tab, 0, sizeof pipe_tab);  // pipeline keys carry the function pointer: rebuild on the next draw
@@ -2665,7 +2665,7 @@ static void draw(CmdRec *r, bool indexed) {
         }
     }
     pd.alphaToCoverageEnabled = st.ms[0xC] != 0;
-    NSMutableString *pk = [NSMutableString stringWithFormat:@"%u %p %p %lu %lu", g_boot_gen, pr->vs, pr->fs,
+    NSMutableString *pk = [NSMutableString stringWithFormat:@"%u %p %p %lu %lu", g_pipeline_gen, pr->vs, pr->fs,
                            (unsigned long)pd.depthAttachmentPixelFormat, (unsigned long)pd.stencilAttachmentPixelFormat];
     for (int i = 0; i < 8; i++) {
         MTLRenderPipelineColorAttachmentDescriptor *ca = pd.colorAttachments[i];
@@ -3744,7 +3744,7 @@ void renderer_reset(void) {
     [cache removeAllObjects];
     [g_cs_progs removeAllObjects];
     @synchronized(g_ready_pipes) { [g_ready_pipes removeAllObjects]; }
-    g_boot_gen++;
+    g_pipeline_gen++;
     [g_snap_copies removeAllObjects];
     memset(snap_tex, 0, sizeof snap_tex);
     memset(snap_ok, 0, sizeof snap_ok);
