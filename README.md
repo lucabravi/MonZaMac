@@ -12,6 +12,9 @@ operating system and GPU (NVN) are reimplemented in the runtime. No emulator run
 
 Work in progress. It boots, goes through the intro and reaches Lumiose City.
 
+Looking for the Windows version? It's available at **[PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp)** by
+**Hexveil404**.
+
 Working:
 - Rendering on Metal: environment, walls, characters (GPU skinning through transform feedback), lighting, GPU-driven
   culling (indirect draws), text, dialogue and UI
