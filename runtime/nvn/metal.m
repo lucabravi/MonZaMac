@@ -921,6 +921,21 @@ static void save_texture_impl(id<MTLTexture> tex, const char *path, bool alpha) 
     d.storageMode = MTLStorageModeShared;
     id<MTLTexture> dst = [dev newTextureWithDescriptor:d];
     id<MTLCommandBuffer> cb = [queue commandBuffer];
+    if (tex.textureType == MTLTextureType3D) {
+        // The PNG shader samples a 2D image. Copy the volume's first depth plane without changing its texels.
+        MTLTextureDescriptor *sd = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:tex.pixelFormat
+                                                                                  width:tex.width height:tex.height mipmapped:NO];
+        sd.usage = MTLTextureUsageShaderRead | MTLTextureUsagePixelFormatView;
+        id<MTLTexture> slice = [dev newTextureWithDescriptor:sd];
+        if (!slice) { LOG("[metal] cannot allocate 3D screenshot slice for %s\n", path); return; }
+        id<MTLBlitCommandEncoder> bl = [cb blitCommandEncoder];
+        [bl copyFromTexture:tex sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
+                 sourceSize:MTLSizeMake(tex.width, tex.height, 1) toTexture:slice destinationSlice:0
+           destinationLevel:0 destinationOrigin:MTLOriginMake(0, 0, 0)];
+        [bl endEncoding];
+        tex = [slice newTextureViewWithPixelFormat:slice.pixelFormat textureType:MTLTextureType2D
+                                           levels:NSMakeRange(0, 1) slices:NSMakeRange(0, 1) swizzle:tex.swizzle];
+    }
     MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
     rp.colorAttachments[0].texture = dst;
     rp.colorAttachments[0].loadAction = MTLLoadActionClear;
