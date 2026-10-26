@@ -1665,7 +1665,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             c->pred_used[pd] = 1;
             int pop = (int)bits(w, 44, 2);
             sp(&c->body, "    { uint res = %s;\n", t);
-            if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = res;\n", d); }
+            set_reg(c, d, "res");
             sp(&c->body, "      p%d = %s; }\n", pd, pop == 2 ? "(res == 0u)" : pop == 3 ? "(res != 0u)" : pop == 1 ? "true" : "false");
         } else {
             set_reg(c, d, t);
@@ -1703,7 +1703,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             int pop = (int)bits(w, 36, 2);
             c->pred_used[pd] = 1;
             sp(&c->body, "    { uint res = %s;\n", t);
-            if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = res;\n", d); }
+            set_reg(c, d, "res");
             sp(&c->body, "      p%d = %s; }\n", pd, pop == 2 ? "(res == 0u)" : pop == 3 ? "(res != 0u)" : pop == 1 ? "true" : "false");
         } else {
             set_reg(c, d, t);
@@ -1883,6 +1883,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         // (Rc:Ra) shifted as 64 bits (per Ryujinx's EmitShf / yuzu's SHF). Max shift (bits 37-38): 32, or 64 for .U64 / .S64
         // (64-bit shifts: an amount past 31 moves Rc into the low word); .W (bit 50) wraps the amount, else it clamps.
         // The immediate form's amount is 6 bits: the max shift field sits inside the generic 20-bit immediate.
+        // Limit/wrap behavior follows Mesa NAK's hardware-tested OpShf folding (d3e917ea), including sign fill at 64.
         bool right = (w >> 56) == 0x5c || (w >> 57) == (0x38 >> 1);
         int maxs = (int)bits(w, 37, 2), lim = maxs >= 2 ? 64 : 32;
         if (maxs == 1) { fail(c, "shf max shift 1"); return; }

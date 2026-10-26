@@ -30,15 +30,28 @@ CHECKS = [
     # fixed
     ("fixed: SHF .U64/.S64 (64-bit funnel shift)", lambda w: is_(w, (0x5cf8, 0xfff8), (0x5bf8, 0xfff8), (0x38f8, 0xfef8),
                                                                     (0x36f8, 0xfef8)) and bits(w, 37, 2) >= 2),
-    ("fixed: SHF clamp with a register amount", lambda w: is_(w, (0x5cf8, 0xfff8), (0x5bf8, 0xfff8)) and not bits(w, 50, 1)),
-    ("fixed: IADD3 half select / .LS / .RS", lambda w: is_(w, (0x5cc0, 0xfff0)) and bits(w, 31, 8) != 0),
+    ("fixed: SHF clamp with a register amount", lambda w: is_(w, (0x5cf8, 0xfff8), (0x5bf8, 0xfff8))
+     and bits(w, 37, 2) != 1 and not bits(w, 50, 1)),
+    ("rejected: SHF unsupported max shift 1", lambda w: is_(w, (0x5cf8, 0xfff8), (0x5bf8, 0xfff8),
+                                                           (0x38f8, 0xfef8), (0x36f8, 0xfef8)) and bits(w, 37, 2) == 1),
+    ("fixed: IADD3 half select / .LS / .RS", lambda w: is_(w, (0x5cc0, 0xfff0)) and bits(w, 31, 8) != 0
+     and not any(bits(w, p, 2) == 3 for p in (31, 33, 35, 37)) and not (bits(w, 37, 2) and bits(w, 47, 2))),
     ("fixed: LOP3 register form writing a predicate", lambda w: is_(w, (0x5be0, 0xfff8)) and bits(w, 48, 3) != 7),
     ("fixed: FLO .SH / inverted source", lambda w: is_(w, (0x5c30, 0xfff8), (0x4c30, 0xfff8), (0x3830, 0xfef8)) and bits(w, 40, 2)),
     ("fixed: SHR .W / .BREV", lambda w: is_(w, (0x5c28, 0xfff8), (0x4c28, 0xfff8), (0x3828, 0xfef8)) and bits(w, 39, 2)),
-    ("fixed: IMUL32I .HI", lambda w: is_(w, (0x1f00, 0xff00)) and bits(w, 53, 1)),
-    ("fixed (now fails loudly): IMUL .HI mixed signedness", lambda w: is_(w, (0x5c38, 0xfff8), (0x4c38, 0xfff8), (0x3838, 0xfef8))
+    ("fixed: IMUL32I .HI same signedness", lambda w: is_(w, (0x1f00, 0xff00)) and bits(w, 53, 1)
+     and bits(w, 54, 1) == bits(w, 55, 1)),
+    ("rejected: IMUL32I .HI mixed signedness", lambda w: is_(w, (0x1f00, 0xff00)) and bits(w, 53, 1)
+     and bits(w, 54, 1) != bits(w, 55, 1)),
+    ("rejected: IADD3 reserved half / shift", lambda w: is_(w, (0x5cc0, 0xfff0))
+     and any(bits(w, p, 2) == 3 for p in (31, 33, 35, 37))),
+    ("rejected: IADD3 shift with .CC / .X", lambda w: is_(w, (0x5cc0, 0xfff0))
+     and bits(w, 37, 2) != 0 and bits(w, 47, 2) != 0),
+    ("rejected: IMUL .HI mixed signedness", lambda w: is_(w, (0x5c38, 0xfff8), (0x4c38, 0xfff8), (0x3838, 0xfef8))
      and bits(w, 39, 1) and bits(w, 40, 1) != bits(w, 41, 1)),
     # open
+    ("open: SHF .CC / .HI / .X", lambda w: is_(w, (0x5cf8, 0xfff8), (0x5bf8, 0xfff8),
+                                                        (0x38f8, 0xfef8), (0x36f8, 0xfef8)) and bits(w, 47, 3) != 0),
     ("open: TEXS 2D.LL.DC (Ryujinx: dref Rb, lod Rb+1; yuzu and the port: the reverse)",
      lambda w: op(w, 0xd000 << 48, 0xf600 << 48) and bits(w, 53, 4) == 5),
     ("open: ISETP / ISET .X (64-bit compare, the port compares the high word only)",
