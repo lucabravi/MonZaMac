@@ -105,3 +105,20 @@ The fuzz wrapper now checks each worker's exit status and prints only that invoc
 a failed worker could be hidden by bare `wait`, and logs left by an earlier run with more workers were printed
 as current results. `REF=HEAD` is useful for uncommitted output changes; comparing a clean commit to itself is
 not an independent compatibility check.
+
+## PBK/BRK reconvergence
+
+A flat per-invocation PC dispatcher can execute the code after BRK while neighbouring lanes are still in the
+loop. This can corrupt implicit texture derivatives. Simple forward PBK regions now run in a local structured
+dispatcher so lanes rejoin before their continuation. Instructions, texture coordinates and implicit LOD are
+preserved; the shared instruction watchdog also bounds the local dispatcher.
+
+Regions with incoming interior edges, escaping branches, nested token setup, SYNC or CONT retain the flat
+dispatcher. BRX disables this transformation for the entire shader because its destinations are dynamic.
+This is a conservative improvement for simple regions, not a complete control-flow reconstruction.
+
+On Apple M5, a replay of the starter scene fixes the dotted sclera and broken iris shading of Chikorita, Tepig
+and Totodile without shader overrides. A live original/local-dispatcher/original control reproduces the defect,
+removes it, then restores it. The asset-free GPU test checks a lane-varying PBK loop followed by SHFL against
+CPU loop results. That shorter test also passes with the old translator on M5, so it does not independently
+reproduce the visual failure. Other scenes, hardware and Vulkan execution remain unverified.
