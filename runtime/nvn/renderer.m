@@ -1331,7 +1331,7 @@ static id<MTLTexture> dummy_texture_ex(int type, int kind, bool image) {
         id<MTLTexture> texture = [dev newTextureWithDescriptor:d];
         // (was MTLTextureType2D for cube arrays: a 2D bound to a texturecube_array slot is invalid)
         uint32_t zero[6] = {0};
-        for (int sl = 0; sl < (type == TEXTYPE_CUBE ? 6 : 1); sl++)
+        for (int sl = 0; sl < (type == TEXTYPE_CUBE || type == TEXTYPE_CUBE_ARRAY ? 6 : 1); sl++)  // (every face: new texels are undefined)
             if (d.textureType == MTLTextureType3D || d.textureType == MTLTextureType2D || d.textureType == MTLTextureType1D)
                 [texture replaceRegion:MTLRegionMake3D(0, 0, 0, 1, 1, 1) mipmapLevel:0 withBytes:zero bytesPerRow:4];
             else
