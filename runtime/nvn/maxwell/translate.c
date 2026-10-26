@@ -66,6 +66,7 @@ typedef struct {
     bool uses_branches, uses_cc, uses_local, uses_vid, uses_iid, uses_frag_coord, uses_front_facing, uses_lane, uses_layer;
     uint8_t out_comp[32];  // vertex: output components written per varying (transform feedback order)
     bool uses_rscale;  // resolution-scale table (fragment/compute only)
+    uint32_t txq_z;    // (MSL) texture slots whose TXQ dimension reads z: tz<slot>(level) is emitted with the final type
     bool warned_surface;  // a dropped bindless surface op was noted
     int32_t reg_cbsrc[256];  // registers last loaded straight from a constant buffer: ((cbuf << 16) | byte offset) + 1, else 0
     uint32_t flat_mask;           // fragment inputs using constant (flat) interpolation
@@ -125,6 +126,9 @@ static const char *pred(Ctx *c, int p, bool neg, char *buf) {
 #define P(p, n) pred(c, (p), (n), alloca(16))
 
 static const char *cbuf_ref(Ctx *c, int idx, int64_t off, const char *dyn, char *buf) {
+    // NVN keeps the draw's base instance in driver word c0[0x644]; vertex shaders add it to the instance id, which the
+    // hardware counts from 0 (nxnative, Z-A's occlusion boxes). Read it from the draw itself, indirect draws included.
+    if (!dyn && idx == 0 && off == 0x644 && c->stage == STAGE_VERTEX) { strcpy(buf, "biid"); return buf; }
     c->info->cbuf_mask |= 1u << idx;
     if (off + 16 > (int64_t)c->info->cbuf_size[idx]) c->info->cbuf_size[idx] = (uint32_t)((off + 16 + 255) & ~255);
     if (dyn) c->info->cbuf_dynamic |= 1u << idx;
@@ -225,8 +229,8 @@ static void icmp_expr(char *out, int op, const char *a, const char *b, bool is_s
 }
 
 // ------------------------------------------------------------------ attributes
-// Maxwell attribute space: 0x70 position, 0x80 + 16*i generic attribute i, 0x2F8 instance id,
-// 0x2FC vertex id, 0x3FC front facing, 0x6C point size.
+// Maxwell attribute space: 0x70 position, 0x80 + 16*i generic attribute i, 0x2F8 instance id (from 0: Metal's
+// instance_id includes the base instance), 0x2FC vertex id, 0x3FC front facing, 0x6C point size.
 static void attr_load(Ctx *c, int dst, uint32_t addr, const char *idx) {
     char e[256];
     if (idx) { fail(c, "indexed attribute load"); return; }
@@ -238,7 +242,7 @@ static void attr_load(Ctx *c, int dst, uint32_t addr, const char *idx) {
             int kind = c->key ? c->key->attr_kind[a] : 0;
             if (kind == 0) sprintf(e, "as_type<uint>(in.a%d[%d])", a, comp);
             else sprintf(e, "as_type<uint>(in.a%d[%d])", a, comp);
-        } else if (addr == 0x2F8) { c->uses_iid = true; strcpy(e, "iid"); }
+        } else if (addr == 0x2F8) { c->uses_iid = true; strcpy(e, "(iid - biid)"); }
         else if (addr == 0x2FC) { c->uses_vid = true; strcpy(e, "vid"); }
         else { sprintf(e, "0u /* attr %#x */", addr); }
     } else if (c->stage == STAGE_FRAGMENT) {
@@ -378,7 +382,8 @@ static bool emit_half(Ctx *c, uint64_t w) {
                 sprintf(ib, "0x%08xu", himm(w)); bv = ib;
             }
         }
-        sprintf(t, kind == 0 ? "(%s + %s)" : "(%s * %s)", HS(R(a), swa, nega, absa), HS(bv, swb, negb, absb));
+        bool fmz = kind == 1 && bits(w, form == 3 ? 55 : 39, 2) == 2;
+        sprintf(t, kind == 0 ? "(%s + %s)" : fmz ? "fmz_mul(%s, %s)" : "(%s * %s)", HS(R(a), swa, nega, absa), HS(bv, swb, negb, absb));
         hstore(c, d, t, merge, sat);
         return true;
     }
@@ -415,13 +420,16 @@ static bool emit_half(Ctx *c, uint64_t w) {
             swb = 0; swc = (int)bits(w, 53, 2);
             sprintf(ib, "0x%08xu", himm(w)); bv = ib; cv = R((int)bits(w, 39, 8));
             break;
-        default:  // 32I: c = d
-            merge = 0; sat = false; negb = false; negc = bits(w, 51, 1);
-            swa = (int)bits(w, 47, 2); swb = 0; swc = 0;
+        default:  // 32I: c = d. The immediate fills bits 20-51, so the fields sit above it, as yuzu's HFMA2_32I (Ryujinx
+                  // reads NegC 51 and ASwizzle 47-48 inside the immediate)
+            merge = 0; sat = false; negb = false; negc = bits(w, 52, 1);
+            swa = (int)bits(w, 53, 2); swb = 0; swc = 0;
             sprintf(ib, "0x%08xu", (uint32_t)bits(w, 20, 32)); bv = ib; cv = R(d);
             break;
         }
-        sprintf(t, "fma(%s, %s, %s)", HS(R(a), swa, false, false), HS(bv, swb, negb, false), HS(cv, swc, negc, false));
+        bool fmz = bits(w, form == 0 ? 37 : form == 4 ? 55 : 57, 2) == 2;
+        sprintf(t, fmz ? "fmz_fma(%s, %s, %s)" : "fma(%s, %s, %s)", HS(R(a), swa, false, false), HS(bv, swb, negb, false),
+                HS(cv, swc, negc, false));
         hstore(c, d, t, merge, sat);
         return true;
     }
@@ -889,7 +897,7 @@ static void emit_tld4s(Ctx *c, uint64_t w) {
 // TLD4 (gather; per Ryujinx's EmitTld4): Ra = [array index], coordinates; Rb = [offsets: one (.AOFFI) or two
 // (.PTP: four texels, 6-bit signed x / y at bits 0 / 8, 16 / 24)], [depth reference]. The WMask components go to
 // consecutive registers from Rd. GLSL gather offsets must be constant: the coordinates move instead, and .PTP takes
-// one gather per texel (component i of textureGatherOffsets comes from offset i).
+// one gather per texel: component i is texel i0j0 (gather .w) of the footprint at offset i, as textureGatherOffsets.
 static const char *tld4_next(Ctx *c, int *r, char *buf) {
     const char *s = reg(c, *r, buf);
     if (*r != RZ) (*r)++;
@@ -943,7 +951,7 @@ static void emit_tld4(Ctx *c, uint64_t w) {
         char mcall[4096];
         if (ngather == 4) {
             const char *vector = c->info->tex[slot].scalar_kind == 2 ? "uint4" : c->info->tex[slot].scalar_kind == 1 ? "int4" : "float4";
-            snprintf(mcall, sizeof mcall, "%s((%s).x, (%s).y, (%s).z, (%s).w)", vector, gather[0], gather[1], gather[2], gather[3]);
+            snprintf(mcall, sizeof mcall, "%s((%s).w, (%s).w, (%s).w, (%s).w)", vector, gather[0], gather[1], gather[2], gather[3]);
         }
         else
             snprintf(mcall, sizeof mcall, "%s", gather[0]);
@@ -972,7 +980,7 @@ static void emit_tld4(Ctx *c, uint64_t w) {
     char call[4096];
     if (ngather == 4) {
         const char *vector = c->info->tex[slot].scalar_kind == 2 ? "uvec4" : c->info->tex[slot].scalar_kind == 1 ? "ivec4" : "vec4";
-        snprintf(call, sizeof call, "%s((%s).x, (%s).y, (%s).z, (%s).w)", vector, gather[0], gather[1], gather[2], gather[3]);
+        snprintf(call, sizeof call, "%s((%s).w, (%s).w, (%s).w, (%s).w)", vector, gather[0], gather[1], gather[2], gather[3]);
     }
     else
         snprintf(call, sizeof call, "%s", gather[0]);
@@ -1372,25 +1380,26 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             if (c->stage != STAGE_VERTEX) {
                 c->uses_rscale = true;
                 sp(&c->body, "    { uint lv = %s; uvec4 q = uvec4(uint(floor(float(tsize%d(int(lv)).x) / rscale[%d].x + 0.5f)), "
-                   "uint(floor(float(tsize%d(int(lv)).y) / rscale[%d].y + 0.5f)), 1u, uint(textureQueryLevels(t%d)));\n",
-                   R(a), slot, slot + 1, slot, slot + 1, slot);
+                   "uint(floor(float(tsize%d(int(lv)).y) / rscale[%d].y + 0.5f)), uint(tsize%d(int(lv)).z), uint(textureQueryLevels(t%d)));\n",
+                   R(a), slot, slot + 1, slot, slot + 1, slot, slot);
             } else {
-                sp(&c->body, "    { uint lv = %s; uvec4 q = uvec4(uint(tsize%d(int(lv)).x), uint(tsize%d(int(lv)).y), 1u, uint(textureQueryLevels(t%d)));\n",
-                   R(a), slot, slot, slot);
+                sp(&c->body, "    { uint lv = %s; uvec4 q = uvec4(uint(tsize%d(int(lv)).x), uint(tsize%d(int(lv)).y), uint(tsize%d(int(lv)).z), uint(textureQueryLevels(t%d)));\n",
+                   R(a), slot, slot, slot, slot);
             }
             int n = 0;
             for (int i = 0; i < 4; i++)
                 if (mask & (1u << i)) { c->reg_used[d + n] = 1; sp(&c->body, "      r%d = q[%d];\n", d + n, i); n++; }
             sp(&c->body, "    }\n");
-        } else if (qt == 1) {  // dimension
+        } else if (qt == 1) {  // dimension (z: depth or layers, as Ryujinx's TextureQuerySize; 1 for 1D / 2D / cube)
+            if (slot < 32) c->txq_z |= 1u << slot;
             if (c->stage != STAGE_VERTEX) {  // report the guest size of scaled allocations
                 c->uses_rscale = true;
                 sp(&c->body, "    { uint lv = %s; uint4 q = uint4(uint(round(float(t%d.get_width(lv)) / rscale[%d].x)), "
-                   "uint(round(float(t%d.get_height(lv)) / rscale[%d].y)), 1, t%d.get_num_mip_levels());\n",
-                   R(a), slot, slot + 1, slot, slot + 1, slot);
+                   "uint(round(float(t%d.get_height(lv)) / rscale[%d].y)), tz%d(lv), t%d.get_num_mip_levels());\n",
+                   R(a), slot, slot + 1, slot, slot + 1, slot, slot);
             } else {
-                sp(&c->body, "    { uint lv = %s; uint4 q = uint4(t%d.get_width(lv), t%d.get_height(lv), 1, t%d.get_num_mip_levels());\n",
-                   R(a), slot, slot, slot);
+                sp(&c->body, "    { uint lv = %s; uint4 q = uint4(t%d.get_width(lv), t%d.get_height(lv), tz%d(lv), t%d.get_num_mip_levels());\n",
+                   R(a), slot, slot, slot, slot);
             }
             int n = 0;
             for (int i = 0; i < 4; i++)
@@ -1426,23 +1435,27 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         sprintf(t, "(%s + %s)", NA(F(R(a)), bits(w, 56, 1), bits(w, 54, 1)), NA(u, bits(w, 53, 1), bits(w, 57, 1)));
         set_reg(c, d, FRES(t, false));
     } else if (OPM(0x5c68000000000000ull, 0xfff8000000000000ull) || OPM(0x4c68000000000000ull, 0xfff8000000000000ull) ||
-               OPM(0x3868000000000000ull, 0xfef8000000000000ull)) {  // FMUL
+               OPM(0x3868000000000000ull, 0xfef8000000000000ull)) {  // FMUL (.FMZ: fmz_mul)
         static const char *const scale[] = {"", " * 0.5f", " * 0.25f", " * 0.125f", " * 8.0f", " * 4.0f", " * 2.0f", ""};
-        sprintf(t, "(%s * %s%s)", F(R(a)), NA(F(B(true)), bits(w, 48, 1), false), scale[bits(w, 41, 3)]);
+        sprintf(t, bits(w, 44, 2) == 2 ? "(fmz_mul(%s, %s)%s)" : "(%s * %s%s)", F(R(a)), NA(F(B(true)), bits(w, 48, 1), false),
+                scale[bits(w, 41, 3)]);
         set_reg(c, d, FRES(t, bits(w, 50, 1)));
     } else if (OPM(0x1e00000000000000ull, 0xff00000000000000ull)) {  // FMUL32I
-        sprintf(t, "(%s * as_type<float>(0x%08xu))", F(R(a)), (uint32_t)bits(w, 20, 32));
+        sprintf(t, bits(w, 53, 2) == 2 ? "fmz_mul(%s, as_type<float>(0x%08xu))" : "(%s * as_type<float>(0x%08xu))", F(R(a)),
+                (uint32_t)bits(w, 20, 32));
         set_reg(c, d, FRES(t, bits(w, 55, 1)));
     } else if (OPM(0x5980000000000000ull, 0xff80000000000000ull) || OPM(0x4980000000000000ull, 0xff80000000000000ull) ||
                OPM(0x5180000000000000ull, 0xff80000000000000ull) || OPM(0x3280000000000000ull, 0xfe80000000000000ull)) {  // FFMA
         const char *bv;
         char cbuf_c[256], bbuf[256];
         const char *cv = operand_c_for_ffma(c, w, cbuf_c, &bv, bbuf);
-        sprintf(t, "fma(%s, %s, %s)", F(R(a)), NA(F(bv), bits(w, 48, 1), false), NA(F(cv), bits(w, 49, 1), false));
+        sprintf(t, bits(w, 53, 2) == 2 ? "fmz_fma(%s, %s, %s)" : "fma(%s, %s, %s)", F(R(a)), NA(F(bv), bits(w, 48, 1), false),
+                NA(F(cv), bits(w, 49, 1), false));
         set_reg(c, d, FRES(t, bits(w, 50, 1)));
     } else if (OPM(0x0c00000000000000ull, 0xfc00000000000000ull)) {  // FFMA32I
         sprintf(u, "as_type<float>(0x%08xu)", (uint32_t)bits(w, 20, 32));
-        sprintf(t, "fma(%s, %s, %s)", NA(F(R(a)), bits(w, 56, 1), false), u, NA(F(R(d)), bits(w, 57, 1), false));
+        sprintf(t, bits(w, 53, 2) == 2 ? "fmz_fma(%s, %s, %s)" : "fma(%s, %s, %s)", NA(F(R(a)), bits(w, 56, 1), false), u,
+                NA(F(R(d)), bits(w, 57, 1), false));
         set_reg(c, d, FRES(t, bits(w, 55, 1)));
     } else if (OPM(0x5c60000000000000ull, 0xfff8000000000000ull) || OPM(0x4c60000000000000ull, 0xfff8000000000000ull) ||
                OPM(0x3860000000000000ull, 0xfef8000000000000ull)) {  // FMNMX
@@ -1840,17 +1853,19 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
     } else if (OPM(0x5c38000000000000ull, 0xfff8000000000000ull) || OPM(0x4c38000000000000ull, 0xfff8000000000000ull) ||
                OPM(0x3838000000000000ull, 0xfef8000000000000ull)) {  // IMUL
         // .HI (bit 39): the high word, A signed (bit 40), B signed (bit 41)
-        if (bits(w, 39, 1)) {
-            if (bits(w, 40, 1) != bits(w, 41, 1)) { fail(c, "imul.hi mixed signedness"); return; }
+        if (bits(w, 39, 1) && bits(w, 40, 1) != bits(w, 41, 1))  // mixed: the 64-bit product of a sign- and a zero-extended word
+            sprintf(t, bits(w, 40, 1) ? "uint(ulong(long(int(%s)) * long(%s)) >> 32)" : "uint(ulong(long(%s) * long(int(%s))) >> 32)",
+                    R(a), B(false));
+        else if (bits(w, 39, 1))
             sprintf(t, bits(w, 40, 1) ? "uint(mulhi(int(%s), int(%s)))" : "mulhi(%s, %s)", R(a), B(false));
-        }
         else sprintf(t, "(%s * %s)", R(a), B(false));
         set_reg(c, d, t);
     } else if (OPM(0x1f00000000000000ull, 0xff00000000000000ull)) {  // IMUL32I (.HI bit 53, A / B signed bits 54 / 55)
-        if (bits(w, 53, 1)) {
-            if (bits(w, 54, 1) != bits(w, 55, 1)) { fail(c, "imul32i.hi mixed signedness"); return; }
+        if (bits(w, 53, 1) && bits(w, 54, 1) != bits(w, 55, 1))
+            sprintf(t, bits(w, 54, 1) ? "uint(ulong(long(int(%s)) * long(0x%08xu)) >> 32)" : "uint(ulong(long(%s) * long(int(0x%08xu))) >> 32)",
+                    R(a), (uint32_t)bits(w, 20, 32));
+        else if (bits(w, 53, 1))
             sprintf(t, bits(w, 54, 1) ? "uint(mulhi(int(%s), int(0x%08xu)))" : "mulhi(%s, 0x%08xu)", R(a), (uint32_t)bits(w, 20, 32));
-        }
         else sprintf(t, "(%s * 0x%08xu)", R(a), (uint32_t)bits(w, 20, 32));
         set_reg(c, d, t);
     } else if (OPM(0x5ce0000000000000ull, 0xfff8000000000000ull) || OPM(0x4ce0000000000000ull, 0xfff8000000000000ull) ||
@@ -2218,7 +2233,7 @@ static void glsl_rewrite(Ctx *c, Str *o, const char *src) {
         {"int4", "ivec4"}, {"uint2", "uvec2"}, {"uint3", "uvec3"}, {"uint4", "uvec4"}, {"bool2", "bvec2"},
         {"ulong", "uint64_t"}, {"rsqrt", "inversesqrt"}, {"rint", "roundEven"}, {"front_facing", "gl_FrontFacing"},
         {"point_coord", "gl_PointCoord"}, {"lane", "gl_SubgroupInvocationID"}, {"vid", "uint(gl_VertexIndex)"},
-        {"iid", "uint(gl_InstanceIndex)"}, {"rt_layer", "uint(gl_Layer)"}, {"long", "int64_t"},
+        {"iid", "uint(gl_InstanceIndex)"}, {"biid", "uint(gl_BaseInstance)"}, {"rt_layer", "uint(gl_Layer)"}, {"long", "int64_t"},
         {"reverse_bits", "bitfieldReverse"},
     };
     const char *p = src;
@@ -2308,6 +2323,7 @@ static const char glsl_prelude[] =
     "#extension GL_KHR_shader_subgroup_ballot : require\n"
     "#extension GL_EXT_texture_shadow_lod : require\n"
     "#extension GL_ARB_shader_viewport_layer_array : enable\n"
+    "#extension GL_ARB_shader_draw_parameters : enable\n"
     "#define cbr(cb, off) cb[min((off) >> 4, uint(cb.length() - 1))][((off) >> 2) & 3u]\n"
     "uint as_u(float x) { return floatBitsToUint(x); }\n"
     "vec4 stc(uvec4 v) { return uintBitsToFloat(v); }\n"
@@ -2327,6 +2343,10 @@ static const char glsl_prelude[] =
     "vec2 saturate(vec2 x) { return vec2(saturate(x.x), saturate(x.y)); }\n"
     "float fmin(float a, float b) { return isnan(a) ? b : (isnan(b) ? a : min(a, b)); }\n"
     "float fmax(float a, float b) { return isnan(a) ? b : (isnan(b) ? a : max(a, b)); }\n"
+    "float fmz_mul(float a, float b) { return (floatBitsToUint(a) & 0x7F800000u) == 0u || (floatBitsToUint(b) & 0x7F800000u) == 0u ? 0.0f : a * b; }\n"
+    "float fmz_fma(float a, float b, float c) { return (floatBitsToUint(a) & 0x7F800000u) == 0u || (floatBitsToUint(b) & 0x7F800000u) == 0u ? c : fma(a, b, c); }\n"
+    "vec2 fmz_mul(vec2 a, vec2 b) { return vec2(fmz_mul(a.x, b.x), fmz_mul(a.y, b.y)); }\n"
+    "vec2 fmz_fma(vec2 a, vec2 b, vec2 c) { return vec2(fmz_fma(a.x, b.x, c.x), fmz_fma(a.y, b.y, c.y)); }\n"
     "uint clz(uint v) { return v == 0u ? 32u : uint(31 - findMSB(v)); }\n"
     "uint popcount(uint v) { return uint(bitCount(v)); }\n"
     "uint mulhi(uint a, uint b) { uint hi, lo; umulExtended(a, b, hi, lo); return hi; }\n"
@@ -2632,6 +2652,13 @@ ShaderInfo *maxwell_translate(const uint8_t *blob, size_t max_size, int stage, c
     sp(&s, "static inline uint bfe_s(uint v, uint ctl) { uint pos = ctl & 0xFFu, len = (ctl >> 8) & 0xFFu; if (len == 0u) return 0u; if (pos >= 32u) return (int(v) < 0) ? 0xFFFFFFFFu : 0u; return uint(extract_bits(int(v), pos, min(len, 32u - pos))); }\n");
     sp(&s, "static inline uint bfi(uint ins, uint ctl, uint base) { uint pos = ctl & 0xFFu, len = (ctl >> 8) & 0xFFu; if (len == 0u || pos >= 32u) return base; return insert_bits(base, ins, pos, min(len, 32u - pos)); }\n");
     sp(&s, "static inline float fswzadd(float a, float b, uint swz, uint lane) { uint m = (swz >> ((lane & 3u) * 2u)) & 3u; float ma = m == 1u ? -1.0f : (m == 3u ? 0.0f : 1.0f); float mb = m == 2u ? -1.0f : 1.0f; return a * ma + b * mb; }\n");
+    // FMUL / FFMA .FMZ (D3D9 rule: 0 * anything, Inf and NaN too, is 0; as yuzu). .FMZ also flushes denormals, so a zero
+    // exponent counts as 0. The test is on the bits: with fast math a float compare against 0 lets the compiler fold the
+    // select into the plain product
+    sp(&s, "static inline float fmz_mul(float a, float b) { return (as_type<uint>(a) & 0x7F800000u) == 0u || (as_type<uint>(b) & 0x7F800000u) == 0u ? 0.0f : a * b; }\n");
+    sp(&s, "static inline float fmz_fma(float a, float b, float c) { return (as_type<uint>(a) & 0x7F800000u) == 0u || (as_type<uint>(b) & 0x7F800000u) == 0u ? c : fma(a, b, c); }\n");
+    sp(&s, "static inline float2 fmz_mul(float2 a, float2 b) { return float2(fmz_mul(a.x, b.x), fmz_mul(a.y, b.y)); }\n");
+    sp(&s, "static inline float2 fmz_fma(float2 a, float2 b, float2 c) { return float2(fmz_fma(a.x, b.x, c.x), fmz_fma(a.y, b.y, c.y)); }\n");
     sp(&s, "static inline uint2 rsc(uint2 c, float4 s) { return (s.x == 1.0f && s.y == 1.0f) ? c : uint2(floor((float2(c) + 0.5f) * s.xy)); }\n");
     sp(&s, "static inline float2 hx(uint v, uint swz) { if (swz == 1u) return float2(as_type<float>(v)); float2 h = float2(as_type<half2>(v)); return swz == 2u ? h.xx : swz == 3u ? h.yy : h; }\n");
     // merges on half2 lanes rather than with integer masks: on an M1 (macOS 15.0.1) the Metal compiler miscompiled
@@ -2716,8 +2743,15 @@ ShaderInfo *maxwell_translate(const uint8_t *blob, size_t max_size, int stage, c
         else sp(&args, ", %s%s<%s> t%d [[texture(%d)]]", t->shadow ? "depth" : "texture", tn, scalar, i, i);
         if (!smap) sp(&args, ", sampler s%d [[sampler(%d)]]", i, i);
     }
+    for (int i = 0; i < info->ntex; i++) {
+        if (i >= 32 || !(c->txq_z >> i & 1)) continue;
+        int ty = info->tex[i].type;
+        if (ty == TEXTYPE_3D) sp(&s, "#define tz%d(l) t%d.get_depth(l)\n", i, i);
+        else if (ty == TEXTYPE_2D_ARRAY || ty == TEXTYPE_CUBE_ARRAY || ty == TEXTYPE_1D_ARRAY) sp(&s, "#define tz%d(l) t%d.get_array_size()\n", i, i);
+        else sp(&s, "#define tz%d(l) 1u\n", i);
+    }
     if (stage == STAGE_VERTEX) {
-        sp(&s, "vertex %s main0(VIn in [[stage_in]], uint vid [[vertex_id]], uint iid [[instance_id]]%s%s) {\n",
+        sp(&s, "vertex %s main0(VIn in [[stage_in]], uint vid [[vertex_id]], uint iid [[instance_id]], uint biid [[base_instance]]%s%s) {\n",
            key && key->xfb_void ? "void" : "VOut",
            (maxwell_dbg_vs && blob == maxwell_dbg_vs) ? ", device float4 *dbgout [[buffer(29)]]" : "",
            args.buf ? args.buf : "");
