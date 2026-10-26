@@ -1569,9 +1569,43 @@ static void compute_image_feedback(void) {
     destroy_texture(&image);st.tpool=NULL;st.ubuf[5][1]=(Range){0};
 }
 
+static void live_shader_pipeline(void) {
+    NvnTexture color=test_texture(1,4,4,1,1,0x25,1);
+    bind_targets(&color,NULL,NULL);prepare_draw();fullscreen_draw(1);check_gpu();
+    NvnProgram *program=st.program;Prog *target=nil;
+    for(id value in cache.allValues) if([value isKindOfClass:[Prog class]]) {
+        Prog *candidate=value;
+        if(candidate->vs_addr==program->stages[0].code_addr && candidate->fs_addr==program->stages[1].code_addr) target=candidate;
+    }
+    CHECK(target!=nil,"live pipeline fixture must find its compiled program");
+    char *original=strdup(target->fi->msl);CHECK(original!=NULL,"saved original shader");
+    unsigned bad=0;
+    for(unsigned i=0;i<32;i++) @autoreleasepool {
+        unsigned red=17+7*i;
+        FILE *f=fopen("live-pipeline.metal","w");CHECK(f!=NULL,"override fixture source");
+        fprintf(f,"#include <metal_stdlib>\nusing namespace metal; fragment float4 main0() { return float4(%u.0f / 255.0f,0,0,1); }\n",red);fclose(f);
+        CHECK(live_override_fs(target,"live-pipeline.metal"),"replacement fragment compiles");
+        const float black[4]={0,0,0,1};clear(0,0,black,15,false,0,false,0,0);
+        fullscreen_draw(1);id<MTLBuffer> result=read_texture(renderer_texture(&color,nil,true),0,0,4);
+        const uint8_t *pixel=result.contents;
+        fprintf(stderr,"live override%u fn=%p got=%u,%u,%u want=%u,0,0\n",i,(__bridge void*)target->fs,pixel[0],pixel[1],pixel[2],red);
+        for(unsigned y=0;y<4;y++) for(unsigned x=0;x<4;x++) {
+            const uint8_t *p=(const uint8_t*)result.contents+y*256+x*4;
+            if(abs((int)p[0]-(int)red)>1 || p[1] || p[2] || p[3]!=255)bad++;
+        }
+    }
+    FILE *restore=fopen("live-pipeline.metal","w");CHECK(restore!=NULL,"restore original shader source");
+    fputs(original,restore);fclose(restore);free(original);
+    CHECK(live_override_fs(target,"live-pipeline.metal"),"restore fixture shader for subsequent cases");
+    fullscreen_draw(1);expect_rgba(&color,0,255,0);
+    destroy_texture(&color);
+    CHECK(!bad,"every live shader replacement must render its new color even when native function addresses are reused");
+}
+
 typedef void (*TestFn)(void);
 static const struct { const char *name, *group; TestFn run; bool needs_sampler26; } tests[] = {
     {"smoke", "smoke", smoke},
+    {"live-shader-pipeline", "live", live_shader_pipeline},
     {"compute-image-store", "images", compute_image_store},
     {"compute-image-feedback", "images", compute_image_feedback},
     {"compute-image-ownership", "images", compute_image_ownership},
