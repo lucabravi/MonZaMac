@@ -785,7 +785,7 @@ static int cbuf_base = 3, tex_base = 8;
     id<MTLFunction> vs, fs;
     ShaderInfo *vi, *fi;
     uint64_t vs_addr, fs_addr;  // guest shader code addresses, for failure logs
-    bool failed;
+    _Atomic bool failed;  // published by async compilation, read by get_program and draw waits
     _Atomic bool ready;  // functions compiled (async compile: draws are skipped until then)
     bool ov_active;      // live shader override applied (build/dbgcmd): ov_path is the source to reload
     char ov_path[256];
@@ -2394,7 +2394,7 @@ static bool prog_ready_or_wait(Prog *pr, const CmdRec *r) {
     if (!pr || pr->ready) return pr != nil;
     if (r->x[2] > 6) return false;
     double t0 = now_ms();
-    while (!pr->ready && !__atomic_load_n(&pr->failed, __ATOMIC_ACQUIRE) && now_ms() - t0 < 2000) usleep(1000);
+    while (!pr->ready && !pr->failed && now_ms() - t0 < 2000) usleep(1000);
     static int n;
     if (n++ < 20) LOG("[metal] full-screen draw waited %.1f ms for its program\n", now_ms() - t0);
     return pr->ready;
