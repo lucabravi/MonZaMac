@@ -55,4 +55,5 @@ Renderer tests need no game files: `MTL_DEBUG_LAYER=1 gmake B=build/za202 GEN=ge
 - Keep each change focused. A graphics fix isn't verified until seen on screen: say what you tested and what you
   couldn't (a Mac with the user's game files is needed for in-game checks).
 - Debug hooks are `LARECOMP_*` environment variables (grep `getenv("LARECOMP_`).
-- Branch from `main`; PRs go to `lucabravi/MonZaMac` from a fork.
+- Never commit to `main` directly: branch from `main` (a worktree is fine) and open a PR to `lucabravi/MonZaMac`,
+  from a fork if you can't push there.
