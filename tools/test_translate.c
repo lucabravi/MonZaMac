@@ -237,6 +237,11 @@ static int run_cases(void) {
         // SHFL.UP in GLSL: clamp / segment from c, predicate = the source lane is valid (as in MSL)
         {"shfl up glsl", STAGE_COMPUTE, true, 0, 0xef1ull << 52 | 0ull << 48 | 1ull << 34 | 1 << 30 | 1 << 29 | 1 << 28 | 1 << 20 | PT_ | 1 << 8 | 3, 0,
          "uint shuffled = subgroupShuffle(r1, src & 31u);\n    r3 = ok ? shuffled : r1;\n      p0 = ok;", NULL},
+        // instance id from 0 (Metal's instance_id includes the base); driver word c0[0x644] = the draw's base instance
+        {"instance id + base instance", STAGE_VERTEX, false, 0, 0xefd8ull << 48 | 0x2f8ull << 20 | 255 << 8 | PT_ | 1,
+         0x4c10ull << 48 | (0x644ull / 4) << 20 | PT_ | 1 << 8, "(iid - biid)", "cb0[100]"},
+        {"base instance glsl", STAGE_VERTEX, true, 0, 0xefd8ull << 48 | 0x2f8ull << 20 | 255 << 8 | PT_ | 1,
+         0x4c10ull << 48 | (0x644ull / 4) << 20 | PT_ | 1 << 8, "(r1 + uint(gl_BaseInstance))", "cb0[100]"},
     };
     int bad = 0;
     for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
