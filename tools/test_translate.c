@@ -11,6 +11,7 @@
 // register / predicate / cbuf / texture / attribute / branch fields biased towards meaningful values.
 //
 // usage: test_translate <translate.c> <count> <seed> [msl|glsl|both] [dump_dir]
+//        test_translate cases   (hand-written operand-layout checks, see run_cases)
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -204,8 +205,67 @@ static void dump(const char *dir, const char *tag, long n, const char *src, cons
     fclose(f);
 }
 
+// Hand-written instructions whose operand layout was checked against Ryujinx / yuzu (docs/translator-audit.md): the
+// translation of each (one or two instructions, then EXIT) must contain `want`, and must not contain `bad`.
+#define PT_ 0x70000ull  // predicate guard PT
+static int run_cases(void) {
+    static const struct { const char *name; int stage; bool glsl; uint8_t img_uint; uint64_t i0, i1; const char *want, *bad; } cases[] = {
+        // TLDS 2D array LZ (info 8): x, y = Rb, Rb+1, layer = Ra (TEXS's array layout is layer, Ra+1, Rb)
+        {"tlds 2d array", STAGE_FRAGMENT, false, 0, 0xdaull << 56 | 8ull << 53 | 255ull << 28 | 2 << 20 | PT_ | 1 << 8, 0,
+         "t0.read(rsc(uint2(r2, r3), rscale[1]), uint(r1))", NULL},
+        {"tlds 2d array glsl", STAGE_FRAGMENT, true, 0, 0xdaull << 56 | 8ull << 53 | 255ull << 28 | 2 << 20 | PT_ | 1 << 8, 0,
+         "texelFetch(t0, ivec3(ivec2(rsc(uvec2(r2, r3), rscale[1])), int(r1)), 0)", NULL},
+        // TEXS 2D.LL.DC (info 5): lod = Rb, dref = Rb+1 (yuzu; Ryujinx's EmitTexs reads them the other way round)
+        {"texs 2d ll dc", STAGE_FRAGMENT, false, 0, 0xd8ull << 56 | 5ull << 53 | 255ull << 28 | 4 << 20 | PT_ | 2 << 8, 0,
+         "sample_compare(s0, float2(as_type<float>(r2), as_type<float>(r3)), as_type<float>(r5), level(as_type<float>(r4)))", NULL},
+        // TEXS ARRAY_2D.LZ.DC (info 9): the layer is clamped like the other array lookups
+        {"texs 2d array lz dc", STAGE_FRAGMENT, false, 0, 0xd8ull << 56 | 9ull << 53 | 255ull << 28 | 4 << 20 | PT_ | 2 << 8, 0,
+         "min(r2, t0.get_array_size() - 1u)", NULL},
+        // TEXS 1D.LZ in GLSL: level 0, not an implicit LOD
+        {"texs 1d lz glsl", STAGE_FRAGMENT, true, 0, 0xd8ull << 56 | 0ull << 53 | 255ull << 28 | 4 << 20 | PT_ | 1 << 8, 0,
+         "textureLod(t0, as_f(r1), 0.0f)", NULL},
+        // F2F.F16.F32 with bits 39-40 = RM and bit 42 set: a conversion rounding mode, not floor()
+        {"f2f f16.f32 no integer round", STAGE_FRAGMENT, false, 0, 0x5ca8ull << 48 | 1ull << 42 | 1ull << 39 | 2 << 20 | PT_ | 2 << 10 | 1 << 8, 0,
+         "half(as_type<float>(r2))", "floor(as_type"},
+        // F2F.F32.F32.FLOOR: integer rounding without a format change
+        {"f2f f32.f32 floor", STAGE_FRAGMENT, false, 0, 0x5ca8ull << 48 | 1ull << 42 | 1ull << 39 | 2 << 20 | PT_ | 2 << 10 | 2 << 8, 0,
+         "floor(as_type<float>(r2))", NULL},
+        // SURED.B.ADD.BA on a 2D uint image whose handle came from c[2][IMAGE_HANDLE_BASE]: x is a byte offset
+        {"sured ba", STAGE_FRAGMENT, false, 1, 0x4c98ull << 48 | 0xfull << 39 | 2ull << 34 | (IMAGE_HANDLE_BASE / 4) << 20 | PT_ | 5,
+         0xeb5ull << 52 | 5ull << 39 | 3ull << 33 | 1 << 23 | PT_ | 4,
+         "atomic_fetch_add(uint2(uint(int(r0) >> 2), r1), uint4(r4, 0u, 0u, 0u))", NULL},
+        // SHFL.UP in GLSL: clamp / segment from c, predicate = the source lane is valid (as in MSL)
+        {"shfl up glsl", STAGE_COMPUTE, true, 0, 0xef1ull << 52 | 0ull << 48 | 1ull << 34 | 1 << 30 | 1 << 29 | 1 << 28 | 1 << 20 | PT_ | 1 << 8 | 3, 0,
+         "uint shuffled = subgroupShuffle(r1, src & 31u);\n    r3 = ok ? shuffled : r1;\n      p0 = ok;", NULL},
+    };
+    int bad = 0;
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+        static uint8_t prog[0x80 + 128];
+        memset(prog, 0, sizeof prog);
+        size_t hdr = cases[i].stage == STAGE_COMPUTE ? 0 : 0x80;
+        if (cases[i].stage == STAGE_FRAGMENT) { uint32_t omap = 0xF; memcpy(prog + 0x30 + 0x48, &omap, 4); }
+        uint64_t code[8] = {0x001f8000fc0007e0ull, cases[i].i0, cases[i].i1 ? cases[i].i1 : 0xe30000000007000full,
+                            0xe30000000007000full, 0x001f8000fc0007e0ull, 0xe2400fffff87000full, 0xe2400fffff87000full, 0};
+        memcpy(prog + hdr, code, sizeof code);
+        ShaderKey key;
+        memset(&key, 0, sizeof key);
+        key.glsl = cases[i].glsl;
+        key.img_uint = cases[i].img_uint;
+        ShaderInfo *s = maxwell_translate(prog, hdr + sizeof code + 64, cases[i].stage, &key);
+        bool ok = s->msl && strstr(s->msl, cases[i].want) && !(cases[i].bad && strstr(s->msl, cases[i].bad));
+        if (!ok) {
+            bad++;
+            printf("case FAILED: %s\n  want: %s\n%s\n", cases[i].name, cases[i].want, s->msl ? s->msl : s->error);
+        }
+        maxwell_free(s);
+    }
+    printf("cases: %d / %d passed\n", (int)(sizeof cases / sizeof cases[0]) - bad, (int)(sizeof cases / sizeof cases[0]));
+    return bad != 0;
+}
+
 int main(int argc, char **argv) {
-    if (argc < 4) { fprintf(stderr, "usage: %s <translate.c> <count> <seed> [msl|glsl|both] [dump_dir]\n", argv[0]); return 2; }
+    if (argc == 2 && !strcmp(argv[1], "cases")) return run_cases();
+    if (argc < 4) { fprintf(stderr, "usage: %s cases | <translate.c> <count> <seed> [msl|glsl|both] [dump_dir]\n", argv[0]); return 2; }
     load_patterns(argv[1]);
     long count = atol(argv[2]);
     rng_state = g_seed = strtoull(argv[3], NULL, 0);
