@@ -1426,23 +1426,27 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         sprintf(t, "(%s + %s)", NA(F(R(a)), bits(w, 56, 1), bits(w, 54, 1)), NA(u, bits(w, 53, 1), bits(w, 57, 1)));
         set_reg(c, d, FRES(t, false));
     } else if (OPM(0x5c68000000000000ull, 0xfff8000000000000ull) || OPM(0x4c68000000000000ull, 0xfff8000000000000ull) ||
-               OPM(0x3868000000000000ull, 0xfef8000000000000ull)) {  // FMUL
+               OPM(0x3868000000000000ull, 0xfef8000000000000ull)) {  // FMUL (.FMZ: fmz_mul)
         static const char *const scale[] = {"", " * 0.5f", " * 0.25f", " * 0.125f", " * 8.0f", " * 4.0f", " * 2.0f", ""};
-        sprintf(t, "(%s * %s%s)", F(R(a)), NA(F(B(true)), bits(w, 48, 1), false), scale[bits(w, 41, 3)]);
+        sprintf(t, bits(w, 44, 2) == 2 ? "(fmz_mul(%s, %s)%s)" : "(%s * %s%s)", F(R(a)), NA(F(B(true)), bits(w, 48, 1), false),
+                scale[bits(w, 41, 3)]);
         set_reg(c, d, FRES(t, bits(w, 50, 1)));
     } else if (OPM(0x1e00000000000000ull, 0xff00000000000000ull)) {  // FMUL32I
-        sprintf(t, "(%s * as_type<float>(0x%08xu))", F(R(a)), (uint32_t)bits(w, 20, 32));
+        sprintf(t, bits(w, 53, 2) == 2 ? "fmz_mul(%s, as_type<float>(0x%08xu))" : "(%s * as_type<float>(0x%08xu))", F(R(a)),
+                (uint32_t)bits(w, 20, 32));
         set_reg(c, d, FRES(t, bits(w, 55, 1)));
     } else if (OPM(0x5980000000000000ull, 0xff80000000000000ull) || OPM(0x4980000000000000ull, 0xff80000000000000ull) ||
                OPM(0x5180000000000000ull, 0xff80000000000000ull) || OPM(0x3280000000000000ull, 0xfe80000000000000ull)) {  // FFMA
         const char *bv;
         char cbuf_c[256], bbuf[256];
         const char *cv = operand_c_for_ffma(c, w, cbuf_c, &bv, bbuf);
-        sprintf(t, "fma(%s, %s, %s)", F(R(a)), NA(F(bv), bits(w, 48, 1), false), NA(F(cv), bits(w, 49, 1), false));
+        sprintf(t, bits(w, 53, 2) == 2 ? "fmz_fma(%s, %s, %s)" : "fma(%s, %s, %s)", F(R(a)), NA(F(bv), bits(w, 48, 1), false),
+                NA(F(cv), bits(w, 49, 1), false));
         set_reg(c, d, FRES(t, bits(w, 50, 1)));
     } else if (OPM(0x0c00000000000000ull, 0xfc00000000000000ull)) {  // FFMA32I
         sprintf(u, "as_type<float>(0x%08xu)", (uint32_t)bits(w, 20, 32));
-        sprintf(t, "fma(%s, %s, %s)", NA(F(R(a)), bits(w, 56, 1), false), u, NA(F(R(d)), bits(w, 57, 1), false));
+        sprintf(t, bits(w, 53, 2) == 2 ? "fmz_fma(%s, %s, %s)" : "fma(%s, %s, %s)", NA(F(R(a)), bits(w, 56, 1), false), u,
+                NA(F(R(d)), bits(w, 57, 1), false));
         set_reg(c, d, FRES(t, bits(w, 55, 1)));
     } else if (OPM(0x5c60000000000000ull, 0xfff8000000000000ull) || OPM(0x4c60000000000000ull, 0xfff8000000000000ull) ||
                OPM(0x3860000000000000ull, 0xfef8000000000000ull)) {  // FMNMX
@@ -2327,6 +2331,8 @@ static const char glsl_prelude[] =
     "vec2 saturate(vec2 x) { return vec2(saturate(x.x), saturate(x.y)); }\n"
     "float fmin(float a, float b) { return isnan(a) ? b : (isnan(b) ? a : min(a, b)); }\n"
     "float fmax(float a, float b) { return isnan(a) ? b : (isnan(b) ? a : max(a, b)); }\n"
+    "float fmz_mul(float a, float b) { return (floatBitsToUint(a) << 1) == 0u || (floatBitsToUint(b) << 1) == 0u ? 0.0f : a * b; }\n"
+    "float fmz_fma(float a, float b, float c) { return (floatBitsToUint(a) << 1) == 0u || (floatBitsToUint(b) << 1) == 0u ? c : fma(a, b, c); }\n"
     "uint clz(uint v) { return v == 0u ? 32u : uint(31 - findMSB(v)); }\n"
     "uint popcount(uint v) { return uint(bitCount(v)); }\n"
     "uint mulhi(uint a, uint b) { uint hi, lo; umulExtended(a, b, hi, lo); return hi; }\n"
@@ -2632,6 +2638,10 @@ ShaderInfo *maxwell_translate(const uint8_t *blob, size_t max_size, int stage, c
     sp(&s, "static inline uint bfe_s(uint v, uint ctl) { uint pos = ctl & 0xFFu, len = (ctl >> 8) & 0xFFu; if (len == 0u) return 0u; if (pos >= 32u) return (int(v) < 0) ? 0xFFFFFFFFu : 0u; return uint(extract_bits(int(v), pos, min(len, 32u - pos))); }\n");
     sp(&s, "static inline uint bfi(uint ins, uint ctl, uint base) { uint pos = ctl & 0xFFu, len = (ctl >> 8) & 0xFFu; if (len == 0u || pos >= 32u) return base; return insert_bits(base, ins, pos, min(len, 32u - pos)); }\n");
     sp(&s, "static inline float fswzadd(float a, float b, uint swz, uint lane) { uint m = (swz >> ((lane & 3u) * 2u)) & 3u; float ma = m == 1u ? -1.0f : (m == 3u ? 0.0f : 1.0f); float mb = m == 2u ? -1.0f : 1.0f; return a * ma + b * mb; }\n");
+    // FMUL / FFMA .FMZ (D3D9 rule: 0 * anything, Inf and NaN too, is 0; as yuzu). The zero test is on the bits: with fast
+    // math a float compare against 0 lets the compiler fold the select into the plain product
+    sp(&s, "static inline float fmz_mul(float a, float b) { return (as_type<uint>(a) << 1) == 0u || (as_type<uint>(b) << 1) == 0u ? 0.0f : a * b; }\n");
+    sp(&s, "static inline float fmz_fma(float a, float b, float c) { return (as_type<uint>(a) << 1) == 0u || (as_type<uint>(b) << 1) == 0u ? c : fma(a, b, c); }\n");
     sp(&s, "static inline uint2 rsc(uint2 c, float4 s) { return (s.x == 1.0f && s.y == 1.0f) ? c : uint2(floor((float2(c) + 0.5f) * s.xy)); }\n");
     sp(&s, "static inline float2 hx(uint v, uint swz) { if (swz == 1u) return float2(as_type<float>(v)); float2 h = float2(as_type<half2>(v)); return swz == 2u ? h.xx : swz == 3u ? h.yy : h; }\n");
     // merges on half2 lanes rather than with integer masks: on an M1 (macOS 15.0.1) the Metal compiler miscompiled
