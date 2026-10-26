@@ -31,6 +31,7 @@ typedef struct {
     bool movie_audio;
     bool show_fps;
     bool fps60;  // Pokémon Z-A: its frame clock at 1/60 s per frame (runtime/hle/framepace.c)
+    bool dof;            // Pokémon Z-A: its depth of field blur (runtime/hle/framepace.c rt_za_dof)
     bool dpad_move;      // the d-pad (and arrow keys) move like the stick
     bool mirror_mode;    // the world mirrored left to right (Gameplay tab): renderers + runtime/hle/input.c
     int language;        // LANG_AUTO or an index into g_language_codes: the game's text language

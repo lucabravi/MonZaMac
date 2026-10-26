@@ -56,3 +56,13 @@ int32_t rt_za_frame_cfg(int32_t cfg) {
     if (logged != (int)on) { logged = on; LOG("[pace] game frame mode %d -> %d (%s)\n", cfg, on ? 0 : cfg, on ? "60 fps" : "as is"); }
     return on ? 0 : cfg;
 }
+
+// Pokémon Z-A's depth of field intensity (tools/patches.py ZA_DOF), as a float's bits: 0 with the setting off (or
+// LARECOMP_DOF=0), and the pass skips itself, as the community's "Disable DOF" mods do. Applies from the next frame.
+uint32_t rt_za_dof(uint32_t intensity) {
+    const char *e = ENV("LARECOMP_DOF");
+    bool on = e ? atoi(e) != 0 : g_settings.dof;
+    static int logged = -1;
+    if (logged != (int)on) { logged = on; LOG("[dof] depth of field %s\n", on ? "on" : "off"); }
+    return on ? intensity : 0;
+}
