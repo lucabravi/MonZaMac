@@ -18,10 +18,11 @@ OUT=extracted
 [ -z "$UPDATE" ] || [ -f "$UPDATE" ] || { echo "not found: $UPDATE"; exit 1; }
 if [ -e "$OUT/exefs" ] || [ -e "$OUT/romfs" ]; then echo "$OUT/ already has game files: move it away first"; exit 1; fi
 
-# unpack an .nsp into $2 and print "<program nca> <ticket>" (the Program entry of its .cnmt.xml)
+# unpack an .nsp into $2 and print "<program nca> <ticket>" (the Program entry of its .cnmt.xml). It runs in $(...):
+# its exit only leaves the subshell, so errors go to stderr and the caller checks the files it printed
 unpack() {
     rm -rf "$2"; mkdir -p "$2"
-    "$NSTOOL" -k "$KEYS" -x / "$2" "$1" > "$2.log" 2>&1 || { tail -5 "$2.log"; exit 1; }
+    "$NSTOOL" -k "$KEYS" -x / "$2" "$1" > "$2.log" 2>&1 || { tail -5 "$2.log" >&2; exit 1; }
     local xml tik id
     xml=$(ls "$2"/*.cnmt.xml 2>/dev/null | head -1); tik=$(ls "$2"/*.tik 2>/dev/null | head -1)
     [ -n "$xml" ] && [ -n "$tik" ] || { echo "$1: no .cnmt.xml / .tik inside (is it a full .nsp with its ticket?)" >&2; exit 1; }
@@ -36,10 +37,12 @@ PY
 
 echo "== base: $BASE"
 read -r BNCA BTIK BVER <<<"$(unpack "$BASE" "$WORK/base")"
+[ -f "$BNCA" ] && [ -f "$BTIK" ] || { echo "unpacking $BASE failed (see $WORK/base.log)" >&2; exit 1; }
 ARGS=(-k "$KEYS" --tik "$BTIK")
 if [ -n "$UPDATE" ]; then
     echo "== update: $UPDATE"
     read -r UNCA UTIK UVER <<<"$(unpack "$UPDATE" "$WORK/update")"
+    [ -f "$UNCA" ] && [ -f "$UTIK" ] || { echo "unpacking $UPDATE failed (see $WORK/update.log)" >&2; exit 1; }
     ARGS=(-k "$KEYS" --tik "$BTIK" --tik "$UTIK" --basenca "$BNCA"); NCA=$UNCA; echo "update version field: $UVER"
 else
     NCA=$BNCA; echo "base version field: $BVER (no update given: this is the plain base game)"
