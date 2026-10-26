@@ -1330,9 +1330,118 @@ static void surface_handle_provenance(void) {
     CHECK(bad == 0, "a modified handle must not write to its former constant-buffer image");
 }
 
+static void audit_f2f(void) {
+    const struct { uint64_t opcode; uint32_t input, want; } cases[] = {
+        {0x5ca8048000270909ull,0x3fc00000,0x00003e00}, // half 1.5, exactly representable
+        {0x5ca8048000270909ull,0xbfc00000,0x0000be00}, // half -1.5
+        {0x5ca8068000270609ull,0x3e000000,0x3fc00000}, // high half -> float 1.5
+        {0x5ca8048000270a09ull,0x3fc00000,0x3f800000}, // equal-format floor remains active
+    };
+    static uint64_t code[4][32]; static NvnProgram programs[4]; unsigned bad=0;
+    for(unsigned i=0;i<4;i++) {
+        uint64_t ops[]={0x010000000007f002ull|((uint64_t)cases[i].input<<20),cases[i].opcode,
+            0x010000000007f014ull|((uint64_t)(uint32_t)(g_gwin_base+512)<<20),
+            0x010000000007f015ull|((g_gwin_base>>32)<<20),
+            0xeed8000000000000ull|(4ull<<48)|(1ull<<45)|(7ull<<16)|(20ull<<8)|9};
+        compute_fixture(code[i],&programs[i],ops,sizeof ops/sizeof*ops);st.program=&programs[i];
+        uint32_t *out=(uint32_t*)((uint8_t*)g_guest_buffer.contents+512);*out=0xdeadbeef;
+        dispatch_compute(1,1,1);check_gpu();fprintf(stderr,"F2F case%u got=%08x want=%08x\n",i,*out,cases[i].want);
+        if(*out!=cases[i].want)bad++;
+    }
+    CHECK(!bad,"format conversions must preserve fractional values while equal-format floor still rounds");
+}
+
+static void audit_shuffle(void) {
+    // PTX shfl.sync uses b[4:0] and maxLane as the UP lower bound, including nonzero clamps.
+    const struct { unsigned mode,amount,clamp,mask; } cases[]={{1,1,1,0},{2,32,31,0},{3,32,31,0},{1,1,0,28}};
+    static uint64_t code[4][32];static NvnProgram programs[4];static uint8_t control[0x754];
+    *(uint32_t*)(control+0x748)=32;unsigned bad=0;
+    for(unsigned i=0;i<4;i++) {
+        uint64_t ops[]={0xf0c8000000070000ull, // R0=SR_LANEID
+            0x010000000007f002ull|((uint64_t)cases[i].amount<<20),
+            0xef10000000000000ull|((uint64_t)cases[i].mode<<30)|(1ull<<29)|
+                ((uint64_t)(cases[i].clamp|(cases[i].mask<<8))<<34)|(2ull<<20)|(7ull<<16)|8,
+            0x010000000017f004ull,
+            0x5ca0000000000000ull|(255ull<<20)|(7ull<<16)|(4ull<<8)|9, // R9=P0?1:0
+            (0x1full<<56)|(8ull<<20)|(7ull<<16)|10, // R10=lane*8
+            0x010000000007f014ull|((uint64_t)(uint32_t)(g_gwin_base+512)<<20),
+            0x010000000007f015ull|((g_gwin_base>>32)<<20),
+            (0x5cc0ull<<48)|(255ull<<39)|(10ull<<20)|(7ull<<16)|(20ull<<8)|20,
+            0xeed8000000000000ull|(5ull<<48)|(1ull<<45)|(7ull<<16)|(20ull<<8)|8};
+        compute_fixture(code[i],&programs[i],ops,sizeof ops/sizeof*ops);programs[i].stages[5].control=control;st.program=&programs[i];
+        uint32_t *out=(uint32_t*)((uint8_t*)g_guest_buffer.contents+512);
+        for(unsigned k=0;k<64;k++)out[k]=0xdeadbeef;
+        dispatch_compute(1,1,1);check_gpu();
+        for(unsigned lane=0;lane<32;lane++) {
+            // Literal expected vectors: case0 lane0/1 invalid then lane-1; cases1/2 b32 wraps to0;
+            // case3 each quad's first lane invalid, other lanes read their predecessor.
+            bool valid=i==0?lane>=2:i==3?(lane%4)!=0:true;
+            unsigned want=(i==0||i==3)&&valid?lane-1:lane;
+            if(out[2*lane]!=want||out[2*lane+1]!=(unsigned)valid) {
+                fprintf(stderr,"SHFL case%u lane%u got=%u/P%u want=%u/P%u\n",i,lane,out[2*lane],out[2*lane+1],want,valid);bad++;
+            }
+        }
+    }
+    CHECK(!bad,"shuffle register amounts and UP clamp must preserve the hardware value and validity predicate");
+}
+
+static void audit_shadow_array(void) {
+    NvnTexture depth=test_texture(4,4,4,2,1,0x33,1);
+    bind_targets(NULL,&depth,NULL);
+    for(unsigned layer=0;layer<2;layer++) {
+        st.rt.has_dview=true;st.rt.dview=(NvnTextureView){.setmask=2,.min_layer=layer,.num_layers=1};st.rt_dirty=true;
+        clear(-1,0,NULL,0,true,layer?0.75f:0.25f,false,0,0);
+    }
+    NvnTexEntry entries[2]={{0},{.tex=&depth}};NvnDescPool pool={.entries=entries,.count=2};
+    NvnSamplerDesc sd={.compare_mode=1,.compare_func=4,.lod_max=1000,.max_aniso=1};
+    NvnDescPool samplers={.entries=&sd,.count=1};st.tpool=&pool;st.spool=&samplers;st.tex[5][0]=1;
+    const unsigned layer[3]={0,1,7};static uint64_t code[3][32];static NvnProgram programs[3];unsigned bad=0;
+    for(unsigned i=0;i<3;i++) {
+        uint64_t ops[]={0x010000000007f002ull|((uint64_t)layer[i]<<20),
+            0x010000000007f003ull|(0x3f000000ull<<20),0x010000000007f004ull|(0x3f000000ull<<20),0x010000000007f005ull|(0x3f000000ull<<20),
+            0xd920008ff0470208ull,
+            0x010000000007f014ull|((uint64_t)(uint32_t)(g_gwin_base+512)<<20),0x010000000007f015ull|((g_gwin_base>>32)<<20),
+            0xeed8000000000000ull|(4ull<<48)|(1ull<<45)|(7ull<<16)|(20ull<<8)|8};
+        compute_fixture(code[i],&programs[i],ops,sizeof ops/sizeof*ops);st.program=&programs[i];
+        uint32_t *out=(uint32_t*)((uint8_t*)g_guest_buffer.contents+512);*out=0xdeadbeef;
+        dispatch_compute(1,1,1);check_gpu();uint32_t want=i?0x3f800000:0;
+        fprintf(stderr,"TEXS shadow layer%u got=%08x want=%08x\n",layer[i],*out,want);if(*out!=want)bad++;
+    }
+    st.tpool=st.spool=NULL;if(sd.backend)CFRelease(sd.backend);destroy_texture(&depth);
+    CHECK(!bad,"array depth compare must clamp to the last layer and preserve valid layer selection");
+}
+
+static void audit_sured_bytes(void) {
+    static uint64_t code[2][128];static NvnProgram programs[2];unsigned bad=0;
+    for(unsigned ba=0;ba<2;ba++) {
+        NvnTexture image=test_texture(1,8,4,1,1,0x0b,1),screen=test_texture(1,4,4,1,1,0x25,1);
+        bind_targets(&image,NULL,NULL);st.scissor[0][2]=8;
+        const uint32_t zero[4]={0};clear(0,2,zero,15,false,0,false,0,0);
+        bind_targets(&screen,NULL,NULL);prepare_draw();programs[ba]=*st.program;st.scissor[0][2]=st.scissor[0][3]=1;
+        NvnTexEntry entries[2]={{0},{.tex=&image}};NvnDescPool pool={.entries=entries,.count=2};st.tpool=&pool;st.img[1][0]=1;
+        const uint64_t ops[]={0x010000000047f002ull,0x010000000007f003ull,0x010000000077f004ull,
+            (0x4c98ull<<48)|(15ull<<39)|(2ull<<34)|((uint64_t)(IMAGE_HANDLE_BASE/4)<<20)|(7ull<<16)|9,
+            0xeb50048600070204ull|((uint64_t)ba<<23),0xe30000000007000full,0xe2400fffff87000full};
+        unsigned at=16;*(uint32_t*)((uint8_t*)code[ba]+0x78)=15;
+        for(unsigned i=0;i<sizeof ops/sizeof*ops;i++) {if(!(at&3))code[ba][at++]=0x001f8000fc0007e0ull;code[ba][at++]=ops[i];}
+        programs[ba].stages[1]=(NvnShaderStage){.stage=1,.code_addr=(uint64_t)code[ba],.const_offset=sizeof code[ba]};st.program=&programs[ba];
+        fullscreen_draw(1);check_gpu();id<MTLBuffer> data=read_texture(renderer_texture(&image,nil,true),0,0,4);
+        for(unsigned y=0;y<4;y++)for(unsigned x=0;x<8;x++) {
+            uint32_t got=*(const uint32_t*)((const uint8_t*)data.contents+y*256+x*4),want=y==0&&x==(ba?1u:4u)?7:0;
+            if(got!=want) {fprintf(stderr,"SURED BA%u pixel%u,%u got=%u want=%u\n",ba,x,y,got,want);bad++;}
+        }
+        destroy_texture(&image);destroy_texture(&screen);st.tpool=NULL;
+    }
+    CHECK(!bad,"byte-addressed reductions must update x/4 while ordinary reductions use texel x");
+}
+
 typedef void (*TestFn)(void);
 static const struct { const char *name, *group; TestFn run; bool needs_sampler26; } tests[] = {
     {"smoke", "smoke", smoke},
+    {"audit-f2f", "audit", audit_f2f},
+    {"audit-shuffle", "audit", audit_shuffle},
+    {"audit-shadow-array", "audit", audit_shadow_array},
+    {"audit-sured-bytes", "audit", audit_sured_bytes},
     {"integer-opcode-semantics", "integers", integer_opcode_semantics},
     {"surface-handle-provenance", "integers", surface_handle_provenance},
     {"ldc64-overlap", "sibling", ldc64_overlap},
