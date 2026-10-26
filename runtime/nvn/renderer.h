@@ -16,6 +16,7 @@ void backend_gwin_pick(void);
 
 bool renderer_is_gpu_owned(NvnTexture *t);
 void renderer_flush(void);  // finish all recorded GPU work
+void renderer_save_pipeline_archive(void);  // write cache/pipelines.bin now (also done at exit)
 bool renderer_origin_lower_left(void);
 const char *renderer_stats(void);
 bool renderer_format_is_depth(uint32_t f);

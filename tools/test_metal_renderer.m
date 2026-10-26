@@ -1644,6 +1644,28 @@ static void live_shader_pipeline(void) {
     CHECK(!bad,"every live shader replacement must render its new color even when native function addresses are reused");
 }
 
+static void pipeline_archive_reload(void) {  // a pipeline built once is found in cache/pipelines.bin on the next run
+    if (!pipeline_archive()) { fprintf(stderr, "pipeline archive off (LARECOMP_NO_PIPELINE_ARCHIVE)\n"); return; }
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    bind_targets(&color, NULL, NULL); prepare_draw(); fullscreen_draw(1); check_gpu();
+    renderer_save_pipeline_archive();  // waits for the background add, then writes the file
+    CHECK(g_archive_dirty == 0 && access("cache/pipelines.bin", R_OK) == 0, "pipeline archive saved to disk");
+    MTLBinaryArchiveDescriptor *ad = [MTLBinaryArchiveDescriptor new];
+    ad.url = [NSURL fileURLWithPath:@"cache/pipelines.bin"].absoluteURL;
+    NSError *err = nil;
+    id<MTLBinaryArchive> loaded = [dev newBinaryArchiveWithDescriptor:ad error:&err];
+    CHECK(loaded != nil, "saved pipeline archive loads back");
+    destroy_texture(&color);
+    g_archive_read = loaded;  // as on the next run
+    renderer_reset();    // forget the built pipelines and programs
+    int hits = g_archive_hits;
+    color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    bind_targets(&color, NULL, NULL); prepare_draw(); fullscreen_draw(1); expect_rgba(&color, 0, 255, 0);
+    fprintf(stderr, "pipeline archive hits %d -> %d\n", hits, g_archive_hits);
+    CHECK(g_archive_hits > hits, "the rebuilt pipeline must come from the loaded archive and draw correctly");
+    destroy_texture(&color);
+}
+
 typedef void (*TestFn)(void);
 static const struct { const char *name, *group; TestFn run; bool needs_sampler26; } tests[] = {
     {"smoke", "smoke", smoke},
@@ -1665,6 +1687,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"surface-handle-provenance", "integers", surface_handle_provenance},
     {"ldc64-overlap", "sibling", ldc64_overlap},
     {"program-readiness", "sibling", program_readiness},
+    {"pipeline-archive", "sibling", pipeline_archive_reload},
     {"shadow-fallback", "sibling", shadow_fallback},
     {"safe-math-graphics", "sibling", safe_math_graphics},
     {"safe-math-compute", "sibling", safe_math_compute},
@@ -1743,6 +1766,10 @@ int metal_renderer_test_main(int argc, char **argv) { @autoreleasepool {
         fprintf(stderr, "PASS %s\n", tests[i].name);
     }
     CHECK(ran + skipped != 0, "unknown test selection");
+    renderer_save_pipeline_archive();  // now, while the directory still exists (exit would save again otherwise)
+    // every case's pipelines (depth-only ones without fragment outputs among them) went in: one Metal cannot save would
+    // fail this and every later save
+    CHECK(g_archive_dirty == 0, "the pipeline archive must save with every pipeline the cases built");
     [[NSFileManager defaultManager] removeItemAtPath:@(temporary) error:nil];
     if (ran) fprintf(stderr, "PASS: %u Metal renderer tests on %s\n", ran, dev.name.UTF8String);
     if (skipped) fprintf(stderr, "SKIP: %u tests requiring newer sampler APIs\n", skipped);
