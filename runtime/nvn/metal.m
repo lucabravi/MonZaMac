@@ -986,10 +986,24 @@ void renderer_save_texture(id<MTLTexture> tex, const char *path) { save_texture_
 static double last_fps_time;
 
 void backend_present(NvnTexture *t);
+// The window can't show anything (another app's window covers it, minimised, another Space): nextDrawable would wait
+// for the layer's 1 s timeout on every frame, so the game crawled at ~1 fps in the background (and hung after a
+// while). The frame isn't shown; vi.c keeps the pace. LARECOMP_PRESENT_HIDDEN=1: present anyway (the old behaviour);
+// test runs (LARECOMP_HIDDEN, LARECOMP_WINDOW_SHOT) always present, their shots come from here.
+static bool window_hidden(void) {
+    static int force = -1;
+    if (force < 0) force = getenv("LARECOMP_PRESENT_HIDDEN") || getenv("LARECOMP_HIDDEN") || getenv("LARECOMP_WINDOW_SHOT");
+    bool h = !force && (SDL_GetWindowFlags(window) & (SDL_WINDOW_OCCLUDED | SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN));
+    static bool was;
+    if (h != was) LOG("[metal] window %s: %s\n", h ? "hidden" : "visible again", h ? "frames not presented" : "presenting");
+    was = h;
+    return h;
+}
+
 // Present the last frame again (the game thread waits in a host dialog, e.g. the software keyboard): the overlay
 // keeps drawing and taking input.
 void backend_represent(void) {
-    if (g_last_presented) backend_present(g_last_presented);
+    if (g_last_presented && !window_hidden()) backend_present(g_last_presented);
     else SDL_Delay(16);
 }
 
@@ -1008,6 +1022,7 @@ void backend_present(NvnTexture *t) {
     renderer_submit();  // same queue: the present pass runs after the frame's work
     TexBackend *b = t->backend;
     if (b) b->presented = true;
+    if (window_hidden()) return;
     @autoreleasepool {
         uint64_t nd0 = SDL_GetTicksNS();
         id<CAMetalDrawable> drawable = [layer nextDrawable];
@@ -1254,6 +1269,8 @@ int ui_run(void) {
         menu_apply_window_requests(window);
         int w, h;
         SDL_GetWindowSizeInPixels(window, &w, &h);
-        layer.drawableSize = CGSizeMake(w, h);
+        // only on a change, and never 0x0 (a minimised window)
+        CGSize ds = CGSizeMake(w, h);
+        if (w > 0 && h > 0 && !CGSizeEqualToSize(layer.drawableSize, ds)) layer.drawableSize = ds;
     }
 }
