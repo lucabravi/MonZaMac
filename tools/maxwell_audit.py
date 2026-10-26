@@ -46,6 +46,8 @@ CHECKS = [
      and bits(w, 37, 2) != 0 and bits(w, 47, 2) != 0),
     ("fixed: IMUL .HI mixed signedness", lambda w: is_(w, (0x5c38, 0xfff8), (0x4c38, 0xfff8), (0x3838, 0xfef8))
      and bits(w, 39, 1) and bits(w, 40, 1) != bits(w, 41, 1)),
+    ("fixed: TLD4 .PTP (component i = texel i0j0 of the footprint at offset i)",
+     lambda w: op(w, 0xc800 << 48, 0xfc00 << 48) and bits(w, 54, 2) == 2),
     # open
     ("open: SHF .CC / .HI / .X", lambda w: is_(w, (0x5cf8, 0xfff8), (0x5bf8, 0xfff8),
                                                         (0x38f8, 0xfef8), (0x36f8, 0xfef8)) and bits(w, 47, 3) != 0),
