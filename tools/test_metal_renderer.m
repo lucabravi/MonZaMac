@@ -1,5 +1,6 @@
 // Real offscreen Metal regressions; no game files or window are needed.
 #include "../runtime/nvn/renderer.m"
+#import <ImageIO/ImageIO.h>
 
 void metal_test_bootstrap(void);
 
@@ -59,6 +60,77 @@ static void smoke(void) {
     }
     CHECK(report[0] != 0 && report[1] != 0, "visible sample report and timestamp");
     destroy_texture(&t);
+}
+
+static void check_png(const char *path, const uint8_t want[3]) {
+    NSData *data = [NSData dataWithContentsOfFile:@(path)];
+    CHECK(data != nil, "screenshot PNG was written");
+    CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL);
+    CHECK(source != NULL, "screenshot is a readable image");
+    CGImageRef image = CGImageSourceCreateImageAtIndex(source, 0, NULL);
+    CHECK(image && CGImageGetWidth(image) == 4 && CGImageGetHeight(image) == 4, "screenshot preserves source dimensions");
+    uint8_t pixels[4 * 4 * 4] = {0};
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    CGContextRef context = CGBitmapContextCreate(pixels, 4, 4, 8, 16, space,
+                                               kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+    CHECK(context != NULL, "PNG pixel decode context");
+    CGContextDrawImage(context, CGRectMake(0, 0, 4, 4), image);
+    for (int i = 0; i < 16; i++) for (int c = 0; c < 3; c++)
+        CHECK(abs((int)pixels[i * 4 + c] - want[c]) <= 1, "screenshot contains the expected slice and channel values");
+    CGContextRelease(context); CGColorSpaceRelease(space); CGImageRelease(image); CFRelease(source);
+}
+
+static void screenshot_rgba(bool volume) {
+    MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm_sRGB
+                                                                                 width:4 height:4 mipmapped:NO];
+    desc.textureType = volume ? MTLTextureType3D : MTLTextureType2D;
+    desc.depth = volume ? 2 : 1;
+    desc.storageMode = MTLStorageModeShared;
+    desc.usage = MTLTextureUsageShaderRead | MTLTextureUsagePixelFormatView;
+    id<MTLTexture> texture = [dev newTextureWithDescriptor:desc];
+    CHECK(texture != nil, "RGBA screenshot fixture texture");
+    uint8_t pixels[2 * 4 * 4 * 4];
+    for (int i = 0; i < 32; i++) {
+        const uint8_t first[4] = {128, 64, 32, 64}, second[4] = {0, 0, 255, 192};
+        memcpy(pixels + i * 4, i < 16 ? first : second, 4);
+    }
+    [texture replaceRegion:MTLRegionMake3D(0, 0, 0, 4, 4, desc.depth) mipmapLevel:0 slice:0
+                 withBytes:pixels bytesPerRow:16 bytesPerImage:64];
+    const char *color_path = volume ? "volume-color.png" : "2d-color.png";
+    const char *alpha_path = volume ? "volume-alpha.png" : "2d-alpha.png";
+    renderer_save_texture(texture, color_path);
+    check_png(color_path, (const uint8_t[]){128, 64, 32});
+    renderer_save_texture_alpha(texture, alpha_path);
+    check_png(alpha_path, (const uint8_t[]){64, 64, 64});
+}
+
+static void screenshot_2d(void) { screenshot_rgba(false); }
+static void screenshot_volume(void) { screenshot_rgba(true); }
+
+static void screenshot_volume_r16(void) {
+    MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR16Float
+                                                                                 width:4 height:4 mipmapped:NO];
+    desc.textureType = MTLTextureType3D; desc.depth = 2;
+    desc.storageMode = MTLStorageModeShared; desc.usage = MTLTextureUsageShaderRead | MTLTextureUsagePixelFormatView;
+    id<MTLTexture> texture = [dev newTextureWithDescriptor:desc];
+    CHECK(texture != nil, "R16F screenshot fixture texture");
+    uint16_t pixels[32];
+    for (int i = 0; i < 32; i++) pixels[i] = i < 16 ? 0x3400 : 0x3a00;  // half: 0.25, 0.75
+    [texture replaceRegion:MTLRegionMake3D(0, 0, 0, 4, 4, 2) mipmapLevel:0 slice:0
+                 withBytes:pixels bytesPerRow:8 bytesPerImage:32];
+    renderer_save_texture(texture, "r16-color.png");
+    check_png("r16-color.png", (const uint8_t[]){64, 0, 0});
+    renderer_save_texture_alpha(texture, "r16-alpha.png");
+    check_png("r16-alpha.png", (const uint8_t[]){255, 255, 255});
+    id<MTLTexture> view = [texture newTextureViewWithPixelFormat:texture.pixelFormat textureType:MTLTextureType3D
+                                                       levels:NSMakeRange(0, 1) slices:NSMakeRange(0, 1)
+                                                      swizzle:MTLTextureSwizzleChannelsMake(MTLTextureSwizzleRed, MTLTextureSwizzleRed,
+                                                                                           MTLTextureSwizzleRed, MTLTextureSwizzleRed)];
+    CHECK(view != nil, "swizzled volume view");
+    renderer_save_texture(view, "r16-swizzle.png");
+    check_png("r16-swizzle.png", (const uint8_t[]){64, 64, 64});
+    renderer_save_texture_alpha(view, "r16-swizzle-alpha.png");
+    check_png("r16-swizzle-alpha.png", (const uint8_t[]){64, 64, 64});
 }
 
 static void view_array_count(void) {
@@ -961,6 +1033,9 @@ static void feedback_base_alias(void) {
 typedef void (*TestFn)(void);
 static const struct { const char *name, *group; TestFn run; bool needs_sampler26; } tests[] = {
     {"smoke", "smoke", smoke},
+    {"screenshot-2d", "screenshots", screenshot_2d},
+    {"screenshot-volume", "screenshots", screenshot_volume},
+    {"screenshot-volume-r16", "screenshots", screenshot_volume_r16},
     {"clear-float-uint", "clears", clear_float_uint},
     {"view-array-count", "views", view_array_count},
     {"view-bounds", "views", view_bounds},
