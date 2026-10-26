@@ -3,6 +3,8 @@
 instruction is translated alone (compute, MSL), the expression assigned to its destination is compiled as C++ (uint /
 ulong / long as in MSL) and compared with the reference over random and edge-case register values.
 Covers SHF, IADD3 (half select, .LS / .RS), FLO, SHR, IMUL32I.HI. Needs cc + c++.
+SHF boundary reference: Mesa NAK's hardware-tested folding, including the signed shift fix in
+https://github.com/chaotic-cx/mesa-mirror/commit/d3e917ea031bc3c50644cd20c601d7005c57793e .
 usage: tools/test_int_semantics.py
 """
 import os
@@ -106,12 +108,33 @@ def cases():
             "(uint)(((int64_t)(int)r1 * (int64_t)(int)0x9abcdef1u) >> 32)" if sg else "(uint)(((uint64_t)r1 * 0x9abcdef1ull) >> 32)"
 
 
+def rejected_cases():
+    yield "SHF reserved max shift", enc(0x5cf8, 1 << 37, 3)
+    for shift in (31, 33, 35):
+        yield f"IADD3 reserved half at {shift}", enc(0x5cc0, 3 << shift, 3)
+    yield "IADD3 reserved shift", enc(0x5cc0, 3 << 37, 3)
+    for flag in (47, 48):
+        yield f"IADD3 shift with flag {flag}", enc(0x5cc0, (1 << 37) | bit(flag), 3)
+    for sign in (40, 41):
+        yield f"IMUL.HI mixed sign {sign}", enc(0x5c38, bit(39) | bit(sign))
+    for sign in (54, 55):
+        yield f"IMUL32I.HI mixed sign {sign}", (0x1f << 56) | 9 | (1 << 8) | (1 << 20) | (7 << 16) | bit(53) | bit(sign)
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     gen = os.path.join(OUT, "gen")
     open(gen + ".c", "w").write(GEN)
     mx = os.path.join(ROOT, "runtime", "nvn", "maxwell")
     subprocess.check_call([os.environ.get("CC", "cc"), "-O1", "-w", "-I", mx, gen + ".c", os.path.join(mx, "translate.c"), "-o", gen, "-lm"])
+    rejected = 0
+    for name, word in rejected_cases():
+        result = subprocess.run([gen, "%016x" % word], capture_output=True, text=True)
+        if result.returncode != 1 or not result.stdout.startswith("FAIL "):
+            print("unsupported encoding was not explicitly rejected: %s" % name)
+            return 1
+        rejected += 1
+    print("%d unsupported encodings explicitly rejected" % rejected, flush=True)
     src = [PRELUDE, "int main() { int bad = 0;"]
     n = 0
     for name, word, ref in cases():
