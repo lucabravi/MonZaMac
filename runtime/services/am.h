@@ -1,4 +1,4 @@
-// Applet manager (appletOE), apm, and lm.
+// The game's docked / handheld mode (services/am.c), for the C++ UI and the renderer.
 #pragma once
 #include <stdbool.h>
 
