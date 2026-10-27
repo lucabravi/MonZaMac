@@ -1008,6 +1008,7 @@ void backend_represent(void) {
     else SDL_Delay(16);
 }
 
+double g_stat_cpu_ms, g_stat_gpu_ms;  // smoothed per presented frame (Developer: F3 in ui/menu.mm)
 void backend_present(NvnTexture *t) {
     g_last_presented = t;
     {   // (diagnostics) which guest texture the window shows: the end of the post chain
@@ -1064,6 +1065,15 @@ void backend_present(NvnTexture *t) {
         if (renderer_gpu_timing_trace())
             LOG("[gpu-present] frame %llu time %.6f interval %d window %.3fms gpu %.3fms samples %u\n",
                 (unsigned long long)frame, gpu_sample_time, g_out_present_interval, gpu_frame_ms, gpu_ms, gpu_samples);
+        {   // (Developer: F3) smoothed CPU submit time and GPU busy time per presented frame
+            extern uint64_t g_submit_ns;
+            extern double g_stat_cpu_ms, g_stat_gpu_ms;
+            static uint64_t submit_prev;
+            uint64_t sn = __atomic_load_n(&g_submit_ns, __ATOMIC_RELAXED);
+            g_stat_cpu_ms = g_stat_cpu_ms * 0.9 + (double)(sn - submit_prev) / 1e6 * 0.1;
+            submit_prev = sn;
+            if (gpu_ms >= 0) g_stat_gpu_ms = g_stat_gpu_ms * 0.9 + gpu_ms * 0.1;
+        }
         OutScale os;
         output_scale(dw, dh, present_unlocked(), gpu_sample_time, gpu_ms, &os);
         double sx = os.sx, sy = os.sy, vx = os.vx, vy = os.vy, vw = os.vw, vh = os.vh, shape = os.shape;
