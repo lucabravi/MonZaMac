@@ -164,6 +164,8 @@ static void boot(const char *root) {
     kernel_run_main(t, t->handle, 0, init_fn, fini_fn, exit_fn);
 }
 
+uint8_t g_game_build[8];  // the exefs/main build ID read at start (all zero when unreadable)
+
 int main(int argc, char **argv) {
     plat_init();
 #ifdef _WIN32
@@ -187,7 +189,7 @@ int main(int argc, char **argv) {
                                               {0x8a, 0x1c, 0x86, 0xc4, 0x37, 0x39, 0x4b, 0x69},
                                               {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a}};
         char mp[1100];
-        uint8_t id[8] = {0};
+        uint8_t *id = g_game_build;  // (kept: runtime/hle/framepace.c picks its sites by build)
         snprintf(mp, sizeof mp, "%s/exefs/main", root);
         FILE *f = fopen(mp, "rb");
         if (f) { fseek(f, 0x40, SEEK_SET); if (fread(id, 1, 8, f) != 8) memset(id, 0, 8); fclose(f); }

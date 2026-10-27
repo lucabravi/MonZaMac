@@ -12,6 +12,7 @@
 //   LARECOMP_FORCE_STEPS=<n> (test) always n
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "../hle.h"
 #include "../platform.h"
@@ -56,12 +57,16 @@ bool g_za_frame_hook;  // (the game is Pokémon Z-A: exec.c leaves its GPU timin
 // world slows down with every frame over 16.7 ms. Here each frame's real time (smoothed) replaces the period of the
 // mode in use: from about 58 fps down to 46 the 60 mode steps by the real period; under 46 the game is put in its 30
 // fps mode, stepping by the real period (at most 33.3 ms). While the byte at the third site is set (loading, pause)
-// the nominal periods stay. The sites are 2.0.2's (tools/patches.py ZA_STEP); a global that doesn't hold the nominal
-// periods turns this off.
+// the nominal periods stay. The sites are data, not code, so they live here by build (2.0.2 only); a build without
+// them, or a global that doesn't hold the nominal periods, turns this off.
 #define STEP_NS60 16666667ull
 #define STEP_NS30 33333334ull
+extern uint8_t g_game_build[8];  // (main.c) the exefs/main build ID
 static uint64_t g_step60, g_step30, g_step_flag;
-void rt_za_step_sites(uint64_t a60, uint64_t a30, uint64_t flag) { g_step60 = a60, g_step30 = a30, g_step_flag = flag; }
+static void step_sites(void) {
+    static const uint8_t b202[8] = {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a};
+    if (!memcmp(g_game_build, b202, 8)) g_step60 = 0x7003393e20, g_step30 = 0x7003393e28, g_step_flag = 0x700610b980;
+}
 
 static bool g_step_slow;  // the game's 30 fps mode (under 46 fps), as of the last frame
 static void dynamic_steps(void) {
@@ -69,6 +74,7 @@ static void dynamic_steps(void) {
     static uint64_t last;
     static double smooth;  // seconds per frame
     if (ok < 0) {
+        step_sites();
         ok = g_step60 && LD64(g_step60) == STEP_NS60 && LD64(g_step30) == STEP_NS30;
         if (!ok) LOG("[pace] steady 60: the game's frame periods are not where expected: off\n");
     }
