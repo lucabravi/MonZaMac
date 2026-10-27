@@ -710,6 +710,8 @@ static void present_pace(int interval) {
     if (forced >= 0) interval = forced;
     static int logged = -12345;
     if (interval != logged) { logged = interval; LOG("[nvn] present interval %d\n", interval); }
+    extern int g_out_present_interval;  // (output_scale.c: dynamic resolution's frame budget)
+    g_out_present_interval = interval;
     if (interval <= 0) return;
     if (interval > 4) interval = 1;  // (not a sane interval: the console's default)
     uint64_t period = 16666667ull * (uint64_t)interval, now = plat_now_ns();

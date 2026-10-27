@@ -5,7 +5,7 @@
 //   1x .. 4x       N times the Switch's docked image (1x: the default): 1080 lines x N (wide windows keep their shape: 32:9 at 2x =
 //                  7680 x 2160); capped to the GPU's 16384-pixel texture limit
 //   .75x / .50x / .25x  of Match display (scaled up to the window - with MetalFX on macOS when chosen)
-//   Dynamic        Match display, lowered in steps while the GPU can't hold 60 fps and raised again when it can
+//   Dynamic        Match display, lowered in steps while the GPU can't hold the game's frame rate and raised again when it can
 //                  (each change reallocates the render targets: a short hitch, so it changes rarely, with hysteresis)
 // Test overrides: LARECOMP_SCALE=<f> (render height = 1080 x f), LARECOMP_WIDE_TEST=<f> (forced shape).
 #include <math.h>
@@ -13,10 +13,10 @@
 
 #include "../hle.h"
 #include "../settings.h"
+#include "../services/am.h"
 #include "output_scale.h"
 
 extern bool g_za_frame_hook;  // (hle/framepace.c) the game is Pokémon Z-A
-extern bool am_handheld(void);  // (services/am.c) the mode the game was told
 
 #define MAX_TEX 16384.0
 
@@ -26,6 +26,7 @@ static double g_dyn_gpu_sum, g_dyn_dt_sum, g_last_t;
 static int g_dyn_n, g_dyn_gpu_n, g_dyn_good;
 static double g_dyn_cool_until, g_dyn_probe_wait = 5.0, g_dyn_probe_at;
 static double g_dyn_last_raise = -100;
+int g_out_present_interval = 1;  // (objects.c: vsyncs per presented frame - 2 when the game runs at 30 fps)
 
 static void dyn_update(double now, double gpu_ms) {
     double dt = g_last_t > 0 ? (now - g_last_t) * 1000.0 : 16.7;
@@ -40,15 +41,18 @@ static void dyn_update(double now, double gpu_ms) {
     g_dyn_n = g_dyn_gpu_n = 0;
     if (now < g_dyn_cool_until) return;
     double prev = g_dyn;
-    bool slow = avg_dt > 17.4 || (avg_gpu >= 0 && avg_gpu > 14.5);
+    // the budget is the game's frame period: at 30 fps (interval 2) every frame takes 33 ms by design, and judged
+    // against 60 fps that read as too slow and lowered the resolution to the 0.5 floor
+    double iv = g_out_present_interval >= 1 && g_out_present_interval <= 4 ? g_out_present_interval : 1;
+    bool slow = avg_dt > 17.4 * iv || (avg_gpu >= 0 && avg_gpu > 14.5 * iv);
     if (slow) {
-        g_dyn = fmax(0.5, g_dyn - (avg_dt > 22 ? 0.1 : 0.05));
+        g_dyn = fmax(0.5, g_dyn - (avg_dt > 22 * iv ? 0.1 : 0.05));
         g_dyn_good = 0;
         if (now - g_dyn_last_raise < 3.0) g_dyn_probe_wait = fmin(g_dyn_probe_wait * 2, 60.0);  // raised too eagerly
     } else if (g_dyn < 1.0) {
         g_dyn_good++;
         // with GPU timing: raise when there is clear headroom; without (Vulkan): probe upwards now and then
-        bool room = avg_gpu >= 0 ? avg_gpu < 10.5 && g_dyn_good >= 4 : now >= g_dyn_probe_at && g_dyn_good >= 2 * (int)g_dyn_probe_wait;
+        bool room = avg_gpu >= 0 ? avg_gpu < 10.5 * iv && g_dyn_good >= 4 : now >= g_dyn_probe_at && g_dyn_good >= 2 * (int)g_dyn_probe_wait;
         if (room) { g_dyn = fmin(1.0, g_dyn + 0.05); g_dyn_good = 0; g_dyn_last_raise = now; g_dyn_probe_at = now + g_dyn_probe_wait; }
     }
     g_dyn = round(g_dyn * 20) / 20;
