@@ -29,11 +29,11 @@ static uint64_t stat_skip_none, stat_skip_failed, stat_skip_wait;  // why a draw
 static double stat_gpu_s;
 static pthread_mutex_t gpu_timing_lock = PTHREAD_MUTEX_INITIALIZER;
 
-// LARECOMP_GPU_TIMING_TRACE: read once (asked at every command buffer submit and completion)
+// LARECOMP_GPU_TIMING_TRACE (read once; asked at every command buffer submit and completion) or the Developer tab's switch
 bool renderer_gpu_timing_trace(void) {
-    static int on = -1;
-    if (on < 0) on = getenv("LARECOMP_GPU_TIMING_TRACE") != NULL;
-    return on;
+    static int env = -1;
+    if (env < 0) env = getenv("LARECOMP_GPU_TIMING_TRACE") != NULL;
+    return env || g_settings.dev_gpu_trace;
 }
 
 #define GPU_TIME_WINDOW_CAP 64
