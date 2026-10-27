@@ -11,3 +11,4 @@ typedef struct {
 // dw x dh: the window's drawable size in pixels; now: seconds; gpu_ms: GPU time of the last frame (< 0: unknown)
 void output_scale(double dw, double dh, bool reshape_allowed, double now, double gpu_ms, OutScale *o);
 double output_scale_dynamic_factor(void);
+bool output_scale_dynamic_stats(double *frame_ms, double *gpu_ms);  // averages of the last decision (< 0: none yet); false: the GPU one is not used

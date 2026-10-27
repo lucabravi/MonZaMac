@@ -902,7 +902,11 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
             extern bool g_za_frame_hook;
             bool hh = g_za_frame_hook && am_handheld();  // (the game's own size: handheld renders for 1280x720)
             ImGui::Text("render %.0f x %.0f%s", (hh ? 1280.0 : 1920.0) * sx, (hh ? 720.0 : 1080.0) * sy, hh ? " (handheld)" : "");
-            if (g_settings.res_mode == RES_DYNAMIC || g_settings.res_mode == RES_DYNAMIC_X15) ImGui::Text("dynamic %.0f%%", output_scale_dynamic_factor() * 100);
+            if (g_settings.res_mode == RES_DYNAMIC || g_settings.res_mode == RES_DYNAMIC_X15) {
+                double fm, gm;
+                bool gok = output_scale_dynamic_stats(&fm, &gm);
+                ImGui::Text("dynamic %.0f%%  (frame %.1f ms, gpu %.1f ms%s)", output_scale_dynamic_factor() * 100, fm, gm, gok ? "" : ", not used");
+            }
             ImGui::Text("present interval %d", g_out_present_interval);
         }
         ImGui::End();
