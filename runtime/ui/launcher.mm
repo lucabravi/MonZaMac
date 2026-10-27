@@ -5,6 +5,7 @@
 // Skipped with --play, LARECOMP_NO_LAUNCHER=1, or any scripted test run (LARECOMP_INPUT): tests boot straight in.
 // The in-game menu's "Title screen" comes back here without leaving the process (runtime/main.c reboots the game).
 #ifdef __APPLE__
+#import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 #endif
@@ -14,6 +15,7 @@
 #include <pthread.h>
 #include <string>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <unistd.h>
 #include <vector>
 #include <algorithm>
@@ -37,6 +39,7 @@ extern "C" {
 #include "platform.h"
 #include "paths.h"
 #include "gamebuild.h"
+#include "gameimport.h"
 #include "gamelib.h"
 #include "romfs_build.h"
 #include "settings.h"
@@ -83,32 +86,34 @@ static void save_png(id<MTLTexture> tex, const char *path) {
 
 static const uint8_t BUILD_ID[8] = {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a};  // Pokémon Legends: Z-A v2.0.2 main
 // The release tag this build is (also names the release files; Makefile / tools/bundle_macos.sh / make_dmg.sh read
-// it): beta_<n> until 1.0, then v<major>.<minor>.<patch>.
-#define LARECOMP_VERSION "beta_1"
+// it): v<major>.<minor>.<patch>, 0.x until 1.0.
+#define LARECOMP_VERSION "v0.1.0"
 
 // ------------------------------------------------------------------ update check
 // The start screen asks GitHub for the project's releases once per launch (a background curl, which macOS and
-// Windows 10+ ship) and offers the best one if it outranks this build: any v1.0.0+ above every beta, betas by
-// number; other tags (the alpha_* ones) are ignored. Offline / no curl / anything unexpected: nothing is shown.
+// Windows 10+ ship) and offers the best one if it outranks this build: v<major>.<minor>.<patch> tags by version;
+// other tags are ignored. Offline / no curl / anything unexpected: nothing is shown.
 #define RELEASES_URL "https://api.github.com/repos/lucabravi/MonZaMac/releases?per_page=100"
 #define RELEASE_PAGE "https://github.com/lucabravi/MonZaMac/releases/tag/"
 
 static long long tag_rank(const std::string &t) {
-    int n, a, b, c;
+    int a, b, c;
     char end;
-    if (sscanf(t.c_str(), "beta_%d%c", &n, &end) == 1 && n > 0) return n;
-    if (sscanf(t.c_str(), "v%d.%d.%d%c", &a, &b, &c, &end) == 3 && a >= 1 && b >= 0 && c >= 0 && b < 4096 && c < 4096)
-        return (1LL << 48) + ((long long)a << 24) + ((long long)b << 12) + c;
+    if (sscanf(t.c_str(), "v%d.%d.%d%c", &a, &b, &c, &end) == 3 && a >= 0 && b >= 0 && c >= 0 && b < 4096 && c < 4096)
+        return ((long long)a << 24) + ((long long)b << 12) + c;
     return -1;
 }
 
-// "Beta 2" / "1.0.0" (with_word: "Version 1.0.0")
+// "0.1.0" (with_word: "Version 0.1.0")
 static std::string tag_label(const std::string &t, bool with_word) {
-    int n;
-    char end;
-    if (sscanf(t.c_str(), "beta_%d%c", &n, &end) == 1) return "Beta " + std::to_string(n);
     std::string v = t.size() > 1 && t[0] == 'v' ? t.substr(1) : t;
     return with_word ? "Version " + v : v;
+}
+
+// The build's version for the in-game menu ("0.1.0")
+extern "C" const char *rt_version_label(void) {
+    static std::string v = tag_label(LARECOMP_VERSION, false);
+    return v.c_str();
 }
 
 static std::string g_update_tag;  // a newer release's tag (g_update_lock)
@@ -116,7 +121,7 @@ static pthread_mutex_t g_update_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void *update_thread(void *) {
     std::string body;
-    if (const char *t = getenv("LARECOMP_UPDATE_TAGS")) {  // (test) "beta_2,v1.0.0": these releases, no network
+    if (const char *t = getenv("LARECOMP_UPDATE_TAGS")) {  // (test) "v0.2.0,v1.0.0": these releases, no network
         for (const char *p = t; *p;) {
             const char *c = strchr(p, ',');
             body += "\"tag_name\": \"" + std::string(p, c ? c - p : strlen(p)) + "\"\n";
@@ -176,7 +181,9 @@ static std::string check_copied_files(const std::string &root) {
     size_t n = fread(id, 1, 8, f);
     fclose(f);
     if (n != 8 || memcmp(id, BUILD_ID, 8)) return "Wrong game version (needs v2.0.2)";
-    if (!file_exists(root + "/romfs/region_common") || !file_exists(root + "/romfs.bin")) return "Game data missing";
+    for (const char *name : {"main.npdm", "rtld", "sdk"})
+        if (!file_exists(root + "/exefs/" + name)) return "Game code files missing";
+    if (!file_exists(root + "/romfs/arc/data.trpfd") || !file_exists(root + "/romfs.bin")) return "Game data missing";
     return "";
 }
 
@@ -193,10 +200,17 @@ static std::string check_game_files(const std::string &root) {
 // (runtime/romfs_build.c).
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static std::string g_src;           // the picked folder
+static std::string g_base, g_update, g_keys;
+static int g_import_mode;           // 0: packages, 1: extracted folder
+static bool g_ownership;            // explicit confirmation for this setup; never persisted
 static std::string g_job;           // current setup step / result for the status line
 static std::string g_job_hint;      // a failure: what to do about it (shown under it)
+static std::string g_bad_input;     // selector associated with a failed package/folder check
 static bool g_busy, g_job_failed;
 static bool g_confirm_delete;       // game-files page: "Delete the game files?" shown
+static std::string g_drop_path;
+static ImVec2 g_drop_pos;
+static bool g_drop_pending;
 
 static void set_job(const std::string &s, bool failed = false, const std::string &hint = "") {
     pthread_mutex_lock(&g_lock);
@@ -204,6 +218,29 @@ static void set_job(const std::string &s, bool failed = false, const std::string
     g_job_failed = failed;
     g_job_hint = hint;
     pthread_mutex_unlock(&g_lock);
+}
+
+// SDL gives drop coordinates in window space; ImGui rows use that same logical coordinate space.
+static bool take_drop_on_item(std::string &path) {
+    if (!g_drop_pending) return false;
+    ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+    if (g_drop_pos.x < a.x || g_drop_pos.x > b.x || g_drop_pos.y < a.y || g_drop_pos.y > b.y) return false;
+    path = g_drop_path;
+    g_drop_path.clear();
+    g_drop_pending = false;
+    return true;
+}
+
+// macOS filenames are often decomposed (e + combining acute); the launcher font covers the precomposed Latin glyphs.
+static std::string display_path(const std::string &path) {
+#ifdef __APPLE__
+    @autoreleasepool {
+        NSString *s = [[NSString alloc] initWithBytes:path.data() length:path.size() encoding:NSUTF8StringEncoding];
+        const char *utf8 = [[s precomposedStringWithCanonicalMapping] UTF8String];
+        if (utf8) return utf8;
+    }
+#endif
+    return path;
 }
 
 // Setup failures: a short headline and what to do next (also LARECOMP_LAUNCHER_SHOT=<f>:fail<1-6>, screenshots)
@@ -221,6 +258,11 @@ static void set_failure(int k) {
         "Some files are missing. Choose the folder again; if it happens again, copy your extracted game files again.",
         "Make sure there's about 2 GB free and try again. If it keeps happening, report it on GitHub."};
     if (k >= 1 && k <= 6) set_job(head[k], true, hint[k]);
+    if (k == FAIL_NOT_FOUND || k == FAIL_UNUSABLE || k == FAIL_VERSION) {
+        pthread_mutex_lock(&g_lock);
+        g_bad_input = "folder";
+        pthread_mutex_unlock(&g_lock);
+    }
 }
 
 static bool is_dir(const std::string &p) {
@@ -228,12 +270,12 @@ static bool is_dir(const std::string &p) {
     return stat(p.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
 }
 
-// exefs: the folder with main and main.npdm; romfs: the folder with region_common (the game's data root). Found
+// exefs: the folder with main and main.npdm; romfs: the folder with arc/data.trpfd (Z-A's pack index). Found
 // in the picked folder or a few levels below it (some folder layouts nest them).
 static void find_game(const std::string &dir, int depth, std::string &exefs, std::string &romfs, bool &unusable) {
     if (depth > 4 || (!exefs.empty() && !romfs.empty())) return;
     if (exefs.empty() && file_exists(dir + "/main") && file_exists(dir + "/main.npdm")) exefs = dir;
-    if (romfs.empty() && is_dir(dir + "/region_common")) romfs = dir;
+    if (romfs.empty() && file_exists(dir + "/arc/data.trpfd")) romfs = dir;
     DIR *d = opendir(dir.c_str());
     if (!d) return;
     std::vector<std::string> sub;
@@ -243,7 +285,7 @@ static void find_game(const std::string &dir, int depth, std::string &exefs, std
         std::string ext = n.size() > 4 ? n.substr(n.size() - 4) : "";
         for (auto &ch : ext) ch = (char)tolower((unsigned char)ch);
         if (ext == ".xci" || ext == ".nsp" || ext == ".nca" || ext == ".nsz" || ext == ".xcz") unusable = true;
-        if (n != "region_common" && is_dir(dir + "/" + n)) sub.push_back(dir + "/" + n);
+        if (n != "arc" && n != "audio" && n != "system" && is_dir(dir + "/" + n)) sub.push_back(dir + "/" + n);
     }
     closedir(d);
     std::sort(sub.begin(), sub.end());
@@ -272,19 +314,23 @@ static void build_progress(double f, const char *step) {
     static const char *last;
     if (step != last) last = step, set_job(step);
 }
+static std::atomic<float> g_import_frac{-1};
+static std::atomic<bool> g_from_packages{false};
+static void import_progress(double f, const char *step) { g_import_frac = (float)f; set_job(step); }
 static float extract_progress(void) {
     unsigned long long t = g_total, d = g_done;
     float b = g_build_frac, f = b >= 0 ? (g_copy_skipped ? b : 0.1f + 0.9f * b) : t ? 0.1f * (float)((double)d / (double)t) : 0;
+    if (g_from_packages) f = b >= 0 ? 0.4f + 0.6f * b : t ? 0.3f + 0.1f * (float)((double)d / t) : 0.3f * g_import_frac;
     return f < 0 ? 0 : f > 0.99f ? 0.99f : f;
 }
 
 // Builds the game code from the copied files (a few minutes); false = failed (the job line says so)
-static bool build_game_code(void) {
+static bool build_game_code(const std::string &root) {
     int cores = SDL_GetNumLogicalCPUCores(), ram_gb = SDL_GetSystemRAM() / 1024;
     GameBuildOpts o = {build_progress, cores < ram_gb - 2 ? cores : ram_gb - 2 > 1 ? ram_gb - 2 : 1};
     char why[256] = "";
     g_build_frac = 0;
-    bool ok = gamebuild_run(g_root.c_str(), &o, why, sizeof why);
+    bool ok = gamebuild_run(root.c_str(), &o, why, sizeof why);
     if (!ok) {
         fprintf(stderr, "[launcher] game code: %s\n", why);
         set_failure(FAIL_BUILD);
@@ -293,58 +339,96 @@ static bool build_game_code(void) {
 }
 
 static void *extract_thread(void *) {
-    std::string src;
+    std::string src, base, update, keys, exefs, romfs, destination;
+    bool packages, confirmed, staged = false, unusable = false;
+    char stage[1100] = "", why[256] = "";
     pthread_mutex_lock(&g_lock);
-    src = g_src;
+    src = g_src; base = g_base; update = g_update; keys = g_keys;
+    packages = g_import_mode == 0; confirmed = g_ownership;
+    g_bad_input.clear();
     pthread_mutex_unlock(&g_lock);
-    g_done = 0, g_total = 0, g_phase_base = 0, g_build_frac = -1, g_copy_skipped = false;
-    std::string exefs, romfs;
-    bool unusable = false;  // (game packages rather than its files)
-    if (src.empty() && check_copied_files(g_root).empty()) {  // copied already (an update needs new game code)
+    g_done = 0; g_total = 0; g_phase_base = 0; g_build_frac = -1; g_copy_skipped = false;
+    g_import_frac = 0; g_from_packages = packages;
+    if (!confirmed) { set_job("Confirm ownership and permission before setup.", true); goto done; }
+    if (!packages && src.empty() && check_copied_files(g_root).empty()) {
         g_copy_skipped = true;
-        if (!build_game_code()) goto done;
-        goto check;
+        if (!rt_game_setup_begin(g_root.c_str(), true, stage, sizeof stage, why, sizeof why)) {
+            set_job("Couldn't start setup", true, why); goto done;
+        }
+        staged = true; destination = stage;
+        if (!romfs_copy_tree((g_root + "/exefs").c_str(), (destination + "/exefs").c_str(), NULL)) {
+            set_failure(FAIL_COPY); goto done;
+        }
+        if (!build_game_code(destination)) goto done;
+        if (!rt_game_setup_end(true, why, sizeof why)) {
+            staged = false; set_job("Couldn't update game code", true, why); goto done;
+        }
+        staged = false; goto check;
     }
-    set_job("Looking for the game files...");
-    find_game(src, 0, exefs, romfs, unusable);
-    if (exefs.empty() || romfs.empty()) { set_failure(unusable ? FAIL_UNUSABLE : FAIL_NOT_FOUND); goto done; }
-    if (!build_id_ok(exefs + "/main")) { set_failure(FAIL_VERSION); goto done; }
+    if (packages && (base.empty() || update.empty() || keys.empty())) {
+        set_job("Choose your base game, update and prod.keys before setup.", true); goto done;
+    }
+    if (!rt_game_setup_begin(g_root.c_str(), false, stage, sizeof stage, why, sizeof why)) {
+        set_job("Couldn't start setup", true, why); goto done;
+    }
+    staged = true; destination = stage;
+    if (packages) {
+        char bad_field[16] = "";
+        if (!gameimport_run(base.c_str(), update.c_str(), keys.c_str(), stage, BUILD_ID,
+                            import_progress, bad_field, sizeof bad_field, why, sizeof why)) {
+            pthread_mutex_lock(&g_lock);
+            g_bad_input = bad_field;
+            pthread_mutex_unlock(&g_lock);
+            set_job("Game-file preparation didn't finish", true, why); goto done;
+        }
+        exefs = destination + "/exefs"; romfs = destination + "/romfs";
+    } else {
+        set_job("Looking for the game files...");
+        find_game(src, 0, exefs, romfs, unusable);
+        if (exefs.empty() || romfs.empty()) { set_failure(unusable ? FAIL_UNUSABLE : FAIL_NOT_FOUND); goto done; }
+        if (!build_id_ok(exefs + "/main")) { set_failure(FAIL_VERSION); goto done; }
+        char source[4096];
+        if (realpath(exefs.c_str(), source) && !strncmp(source, stage, strlen(stage))) {
+            set_failure(FAIL_NOT_FOUND); goto done;
+        }
+    }
     {
-        // (the picked folder can't be MonZaMac's own copy: setting up again deletes that first)
-        char a[4096], b[4096];
-        mkdir(g_root.c_str(), 0755);
-        if (realpath(exefs.c_str(), a) && realpath(g_root.c_str(), b) && !strncmp(a, b, strlen(b)) &&
-            (a[strlen(b)] == '/' || a[strlen(b)] == '\\' || !a[strlen(b)])) {
-            set_failure(FAIL_NOT_FOUND);
-            goto done;
-        }
-        rt_remove_game_files(g_root.c_str());  // (an earlier or interrupted setup's; removes the folder too)
-        mkdir(g_root.c_str(), 0755);
         unsigned long long rbytes = romfs_dir_bytes(romfs.c_str());
-        g_total = 2 * rbytes;
-        set_job("Copying the game files...");
-        if (!romfs_copy_tree(exefs.c_str(), (g_root + "/exefs").c_str(), NULL) ||
-            !romfs_copy_tree(romfs.c_str(), (g_root + "/romfs").c_str(), setup_progress)) {
-            set_failure(FAIL_COPY);
-            goto done;
+        struct statvfs fs;
+        if (statvfs(stage, &fs) || (unsigned long long)fs.f_bavail * fs.f_frsize <
+            rbytes * (packages ? 1 : 2) + (3ull << 30)) {
+            set_job("Not enough free space", true, "Free space for the game files, data image and compilation, then retry."); goto done;
         }
-        g_phase_base = rbytes, g_done = rbytes;
+        if (!packages) {
+            g_total = 2 * rbytes;
+            set_job("Copying the game files...");
+            if (!romfs_copy_tree(exefs.c_str(), (destination + "/exefs").c_str(), NULL) ||
+                !romfs_copy_tree(romfs.c_str(), (destination + "/romfs").c_str(), setup_progress)) {
+                set_failure(FAIL_COPY); goto done;
+            }
+            g_phase_base = rbytes; g_done = rbytes;
+        } else { g_total = rbytes; g_done = 0; }
         set_job("Building the game data image...");
-        char why[256] = "";
-        if (!romfs_build((g_root + "/romfs").c_str(), (g_root + "/romfs.bin").c_str(), setup_progress, why, sizeof why)) {
-            fprintf(stderr, "[launcher] romfs image: %s\n", why);
-            set_failure(FAIL_COPY);
-            goto done;
+        if (!romfs_build((destination + "/romfs").c_str(), (destination + "/romfs.bin").c_str(),
+                         setup_progress, why, sizeof why)) {
+            set_job("Couldn't build the game data image", true, "Check free disk space and retry."); goto done;
         }
-        if (!build_game_code()) goto done;
+        if (!build_game_code(destination)) goto done;
+        std::string checked = check_game_files(destination);
+        if (!checked.empty()) { set_job("Game files incomplete", true, checked); goto done; }
+        if (!rt_game_setup_end(true, why, sizeof why)) {
+            staged = false; set_job("Couldn't install the prepared game", true, why); goto done;
+        }
+        staged = false;
     }
 check:
     {
-        std::string why = check_game_files(g_root);
-        if (why.empty()) set_job("Game files ready.");
-        else set_failure(why.find("version") != std::string::npos ? FAIL_VERSION : FAIL_MISSING);
+        std::string checked = check_game_files(g_root);
+        if (checked.empty()) set_job("Game files ready.");
+        else set_failure(checked.find("version") != std::string::npos ? FAIL_VERSION : FAIL_MISSING);
     }
 done:
+    if (staged) rt_game_setup_end(false, why, sizeof why);
     pthread_mutex_lock(&g_lock);
     g_busy = false;
     pthread_mutex_unlock(&g_lock);
@@ -356,6 +440,23 @@ static void SDLCALL picked(void *, const char *const *files, int) {
     if (!files || !files[0]) return;
     pthread_mutex_lock(&g_lock);
     g_src = files[0];
+    g_ownership = false;
+    if (g_bad_input.empty() || g_bad_input == "folder") {
+        g_bad_input.clear(); g_job.clear(); g_job_hint.clear(); g_job_failed = false;
+    }
+    pthread_mutex_unlock(&g_lock);
+}
+
+static void SDLCALL picked_package(void *which, const char *const *files, int) {
+    if (!files || !files[0]) return;
+    pthread_mutex_lock(&g_lock);
+    int i = (int)(intptr_t)which;
+    (i == 0 ? g_base : i == 1 ? g_update : g_keys) = files[0];
+    g_ownership = false;
+    const char *field = i == 0 ? "base" : i == 1 ? "update" : "keys";
+    if (g_bad_input.empty() || g_bad_input == field) {
+        g_bad_input.clear(); g_job.clear(); g_job_hint.clear(); g_job_failed = false;
+    }
     pthread_mutex_unlock(&g_lock);
 }
 
@@ -552,7 +653,7 @@ static bool menu_tip(float s) {
         static const char *const home[] = {"Home button", "Xbox button", "PlayStation button"};  // (bind_label_family)
         static const char *const pad[] = {"Minus + Plus", "View + Menu", "Create + Options"};
         ImGui::PushTextWrapPos(0);
-        ImGui::TextUnformatted("MonZaMac has its own menu for settings, the randomizer, cosmetics and more.");
+        ImGui::TextUnformatted("MonZaMac has its own menu for settings, controls, graphics and more.");
         ImGui::Spacing();
         int fam = bind_label_family() % 3;
         ImGui::Text("Open it in game with F1 or Esc, or on a controller with the %s (or %s together).", home[fam], pad[fam]);
@@ -815,6 +916,7 @@ static void prelaunch_tab(float sc) {
 
 extern "C" void launcher_run(const char *root) {
     g_root = root;
+    g_ownership = false;
     g_start_screen = 1;
     static bool update_checked;  // (once per launch, not again after a "Title screen" reboot)
     if (!update_checked && !getenv("LARECOMP_NO_UPDATE_CHECK")) {
@@ -876,10 +978,11 @@ extern "C" void launcher_run(const char *root) {
     io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
 
     std::string status = check_game_files(g_root);
+    if (!status.empty() && check_copied_files(g_root).empty()) g_import_mode = 1;
     if (status.empty()) load_background(dev);
     Page page = status.empty() ? MAIN : SETUP;
     bool play = false;
-    // LARECOMP_LAUNCHER_SHOT=<frame>[:<page>] (test): save build/launcher.png at that frame and exit; page: settings[:<tab>] / askdelete / setup
+    // LARECOMP_LAUNCHER_SHOT=<frame>[:<page>] (test): save build/launcher.png at that frame and exit; page: settings[:<tab>] / askdelete / setup / setup-error-update
     long shot_at = getenv("LARECOMP_LAUNCHER_SHOT") ? atol(getenv("LARECOMP_LAUNCHER_SHOT")) : 0, frame = 0;
     if (shot_at) {
 #ifdef __APPLE__
@@ -888,6 +991,12 @@ extern "C" void launcher_run(const char *root) {
         const char *pg = strchr(getenv("LARECOMP_LAUNCHER_SHOT"), ':');
         if (pg && (!strncmp(pg + 1, "settings", 8) || !strcmp(pg + 1, "askdelete"))) page = SETTINGS, menu_tabs_focus(true);
         if (pg && !strcmp(pg + 1, "setup")) page = SETUP;
+        if (pg && !strcmp(pg + 1, "setup-error-update")) {
+            page = SETUP;
+            g_bad_input = "update";
+            set_job("Game-file preparation didn't finish", true,
+                    "This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.");
+        }
         if (pg && !strncmp(pg + 1, "fail", 4)) page = SETUP, set_failure(atoi(pg + 5));  // (the failure messages)
         if (pg && !strncmp(pg + 1, "settings", 8) && pg[9] == ':') g_tab_request_ext = atoi(pg + 10);  // settings:<tab>
         if (pg && !strcmp(pg + 1, "delete")) page = SETUP, g_confirm_delete = true;
@@ -899,15 +1008,25 @@ extern "C" void launcher_run(const char *root) {
     const char *ap = getenv("LARECOMP_LAUNCHER_AUTOPLAY");
     if (ap && status.empty() && !(runs && !strcmp(ap, "once"))) play = true;  // (test: PLAY at once)
     runs++;
+    if (getenv("LARECOMP_LAUNCHER_IMPORT_BASE")) {
+        g_base = getenv("LARECOMP_LAUNCHER_IMPORT_BASE");
+        const char *update = getenv("LARECOMP_LAUNCHER_IMPORT_UPDATE"), *keys = getenv("LARECOMP_LAUNCHER_IMPORT_KEYS");
+        g_update = update ? update : ""; g_keys = keys ? keys : "";
+        g_import_mode = 0; g_ownership = getenv("LARECOMP_LAUNCHER_OWNERSHIP") != NULL;
+        g_busy = true; extract_thread(NULL);
+        fprintf(stderr, "[launcher] import: %s (%s) -> %s\n", g_job.c_str(), g_job_hint.c_str(),
+                check_game_files(g_root).empty() ? "READY" : "NOT READY");
+        exit(g_job_failed ? 1 : 0);
+    }
     if (const char *t = getenv("LARECOMP_LAUNCHER_EXTRACT")) {  // (test) <folder>: set the game files up, log, exit
-        g_src = t;
+        g_src = t; g_import_mode = 1; g_ownership = getenv("LARECOMP_LAUNCHER_OWNERSHIP") != NULL;
         g_busy = true;
         extract_thread(NULL);
         fprintf(stderr, "[launcher] setup: %s -> %s\n", g_job.c_str(), check_game_files(g_root).empty() ? "READY" : "NOT READY");
         exit(0);
     }
     if (const char *t = getenv("LARECOMP_LAUNCHER_SETUP")) {  // (test) <folder>: Set up started on the start screen
-        g_src = t;
+        g_src = t; g_import_mode = 1; g_ownership = getenv("LARECOMP_LAUNCHER_OWNERSHIP") != NULL;
         g_busy = true;
         page = SETUP;
         pthread_t th;
@@ -921,6 +1040,7 @@ extern "C" void launcher_run(const char *root) {
         fprintf(stderr, "[launcher] delete %.1f GB: %s -> %s\n", gb, ok ? "ok" : "refused", status.c_str());
         if (!status.empty()) { g_bg = 0; page = SETUP; }
     }
+    const bool test_busy = getenv("LARECOMP_LAUNCHER_SHOT") && strstr(getenv("LARECOMP_LAUNCHER_SHOT"), ":extracting");
     while (!play) {
         menu_apply_window_requests(win);  // (the Video tab's Fullscreen)
         if (g_files_deleted) {  // (Settings > Prelaunch deleted them)
@@ -928,18 +1048,35 @@ extern "C" void launcher_run(const char *root) {
             status = check_game_files(g_root);
             if (!status.empty()) { g_bg = 0; bind_capture_cancel(); settings_save(); page = SETUP; }
         }
+        pthread_mutex_lock(&g_lock);
+        bool busy = g_busy || test_busy;
+        pthread_mutex_unlock(&g_lock);
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_EVENT_QUIT) exit(0);
+            if (busy) {  // the progress overlay is modal: no underlying mouse, keyboard or pad input (a pad plugged in meanwhile is still opened)
+                if (e.type == SDL_EVENT_GAMEPAD_ADDED) launcher_pad_event(e);
+                continue;
+            }
+            if (e.type == SDL_EVENT_DROP_FILE) {
+                if (page == SETUP && e.drop.windowID == SDL_GetWindowID(win) && e.drop.data) {
+                    g_drop_path = e.drop.data;  // SDL owns the event string; retain a copy for the UI frame.
+                    g_drop_pos = ImVec2(e.drop.x, e.drop.y);
+                    g_drop_pending = true;
+                }
+                continue;
+            }
             if (page == SETTINGS && bind_capture_event(&e)) continue;  // (waiting for a new binding: controls_ui.mm)
             if (!launcher_pad_event(e)) ImGui_ImplSDL3_ProcessEvent(&e);
-            if (e.type == SDL_EVENT_QUIT) exit(0);
         }
         // extraction finished: re-check, load the background
         pthread_mutex_lock(&g_lock);
-        bool busy = g_busy;
+        busy = g_busy || test_busy;
         pthread_mutex_unlock(&g_lock);
         static bool was_busy;
         if (was_busy && !busy) {
+            io.ClearInputKeys();
+            io.ClearInputMouse();
             status = check_game_files(g_root);
             if (status.empty()) { load_background(dev); page = MAIN; }
         }
@@ -1011,6 +1148,7 @@ extern "C" void launcher_run(const char *root) {
             ImGui::SetNextWindowPos(ImVec2(0, 0));
             ImGui::SetNextWindowSize(ds);
             ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
+            ImGui::BeginDisabled(busy);  // mouse clicks and ImGui navigation cannot reach the launcher under progress
             ImGui::Begin("##launcher", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                                                  ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus);
             ImGui::SetScrollX(0);  // (the start screen never scrolls; a long seed name or a stray nav move mustn't shift it)
@@ -1173,7 +1311,8 @@ extern "C" void launcher_run(const char *root) {
                 ImGui::Spacing();
 
                 pthread_mutex_lock(&g_lock);
-                std::string src = g_src, job = g_job, job_hint = g_job_hint;
+                std::string src = g_src, base = g_base, update = g_update, keys = g_keys;
+                std::string job = g_job, job_hint = g_job_hint, bad_input = g_bad_input;
                 bool failed = g_job_failed;
                 pthread_mutex_unlock(&g_lock);
                 bool ready = status.empty() && !busy;  // (set up: the window offers to delete them)
@@ -1191,9 +1330,14 @@ extern "C" void launcher_run(const char *root) {
                     dl->AddLine(ImVec2(x, cy), ImVec2(x + u * 0.35f, cy + u * 0.35f), g, fs * 0.11f);
                     dl->AddLine(ImVec2(x + u * 0.35f, cy + u * 0.35f), ImVec2(x + u, cy - u * 0.4f), g, fs * 0.11f);
                 };
+                auto mark_input_error = [&](const char *field) {
+                    if (bad_input != field) return;
+                    ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+                    ImGui::GetWindowDrawList()->AddRect(a, b, IM_COL32(255, 82, 72, 255), 9 * sc, 0, 2.5f * sc);
+                };
                 std::string src_d = "The folder with your own game folders (exefs/romfs) of Pokémon Legends: Z-A "
                                     "for Nintendo Switch, version 2.0.2. The game isn't included with MonZaMac.";
-                if (!src.empty()) src_d += "\n\nChosen: " + src;
+                if (!src.empty()) src_d += "\n\nChosen: " + display_path(src);
                 // the step that's running / its result, under the rows and in the Set up row's explanation
                 const std::string &job_line = job;
                 std::string ex_d = "Copies the game files MonZaMac needs and recompiles the game from them. This only "
@@ -1210,23 +1354,111 @@ extern "C" void launcher_run(const char *root) {
                 opt_begin("##files", sc);
                 if (!ready) {
                     opt_section("Your copy of the game");
+                    ImGui::TextWrapped("MonZaMac does not include or provide game files or keys. Use only files you "
+                                           "have the right to use, in accordance with applicable law.");
+                    static const char *modes[] = {"Game packages", "Extracted folder"};
                     if (busy) opt_disable_next();
-                    if (opt_action("Game files folder", src_v.c_str(), src_d.c_str(), true))
-                        SDL_ShowOpenFolderDialog(picked, NULL, win, NULL, false);
-                    check_left_of_value(src_v);
-                    first_row();
-                    opt_section("Set up");
-                    if (busy || (src.empty() && !check_copied_files(g_root).empty())) opt_disable_next();
-                    if (opt_action("Set up game files", busy ? "Working..." : "", ex_d.c_str(), true)) {
+                    if (opt_choice("Import from", &g_import_mode, modes, 2, 0,
+                               "Game packages: choose your base NSP/XCI, update NSP and prod.keys. "
+                               "Extracted folder: use exefs/romfs prepared elsewhere.")) {
                         pthread_mutex_lock(&g_lock);
-                        g_busy = true;
+                        g_ownership = false;
+                        g_bad_input.clear(); g_job.clear(); g_job_hint.clear(); g_job_failed = false;
                         pthread_mutex_unlock(&g_lock);
-                        pthread_t t;
-                        pthread_create(&t, NULL, extract_thread, NULL);
-                        pthread_detach(t);
+                    }
+                    ImGui::Dummy(ImVec2(0, 12 * sc));
+                    if (g_import_mode == 0) {
+                        static const SDL_DialogFileFilter bf[] = {{"Game packages", "nsp;xci"}, {"All files", "*"}};
+                        static const SDL_DialogFileFilter uf[] = {{"Update package", "nsp"}, {"All files", "*"}};
+                        static const SDL_DialogFileFilter kf[] = {{"Switch keys", "keys"}};
+                        const char *labels[] = {"Base game", "Update (2.0.2)", "prod.keys"};
+                        std::string values[] = {base, update, keys};
+                        for (int i = 0; i < 3; i++) {
+                            const char *field = i == 0 ? "base" : i == 1 ? "update" : "keys";
+                            if (busy) opt_disable_next();
+                            const char *hint = i == 2 ? "Drop prod.keys here or choose it. Read locally for setup; not copied or uploaded." :
+                                                       "Drop the matching dump here or choose it. Compressed NSZ/XCZ files are not supported.";
+                            std::string detail = hint;
+                            if (!values[i].empty()) detail += "\n\nChosen: " + display_path(values[i]);
+                            bool chosen = opt_action(labels[i], values[i].empty() ? "Choose..." : "Selected", detail.c_str(), true);
+                            mark_input_error(field);
+                            bool dropped = !busy && take_drop_on_item(values[i]);
+                            if (dropped) {
+                                pthread_mutex_lock(&g_lock);
+                                if (i == 0) g_base = values[i];
+                                else if (i == 1) g_update = values[i];
+                                else g_keys = values[i];
+                                g_ownership = false;
+                                if (g_bad_input.empty() || g_bad_input == field) {
+                                    g_bad_input.clear(); g_job.clear(); g_job_hint.clear(); g_job_failed = false;
+                                }
+                                pthread_mutex_unlock(&g_lock);
+                            }
+                            if (chosen)
+                                SDL_ShowOpenFileDialog(picked_package, (void *)(intptr_t)i, win,
+                                                       i == 0 ? bf : i == 1 ? uf : kf, i == 2 ? 1 : 2, NULL, false);
+                            first_row();
+                        }
+                        if (!gameimport_available())
+                            ImGui::TextWrapped("Package import tools are missing. Install the complete app or use an extracted folder.");
+                    } else {
+                        if (busy) opt_disable_next();
+                        bool chosen = opt_action("Game files folder", src_v.c_str(), src_d.c_str(), true);
+                        mark_input_error("folder");
+                        std::string dropped_path;
+                        bool dropped = !busy && take_drop_on_item(dropped_path);
+                        if (dropped) {
+                            if (is_dir(dropped_path)) {
+                                pthread_mutex_lock(&g_lock);
+                                g_src = dropped_path;
+                                g_ownership = false;
+                                if (g_bad_input.empty() || g_bad_input == "folder") {
+                                    g_bad_input.clear(); g_job.clear(); g_job_hint.clear(); g_job_failed = false;
+                                }
+                                pthread_mutex_unlock(&g_lock);
+                            } else {
+                                set_job("Choose or drop the extracted game folder.", true,
+                                        "The dropped item isn't a folder containing exefs/ and romfs/.");
+                            }
+                        }
+                        if (chosen)
+                            SDL_ShowOpenFolderDialog(picked, NULL, win, NULL, false);
+                        check_left_of_value(src_v);
+                        first_row();
+                    }
+                    ImGui::Dummy(ImVec2(0, 16 * sc));
+                    ImGui::BeginDisabled(busy);
+                    ImGui::Checkbox("I own an original copy of Pokémon Legends: Z-A", &g_ownership);
+                    ImGui::TextWrapped("By continuing, I confirm that I have permission to use the selected game files and keys.");
+                    ImGui::EndDisabled();
+                    ImGui::Dummy(ImVec2(0, 10 * sc));
+                    opt_section("Set up");
+                    if (busy || !g_ownership || (g_import_mode == 0 ?
+                        (base.empty() || update.empty() || keys.empty() || !gameimport_available()) :
+                        (src.empty() && !check_copied_files(g_root).empty()))) opt_disable_next();
+                    bool rebuild = g_import_mode == 1 && src.empty() && check_copied_files(g_root).empty();
+                    if (opt_action(rebuild ? "Update game code" : "Set up game files", busy ? "Working..." : "", ex_d.c_str(), true)) {
+                        char bad_field[16] = "", why[256] = "";
+                        bool valid = g_import_mode != 0 || gameimport_preflight(base.c_str(), update.c_str(), keys.c_str(),
+                                                                              bad_field, sizeof bad_field, why, sizeof why);
+                        if (!valid) {
+                            pthread_mutex_lock(&g_lock);
+                            g_bad_input = bad_field;
+                            pthread_mutex_unlock(&g_lock);
+                            set_job("File check failed", true, why);
+                        } else {
+                            pthread_mutex_lock(&g_lock);
+                            g_bad_input.clear(); g_job.clear(); g_job_hint.clear(); g_job_failed = false;
+                            g_busy = true;
+                            pthread_mutex_unlock(&g_lock);
+                            pthread_t t;
+                            pthread_create(&t, NULL, extract_thread, NULL);
+                            pthread_detach(t);
+                        }
                     }
                     files_gb = -1;  // (re-measured after a setup)
-                } else {
+                }
+                if (ready || (!busy && rt_game_files_size(g_root.c_str()) > 0)) {
                     // DELETE: frees MonZaMac's copy (runtime/paths.c removes only what the setup made, only inside
                     // the data root). Saves, seeds, settings and the user's own files stay.
                     if (files_gb < 0) files_gb = rt_game_files_size(g_root.c_str()) / 1e9;
@@ -1262,6 +1494,12 @@ extern "C" void launcher_run(const char *root) {
                     ImGui::PopTextWrapPos();
                 }
                 opt_end();
+                if (g_drop_pending) {
+                    g_drop_pending = false;
+                    g_drop_path.clear();
+                    set_job("Drop the item onto its matching field.", true,
+                            "Drop the base game, update, prod.keys, or extracted folder on its row.");
+                }
                 if (g_confirm_delete && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
                                          ImGui::IsKeyPressed(ImGuiKey_Escape, false)))
                     g_confirm_delete = false;  // (B / Esc: back out of the question first)
@@ -1275,7 +1513,6 @@ extern "C" void launcher_run(const char *root) {
                     g_confirm_delete = false;
                     page = MAIN, g_refocus = SETUP;
                 }
-                static bool test_busy = getenv("LARECOMP_LAUNCHER_SHOT") && strstr(getenv("LARECOMP_LAUNCHER_SHOT"), ":extracting");
                 if (busy || test_busy) {  // extracting: everything dimmed, a progress bar in front (input waits)
                     ImDrawList *fg = ImGui::GetForegroundDrawList();
                     ImVec2 o = ImGui::GetMainViewport()->Pos;
@@ -1350,10 +1587,12 @@ extern "C" void launcher_run(const char *root) {
                     dl->AddText(font, size, p, col, t);
                     if (bold) dl->AddText(font, size, ImVec2(p.x + 0.7f * s, p.y), col, t);
                 };
-                std::string ver = tag_label(LARECOMP_VERSION, true);
+                const std::string ver = tag_label(LARECOMP_VERSION, true), by = "by Rhapsodos93";  // (the build first: bug reports name it)
                 float vs = fs * 1.4f, y = ImGui::GetWindowPos().y + ds.y - 134 * s;
-                ImVec2 vsz = font->CalcTextSizeA(vs, FLT_MAX, 0, ver.c_str());
+                ImVec2 vsz = font->CalcTextSizeA(vs, FLT_MAX, 0, ver.c_str()), bsz = font->CalcTextSizeA(vs, FLT_MAX, 0, by.c_str());
                 text(ImVec2(right - vsz.x, y), vs, IM_COL32(255, 255, 255, 255), ver.c_str(), false);
+                text(ImVec2(right - bsz.x, y + vsz.y), vs, IM_COL32(255, 255, 255, 255), by.c_str(), false);
+                y += vsz.y;  // (the update link sits under the credit)
                 pthread_mutex_lock(&g_update_lock);
                 std::string upd = g_update_tag;
                 pthread_mutex_unlock(&g_update_lock);
@@ -1382,6 +1621,7 @@ extern "C" void launcher_run(const char *root) {
             ImGui::PopFont();
             }
             ImGui::End();
+            ImGui::EndDisabled();
             ImGui::PopStyleColor();
             osk_draw(g_font_menu, s * 0.7f);  // (a text field activated with the controller)
             typed_before = ui_text_busy();

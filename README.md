@@ -22,12 +22,30 @@ Working:
 - Controller and keyboard input
 
 Known issues:
-- Occasional stalls at startup (restart the game)
-- Shading glitches on animated models, NPCs popping in and out while walking
+- NPCs can still pop in and out while walking
 
 Bugs and questions: [GitHub issues](https://github.com/lucabravi/MonZaMac/issues), see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Building and running
+
+### First-run setup in the packaged app
+
+The complete app bundle includes its extraction tools, game-code generator and compiler. No Homebrew, Python or
+compiler installation is needed by the player. Open **Game Files**, confirm that you own an original copy and have
+permission to use the selected files, then choose your base-game **NSP/XCI**, the **v2.0.2 update NSP** and your
+**prod.keys**. Setup checks the files and free space, applies the update and builds the game locally. Allow at least
+25 GB of free space; the exact requirement can be higher. Compressed NSZ/XCZ packages are not supported; unpack
+ZIP/7z archives before selecting the NSP/XCI inside them.
+
+Keys are read locally from the selected file, not copied into app storage or uploaded. Your source dumps are left
+untouched. Files are prepared in scratch storage and installed only when all steps succeed; an existing installation
+must be removed with **Delete game files** before importing a new copy. Saves and settings are kept. You can also
+select **Extracted folder** to import your own `exefs`/`romfs` folders as before.
+
+The ownership declaration records the user's confirmation for setup; it does not replace applicable law or grant
+rights to Nintendo's content. Building the app from source still needs the developer tools below.
+
+### From source
 
 Requirements: macOS on Apple Silicon, Xcode command line tools, GNU Make 4 (`brew install make`, run as `gmake`: the
 macOS `make` is too old), SDL3 and FFmpeg (Homebrew).

@@ -15,6 +15,7 @@
 #include "option_rows.h"
 #include "imgui_internal.h"  // (NavCursorVisible)
 #include "osk.h"
+#include "../services/am.h"
 #ifdef __APPLE__
 #include "imgui_impl_metal.h"
 #else
@@ -26,6 +27,7 @@ extern "C" {
 #include "../hle.h"
 #include "../settings.h"
 #include "menu.h"
+#include "../nvn/output_scale.h"
 void input_reset(void);
 void controls_bindings_draw(float scale);  // controls_ui.mm
 #include "../input_bind.h"
@@ -34,6 +36,7 @@ void controls_bindings_draw(float scale);  // controls_ui.mm
 
 // ------------------------------------------------------------------ state shared with the main thread
 static std::atomic<bool> g_open{false};
+static std::atomic<bool> g_stats{false};  // F3: fps and the render resolution on screen, for this run (not saved)
 static std::atomic<bool> g_text_busy{false};  // a text field / the on-screen keyboard has the keys (render thread: ui_text_busy)
 static std::atomic<bool> g_want_fullscreen_apply{false};
 
@@ -165,11 +168,22 @@ bool menu_handle_event(const SDL_Event *e) {
             if (!typing) set_open(!g_open.load());  // (Esc with the menu open goes to ImGui below: it cancels a field)
             return true;
         }
+        if (!e->key.repeat && e->key.scancode == SDL_SCANCODE_F3) {
+            g_stats = !g_stats.load();
+            return true;
+        }
         if (!e->key.repeat && (e->key.scancode == SDL_SCANCODE_F11 ||
                                (e->key.scancode == SDL_SCANCODE_RETURN && (e->key.mod & (SDL_KMOD_ALT | SDL_KMOD_GUI))) ||
                                (e->key.scancode == SDL_SCANCODE_F && (e->key.mod & SDL_KMOD_GUI) && (e->key.mod & SDL_KMOD_CTRL)))) {
             g_settings.fullscreen = !g_settings.fullscreen;
             g_want_fullscreen_apply.store(true);
+            settings_save();
+            return true;
+        }
+        extern bool g_za_frame_hook;
+        if (!e->key.repeat && g_za_frame_hook && e->key.scancode == SDL_SCANCODE_H && (e->key.mod & SDL_KMOD_GUI) &&
+            (e->key.mod & SDL_KMOD_CTRL)) {  // Cmd+Ctrl+H: docked <-> handheld
+            am_set_handheld(!g_settings.handheld);
             settings_save();
             return true;
         }
@@ -425,15 +439,15 @@ static bool toggle(const char *label, bool *v) {
 }
 
 extern "C" void renderer_get_scale(float *sx, float *sy);
+extern "C" const char *rt_version_label(void);  // launcher.mm: "0.1.0"
 extern "C" int input_pad_family(void);  // runtime/hle/input.c
-extern "C" double output_scale_dynamic_factor(void);
 
 static void tab_display(void) {
     float scale = ImGui::GetFontSize() / 34;
     opt_begin("##video", scale);
     opt_section("Display");
     const char *aspects[] = {"Unlocked", "Original 16:9"};
-    opt_choice("Aspect ratio", &g_settings.aspect, aspects, 2, ASPECT_UNLOCKED,
+    opt_choice("Aspect ratio", &g_settings.aspect, aspects, 2, ASPECT_ORIGINAL,
                "Unlocked: the view fills the window, so wider (or taller) windows show more of the world - up to "
                "ultrawide. Original 16:9: the game's own framing, with bars.");
     bool fs = g_settings.fullscreen;
@@ -441,16 +455,30 @@ static void tab_display(void) {
         g_settings.fullscreen = fs;
         g_want_fullscreen_apply.store(true);
     }
-    opt_toggle("Show FPS", &g_settings.show_fps, false, "Shows the frame rate in the top right corner.");
+    opt_toggle("Show FPS", &g_settings.show_fps, false, "Shows the frame rate in the top right corner. F3 does it for this run only, adding the render resolution.");
+    {   // Pokémon Z-A's game mode (runtime/services/am.c): the mode the game is told it runs in
+        extern bool g_za_frame_hook;
+        if (g_za_frame_hook) {
+            int gm = g_settings.handheld ? 1 : 0;
+            static const char *modes[] = {"Docked (1080p)", "Handheld (720p)"};
+            if (opt_choice("Game mode", &gm, modes, 2, 0,
+                           "The mode the game believes it runs in. Handheld: it draws 720p with lighter effects, as on the "
+                           "Switch's own screen - far less work for the GPU, for slower Macs. Docked: 1080p. Also Cmd+Ctrl+H. "
+                           "If the picture does not follow at once, restart the game."))
+                am_set_handheld(gm == 1);
+        }
+    }
     {   // Pokémon Z-A's frame mode (runtime/hle/framepace.c rt_za_frame_cfg): applies from the next frame
         extern bool g_za_frame_hook;
         if (g_za_frame_hook) {
-            int fr = g_settings.fps60 ? 1 : 0;
-            static const char *rates[] = {"30 fps (Switch)", "60 fps"};
-            if (opt_choice("Frame rate", &fr, rates, 2, 0,
+            int fr = g_settings.fps60 ? (g_settings.fps60_steady ? 2 : 1) : 0;
+            static const char *rates[] = {"30 fps (Switch)", "60 fps", "60 fps, steady speed"};
+            if (opt_choice("Frame rate", &fr, rates, 3, 0,
                            "30 fps: as on the Switch. 60 fps: the game presents every vsync and steps its world 1/60 s "
-                           "a frame - same speed, smoother; needs a faster CPU."))
-                g_settings.fps60 = fr == 1;
+                           "a frame - smoother, but it slows down whenever a frame takes longer than that. 60 fps, steady "
+                           "speed: the world steps by the time each frame really took, so the speed holds when a frame "
+                           "takes longer than 1/60 s (down to 30 fps). Needs a faster CPU."))
+                g_settings.fps60 = fr >= 1, g_settings.fps60_steady = fr == 2;
         }
     }
 
@@ -458,23 +486,24 @@ static void tab_display(void) {
     // display order -> RES_* (the ini / enum order predates the menu order)
     // (up to 4x: 7680 x 4320, 8K - more only ran out of GPU memory, and sat next to 75% in the list)
     // (Match display in the middle: left from it 75% / 50% / 25%, right Dynamic then 1x-4x; user 2026-10-11)
-    static const char *res[] = {"25%", "50%", "75%", "Match display", "Dynamic", "1x", "1.5x", "2x", "3x", "4x"};
-    static const int res_mode[] = {RES_Q25, RES_Q50, RES_Q75, RES_MATCH, RES_DYNAMIC, 1, RES_X15, 2, 3, 4};
-    enum { RES_MATCH_AT = 3 };
+    static const char *res[] = {"25%", "50%", "75%", "Match display", "Dynamic", "Dynamic 1.5x", "1x", "1.5x", "2x", "3x", "4x"};
+    static const int res_mode[] = {RES_Q25, RES_Q50, RES_Q75, RES_MATCH, RES_DYNAMIC, RES_DYNAMIC_X15, 1, RES_X15, 2, 3, 4};
+    enum { RES_MATCH_AT = 3, RES_1X_AT = 6 };
     enum { NRES = sizeof res_mode / sizeof res_mode[0] };
     {
         int ri = RES_MATCH_AT;
         for (int i = 0; i < NRES; i++) if (res_mode[i] == g_settings.res_mode) ri = i;
         float sx, sy;
         renderer_get_scale(&sx, &sy);
-        char d[400];
+        char d[640];
         int n = snprintf(d, sizeof d, "How sharp the 3D image is. Match display: your screen's own resolution. Dynamic: "
-                                      "as sharp as your GPU keeps at full speed. 1x-4x: the Switch's 1080p times that. "
+                                      "as sharp as your GPU keeps at full speed. Dynamic 1.5x: 1.5x while your GPU keeps "
+                                      "the frame rate, lower when it can't. 1x-4x: the Switch's 1080p times that. "
                                       "75%% / 50%% / 25%%: a share of the display, for slower machines.\n\nRendering at "
                                       "%.0f x %.0f.", 1920.0 * sx, 1080.0 * sy);
-        if (g_settings.res_mode == RES_DYNAMIC)
-            snprintf(d + n, sizeof d - n, " Dynamic: %.0f%% of the display right now.", output_scale_dynamic_factor() * 100);
-        if (opt_choice("Internal resolution", &ri, res, NRES, RES_MATCH_AT, d, false)) g_settings.res_mode = res_mode[ri];
+        if (g_settings.res_mode == RES_DYNAMIC || g_settings.res_mode == RES_DYNAMIC_X15)
+            snprintf(d + n, sizeof d - n, " Dynamic: %.0f%% of its top resolution right now.", output_scale_dynamic_factor() * 100);
+        if (opt_choice("Internal resolution", &ri, res, NRES, RES_1X_AT, d, false)) g_settings.res_mode = res_mode[ri];
     }
     {   // each OS's own upscaler next to bilinear (UPSCALE_SHARP: MetalFX on macOS, AMD FSR 1 on Windows)
 #ifdef __APPLE__
@@ -496,9 +525,32 @@ static void tab_display(void) {
         if (opt_choice("Upscaler", &ui, ups, 2, 1, ud)) g_settings.upscaler = ui ? UPSCALE_SHARP : UPSCALE_BILINEAR;
     }
     static const char *aa[] = {"Off", "SMAA"};
-    opt_choice("Anti-aliasing", &g_settings.antialias, aa, 2, AA_OFF,
+    opt_choice("Anti-aliasing", &g_settings.antialias, aa, 2, AA_SMAA,
                "Smooths jagged edges of the game image before it is scaled to the window. SMAA: finds the edges and "
                "blends only along them, so textures stay sharp. Most useful at a lower internal resolution.");
+    {   // Pokémon Z-A's own effects (runtime/hle/za_mods.c): the same patch build as the frame mode
+        extern bool g_za_frame_hook;
+        if (g_za_frame_hook) {
+            opt_toggle("Game FXAA", &g_settings.fxaa, true,
+                       "The game's own anti-aliasing, a light blur over the whole image. Off: sharper, with more jagged "
+                       "edges (SMAA above can smooth them instead).");
+            opt_toggle("Game dynamic resolution", &g_settings.game_drs, false,
+                       "The game's own resolution scaling, which lowers the picture when it thinks the GPU is slow. Off: "
+                       "it stays at full (a window in the background no longer makes it blurry for a while). Separate "
+                       "from Internal resolution > Dynamic.");
+            opt_toggle("Depth of field", &g_settings.dof, true,
+                       "The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.");
+            opt_toggle("Bloom", &g_settings.bloom, true,
+                       "The game's glow around bright light. Off: no glow, a plainer image.");
+            opt_toggle("Wider view", &g_settings.fov, false,
+                       "The camera's field of view a little wider: more of the scene at the sides. Off: the game's own.");
+            opt_toggle("Sharper textures", &g_settings.lod, true,
+                       "Textures stay sharp on ground and walls seen at a slant, and (macOS 26 or later) farther away too. "
+                       "Off: the game's own.");
+            opt_toggle("4K shadows", &g_settings.shadows_4k, false,
+                       "Shadows from a 4096 map, sharper than the game's own. Costs GPU memory and work. Off: the game's own.");
+        }
+    }
 
     opt_end();
 }
@@ -793,7 +845,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
 #endif
     bool open = g_open.load();
     bool kbd = g_kbd.load() == 1;
-    if (!open && !kbd && !g_settings.show_fps) {
+    if (!open && !kbd && !g_settings.show_fps && !g_stats.load()) {
         if (g_inited) { pthread_mutex_lock(&q_lock); q_events.clear(); pthread_mutex_unlock(&q_lock); }
         return;
     }
@@ -838,12 +890,26 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
 #endif
     ImGui::NewFrame();
 
-    if (g_settings.show_fps) {
+    if (g_settings.show_fps || g_stats.load()) {
         ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - 16 * scale, 16 * scale), 0, ImVec2(1, 0));
         ImGui::SetNextWindowBgAlpha(0.5f);
         ImGui::Begin("##fps", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
                                         ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing);
         ImGui::Text("%.0f fps", io.Framerate);
+        if (g_stats.load()) {  // F3: what the 3D image renders at (the game's own size times the output scale)
+            extern int g_out_present_interval;
+            float sx, sy;
+            renderer_get_scale(&sx, &sy);
+            extern bool g_za_frame_hook;
+            bool hh = g_za_frame_hook && am_handheld();  // (the game's own size: handheld renders for 1280x720)
+            ImGui::Text("render %.0f x %.0f%s", (hh ? 1280.0 : 1920.0) * sx, (hh ? 720.0 : 1080.0) * sy, hh ? " (handheld)" : "");
+            if (g_settings.res_mode == RES_DYNAMIC || g_settings.res_mode == RES_DYNAMIC_X15) {
+                double fm, gm;
+                bool gok = output_scale_dynamic_stats(&fm, &gm);
+                ImGui::Text("dynamic %.0f%%  (frame %.1f ms, gpu %.1f ms%s)", output_scale_dynamic_factor() * 100, fm, gm, gok ? "" : ", not used");
+            }
+            ImGui::Text("present interval %d", g_out_present_interval);
+        }
         ImGui::End();
     }
 
@@ -862,6 +928,10 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         ImGui::PushFont(g_font_big);
         ImGui::TextColored(ImVec4(0.93f, 0.76f, 0.33f, 1), "Settings");
         ImGui::PopFont();
+        {   // the build's version beside the title (bug reports name it)
+            ImGui::SameLine(0, 18 * scale);
+            ImGui::TextColored(ImVec4(0.72f, 0.70f, 0.64f, 1), "MonZaMac %s", rt_version_label());
+        }
         {
             float bx = 44 * scale;
             ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - bx);

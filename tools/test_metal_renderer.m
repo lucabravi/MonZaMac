@@ -1,11 +1,69 @@
 // Real offscreen Metal regressions; no game files or window are needed.
+#include <stddef.h>
+static double gpu_interval_sum_ms(const double *intervals, size_t count, double window_start, double window_end);
+static double gpu_interval_union_ms(const double *intervals, size_t count, double window_start, double window_end);
 #include "../runtime/nvn/renderer.m"
 #import <ImageIO/ImageIO.h>
 
 void metal_test_bootstrap(void);
+void metal_test_texture_dump(void);
 void metal_test_next_texture_frame(void);
 
 #define CHECK(c, message) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d: %s\n", __func__, __LINE__, message); exit(1); } } while (0)
+
+static void gpu_interval_union(void) {
+    const double intervals[] = {
+        0.020, 0.025,  // [20, 25] ms
+        0.000, 0.010,  // [0, 10] ms
+        0.022, 0.028,  // [22, 28] ms
+        0.005, 0.015,  // [5, 15] ms
+        0.022, 0.026,  // contained in [22, 28] ms
+    };
+    double sum = gpu_interval_sum_ms(intervals, 5, 0.003, 0.026);
+    double busy = gpu_interval_union_ms(intervals, 5, 0.003, 0.026);
+    CHECK(sum > 29.999 && sum < 30.001, "summed command-buffer spans are clipped to the present window");
+    CHECK(busy > 17.999 && busy < 18.001, "overlapping GPU intervals are clipped and counted once");
+    CHECK(gpu_interval_union_ms(intervals, 5, 0.030, 0.040) == 0,
+          "GPU intervals outside a present window contribute no busy time");
+}
+
+static void gpu_timing_state_machine(void) {
+    renderer_gpu_timing_reset();
+    double start, second, third, frame_ms, gpu_ms;
+    unsigned samples;
+
+    gpu_ms = renderer_gpu_timing_present(1, &start, &frame_ms, &samples);
+    CHECK(gpu_ms < 0 && samples == 0, "the first present opens a measurement window");
+    RendererGpuTimingToken *token = renderer_gpu_timing_submit(2, "renderer");
+    CHECK(token != NULL, "a submitted command buffer gets a timing token");
+    renderer_gpu_timing_mark_commit(token);
+    gpu_ms = renderer_gpu_timing_present(2, &second, &frame_ms, &samples);
+    CHECK(gpu_ms < 0 && samples == 0, "a window waits for its delayed command-buffer completion");
+    gpu_ms = renderer_gpu_timing_present(3, &third, &frame_ms, &samples);
+    CHECK(gpu_ms < 0 && samples == 0, "an outstanding command buffer remains attached to later windows");
+    renderer_gpu_timing_complete(token, start, third);
+    gpu_ms = renderer_gpu_timing_present(4, NULL, &frame_ms, &samples);
+    CHECK(samples == 3, "a delayed completion releases all crossed present windows");
+    CHECK(gpu_ms > 0 && gpu_ms <= frame_ms + 0.01, "the union stays bounded by the matching elapsed windows");
+
+    renderer_gpu_timing_reset();
+    renderer_gpu_timing_present(10, &start, &frame_ms, &samples);
+    token = renderer_gpu_timing_submit(11, "renderer");
+    renderer_gpu_timing_mark_commit(token);
+    renderer_gpu_timing_complete(token, 0, renderer_host_time_seconds());
+    gpu_ms = renderer_gpu_timing_present(11, NULL, &frame_ms, &samples);
+    CHECK(gpu_ms < 0 && samples == 0, "a zero GPU start timestamp makes the frame sample unknown");
+
+    renderer_gpu_timing_reset();
+    renderer_gpu_timing_present(20, &start, &frame_ms, &samples);
+    token = renderer_gpu_timing_submit(21, "renderer");
+    renderer_gpu_timing_mark_commit(token);
+    renderer_gpu_timing_reset();
+    renderer_gpu_timing_complete(token, start, renderer_host_time_seconds());
+    gpu_ms = renderer_gpu_timing_present(21, NULL, &frame_ms, &samples);
+    CHECK(gpu_ms < 0 && samples == 0, "reset discards outstanding timing tokens safely");
+    renderer_gpu_timing_reset();
+}
 
 static NvnTexture test_texture(uint32_t target, uint32_t width, uint32_t height, uint32_t layers,
                                uint32_t levels, uint32_t format, uint32_t samples) {
@@ -1644,8 +1702,33 @@ static void live_shader_pipeline(void) {
     CHECK(!bad,"every live shader replacement must render its new color even when native function addresses are reused");
 }
 
+static void pipeline_archive_reload(void) {  // a pipeline built once is found in cache/pipelines.bin on the next run
+    if (!pipeline_archive()) { fprintf(stderr, "pipeline archive off (LARECOMP_NO_PIPELINE_ARCHIVE)\n"); return; }
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    bind_targets(&color, NULL, NULL); prepare_draw(); fullscreen_draw(1); check_gpu();
+    renderer_save_pipeline_archive();  // waits for the background add, then writes the file
+    CHECK(g_archive_dirty == 0 && access("cache/pipelines.bin", R_OK) == 0, "pipeline archive saved to disk");
+    MTLBinaryArchiveDescriptor *ad = [MTLBinaryArchiveDescriptor new];
+    ad.url = [NSURL fileURLWithPath:@"cache/pipelines.bin"].absoluteURL;
+    NSError *err = nil;
+    id<MTLBinaryArchive> loaded = [dev newBinaryArchiveWithDescriptor:ad error:&err];
+    CHECK(loaded != nil, "saved pipeline archive loads back");
+    destroy_texture(&color);
+    g_archive_read = loaded;  // as on the next run
+    renderer_reset();    // forget the built pipelines and programs
+    int hits = g_archive_hits;
+    color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    bind_targets(&color, NULL, NULL); prepare_draw(); fullscreen_draw(1); expect_rgba(&color, 0, 255, 0);
+    fprintf(stderr, "pipeline archive hits %d -> %d\n", hits, g_archive_hits);
+    CHECK(g_archive_hits > hits, "the rebuilt pipeline must come from the loaded archive and draw correctly");
+    destroy_texture(&color);
+}
+
 typedef void (*TestFn)(void);
 static const struct { const char *name, *group; TestFn run; bool needs_sampler26; } tests[] = {
+    {"largest-textures", "diagnostics", metal_test_texture_dump},
+    {"gpu-interval-union", "gpu-time", gpu_interval_union},
+    {"gpu-timing-state", "gpu-time", gpu_timing_state_machine},
     {"smoke", "smoke", smoke},
     {"live-shader-pipeline", "live", live_shader_pipeline},
     {"break-reconvergence", "flow", break_reconvergence},
@@ -1665,6 +1748,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"surface-handle-provenance", "integers", surface_handle_provenance},
     {"ldc64-overlap", "sibling", ldc64_overlap},
     {"program-readiness", "sibling", program_readiness},
+    {"pipeline-archive", "sibling", pipeline_archive_reload},
     {"shadow-fallback", "sibling", shadow_fallback},
     {"safe-math-graphics", "sibling", safe_math_graphics},
     {"safe-math-compute", "sibling", safe_math_compute},
@@ -1743,6 +1827,10 @@ int metal_renderer_test_main(int argc, char **argv) { @autoreleasepool {
         fprintf(stderr, "PASS %s\n", tests[i].name);
     }
     CHECK(ran + skipped != 0, "unknown test selection");
+    renderer_save_pipeline_archive();  // now, while the directory still exists (exit would save again otherwise)
+    // every case's pipelines (depth-only ones without fragment outputs among them) went in: the save must succeed, leaving
+    // out ("left out" in the log) only pipelines that break it
+    CHECK(g_archive_dirty == 0, "the pipeline archive must save with every pipeline the cases built");
     [[NSFileManager defaultManager] removeItemAtPath:@(temporary) error:nil];
     if (ran) fprintf(stderr, "PASS: %u Metal renderer tests on %s\n", ran, dev.name.UTF8String);
     if (skipped) fprintf(stderr, "SKIP: %u tests requiring newer sampler APIs\n", skipped);

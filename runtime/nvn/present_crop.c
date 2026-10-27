@@ -1,6 +1,7 @@
 // How the game's 1920x1080 image is shown in a window of another shape. The game always draws 16:9, so a window that
-// is wider or taller than that shows the 16:9 part in the middle (bars at the sides, or above and below). Called by
-// the presenter (runtime/nvn/metal.m) with the window shape from output_scale.c.
+// is wider or taller than that shows the 16:9 part in the middle (bars at the sides, or above and below) - unless
+// Pokémon Z-A's camera was widened to the window (runtime/hle/za_mods.c). Called by the presenter
+// (runtime/nvn/metal.m) with the window shape from output_scale.c.
 #include <stdbool.h>
 
 #include "../hle.h"
@@ -11,7 +12,8 @@ bool present_unlocked(void) { return g_settings.aspect == ASPECT_UNLOCKED && !EN
 // crop: the part of the image shown (uv origin and size); (vx, vy, vw, vh): its place in the window, narrowed to match.
 void present_crop(double shape, float crop[4], double *vx, double *vy, double *vw, double *vh) {
     crop[0] = crop[1] = 0, crop[2] = crop[3] = 1;
-    if (shape == 1.0) return;
+    extern bool g_za_wide;
+    if (shape == 1.0 || (shape > 1.0 && g_za_wide)) return;
     if (shape < 1.0) {  // taller than 16:9: the 16:9 band
         crop[1] = (float)((1.0 - shape) / 2), crop[3] = (float)shape;
         double nh = *vh * shape;

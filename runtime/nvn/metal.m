@@ -208,8 +208,10 @@ static void dump_largest_textures(const char *why) {
         TexBackend *b = g_reg[i] ? (TexBackend *)g_reg[i]->backend : NULL;
         if (!b || !b->tex) continue;
         uint64_t a = b->tex.allocatedSize;
-        int k = n < 16 ? n++ : 15;
-        if (k == 15 && n == 16 && a <= sz[15]) continue;
+        int k;
+        if (n < 16) k = n++;
+        else if (a <= sz[15]) continue;  // (a full list: only a bigger one than the smallest kept goes in)
+        else k = 15;
         while (k > 0 && sz[k - 1] < a) { sz[k] = sz[k - 1]; idx[k] = idx[k - 1]; k--; }
         sz[k] = a; idx[k] = i;
     }
@@ -271,7 +273,7 @@ bool renderer_texture_level_fresh(NvnTexture *t) {
     if (keep < 0) keep = getenv("LARECOMP_KEEP_TARGETS") != NULL;
     if (!b || keep || b->level_gen == g_level_gen) return false;
     if (!b->scalable) { b->level_gen = g_level_gen; return false; }  // scene buffers only: UI textures the game draws once
-                                                                       // and reuses (rupee counter) must keep their contents
+                                                                       // and reuses (HUD counters) must keep their contents
     bool fresh = b->level_gen != 0;  // first use ever: nothing stale to hide
     b->level_gen = g_level_gen;
     if (fresh && getenv("LARECOMP_LOG_LEVELCLEAR"))
@@ -516,7 +518,15 @@ static void upload_texture(NvnTexture *t, TexBackend *b, id<MTLBlitCommandEncode
                     destinationSlice:slice destinationLevel:lv destinationOrigin:MTLOriginMake(0, 0, 0)];
         }
     }
-    if (own_cb) { [blit endEncoding]; [own_cb commit]; }
+    if (own_cb) {
+        [blit endEncoding];
+        RendererGpuTimingToken *timing = renderer_gpu_timing_submit(total_frames + 1, "upload");
+        [own_cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
+            renderer_gpu_timing_complete(timing, done.GPUStartTime, done.GPUEndTime);
+        }];
+        renderer_gpu_timing_mark_commit(timing);
+        [own_cb commit];
+    }
 }
 
 id<MTLTexture> renderer_texture(NvnTexture *t, id<MTLBlitCommandEncoder> blit, bool for_render) {
@@ -543,6 +553,11 @@ void renderer_upload_rgba(NvnTexture *t, const void *rgba, uint32_t w, uint32_t 
                   sourceSize:MTLSizeMake(MIN(w, b->tex.width), MIN(h, b->tex.height), 1) toTexture:b->tex
             destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0, 0, 0)];
         [blit endEncoding];
+        RendererGpuTimingToken *timing = renderer_gpu_timing_submit(total_frames + 1, "upload");
+        [cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
+            renderer_gpu_timing_complete(timing, done.GPUStartTime, done.GPUEndTime);
+        }];
+        renderer_gpu_timing_mark_commit(timing);
         [cb commit];
     }
 }
@@ -997,9 +1012,18 @@ void backend_present(NvnTexture *t) {
     g_last_presented = t;
     {   // (diagnostics) which guest texture the window shows: the end of the post chain
         extern bool g_debug_frame;
-        static NvnTexture *last;
-        if (t != last || g_debug_frame) {
-            last = t;
+        // The swapchain has two or three images that take turns: comparing with the last one logged a line every frame.
+        // Remember the images seen lately instead and say it when one new (or the debug frame) shows up.
+        static NvnTexture *seen[8];
+        static int nseen, next_seen;
+        bool known = false;
+        for (int i = 0; i < nseen; i++) known |= seen[i] == t;
+        if (!known || g_debug_frame) {
+            if (!known) {
+                seen[next_seen] = t;
+                next_seen = (next_seen + 1) % 8;
+                if (nseen < 8) nseen++;
+            }
             LOG("[present] tex %p %ux%u f%#x @%llx\n", (void *)t, t ? t->width : 0, t ? t->height : 0,
                 t ? t->format : 0, t ? (unsigned long long)t->addr : 0);
         }
@@ -1032,18 +1056,29 @@ void backend_present(NvnTexture *t) {
         double dw = drawable.texture.width, dh = drawable.texture.height;
         extern bool present_unlocked(void);
         // render scale + placement in the window: runtime/nvn/output_scale.c (Video tab "Internal resolution")
-        extern uint64_t g_gpu_total_ns;
-        static uint64_t gpu_prev;
-        uint64_t gpu_now = __atomic_load_n(&g_gpu_total_ns, __ATOMIC_RELAXED);
-        double gpu_ms = gpu_prev ? (gpu_now - gpu_prev) / 1e6 : -1;
-        gpu_prev = gpu_now;
+        extern int g_out_present_interval;
+        uint64_t frame = total_frames + 1;
+        double gpu_sample_time, gpu_frame_ms;
+        unsigned gpu_samples;
+        double gpu_ms = renderer_gpu_timing_present(frame, &gpu_sample_time, &gpu_frame_ms, &gpu_samples);
+        if (renderer_gpu_timing_trace())
+            LOG("[gpu-present] frame %llu time %.6f interval %d window %.3fms gpu %.3fms samples %u\n",
+                (unsigned long long)frame, gpu_sample_time, g_out_present_interval, gpu_frame_ms, gpu_ms, gpu_samples);
         OutScale os;
-        output_scale(dw, dh, present_unlocked(), SDL_GetTicksNS() / 1e9, gpu_ms, &os);
+        output_scale(dw, dh, present_unlocked(), gpu_sample_time, gpu_ms, &os);
         double sx = os.sx, sy = os.sy, vx = os.vx, vy = os.vy, vw = os.vw, vh = os.vh, shape = os.shape;
         bool reshape = shape != 1.0;
         extern void present_crop(double, float *, double *, double *, double *, double *);
         float crop[4];  // uv origin and size
         present_crop(shape, crop, &vx, &vy, &vw, &vh);
+        {   // the game's own crop of its window texture (handheld: 1280x720 of 1920x1080): only that part is the picture
+            extern int g_present_crop[4], g_present_tex[2];
+            const int *wc = g_present_crop, tw = g_present_tex[0], th = g_present_tex[1];
+            if (wc[2] > 0 && wc[3] > 0 && tw > 0 && th > 0 && (wc[2] < tw || wc[3] < th || wc[0] || wc[1])) {
+                float cx = (float)wc[0] / tw, cy = (float)wc[1] / th, cw = (float)wc[2] / tw, ch = (float)wc[3] / th;
+                crop[0] = cx + crop[0] * cw; crop[1] = cy + crop[1] * ch; crop[2] *= cw; crop[3] *= ch;
+            }
+        }
         {   // (diagnostics) log output scale / drawable changes
             static double psx, psy, pdw, pdh;
             static int nlog;
@@ -1109,6 +1144,11 @@ void backend_present(NvnTexture *t) {
             [bl endEncoding];
         }
         [cb presentDrawable:drawable];
+        RendererGpuTimingToken *gpu_present_timing = renderer_gpu_timing_submit(frame + 1, "present");
+        [cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
+            renderer_gpu_timing_complete(gpu_present_timing, done.GPUStartTime, done.GPUEndTime);
+        }];
+        renderer_gpu_timing_mark_commit(gpu_present_timing);
         [cb commit];
         if (shot_tex) {
             [cb waitUntilCompleted];
@@ -1119,7 +1159,7 @@ void backend_present(NvnTexture *t) {
                 g_window_shot_request[0] = 0;
             } else {
                 renderer_save_texture(shot_tex, getenv("LARECOMP_SHOT_PATH") ? getenv("LARECOMP_SHOT_PATH") : "build/window.png");
-                if (getenv("LARECOMP_EXIT_AFTER_SHOT")) { fflush(stderr); _exit(0); }
+                if (getenv("LARECOMP_EXIT_AFTER_SHOT")) { renderer_save_pipeline_archive(); fflush(stderr); _exit(0); }
             }
             g_save_upright = false;
         }
@@ -1172,7 +1212,7 @@ void backend_present(NvnTexture *t) {
         if (shot_from) mkdir("build/frames", 0755);
         snprintf(path, sizeof path, shot_from ? "build/frames/frame_%05llu.png" : "build/frame_%05llu.png", total_frames);
         save_png(b->tex, path);
-        if (getenv("LARECOMP_EXIT_AFTER_SHOT")) { fflush(stderr); _exit(0); }
+        if (getenv("LARECOMP_EXIT_AFTER_SHOT")) { renderer_save_pipeline_archive(); fflush(stderr); _exit(0); }
     }
     double now = SDL_GetTicks() / 1000.0;
     static double fps_iv = -1, prev_present, max_gap;  // LARECOMP_FPS_INTERVAL=<s>: fps line period (default 2)
@@ -1246,7 +1286,7 @@ int ui_run(void) {
         if (rt_reboot_requested()) return rt_reboot_requested();  // (runtime/main.c tears the game down)
         SDL_Event e;
         while (SDL_WaitEventTimeout(&e, 16)) {
-            if (e.type == SDL_EVENT_QUIT) { LOG("window closed\n"); exit(0); }
+            if (e.type == SDL_EVENT_QUIT) { LOG("window closed\n"); return RT_REBOOT_NONE; }
             if (input_user_blocked(&e)) continue;  // scripted test runs: the real keyboard / mouse / pads do nothing
             if (menu_handle_event(&e)) continue;
             input_handle_event(&e);
@@ -1254,6 +1294,8 @@ int ui_run(void) {
         menu_apply_window_requests(window);
         int w, h;
         SDL_GetWindowSizeInPixels(window, &w, &h);
-        layer.drawableSize = CGSizeMake(w, h);
+        // only on a change, and never 0x0 (a minimised window)
+        CGSize ds = CGSizeMake(w, h);
+        if (w > 0 && h > 0 && !CGSizeEqualToSize(layer.drawableSize, ds)) layer.drawableSize = ds;
     }
 }
