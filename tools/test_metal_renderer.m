@@ -1767,8 +1767,8 @@ int metal_renderer_test_main(int argc, char **argv) { @autoreleasepool {
     }
     CHECK(ran + skipped != 0, "unknown test selection");
     renderer_save_pipeline_archive();  // now, while the directory still exists (exit would save again otherwise)
-    // every case's pipelines (depth-only ones without fragment outputs among them) went in: one Metal cannot save would
-    // fail this and every later save
+    // every case's pipelines (depth-only ones without fragment outputs among them) went in: the save must succeed, leaving
+    // out ("left out" in the log) only pipelines that break it
     CHECK(g_archive_dirty == 0, "the pipeline archive must save with every pipeline the cases built");
     [[NSFileManager defaultManager] removeItemAtPath:@(temporary) error:nil];
     if (ran) fprintf(stderr, "PASS: %u Metal renderer tests on %s\n", ran, dev.name.UTF8String);
