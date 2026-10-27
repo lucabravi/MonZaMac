@@ -5,7 +5,7 @@
 // speed). tools/patches.py FRAME_STEPS_SITE routes that read here: we return how many vsyncs really passed since
 // the last frame, so the world advances by the time that passed. The game's own waiting is unaffected (it reads
 // the interval nowhere else). Shared by the macOS and Windows builds.
-// FINDING (2026-10-09): forcing 2 steps did NOT change Link's walking speed - gameplay is a true fixed step per
+// FINDING (2026-10-09): forcing 2 steps did NOT change the player's walking speed - gameplay is a true fixed step per
 // frame; this timer feeds something else. Kept for research, off by default.
 //   LARECOMP_FRAMEPACE=1     hand the timer the vsyncs elapsed (default: the game's own value)
 //   LARECOMP_FRAME_STEPS_MAX maximum steps per frame (default 4: after a long stall the game doesn't jump ahead)
@@ -21,7 +21,7 @@ uint32_t rt_frame_steps(uint32_t interval) {
     static int on = -1, max_steps, forced;
     if (on < 0) {
         const char *e = ENV("LARECOMP_FRAMEPACE");
-        on = e ? atoi(e) != 0 : 0;  // off by default: the world (Link's movement) doesn't use this step (tested)
+        on = e ? atoi(e) != 0 : 0;  // off by default: the world (the player's movement) doesn't use this step (tested)
         e = ENV("LARECOMP_FRAME_STEPS_MAX");
         max_steps = e ? atoi(e) : 4;
         if (max_steps < 1) max_steps = 1;

@@ -552,7 +552,7 @@ static bool menu_tip(float s) {
         static const char *const home[] = {"Home button", "Xbox button", "PlayStation button"};  // (bind_label_family)
         static const char *const pad[] = {"Minus + Plus", "View + Menu", "Create + Options"};
         ImGui::PushTextWrapPos(0);
-        ImGui::TextUnformatted("MonZaMac has its own menu for settings, the randomizer, cosmetics and more.");
+        ImGui::TextUnformatted("MonZaMac has its own menu for settings, controls, graphics and more.");
         ImGui::Spacing();
         int fam = bind_label_family() % 3;
         ImGui::Text("Open it in game with F1 or Esc, or on a controller with the %s (or %s together).", home[fam], pad[fam]);

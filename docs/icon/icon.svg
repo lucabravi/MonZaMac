@@ -1,73 +1,51 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
     <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#0b1a3a"/>
-      <stop offset="0.55" stop-color="#1d4f7a"/>
-      <stop offset="1" stop-color="#2e8c9c"/>
+      <stop offset="0" stop-color="#120c33"/>
+      <stop offset="0.6" stop-color="#3a2377"/>
+      <stop offset="1" stop-color="#c2528f"/>
     </linearGradient>
-    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#1f6f8f"/>
-      <stop offset="1" stop-color="#0c2f4f"/>
+    <linearGradient id="tower" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe9a8"/>
+      <stop offset="1" stop-color="#d9993a"/>
     </linearGradient>
-    <linearGradient id="sand" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#f3d79a"/>
-      <stop offset="1" stop-color="#c99a52"/>
-    </linearGradient>
-    <linearGradient id="blade" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#e9f3ff"/>
-      <stop offset="0.5" stop-color="#ffffff"/>
-      <stop offset="0.5" stop-color="#b9cbe0"/>
-      <stop offset="1" stop-color="#8fa6c2"/>
-    </linearGradient>
-    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#ffe08a"/>
-      <stop offset="1" stop-color="#c8891e"/>
-    </linearGradient>
-    <radialGradient id="moonglow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#fff6d8" stop-opacity="0.55"/>
-      <stop offset="1" stop-color="#fff6d8" stop-opacity="0"/>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffe9a8" stop-opacity="0.65"/>
+      <stop offset="1" stop-color="#ffe9a8" stop-opacity="0"/>
     </radialGradient>
     <clipPath id="sq"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
   </defs>
   <g clip-path="url(#sq)">
     <rect x="100" y="100" width="824" height="824" fill="url(#sky)"/>
     <!-- stars -->
-    <g fill="#fff8e0">
-      <circle cx="210" cy="215" r="5"/><circle cx="300" cy="170" r="3.5"/><circle cx="395" cy="250" r="4"/>
-      <circle cx="250" cy="330" r="3"/><circle cx="470" cy="165" r="3"/><circle cx="820" cy="380" r="3.5"/>
-      <circle cx="560" cy="300" r="2.8"/>
+    <g fill="#fff4d6">
+      <circle cx="205" cy="210" r="5"/><circle cx="310" cy="165" r="3.5"/><circle cx="400" cy="245" r="4"/>
+      <circle cx="245" cy="335" r="3"/><circle cx="800" cy="205" r="4"/><circle cx="850" cy="340" r="3"/>
+      <circle cx="715" cy="170" r="3"/>
     </g>
-    <!-- moon -->
-    <circle cx="700" cy="275" r="200" fill="url(#moonglow)"/>
-    <circle cx="700" cy="275" r="92" fill="#fff3cf"/>
-    <circle cx="732" cy="252" r="82" fill="#25507c" opacity="0.18"/>
-    <!-- sea -->
-    <rect x="100" y="600" width="824" height="324" fill="url(#sea)"/>
-    <path d="M100 640 Q180 620 260 640 T420 640 T580 640 T740 640 T924 640" stroke="#7fd3e0" stroke-width="7" fill="none" opacity="0.7"/>
-    <path d="M100 705 Q200 685 300 705 T500 705 T700 705 T924 705" stroke="#5fb8cf" stroke-width="6" fill="none" opacity="0.55"/>
-    <!-- island -->
-    <path d="M150 640 Q330 520 560 600 Q700 610 770 640 Z" fill="#14363f"/>
-    <path d="M300 585 Q360 470 430 560 Q470 520 520 590 Z" fill="#1b4a52"/>
-    <!-- palm -->
-    <path d="M395 600 Q385 520 420 440" stroke="#0e2a31" stroke-width="16" fill="none" stroke-linecap="round"/>
-    <g fill="#0e2a31">
-      <path d="M420 440 Q360 410 320 440 Q365 420 420 446 Z"/>
-      <path d="M420 440 Q470 395 525 418 Q470 410 422 447 Z"/>
-      <path d="M420 440 Q400 380 350 375 Q395 395 416 446 Z"/>
-      <path d="M420 440 Q455 455 480 500 Q445 465 418 447 Z"/>
+    <!-- Mega ring around the tower tip -->
+    <circle cx="512" cy="330" r="230" fill="url(#glow)"/>
+    <circle cx="512" cy="330" r="150" fill="none" stroke="#ffd36e" stroke-width="10" opacity="0.9"/>
+    <circle cx="512" cy="330" r="118" fill="none" stroke="#ff8ac0" stroke-width="5" opacity="0.8"/>
+    <g fill="#fff4d6">
+      <path d="M512 150 l10 26 26 10 -26 10 -10 26 -10 -26 -26 -10 26 -10 z"/>
+      <path d="M690 330 l7 18 18 7 -18 7 -7 18 -7 -18 -18 -7 18 -7 z"/>
+      <path d="M334 330 l7 18 18 7 -18 7 -7 18 -7 -18 -18 -7 18 -7 z"/>
     </g>
-    <!-- sword in the sand -->
-    <g transform="translate(600 360) rotate(7)">
-      <path d="M-22 120 L22 120 L22 470 L0 520 L-22 470 Z" fill="url(#blade)" stroke="#5c728e" stroke-width="4"/>
-      <rect x="-80" y="96" width="160" height="30" rx="12" fill="url(#gold)" stroke="#7a4d10" stroke-width="4"/>
-      <rect x="-15" y="0" width="30" height="100" rx="8" fill="#3b5fa8" stroke="#1d335f" stroke-width="4"/>
-      <circle cx="0" cy="-10" r="24" fill="url(#gold)" stroke="#7a4d10" stroke-width="4"/>
-      <path d="M-30 128 L0 150 L30 128" fill="#c8891e"/>
+    <!-- tower: tapering lattice -->
+    <path d="M512 200 L548 430 Q560 560 618 720 L406 720 Q464 560 476 430 Z" fill="url(#tower)"/>
+    <g stroke="#3a2377" stroke-width="7" fill="none" stroke-linecap="round">
+      <path d="M490 330 H534 M482 400 H542 M472 480 H552 M456 570 H568 M436 650 H588"/>
+      <path d="M476 430 L548 480 M548 430 L476 480 M466 520 L556 570 M558 520 L468 570 M448 600 L576 650 M576 600 L446 650"/>
     </g>
-    <!-- beach foreground -->
-    <path d="M100 924 L100 820 Q330 750 560 790 Q760 820 924 770 L924 924 Z" fill="url(#sand)"/>
-    <path d="M520 812 Q640 770 760 808" fill="#e6c27d"/>
-    <path d="M540 868 Q640 842 750 870" stroke="#b5864a" stroke-width="10" fill="none" opacity="0.6" stroke-linecap="round"/>
+    <circle cx="512" cy="200" r="16" fill="#fff4d6"/>
+    <!-- skyline -->
+    <path d="M100 760 V690 H170 V640 H240 V700 H300 V660 H350 V720 H674 V670 H730 V630 H800 V690 H860 V650 H924 V924 H100 Z" fill="#1a1040"/>
+    <path d="M100 800 V740 H190 V700 H260 V760 H330 V730 H700 V710 H780 V750 H850 V720 H924 V924 H100 Z" fill="#0d0826"/>
+    <g fill="#ffd36e" opacity="0.9">
+      <rect x="130" y="770" width="12" height="16"/><rect x="215" y="730" width="12" height="16"/>
+      <rect x="290" y="780" width="12" height="16"/><rect x="725" y="740" width="12" height="16"/>
+      <rect x="805" y="770" width="12" height="16"/><rect x="880" y="750" width="12" height="16"/>
+    </g>
   </g>
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="4"/>
 </svg>
