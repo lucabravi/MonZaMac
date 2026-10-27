@@ -35,7 +35,7 @@ enum { GPU_WINDOW_FREE, GPU_WINDOW_OPEN, GPU_WINDOW_CLOSED, GPU_WINDOW_READY };
 typedef struct {
     uint64_t id, frame;
     int state;
-    bool overflow, discard;
+    bool overflow, invalid_timestamps;
     unsigned pending, buffers, nintervals;
     double start_s, end_s, frame_ms, span_sum_ms, busy_ms;
     double intervals[GPU_TIME_INTERVAL_CAP * 2];  // start/end pairs, mach-clock seconds
@@ -44,7 +44,8 @@ typedef struct {
 struct RendererGpuTimingToken {
     uint64_t sequence, frame, first_window, last_window;
     double commit_s;
-    bool presentation, trace, discard;
+    const char *kind;
+    bool trace, discard;
     struct RendererGpuTimingToken *next;
 };
 
@@ -57,6 +58,10 @@ typedef struct { double start, end; } GpuTimeInterval;
 static int compare_gpu_time_interval(const void *a, const void *b) {
     double d = ((const GpuTimeInterval *)a)->start - ((const GpuTimeInterval *)b)->start;
     return d < 0 ? -1 : d > 0 ? 1 : 0;
+}
+
+static bool gpu_timestamps_valid(double start, double end) {
+    return isfinite(start) && isfinite(end) && start > 0 && end >= start;
 }
 
 static double gpu_interval_sum_ms(const double *intervals, size_t count, double window_start, double window_end) {
@@ -98,15 +103,15 @@ static GpuTimeWindow *gpu_time_window(uint64_t id) {
 
 static void gpu_time_finalize(GpuTimeWindow *w) {
     if (w->state != GPU_WINDOW_CLOSED || w->pending) return;
-    bool valid = !w->overflow && w->frame_ms > 0 && w->frame_ms <= 250;
+    bool valid = !w->overflow && !w->invalid_timestamps && w->frame_ms > 0 && w->frame_ms <= 250;
     w->span_sum_ms = valid ? gpu_interval_sum_ms(w->intervals, w->nintervals, w->start_s, w->end_s) : -1;
     w->busy_ms = valid ? gpu_interval_union_ms(w->intervals, w->nintervals, w->start_s, w->end_s) : -1;
     if (w->busy_ms >= 0) stat_gpu_s += w->busy_ms / 1000.0;
     w->state = GPU_WINDOW_READY;
     if (getenv("LARECOMP_GPU_TIMING_TRACE"))
-        LOG("[gpu-window] frame %llu elapsed %.3fms spans-sum %.3fms gpu-union %.3fms buffers %u intervals %u%s\n",
+        LOG("[gpu-window] frame %llu elapsed %.3fms spans-sum %.3fms gpu-union %.3fms buffers %u intervals %u%s%s\n",
             (unsigned long long)w->frame, w->frame_ms, w->span_sum_ms, w->busy_ms, w->buffers, w->nintervals,
-            w->overflow ? " overflow" : "");
+            w->invalid_timestamps ? " invalid-time" : "", w->overflow ? " overflow" : "");
 }
 
 static GpuTimeWindow *gpu_time_open_window(double start_s, uint64_t frame) {
@@ -133,13 +138,13 @@ static GpuTimeWindow *gpu_time_open_window(double start_s, uint64_t frame) {
     return NULL;
 }
 
-RendererGpuTimingToken *renderer_gpu_timing_submit(uint64_t frame, bool presentation) {
+RendererGpuTimingToken *renderer_gpu_timing_submit(uint64_t frame, const char *kind) {
     RendererGpuTimingToken *cb = calloc(1, sizeof *cb);
     if (!cb) return NULL;
     pthread_mutex_lock(&gpu_timing_lock);
     cb->sequence = ++gpu_time_cb_sequence;
     cb->frame = frame;
-    cb->presentation = presentation;
+    cb->kind = kind;
     cb->trace = getenv("LARECOMP_GPU_TIMING_TRACE") != NULL;
     double submit_s = renderer_host_time_seconds();
     if (!gpu_time_open) gpu_time_open_window(submit_s, frame);
@@ -165,18 +170,19 @@ void renderer_gpu_timing_mark_commit(RendererGpuTimingToken *cb) {
 void renderer_gpu_timing_complete(RendererGpuTimingToken *cb, double gpu_start, double gpu_end) {
     if (!cb) return;
     double completed = renderer_host_time_seconds();
+    bool timestamps_valid = gpu_timestamps_valid(gpu_start, gpu_end);
     pthread_mutex_lock(&gpu_timing_lock);
     if (!cb->discard && cb->first_window) {
         for (uint64_t id = cb->first_window; id <= cb->last_window; id++) {
             GpuTimeWindow *w = gpu_time_window(id);
             if (!w || w->state == GPU_WINDOW_READY) continue;
-            if (gpu_end > gpu_start) {
+            if (timestamps_valid && gpu_end > gpu_start) {
                 if (w->nintervals < GPU_TIME_INTERVAL_CAP) {
                     w->intervals[w->nintervals * 2] = gpu_start;
                     w->intervals[w->nintervals * 2 + 1] = gpu_end;
                     w->nintervals++;
                 } else w->overflow = true;
-            }
+            } else if (!timestamps_valid) w->invalid_timestamps = true;
             if (w->pending) w->pending--;
             gpu_time_finalize(w);
         }
@@ -187,10 +193,11 @@ void renderer_gpu_timing_complete(RendererGpuTimingToken *cb, double gpu_start, 
     pthread_mutex_unlock(&gpu_timing_lock);
     if (cb->trace)
         LOG("[gpu-cb] frame %llu cb %llu kind %s commit %.6f start %.6f end %.6f complete %.6f queue %.3fms span %.3fms callback %.3fms\n",
-            (unsigned long long)cb->frame, (unsigned long long)cb->sequence, cb->presentation ? "present" : "renderer",
+            (unsigned long long)cb->frame, (unsigned long long)cb->sequence, cb->kind ? cb->kind : "unknown",
             cb->commit_s, gpu_start, gpu_end, completed,
             cb->commit_s > 0 && gpu_start > 0 ? (gpu_start - cb->commit_s) * 1000.0 : -1.0,
-            (gpu_end - gpu_start) * 1000.0, gpu_end > 0 ? (completed - gpu_end) * 1000.0 : -1.0);
+            timestamps_valid ? (gpu_end - gpu_start) * 1000.0 : -1.0,
+            gpu_end > 0 ? (completed - gpu_end) * 1000.0 : -1.0);
     free(cb);
 }
 
@@ -532,7 +539,7 @@ void renderer_submit(void) {
         id<MTLCommandBuffer> c = cmdbuf;
         cmdbuf = nil;
         extern uint64_t renderer_present_count(void);
-        RendererGpuTimingToken *gpu_timing = renderer_gpu_timing_submit(renderer_present_count() + 1, false);
+        RendererGpuTimingToken *gpu_timing = renderer_gpu_timing_submit(renderer_present_count() + 1, "renderer");
         [c addCompletedHandler:^(id<MTLCommandBuffer> done) {
             renderer_gpu_timing_complete(gpu_timing, done.GPUStartTime, done.GPUEndTime);
             if (done.error) LOG("[metal] command buffer error: %s\n", done.error.localizedDescription.UTF8String);
@@ -1729,6 +1736,12 @@ static id<MTLTexture> shadow_slot_texture(id<MTLTexture> tex, const ShaderTextur
             rp.depthAttachment.clearDepth = 1.0;
             [[cb renderCommandEncoderWithDescriptor:rp] endEncoding];
         }
+        extern uint64_t renderer_present_count(void);
+        RendererGpuTimingToken *timing = renderer_gpu_timing_submit(renderer_present_count() + 1, "resource-init");
+        [cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
+            renderer_gpu_timing_complete(timing, done.GPUStartTime, done.GPUEndTime);
+        }];
+        renderer_gpu_timing_mark_commit(timing);
         [cb commit];
         t[type] = dt;
     }

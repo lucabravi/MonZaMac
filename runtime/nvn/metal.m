@@ -516,7 +516,15 @@ static void upload_texture(NvnTexture *t, TexBackend *b, id<MTLBlitCommandEncode
                     destinationSlice:slice destinationLevel:lv destinationOrigin:MTLOriginMake(0, 0, 0)];
         }
     }
-    if (own_cb) { [blit endEncoding]; [own_cb commit]; }
+    if (own_cb) {
+        [blit endEncoding];
+        RendererGpuTimingToken *timing = renderer_gpu_timing_submit(total_frames + 1, "upload");
+        [own_cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
+            renderer_gpu_timing_complete(timing, done.GPUStartTime, done.GPUEndTime);
+        }];
+        renderer_gpu_timing_mark_commit(timing);
+        [own_cb commit];
+    }
 }
 
 id<MTLTexture> renderer_texture(NvnTexture *t, id<MTLBlitCommandEncoder> blit, bool for_render) {
@@ -543,6 +551,11 @@ void renderer_upload_rgba(NvnTexture *t, const void *rgba, uint32_t w, uint32_t 
                   sourceSize:MTLSizeMake(MIN(w, b->tex.width), MIN(h, b->tex.height), 1) toTexture:b->tex
             destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0, 0, 0)];
         [blit endEncoding];
+        RendererGpuTimingToken *timing = renderer_gpu_timing_submit(total_frames + 1, "upload");
+        [cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
+            renderer_gpu_timing_complete(timing, done.GPUStartTime, done.GPUEndTime);
+        }];
+        renderer_gpu_timing_mark_commit(timing);
         [cb commit];
     }
 }
@@ -1120,7 +1133,7 @@ void backend_present(NvnTexture *t) {
             [bl endEncoding];
         }
         [cb presentDrawable:drawable];
-        RendererGpuTimingToken *gpu_present_timing = renderer_gpu_timing_submit(frame + 1, true);
+        RendererGpuTimingToken *gpu_present_timing = renderer_gpu_timing_submit(frame + 1, "present");
         [cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
             renderer_gpu_timing_complete(gpu_present_timing, done.GPUStartTime, done.GPUEndTime);
         }];
