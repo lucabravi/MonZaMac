@@ -997,9 +997,18 @@ void backend_present(NvnTexture *t) {
     g_last_presented = t;
     {   // (diagnostics) which guest texture the window shows: the end of the post chain
         extern bool g_debug_frame;
-        static NvnTexture *last;
-        if (t != last || g_debug_frame) {
-            last = t;
+        // The swapchain has two or three images that take turns: comparing with the last one logged a line every frame.
+        // Remember the images seen lately instead and say it when one new (or the debug frame) shows up.
+        static NvnTexture *seen[8];
+        static int nseen, next_seen;
+        bool known = false;
+        for (int i = 0; i < nseen; i++) known |= seen[i] == t;
+        if (!known || g_debug_frame) {
+            if (!known) {
+                seen[next_seen] = t;
+                next_seen = (next_seen + 1) % 8;
+                if (nseen < 8) nseen++;
+            }
             LOG("[present] tex %p %ux%u f%#x @%llx\n", (void *)t, t ? t->width : 0, t ? t->height : 0,
                 t ? t->format : 0, t ? (unsigned long long)t->addr : 0);
         }
