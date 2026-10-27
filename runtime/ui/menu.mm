@@ -439,6 +439,7 @@ static bool toggle(const char *label, bool *v) {
 }
 
 extern "C" void renderer_get_scale(float *sx, float *sy);
+extern "C" const char *rt_version_label(void);  // launcher.mm: "0.1.0"
 extern "C" int input_pad_family(void);  // runtime/hle/input.c
 
 static void tab_display(void) {
@@ -927,6 +928,10 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         ImGui::PushFont(g_font_big);
         ImGui::TextColored(ImVec4(0.93f, 0.76f, 0.33f, 1), "Settings");
         ImGui::PopFont();
+        {   // the build's version beside the title (bug reports name it)
+            ImGui::SameLine(0, 18 * scale);
+            ImGui::TextColored(ImVec4(0.72f, 0.70f, 0.64f, 1), "MonZaMac %s", rt_version_label());
+        }
         {
             float bx = 44 * scale;
             ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - bx);
