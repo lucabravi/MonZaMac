@@ -208,8 +208,10 @@ static void dump_largest_textures(const char *why) {
         TexBackend *b = g_reg[i] ? (TexBackend *)g_reg[i]->backend : NULL;
         if (!b || !b->tex) continue;
         uint64_t a = b->tex.allocatedSize;
-        int k = n < 16 ? n++ : 15;
-        if (k == 15 && n == 16 && a <= sz[15]) continue;
+        int k;
+        if (n < 16) k = n++;
+        else if (a <= sz[15]) continue;  // (a full list: only a bigger one than the smallest kept goes in)
+        else k = 15;
         while (k > 0 && sz[k - 1] < a) { sz[k] = sz[k - 1]; idx[k] = idx[k - 1]; k--; }
         sz[k] = a; idx[k] = i;
     }
