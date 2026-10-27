@@ -14,6 +14,7 @@
 #include "maxwell/shader.h"
 #include "nvn.h"
 #include "renderer.h"
+#include "../settings.h"  // (g_settings.game_drs)
 
 static id<MTLDevice> dev;
 static id<MTLCommandBuffer> cmdbuf;
@@ -3833,7 +3834,17 @@ static void exec_list(uint64_t handle, int depth) {
             if (out) {
                 out[0] = type == 1 ? (samples += 1u << 20) : 0;
                 // Switch GPU ticks, 614.4 MHz: the game converts the difference to ns itself.
-                out[1] = (uint64_t)((unsigned __int128)plat_now_ns() * 384 / 625);
+                // The game's own dynamic resolution reads the difference of two of these as its GPU time. Here they stamp
+                // the host time the commands run at, so a stall (the window in the background, a throttled app) read as a
+                // huge GPU time and dropped its resolution to the floor, climbing back in steps afterwards. Unless the
+                // setting asks for it, the clock advances at most 0.5 ms between two reports: the game stays at full.
+                extern bool g_za_frame_hook;
+                static uint64_t virt, last_real;
+                uint64_t now = plat_now_ns();
+                if (!g_za_frame_hook || g_settings.game_drs || !last_real) virt = now;
+                else virt += now - last_real < 500000 ? now - last_real : 500000;
+                last_real = now;
+                out[1] = (uint64_t)((unsigned __int128)virt * 384 / 625);
             }
             break;
         }
