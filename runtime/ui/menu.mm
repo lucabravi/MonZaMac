@@ -34,6 +34,7 @@ void controls_bindings_draw(float scale);  // controls_ui.mm
 
 // ------------------------------------------------------------------ state shared with the main thread
 static std::atomic<bool> g_open{false};
+static std::atomic<bool> g_stats{false};  // F3: fps and the render resolution on screen, for this run (not saved)
 static std::atomic<bool> g_text_busy{false};  // a text field / the on-screen keyboard has the keys (render thread: ui_text_busy)
 static std::atomic<bool> g_want_fullscreen_apply{false};
 
@@ -163,6 +164,10 @@ bool menu_handle_event(const SDL_Event *e) {
         if (!e->key.repeat && (e->key.scancode == SDL_SCANCODE_F1 ||
                                (e->key.scancode == SDL_SCANCODE_ESCAPE && !g_open.load()))) {
             if (!typing) set_open(!g_open.load());  // (Esc with the menu open goes to ImGui below: it cancels a field)
+            return true;
+        }
+        if (!e->key.repeat && e->key.scancode == SDL_SCANCODE_F3) {
+            g_stats = !g_stats.load();
             return true;
         }
         if (!e->key.repeat && (e->key.scancode == SDL_SCANCODE_F11 ||
@@ -449,7 +454,7 @@ static void tab_display(void) {
         g_settings.fullscreen = fs;
         g_want_fullscreen_apply.store(true);
     }
-    opt_toggle("Show FPS", &g_settings.show_fps, false, "Shows the frame rate in the top right corner.");
+    opt_toggle("Show FPS", &g_settings.show_fps, false, "Shows the frame rate in the top right corner. F3 does it for this run only, adding the render resolution.");
     {   // Pokémon Z-A's game mode (runtime/services/am.c): the mode the game is told it runs in
         extern bool g_za_frame_hook;
         extern void am_set_handheld(bool);
@@ -833,7 +838,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
 #endif
     bool open = g_open.load();
     bool kbd = g_kbd.load() == 1;
-    if (!open && !kbd && !g_settings.show_fps) {
+    if (!open && !kbd && !g_settings.show_fps && !g_stats.load()) {
         if (g_inited) { pthread_mutex_lock(&q_lock); q_events.clear(); pthread_mutex_unlock(&q_lock); }
         return;
     }
@@ -878,12 +883,22 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
 #endif
     ImGui::NewFrame();
 
-    if (g_settings.show_fps) {
+    if (g_settings.show_fps || g_stats.load()) {
         ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - 16 * scale, 16 * scale), 0, ImVec2(1, 0));
         ImGui::SetNextWindowBgAlpha(0.5f);
         ImGui::Begin("##fps", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
                                         ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing);
         ImGui::Text("%.0f fps", io.Framerate);
+        if (g_stats.load()) {  // F3: what the 3D image renders at (the game's own size times the output scale)
+            extern int g_out_present_interval;
+            float sx, sy;
+            renderer_get_scale(&sx, &sy);
+            extern bool g_za_frame_hook, am_handheld(void);
+            bool hh = g_za_frame_hook && am_handheld();  // (the game's own size: handheld renders for 1280x720)
+            ImGui::Text("render %.0f x %.0f%s", (hh ? 1280.0 : 1920.0) * sx, (hh ? 720.0 : 1080.0) * sy, hh ? " (handheld)" : "");
+            if (g_settings.res_mode == RES_DYNAMIC) ImGui::Text("dynamic %.0f%%", output_scale_dynamic_factor() * 100);
+            ImGui::Text("present interval %d", g_out_present_interval);
+        }
         ImGui::End();
     }
 
