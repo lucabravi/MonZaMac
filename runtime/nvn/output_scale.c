@@ -28,6 +28,7 @@ static int g_dyn_n, g_dyn_gpu_n, g_dyn_good;
 static double g_dyn_cool_until, g_dyn_probe_wait = 5.0, g_dyn_probe_at;
 static double g_dyn_last_raise = -100;
 static double g_dyn_last_dt = -1, g_dyn_last_gpu = -1;  // (the averages of the last decision: F3)
+static bool g_dyn_gpu_ok;
 int g_out_present_interval = 1;  // (objects.c: vsyncs per presented frame - 2 when the game runs at 30 fps)
 
 static void dyn_update(double now, double gpu_ms) {
@@ -44,6 +45,10 @@ static void dyn_update(double now, double gpu_ms) {
     if (now < g_dyn_cool_until) return;
     double prev = g_dyn;
     g_dyn_last_dt = avg_dt, g_dyn_last_gpu = avg_gpu;
+    // The GPU time is the sum of the command buffers' spans, which overlap (F3 read 192 ms of GPU in 33 ms frames): it can't
+    // be more than about the frame's own time, so a larger one is a bad measure and the frame time alone decides.
+    if (avg_gpu > avg_dt * 1.5) avg_gpu = -1;
+    g_dyn_gpu_ok = avg_gpu >= 0;
     // the budget is the game's frame period: at 30 fps (interval 2) every frame takes 33 ms by design, and judged
     // against 60 fps that read as too slow and lowered the resolution to the 0.5 floor
     double iv = g_out_present_interval >= 1 && g_out_present_interval <= 4 ? g_out_present_interval : 1;
@@ -71,7 +76,7 @@ static void dyn_update(double now, double gpu_ms) {
 }
 
 double output_scale_dynamic_factor(void) { return g_dyn; }
-void output_scale_dynamic_stats(double *frame_ms, double *gpu_ms) { *frame_ms = g_dyn_last_dt; *gpu_ms = g_dyn_last_gpu; }
+bool output_scale_dynamic_stats(double *frame_ms, double *gpu_ms) { *frame_ms = g_dyn_last_dt; *gpu_ms = g_dyn_last_gpu; return g_dyn_gpu_ok; }
 
 // A change of the resolution mode starts the controller over: it kept the factor of the mode before, and the hitch of
 // the change itself read as a slow frame.
