@@ -26,6 +26,13 @@ ZA_BLOOM = {'7222e13ecf6adb32': (0x7000ded794, 0x7000decd80),
 # [x9, #4]): "21:9 Ultrawide" (2.0.x only: 1.0.0's has no HUD fix)
 ZA_WIDE = {'8a1c86c437394b69': (0x700319ac7c, 0x7001803570),
            'b1f12fd919eae86a': (0x700319fc7c, 0x7001802f50)}
+# Improved FOV, Level of detail and 4K Shadows (2.0.2 only: the mods' sites for the other builds are not checked).
+# FOV: the mod jumps from the camera's field of view load to a cave that adds 0.203125 (fadd s1, s1, s30).
+ZA_FOV = {'b1f12fd919eae86a': 0x7000371e5c}
+# LOD: the mod's LOD bias (-1.0, a load) and a branch the mod replaces with the anisotropic filtering constant (8.0)
+ZA_LOD = {'b1f12fd919eae86a': (0x70018b58e4, 0x70018b5f68)}
+# Shadows: the shadow map size is loaded from memory; the mod sets 4096
+ZA_SHADOW = {'b1f12fd919eae86a': 0x7000a8aaa0}
 
 
 def _word(gen, a):
@@ -79,6 +86,32 @@ def _za_hud_rect(gen, a):
             f'  /* {a:#x}: ldur q0, [x9, #4] (HUD layout rectangle) */')
 
 
+def _za_fov(gen, a):
+    assert _word(gen, a) == 0xbd407e81, hex(_word(gen, a))  # ldr s1, [x20, #0x7c]
+    return ('{ extern uint32_t rt_za_fov(Cpu *, uint32_t); c->v[1] = rt_za_fov(c, LD32(c->x[20] + 0x7c)); }'
+            f'  /* {a:#x}: ldr s1, [x20, #0x7c] (field of view) */')
+
+
+def _za_lod_bias(gen, a):
+    assert _word(gen, a) == 0xbd401e60, hex(_word(gen, a))  # ldr s0, [x19, #0x1c]
+    return ('{ extern _Bool rt_za_lod(void); c->v[0] = rt_za_lod() ? 0xbf800000u : LD32(c->x[19] + 0x1c); }'
+            f'  /* {a:#x}: ldr s0, [x19, #0x1c] (LOD bias: -1.0) */')
+
+
+def _za_aniso(gen, a):
+    assert _word(gen, a) == 0x1400002f, hex(_word(gen, a))  # b (the mod replaces it with fmov s0, #8.0)
+    t = a + 0x2f * 4
+    return ('{ extern _Bool rt_za_lod(void); if (!rt_za_lod()) { c->pc = ' f'{t:#x}; '
+            '__attribute__((musttail)) return rt_dispatch(c); } c->v[0] = 0x41000000u; }'
+            f'  /* {a:#x}: b {t:#x} (anisotropic filtering: 8.0) */')
+
+
+def _za_shadow(gen, a):
+    assert _word(gen, a) == 0xb9403109, hex(_word(gen, a))  # ldr w9, [x8, #0x30]
+    return ('{ extern _Bool rt_za_shadows_4k(void); c->x[9] = rt_za_shadows_4k() ? 0x1000u : LD32(c->x[8] + 0x30); }'
+            f'  /* {a:#x}: ldr w9, [x8, #0x30] (shadow map size: 4096) */')
+
+
 def za_patches(build):
     aspect, hud = ZA_WIDE.get(build, (None, None))
     p = {ZA_BUILDS[build]: lambda gen, a: _za_frame_cfg(gen, a, aspect), ZA_DOF[build]: _za_dof,
@@ -86,4 +119,8 @@ def za_patches(build):
     p.update({a: _za_fxaa for a in ZA_FXAA[build]})
     if hud:
         p[hud] = _za_hud_rect
+    if build in ZA_FOV:
+        p[ZA_FOV[build]] = _za_fov
+        p[ZA_LOD[build][0]], p[ZA_LOD[build][1]] = _za_lod_bias, _za_aniso
+        p[ZA_SHADOW[build]] = _za_shadow
     return p
