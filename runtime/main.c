@@ -180,8 +180,8 @@ int main(int argc, char **argv) {
         else if (argv[i][0] != '-') root = arg_root;
     }
     rt_paths_init();  // the data root becomes the working directory (runtime/paths.h)
-    {   // Pokémon Legends Z-A (exefs/main build 7222e13ecf6adb32: 1.0.0, 8a1c86c437394b69: 2.0.0, b1f12fd919eae86a: 2.0.2): the start screen knows only Link's Awakening's files
-        // (it would ask for them again) - straight into the game, as with --play. Started without a log redirect (a
+    {   // Pokémon Legends Z-A (exefs/main build 7222e13ecf6adb32: 1.0.0, 8a1c86c437394b69: 2.0.0, b1f12fd919eae86a: 2.0.2): the start screen would ask for
+        // game files it doesn't use - straight into the game, as with --play. Started without a log redirect (a
         // double click): the log goes to logs/play.log (the previous one: logs/play-anterior.log).
         static const uint8_t za_build[][8] = {{0x72, 0x22, 0xe1, 0x3e, 0xcf, 0x6a, 0xdb, 0x32},
                                               {0x8a, 0x1c, 0x86, 0xc4, 0x37, 0x39, 0x4b, 0x69},

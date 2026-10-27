@@ -4,7 +4,7 @@
 //
 //   opt_begin("##gameplay", scale);
 //   opt_section("Difficulty");
-//   if (opt_toggle("One-hit KO", &g_settings.diff_ohko, false, "Any hit defeats Link.")) settings_save();
+//   if (opt_toggle("One-hit KO", &g_settings.diff_ohko, false, "Any hit is fatal.")) settings_save();
 //   opt_end();
 #pragma once
 
@@ -15,7 +15,7 @@ bool opt_toggle(const char *label, bool *v, bool def, const char *desc);
 bool opt_choice(const char *label, int *v, const char *const *names, int n, int def, const char *desc, bool wrap = true);
 // steps of `step` between lo and hi; fmt formats the value (e.g. "%gx")
 bool opt_slider(const char *label, float *v, float lo, float hi, float step, float def, const char *fmt, const char *desc);
-// whole numbers lo..hi in steps of `step` (holding left / right speeds up); fmt formats it (e.g. "%d rupees"), lo_name
+// whole numbers lo..hi in steps of `step` (holding left / right speeds up); fmt formats it (e.g. "%d px"), lo_name
 // (if given) is shown for lo instead (e.g. "Any")
 bool opt_int(const char *label, int *v, int lo, int hi, int step, int def, const char *fmt, const char *desc,
              const char *lo_name = NULL);
