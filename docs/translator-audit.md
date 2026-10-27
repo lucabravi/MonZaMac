@@ -46,6 +46,23 @@ difference or a gap worth an in-game check; **n/a** not translated (the shader f
 | TMML | Ra: layer (skipped), coords; Rd components swapped (comp ^ 1), 8.8 fixed point, z / w = 0 | ok (1D in MSL n/a) |
 | TXQ | query 22-27, WMask 31-34, lod Ra; dimension query | ok for width / height / levels. z is always 1: Ryujinx / yuzu return the depth or layer count for 3D / array textures. **unsure** (the slot's type may only be known after the TXQ) |
 
+### Scaled screen-space integer reads (Metal)
+
+Render-target allocations can be larger than their guest dimensions. Converting fragment position to guest
+pixels, truncating it, and then fetching the centre of that guest texel repeated pixels in deferred lighting:
+raising internal resolution to 1.5x or 2x produced more jagged edges instead of preserving the extra samples.
+
+The Metal translator now carries the fractional position through ALD/IPA position.x/y, register MOV, and unmodified
+F32-to-I32 floor/truncate conversions into the individual TLDS coordinate. Metadata follows runtime predicates
+and branches and resets on other register writes, so a fixed lookup in the same shader stays fixed. Array layers
+and explicit LOD values are separate. Other coordinate arithmetic, vertex/compute stages,
+and GLSL retain their previous behaviour.
+
+The asset-free `scaled-fragment-fetch` Metal test (`CASE=scaling`) checks physical pixel IDs at 1x, 1.5x, 2x,
+1.5x-by-2x and 0.75x, including fixed lookups, mixed screen/fixed reads, MOV, a skipped predicated write, and
+explicit-LOD-zero TLDS, and IPA position loads. The original code lost 2,880 of 5,184 pixel IDs at 1.5x; the repaired
+path preserves all.
+
 ## Surfaces
 
 | Instruction | Checked | Status |

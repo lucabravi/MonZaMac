@@ -8,6 +8,7 @@ static double gpu_interval_union_ms(const double *intervals, size_t count, doubl
 void metal_test_bootstrap(void);
 void metal_test_texture_dump(void);
 void metal_test_next_texture_frame(void);
+void renderer_set_scale(float sx, float sy);
 
 #define CHECK(c, message) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d: %s\n", __func__, __LINE__, message); exit(1); } } while (0)
 
@@ -1170,6 +1171,110 @@ static void typed_feedback_cleanup(void) {
     CHECK(feedback_sample(&empty, nil) == nil, "an unbound descriptor must still reach its normal fallback after feedback cleanup");
 }
 
+static void scaled_fragment_fetch(void) {
+    // A screen-space integer fetch must retain each physical pixel, rather than repeat one guest-pixel centre.
+    // The fixed-coordinate shader is a control: without a fragment-position input it must remain uniform.
+    static const struct { float x, y; uint32_t fixed; } scales[] = {
+        {1, 1, 514}, {1.5f, 1.5f, 771}, {2, 2, 1284}, {1.5f, 2, 1283}, {0.75f, 0.75f, 258},
+    };
+    static uint64_t fragment[7][128];
+    static NvnProgram graphics[7];
+    unsigned bad = 0;
+    for (unsigned c = 0; c < sizeof scales / sizeof *scales; c++) {
+        renderer_set_scale(scales[c].x, scales[c].y);
+        NvnTexture source = test_texture(1, 64, 36, 1, 1, 0x0b, 1);
+        NvnTexture destination = test_texture(1, 64, 36, 1, 1, 0x0b, 1);
+        bind_targets(&source, NULL, NULL);
+        const uint32_t zero[4] = {0};
+        clear(0, 2, zero, 15, false, 0, false, 0, 0);
+        check_gpu();
+        id<MTLTexture> texture = renderer_texture(&source, nil, true);
+        NSUInteger w = texture.width, h = texture.height, row = (w * 4 + 255) & ~(NSUInteger)255;
+        id<MTLBuffer> upload = [dev newBufferWithLength:row * h options:MTLResourceStorageModeShared];
+        for (NSUInteger y = 0; y < h; y++) for (NSUInteger x = 0; x < w; x++)
+            *(uint32_t *)((uint8_t *)upload.contents + y * row + x * 4) = 1 + x + 256 * y;
+        id<MTLCommandBuffer> command = [renderer_queue() commandBuffer];
+        id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
+        [blit copyFromBuffer:upload sourceOffset:0 sourceBytesPerRow:row sourceBytesPerImage:row * h
+                 sourceSize:MTLSizeMake(w, h, 1) toTexture:texture destinationSlice:0 destinationLevel:0
+          destinationOrigin:MTLOriginMake(0, 0, 0)];
+        [blit endEncoding]; [command commit]; [command waitUntilCompleted];
+        CHECK(!command.error, "scaled source upload completes");
+        NvnTexEntry entries[2] = {{0}, {.tex = &source}};
+        NvnDescPool textures = {.entries = entries, .count = 2};
+        NvnSamplerDesc sampler = {.lod_max = 1000, .max_aniso = 1};
+        NvnDescPool samplers = {.entries = &sampler, .count = 1};
+        for (unsigned mode = 0; mode < 7; mode++) {
+            bool fixed = mode == 1 || mode == 2;
+            bind_targets(&destination, NULL, NULL); prepare_draw();
+            st.viewport[0][2] = st.scissor[0][2] = 64;
+            st.viewport[0][3] = st.scissor[0][3] = 36;
+            if (!graphics[mode].stage_mask) {
+                graphics[mode] = *st.program;
+                uint64_t ops[12]; unsigned n = 0;
+                uint64_t lookup = 0xd200000000000000ull | (1ull << 59) | (2ull << 53) | (8ull << 36) |
+                                  (255ull << 28) | (5ull << 20) | (7ull << 16) | (4ull << 8);
+                if (!fixed || mode == 2) {
+                    if (mode == 6) {
+                        ops[n++] = 0xe000000000000004ull | (0x70ull << 28) | (7ull << 16) | (255ull << 8);
+                        ops[n++] = 0xe000000000000005ull | (0x74ull << 28) | (7ull << 16) | (255ull << 8);
+                    } else ops[n++] = 0xefd8000000000004ull | (1ull << 47) | (0x70ull << 20) | (7ull << 16) | (255ull << 8);
+                    for (unsigned r = 4; r <= 5; r++)
+                        ops[n++] = 0x5cb0000000000000ull | (3ull << 39) | ((uint64_t)r << 20) |
+                                   (7ull << 16) | (2ull << 10) | (2ull << 8) | r;
+                    if (mode == 2) ops[n++] = lookup | 8;  // screen read, then overwrite its coordinate registers
+                }
+                if (fixed) {
+                    // Position.w is common in ordinary material shaders; it does not make a fetch screen-relative.
+                    if (mode == 1) ops[n++] = 0xefd8000000000006ull | (0x7cull << 20) | (7ull << 16) | (255ull << 8);
+                    ops[n++] = 0x0100000000070004ull | (1ull << 20);
+                    ops[n++] = 0x0100000000070005ull | (2ull << 20);
+                }
+                if (mode == 3) {  // moving a converted coordinate retains its phase
+                    ops[n++] = 0x5c98000000000006ull | (4ull << 20) | (7ull << 16);
+                    ops[n++] = 0x5c98000000000007ull | (5ull << 20) | (7ull << 16);
+                    lookup = (lookup & ~((255ull << 8) | (255ull << 20))) | (6ull << 8) | (7ull << 20);
+                }
+                if (mode == 4) ops[n++] = 0x0100000000000004ull | (1ull << 20);  // @P0 (false): must not reset phase
+                if (mode == 5) {
+                    ops[n++] = 0x0100000000070006ull;  // explicit LOD zero; y is Ra+1, LOD is Rb
+                    lookup = (lookup & ~((15ull << 53) | (255ull << 20))) | (5ull << 53) | (6ull << 20);
+                }
+                ops[n++] = lookup;
+                ops[n++] = 0xe30000000007000full; ops[n++] = 0xe2400fffff87000full;
+                uint64_t *fs = fragment[mode];
+                *(uint32_t *)((uint8_t *)fs + 0x78) = 1;
+                unsigned at = 16;
+                for (unsigned i = 0; i < n; i++) {
+                    if (!(at & 3)) fs[at++] = 0x001f8000fc0007e0ull;
+                    fs[at++] = ops[i];
+                }
+                graphics[mode].stages[1].code_addr = (uint64_t)fs;
+                graphics[mode].stages[1].const_offset = sizeof fragment[mode];
+            }
+            st.program = &graphics[mode]; st.tpool = &textures; st.spool = &samplers; st.tex[1][0] = 1;
+            fullscreen_draw(1);
+            id<MTLBuffer> result = read_texture(renderer_texture(&destination, nil, true), 0, 0, 4);
+            unsigned wrong = 0;
+            for (NSUInteger y = 0; y < h; y++) for (NSUInteger x = 0; x < w; x++) {
+                uint32_t got = *(uint32_t *)((uint8_t *)result.contents + y * row + x * 4);
+                uint32_t want = fixed ? scales[c].fixed : 1 + x + 256 * y;
+                if (got != want && wrong++ < 2)
+                    fprintf(stderr, "scale %.2fx%.2f mode=%u pixel %lu,%lu got=%u want=%u\n",
+                            scales[c].x, scales[c].y, mode, (unsigned long)x, (unsigned long)y, got, want);
+            }
+            fprintf(stderr, "scale %.2fx%.2f mode=%u wrong=%u/%lu\n", scales[c].x, scales[c].y,
+                    mode, wrong, (unsigned long)(w * h));
+            bad += wrong;
+        }
+        st.tpool = st.spool = NULL;
+        if (sampler.backend) CFRelease(sampler.backend);
+        destroy_texture(&source); destroy_texture(&destination);
+    }
+    renderer_set_scale(1, 1);
+    CHECK(!bad, "scaled fragment texel fetch must preserve physical pixels and fixed-coordinate reads");
+}
+
 static void feedback_mip_chain(bool depth) {
     // Each pass reads the preceding mip of the same texture, as in a depth pyramid.
     static id<MTLLibrary> library;
@@ -1863,6 +1968,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"typed-compute-fallback", "types", typed_compute_fallback},
     {"typed-fragment-feedback", "types", typed_fragment_feedback},
     {"typed-feedback-cleanup", "types", typed_feedback_cleanup},
+    {"scaled-fragment-fetch", "scaling", scaled_fragment_fetch},
     {"feedback-mip-color", "feedback", feedback_mip_color},
     {"feedback-mip-depth", "feedback", feedback_mip_depth},
     {"feedback-base-alias", "feedback", feedback_base_alias},
