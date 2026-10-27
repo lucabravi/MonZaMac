@@ -30,6 +30,7 @@ typedef struct {
     bool reverb;         // room reverb effect
     bool movie_audio;
     bool show_fps;
+    bool handheld;       // Pokémon Z-A: the game is told it runs handheld (720p, lighter settings), not docked (runtime/services/am.c)
     bool fps60;  // Pokémon Z-A: its frame clock at 1/60 s per frame (runtime/hle/framepace.c)
     bool dof;            // Pokémon Z-A: its depth of field blur (runtime/hle/za_mods.c)
     bool fxaa;           // Pokémon Z-A: its own FXAA anti-aliasing

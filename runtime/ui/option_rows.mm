@@ -62,7 +62,7 @@ static int row(const char *label, const std::string &value, bool changed, const 
         ImGui::SetNavCursorVisible(true);
         ImGui::SetScrollHereY(0);
     }
-    bool off = g_next_disabled;  // (greyed out: still selectable, so its description shows, but it can't change)
+    bool off = g_next_disabled || (ImGui::GetItemFlags() & ImGuiItemFlags_Disabled);  // also blocks our manual left/right handling
     g_next_disabled = false;
     bool hov = ImGui::IsItemHovered(), foc = ImGui::IsItemFocused() && ImGui::GetCurrentContext()->NavCursorVisible;
     int step = clicked && !off ? 2 : 0;

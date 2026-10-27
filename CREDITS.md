@@ -28,6 +28,9 @@ MonZaMac and are not listed.
 Thanks also to everyone who reports issues and tests builds; your logs and screenshots find most of the bugs.
 
 **Libraries and tools**
+- [nstool](https://github.com/jakcron/nstool) - local extraction of user-provided game packages (MIT), pinned to
+  `cfb826ca6c165fbcd816fd7949df88ef3d72a948`. The app includes its license and the licenses of its static dependencies:
+  libpietendo and libtoolchain (MIT), fmt (MIT), LZ4 (BSD), and mbedTLS (Apache 2.0).
 - [SDL 3](https://libsdl.org) - windowing, input, audio (zlib license)
 - [FFmpeg](https://ffmpeg.org) - movie playback (LGPL)
 - [Dear ImGui](https://github.com/ocornut/imgui) - overlay menu and start screen (MIT)
@@ -70,6 +73,7 @@ code only - it grants nothing for Nintendo's game, which you must supply yoursel
 
 | Component | Version | License | Source |
 |---|---|---|---|
+| nstool (game-package import) | cfb826ca6c165fbcd816fd7949df88ef3d72a948 | MIT; dependency licenses included in the bundle | https://github.com/jakcron/nstool/tree/cfb826ca6c165fbcd816fd7949df88ef3d72a948 |
 | PyInstaller (packs the game code generator) | 6.22.3 | GPL 2.0+ with bootloader exception | https://github.com/pyinstaller/pyinstaller/releases/tag/v6.22.3 |
 | CPython (game code generator) | 3.12.14 | PSF | https://github.com/python/cpython/releases/tag/v3.12.14 |
 | Zig (builds the game code during setup; includes LLVM, Clang, LLD) | 0.17.0 | MIT; LLVM: Apache 2.0 with LLVM exceptions | https://ziglang.org/download/0.17.0/zig-0.17.0.tar.xz |
