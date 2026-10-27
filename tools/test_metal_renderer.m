@@ -6,6 +6,7 @@ static double gpu_interval_union_ms(const double *intervals, size_t count, doubl
 #import <ImageIO/ImageIO.h>
 
 void metal_test_bootstrap(void);
+void metal_test_texture_dump(void);
 void metal_test_next_texture_frame(void);
 
 #define CHECK(c, message) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d: %s\n", __func__, __LINE__, message); exit(1); } } while (0)
@@ -1725,6 +1726,7 @@ static void pipeline_archive_reload(void) {  // a pipeline built once is found i
 
 typedef void (*TestFn)(void);
 static const struct { const char *name, *group; TestFn run; bool needs_sampler26; } tests[] = {
+    {"largest-textures", "diagnostics", metal_test_texture_dump},
     {"gpu-interval-union", "gpu-time", gpu_interval_union},
     {"gpu-timing-state", "gpu-time", gpu_timing_state_machine},
     {"smoke", "smoke", smoke},

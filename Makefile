@@ -176,7 +176,7 @@ build/test_shaders: tools/test_shaders.m runtime/nvn/maxwell/translate.c runtime
 METAL_TEST_OBJS := $(filter-out $(B)/rt/nvn/metal.o $(B)/rt/nvn/renderer.o,$(RT_OBJ) $(BACKEND_OBJ) $(UI_OBJ) $(IMGUI_OBJ))
 $(B)/tests/metal_backend.o: tools/test_metal_backend.m runtime/nvn/metal.m $(RT_HDRS)
 	@mkdir -p $(dir $@)
-	$(CC) $(RTFLAGS) -fobjc-arc -c $< -o $@
+	$(CC) $(RTFLAGS) -fobjc-arc -ftrivial-auto-var-init=pattern -c $< -o $@
 $(B)/tests/metal_renderer.o: tools/test_metal_renderer.m runtime/nvn/renderer.m $(RT_HDRS)
 	@mkdir -p $(dir $@)
 	$(CC) $(RTFLAGS) -fobjc-arc -c $< -o $@
