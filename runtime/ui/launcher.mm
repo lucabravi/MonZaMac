@@ -1038,6 +1038,7 @@ extern "C" void launcher_run(const char *root) {
         fprintf(stderr, "[launcher] delete %.1f GB: %s -> %s\n", gb, ok ? "ok" : "refused", status.c_str());
         if (!status.empty()) { g_bg = 0; page = SETUP; }
     }
+    const bool test_busy = getenv("LARECOMP_LAUNCHER_SHOT") && strstr(getenv("LARECOMP_LAUNCHER_SHOT"), ":extracting");
     while (!play) {
         menu_apply_window_requests(win);  // (the Video tab's Fullscreen)
         if (g_files_deleted) {  // (Settings > Prelaunch deleted them)
@@ -1045,8 +1046,13 @@ extern "C" void launcher_run(const char *root) {
             status = check_game_files(g_root);
             if (!status.empty()) { g_bg = 0; bind_capture_cancel(); settings_save(); page = SETUP; }
         }
+        pthread_mutex_lock(&g_lock);
+        bool busy = g_busy || test_busy;
+        pthread_mutex_unlock(&g_lock);
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_EVENT_QUIT) exit(0);
+            if (busy) continue;  // the progress overlay is modal; ignore underlying mouse, keyboard and pad input
             if (e.type == SDL_EVENT_DROP_FILE) {
                 if (page == SETUP && e.drop.windowID == SDL_GetWindowID(win) && e.drop.data) {
                     g_drop_path = e.drop.data;  // SDL owns the event string; retain a copy for the UI frame.
@@ -1057,14 +1063,15 @@ extern "C" void launcher_run(const char *root) {
             }
             if (page == SETTINGS && bind_capture_event(&e)) continue;  // (waiting for a new binding: controls_ui.mm)
             if (!launcher_pad_event(e)) ImGui_ImplSDL3_ProcessEvent(&e);
-            if (e.type == SDL_EVENT_QUIT) exit(0);
         }
         // extraction finished: re-check, load the background
         pthread_mutex_lock(&g_lock);
-        bool busy = g_busy;
+        busy = g_busy || test_busy;
         pthread_mutex_unlock(&g_lock);
         static bool was_busy;
         if (was_busy && !busy) {
+            io.ClearInputKeys();
+            io.ClearInputMouse();
             status = check_game_files(g_root);
             if (status.empty()) { load_background(dev); page = MAIN; }
         }
@@ -1136,6 +1143,7 @@ extern "C" void launcher_run(const char *root) {
             ImGui::SetNextWindowPos(ImVec2(0, 0));
             ImGui::SetNextWindowSize(ds);
             ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
+            ImGui::BeginDisabled(busy);  // mouse clicks and ImGui navigation cannot reach the launcher under progress
             ImGui::Begin("##launcher", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                                                  ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus);
             ImGui::SetScrollX(0);  // (the start screen never scrolls; a long seed name or a stray nav move mustn't shift it)
@@ -1500,7 +1508,6 @@ extern "C" void launcher_run(const char *root) {
                     g_confirm_delete = false;
                     page = MAIN, g_refocus = SETUP;
                 }
-                static bool test_busy = getenv("LARECOMP_LAUNCHER_SHOT") && strstr(getenv("LARECOMP_LAUNCHER_SHOT"), ":extracting");
                 if (busy || test_busy) {  // extracting: everything dimmed, a progress bar in front (input waits)
                     ImDrawList *fg = ImGui::GetForegroundDrawList();
                     ImVec2 o = ImGui::GetMainViewport()->Pos;
@@ -1575,7 +1582,7 @@ extern "C" void launcher_run(const char *root) {
                     dl->AddText(font, size, p, col, t);
                     if (bold) dl->AddText(font, size, ImVec2(p.x + 0.7f * s, p.y), col, t);
                 };
-                std::string ver = tag_label(LARECOMP_VERSION, true);
+                const std::string ver = "by Rhapsodos93";
                 float vs = fs * 1.4f, y = ImGui::GetWindowPos().y + ds.y - 134 * s;
                 ImVec2 vsz = font->CalcTextSizeA(vs, FLT_MAX, 0, ver.c_str());
                 text(ImVec2(right - vsz.x, y), vs, IM_COL32(255, 255, 255, 255), ver.c_str(), false);
@@ -1607,6 +1614,7 @@ extern "C" void launcher_run(const char *root) {
             ImGui::PopFont();
             }
             ImGui::End();
+            ImGui::EndDisabled();
             ImGui::PopStyleColor();
             osk_draw(g_font_menu, s * 0.7f);  // (a text field activated with the controller)
             typed_before = ui_text_busy();
