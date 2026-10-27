@@ -15,6 +15,7 @@
 #include "option_rows.h"
 #include "imgui_internal.h"  // (NavCursorVisible)
 #include "osk.h"
+#include "../services/am.h"
 #ifdef __APPLE__
 #include "imgui_impl_metal.h"
 #else
@@ -179,7 +180,6 @@ bool menu_handle_event(const SDL_Event *e) {
             return true;
         }
         extern bool g_za_frame_hook;
-        extern void am_set_handheld(bool);
         if (!e->key.repeat && g_za_frame_hook && e->key.scancode == SDL_SCANCODE_H && (e->key.mod & SDL_KMOD_GUI) &&
             (e->key.mod & SDL_KMOD_CTRL)) {  // Cmd+Ctrl+H: docked <-> handheld
             am_set_handheld(!g_settings.handheld);
@@ -457,7 +457,6 @@ static void tab_display(void) {
     opt_toggle("Show FPS", &g_settings.show_fps, false, "Shows the frame rate in the top right corner. F3 does it for this run only, adding the render resolution.");
     {   // Pokémon Z-A's game mode (runtime/services/am.c): the mode the game is told it runs in
         extern bool g_za_frame_hook;
-        extern void am_set_handheld(bool);
         if (g_za_frame_hook) {
             int gm = g_settings.handheld ? 1 : 0;
             static const char *modes[] = {"Docked (1080p)", "Handheld (720p)"};
@@ -893,7 +892,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
             extern int g_out_present_interval;
             float sx, sy;
             renderer_get_scale(&sx, &sy);
-            extern bool g_za_frame_hook, am_handheld(void);
+            extern bool g_za_frame_hook;
             bool hh = g_za_frame_hook && am_handheld();  // (the game's own size: handheld renders for 1280x720)
             ImGui::Text("render %.0f x %.0f%s", (hh ? 1280.0 : 1920.0) * sx, (hh ? 720.0 : 1080.0) * sy, hh ? " (handheld)" : "");
             if (g_settings.res_mode == RES_DYNAMIC) ImGui::Text("dynamic %.0f%%", output_scale_dynamic_factor() * 100);
