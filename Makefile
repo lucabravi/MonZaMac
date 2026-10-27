@@ -21,8 +21,8 @@ GEN_SRC  := $(wildcard $(GEN)/main/*.c) $(wildcard $(GEN)/sdk/*.c)
 GEN_OBJ  := $(patsubst %.c,$(B)/obj/%.o,$(patsubst $(GEN)/%,%,$(GEN_SRC))) $(B)/obj/tools/gamelib_entry.o
 RT_SRC   := $(wildcard runtime/*.c) $(wildcard runtime/hle/*.c) $(wildcard runtime/services/*.c) \
             $(wildcard runtime/nvn/*.c) $(wildcard runtime/nvn/maxwell/*.c) runtime/platform/macos.c
-RT_HDRS  := $(wildcard runtime/*.h) $(wildcard runtime/platform/*.h) $(wildcard runtime/nvn/*.h) \
-            $(wildcard runtime/nvn/maxwell/*.h) $(wildcard runtime/ui/*.h)
+RT_HDRS  := $(wildcard runtime/*.h) $(wildcard runtime/platform/*.h) $(wildcard runtime/services/*.h) \
+            $(wildcard runtime/nvn/*.h) $(wildcard runtime/nvn/maxwell/*.h) $(wildcard runtime/ui/*.h)
 UI_SRC   := $(wildcard runtime/ui/*.mm)
 UI_OBJ   := $(patsubst runtime/%.mm,$(B)/rt/%.o,$(UI_SRC))
 IMGUI_OBJ := $(B)/imgui/imgui.o $(B)/imgui/imgui_draw.o $(B)/imgui/imgui_tables.o $(B)/imgui/imgui_widgets.o \
@@ -145,6 +145,9 @@ deps:
 	MACOS_MIN=$(APP_MIN) tools/build_deps_macos.sh
 app:
 	@[ -f build/deps/lib/libSDL3.0.dylib ] || { echo "make deps first"; exit 1; }
+	MACOS_MIN=$(APP_MIN) tools/build_nstool.sh
+	$(MAKE) gen-helper
+	tools/fetch_zig.sh
 	$(MAKE) B=$(APP_B) MACOS_MIN=$(APP_MIN) DEPS=$(CURDIR)/build/deps $(APP_B)/monzamac
 	MACOS_MIN=$(APP_MIN) tools/bundle_macos.sh $(APP_B)/monzamac
 
@@ -173,7 +176,7 @@ build/test_shaders: tools/test_shaders.m runtime/nvn/maxwell/translate.c runtime
 METAL_TEST_OBJS := $(filter-out $(B)/rt/nvn/metal.o $(B)/rt/nvn/renderer.o,$(RT_OBJ) $(BACKEND_OBJ) $(UI_OBJ) $(IMGUI_OBJ))
 $(B)/tests/metal_backend.o: tools/test_metal_backend.m runtime/nvn/metal.m $(RT_HDRS)
 	@mkdir -p $(dir $@)
-	$(CC) $(RTFLAGS) -fobjc-arc -c $< -o $@
+	$(CC) $(RTFLAGS) -fobjc-arc -ftrivial-auto-var-init=pattern -c $< -o $@
 $(B)/tests/metal_renderer.o: tools/test_metal_renderer.m runtime/nvn/renderer.m $(RT_HDRS)
 	@mkdir -p $(dir $@)
 	$(CC) $(RTFLAGS) -fobjc-arc -c $< -o $@

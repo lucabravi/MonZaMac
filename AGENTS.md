@@ -25,7 +25,7 @@ tools/build_nstool.sh                          # clones + builds nstool into too
 Game files come from the user's own dump, with their own `prod.keys` in `.keys/prod.keys`:
 
 ```sh
-tools/extract_game.sh <base.nsp> [update.nsp]  # -> extracted/exefs, extracted/romfs, extracted/romfs.bin
+tools/extract_game.sh <base.nsp|base.xci> <update.nsp>  # -> extracted/exefs, extracted/romfs, extracted/romfs.bin
 ```
 
 Target is **v2.0.2** (+ Mega Dimension DLC). Pass the v2.0.2 update NSP as the second argument so the patch is applied

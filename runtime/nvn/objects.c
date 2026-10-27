@@ -112,10 +112,26 @@ NVN(nvnQueueGetTotalCommandMemoryUsed) { RET(0); }
 NVN(nvnQueueGetTotalControlMemoryUsed) { RET(0); }
 NVN(nvnQueueGetTotalComputeMemoryUsed) { RET(0); }
 NVN(nvnQueueResetMemoryUsageCounts) { (void)c; static int seen_; if (!seen_++ && getenv("LARECOMP_LOG_NOOP")) LOG("[nvn] no-op called: nvnQueueResetMemoryUsageCounts\n"); }
+// A texture is finalized (any game thread) not while a submitted list is being translated that may read it: this
+// lock (recursive) orders nvnTextureFinalize against nvnQueueSubmitCommands.
+static pthread_mutex_t exec_lock;
+static pthread_once_t exec_lock_once = PTHREAD_ONCE_INIT;
+static void exec_lock_init(void) {
+    pthread_mutexattr_t a;
+    pthread_mutexattr_init(&a);
+    pthread_mutexattr_settype(&a, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&exec_lock, &a);
+    pthread_mutexattr_destroy(&a);
+}
+static void exec_lock_take(void) { pthread_once(&exec_lock_once, exec_lock_init); pthread_mutex_lock(&exec_lock); }
+static void exec_lock_give(void) { pthread_mutex_unlock(&exec_lock); }
+
 NVN(nvnQueueSubmitCommands) {
     int n = (int)A(1);
     const uint64_t *handles = AP(2);
+    exec_lock_take();
     for (int i = 0; i < n; i++) backend_execute(handles[i]);
+    exec_lock_give();
 }
 NVN(nvnQueueFlush) { (void)c; static int seen_; if (!seen_++ && getenv("LARECOMP_LOG_NOOP")) LOG("[nvn] no-op called: nvnQueueFlush\n"); }
 NVN(nvnQueueFinish) { (void)c; renderer_sync(); }
@@ -364,9 +380,53 @@ NVN(nvnTextureInitialize) {
     SET_HOST(A(0), t);
     RET(1);
 }
+// A finalized texture's object is freed a few presents later, not at once: the renderer's state (render targets, the
+// last presented image) and commands the game recorded can still name it, and a stale pointer into freed memory (a
+// crash in draw, reading the pointer's bytes as text) is now one to a dead texture with no backend.
+#define TEX_QUARANTINE_PRESENTS 8
+static pthread_mutex_t dead_lock = PTHREAD_MUTEX_INITIALIZER;
+static struct { NvnTexture *t; uint64_t at; } *dead;
+static int ndead, capdead;
+static uint64_t g_presents;
+static void texture_retire(NvnTexture *t) {
+    pthread_mutex_lock(&dead_lock);
+    if (ndead == capdead) {
+        void *grown = realloc(dead, (size_t)(capdead ? capdead * 2 : 256) * sizeof *dead);
+        if (!grown) { pthread_mutex_unlock(&dead_lock); free(t); return; }  // (out of memory: as before)
+        dead = grown, capdead = capdead ? capdead * 2 : 256;
+    }
+    dead[ndead].t = t, dead[ndead].at = g_presents, ndead++;
+    pthread_mutex_unlock(&dead_lock);
+}
+static void texture_reap(void) {
+    pthread_mutex_lock(&dead_lock);
+    g_presents++;
+    int keep = 0;
+    for (int i = 0; i < ndead; i++) {
+        if (g_presents - dead[i].at < TEX_QUARANTINE_PRESENTS) { dead[keep++] = dead[i]; continue; }
+        if (dead[i].t->backend) backend_texture_destroyed(dead[i].t);  // (a stale draw gave it a new one)
+        free(dead[i].t);
+    }
+    ndead = keep;
+    pthread_mutex_unlock(&dead_lock);
+}
+extern NvnDescPool *g_texture_pools[64];
 NVN(nvnTextureFinalize) {
     NvnTexture *t = HOST(NvnTexture, A(0));
-    if (t) { backend_texture_destroyed(t); free(t); }
+    if (t) {
+        exec_lock_take();
+        // Z-A finalizes textures still registered in a pool (slots it no longer reads, but a draw state can still bind
+        // them): those entries are emptied, as if the texture had never been registered there.
+        if (t->in_pool)
+            for (int i = 0; i < 64 && g_texture_pools[i]; i++) {
+                NvnTexEntry *e = (NvnTexEntry *)g_texture_pools[i]->entries;
+                for (int k = 0; k < g_texture_pools[i]->count; k++)
+                    if (e[k].tex == t) e[k].tex = NULL;
+            }
+        backend_texture_destroyed(t);
+        texture_retire(t);
+        exec_lock_give();
+    }
     SET_HOST(A(0), 0);
 }
 NVN(nvnTextureSetDebugLabel) {
@@ -539,6 +599,7 @@ static void register_texture(Cpu *c) {
     if (id < 0 || id >= d->count) return;
     NvnTexEntry *e = &((NvnTexEntry *)d->entries)[id];
     e->tex = HOST(NvnTexture, A(2));
+    if (e->tex) e->tex->in_pool = true;
     e->has_view = A(3) != 0;
     if (e->has_view) memcpy(&e->view, AP(3), sizeof e->view);
 }
@@ -680,6 +741,8 @@ static void present_pace(int interval) {
     if (forced >= 0) interval = forced;
     static int logged = -12345;
     if (interval != logged) { logged = interval; LOG("[nvn] present interval %d\n", interval); }
+    extern int g_out_present_interval;  // (output_scale.c: dynamic resolution's frame budget)
+    g_out_present_interval = interval;
     if (interval <= 0) return;
     if (interval > 4) interval = 1;  // (not a sane interval: the console's default)
     uint64_t period = 16666667ull * (uint64_t)interval, now = plat_now_ns();
@@ -688,10 +751,19 @@ static void present_pace(int interval) {
     next += period;
 }
 
+// What the game presents: the crop it set on the window (x, y, w, h in texels) and the window texture's size, in the game's
+// own units (before the render scale). Handheld mode presents a 1280x720 part of a 1920x1080 texture; metal.m shows only it.
+int g_present_crop[4];
+int g_present_tex[2];
+
 NVN(nvnQueuePresentTexture) {
     NvnWindow *w = HOST(NvnWindow, A(1));
     int i = (int)A(2);
+    texture_reap();
     if (i >= 0 && i < w->num) {
+        NvnTexture *pt = HOST(NvnTexture, w->textures[i]);
+        memcpy(g_present_crop, w->crop, sizeof g_present_crop);
+        g_present_tex[0] = pt ? (int)pt->width : 0, g_present_tex[1] = pt ? (int)pt->height : 0;
         present_pace(w->interval);
         backend_present(HOST(NvnTexture, w->textures[i]));
         if (i < 8) w->present_seq[i] = renderer_fence_seq();  // (the submission just presented)

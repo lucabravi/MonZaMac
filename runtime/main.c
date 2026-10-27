@@ -1,6 +1,7 @@
 // MonZaMac entry: load modules, set up the kernel, run nn::init::Start on the main thread.
 #include <SDL3/SDL.h>
 #include <stdbool.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -164,6 +165,8 @@ static void boot(const char *root) {
     kernel_run_main(t, t->handle, 0, init_fn, fini_fn, exit_fn);
 }
 
+uint8_t g_game_build[8];  // the exefs/main build ID read at start (all zero when unreadable)
+
 int main(int argc, char **argv) {
     plat_init();
 #ifdef _WIN32
@@ -180,14 +183,14 @@ int main(int argc, char **argv) {
         else if (argv[i][0] != '-') root = arg_root;
     }
     rt_paths_init();  // the data root becomes the working directory (runtime/paths.h)
-    {   // Pokémon Legends Z-A (exefs/main build 7222e13ecf6adb32: 1.0.0, 8a1c86c437394b69: 2.0.0, b1f12fd919eae86a: 2.0.2): the start screen knows only Link's Awakening's files
-        // (it would ask for them again) - straight into the game, as with --play. Started without a log redirect (a
+    {   // Pokémon Legends Z-A (exefs/main build 7222e13ecf6adb32: 1.0.0, 8a1c86c437394b69: 2.0.0, b1f12fd919eae86a: 2.0.2): the start screen would ask for
+        // game files it doesn't use - straight into the game, as with --play. Started without a log redirect (a
         // double click): the log goes to logs/play.log (the previous one: logs/play-anterior.log).
         static const uint8_t za_build[][8] = {{0x72, 0x22, 0xe1, 0x3e, 0xcf, 0x6a, 0xdb, 0x32},
                                               {0x8a, 0x1c, 0x86, 0xc4, 0x37, 0x39, 0x4b, 0x69},
                                               {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a}};
         char mp[1100];
-        uint8_t id[8] = {0};
+        uint8_t *id = g_game_build;  // (kept: runtime/hle/framepace.c picks its sites by build)
         snprintf(mp, sizeof mp, "%s/exefs/main", root);
         FILE *f = fopen(mp, "rb");
         if (f) { fseek(f, 0x40, SEEK_SET); if (fread(id, 1, 8, f) != 8) memset(id, 0, 8); fclose(f); }
@@ -210,7 +213,14 @@ int main(int argc, char **argv) {
             launcher_run(root);
         }
         boot(root);
-        int kind = ui_run();  // window and input on the main thread; returns when a reboot is requested
+        int kind = ui_run();  // window and input on the main thread
+        if (kind == RT_REBOOT_NONE) {
+            // SDL's signal handlers enqueue quit events; the window loop has finished consuming them.
+            signal(SIGINT, SIG_DFL);
+            signal(SIGTERM, SIG_DFL);
+            kernel_stop_threads(NULL);  // stop producing GPU work before atexit saves the pipeline archive
+            return 0;
+        }
         teardown();
         title = kind == RT_REBOOT_TITLE;
     }

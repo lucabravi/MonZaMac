@@ -16,12 +16,20 @@ static const char *settings_file(void) {
 }
 
 Settings g_settings = {
-    .aspect = ASPECT_UNLOCKED,
+    .aspect = ASPECT_ORIGINAL,
     .fullscreen = false,
+    .res_mode = 1,  // 1x: the Switch's 1080p
+    .antialias = AA_SMAA,
     .volume = 1.0f,
     .reverb = true,
     .movie_audio = true,
     .show_fps = false,
+    .dof = true,
+    .fxaa = true,
+    .bloom = true,
+    .fov = false,        // (changes the framing: off by default)
+    .lod = true,
+    .shadows_4k = false, // (more GPU memory and work: off by default)
     .upscaler = UPSCALE_SHARP,  // (MetalFX on macOS, AMD FSR 1 on Windows)
 };
 
@@ -86,9 +94,18 @@ void settings_load(void) {
         else if (!strcmp(key, "movie_audio")) g_settings.movie_audio = atoi(val) != 0;
         else if (!strcmp(key, "show_fps")) g_settings.show_fps = atoi(val) != 0;
         else if (!strcmp(key, "fps60")) g_settings.fps60 = atoi(val) != 0;
+        else if (!strcmp(key, "fps60_steady")) g_settings.fps60_steady = atoi(val) != 0;
+        else if (!strcmp(key, "game_mode")) g_settings.handheld = !strcmp(val, "handheld");
+        else if (!strcmp(key, "game_dynamic_res")) g_settings.game_drs = atoi(val) != 0;
+        else if (!strcmp(key, "depth_of_field")) g_settings.dof = atoi(val) != 0;
+        else if (!strcmp(key, "game_fxaa")) g_settings.fxaa = atoi(val) != 0;
+        else if (!strcmp(key, "bloom")) g_settings.bloom = atoi(val) != 0;
+        else if (!strcmp(key, "game_fov")) g_settings.fov = atoi(val) != 0;
+        else if (!strcmp(key, "game_lod")) g_settings.lod = atoi(val) != 0;
+        else if (!strcmp(key, "game_shadows_4k")) g_settings.shadows_4k = atoi(val) != 0;
         else if (!strcmp(key, "resolution")) {
             int n = atoi(val);
-            g_settings.res_mode = !strcmp(val, "1.5x") ? RES_X15 :
+            g_settings.res_mode = !strcmp(val, "1.5x") ? RES_X15 : !strcmp(val, "dynamic 1.5x") ? RES_DYNAMIC_X15 :
                                   !strcmp(val, "dynamic") ? RES_DYNAMIC : (!strcmp(val, "75%") || !strcmp(val, "67%")) ? RES_Q75 :
                                   !strcmp(val, "50%") ? RES_Q50 : !strcmp(val, "25%") ? RES_Q25 :
                                   (n >= 1 && n <= 4) ? n : n > 4 ? 4 : RES_MATCH;  // (5x-8x were removed)
@@ -127,6 +144,15 @@ void settings_save(void) {
     fprintf(f, "movie_audio = %d\n", g_settings.movie_audio);
     fprintf(f, "show_fps = %d\n", g_settings.show_fps);
     fprintf(f, "fps60 = %d\n", g_settings.fps60);
+    fprintf(f, "fps60_steady = %d\n", g_settings.fps60_steady);
+    fprintf(f, "game_mode = %s\n", g_settings.handheld ? "handheld" : "docked");
+    fprintf(f, "game_dynamic_res = %d\n", g_settings.game_drs);
+    fprintf(f, "depth_of_field = %d\n", g_settings.dof);
+    fprintf(f, "game_fxaa = %d\n", g_settings.fxaa);
+    fprintf(f, "bloom = %d\n", g_settings.bloom);
+    fprintf(f, "game_fov = %d\n", g_settings.fov);
+    fprintf(f, "game_lod = %d\n", g_settings.lod);
+    fprintf(f, "game_shadows_4k = %d\n", g_settings.shadows_4k);
     fprintf(f, "upscaler = %s\n", g_settings.upscaler == UPSCALE_METALFX ? "metalfx" : g_settings.upscaler == UPSCALE_FSR1 ? "fsr1" : "bilinear");
     fprintf(f, "antialias = %s\n", g_settings.antialias == AA_SMAA ? "smaa" : "off");
     if (g_settings.res_mode == RES_DYNAMIC) fprintf(f, "resolution = dynamic\n");
@@ -134,6 +160,7 @@ void settings_save(void) {
     else if (g_settings.res_mode == RES_Q25) fprintf(f, "resolution = 25%%\n");
     else if (g_settings.res_mode == RES_Q50) fprintf(f, "resolution = 50%%\n");
     else if (g_settings.res_mode == RES_X15) fprintf(f, "resolution = 1.5x\n");
+    else if (g_settings.res_mode == RES_DYNAMIC_X15) fprintf(f, "resolution = dynamic 1.5x\n");
     else if (g_settings.res_mode >= 1 && g_settings.res_mode <= 8) fprintf(f, "resolution = %dx\n", g_settings.res_mode);
     else fprintf(f, "resolution = match\n");
     fprintf(f, "dpad_move = %d\n", g_settings.dpad_move);

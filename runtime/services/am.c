@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "am.h"
 #include "../hle.h"
 #include "../ipc.h"
 #include "../settings.h"
@@ -39,6 +40,23 @@ static uint32_t new_event(void) {
 
 #define UNHANDLED(iface) LOG("[am] %s cmd %u (unhandled, ok)\n", iface, req->cmd)
 
+// The mode the game is told: docked (1080p, performance boost) or handheld (720p, normal). Handheld draws far fewer pixels.
+bool am_handheld(void) { return g_settings.handheld; }  // (also the render scale's: runtime/nvn/output_scale.c)
+
+// Switch modes while the game runs: the console tells a game about a dock / undock with these two applet messages, and
+// the game then reads the mode back. Whether Pokémon Z-A reacts live is untested; else it applies from the next start.
+void am_set_handheld(bool on) {
+    g_settings.handheld = on;
+    LOG("[am] game mode: %s\n", on ? "handheld" : "docked");
+    pthread_mutex_lock(&g_klock);
+    if (msg_event && msg_count + 2 <= (int)(sizeof msg_queue / sizeof *msg_queue)) {
+        msg_queue[msg_count++] = 30;  // OperationModeChanged
+        msg_queue[msg_count++] = 31;  // PerformanceModeChanged
+        kernel_signal(msg_event);
+    }
+    pthread_mutex_unlock(&g_klock);
+}
+
 static void common_state_getter(Service *s, IpcReq *req, IpcResp *resp) {
     (void)s;
     switch (req->cmd) {
@@ -55,15 +73,15 @@ static void common_state_getter(Service *s, IpcReq *req, IpcResp *resp) {
         }
         pthread_mutex_unlock(&g_klock);
         break;
-    case 5: OUT(uint8_t, 0) = 1; resp_size(resp, 1); break;   // GetOperationMode: docked
-    case 6: OUT(uint32_t, 0) = 1; resp_size(resp, 4); break;  // GetPerformanceMode: boost
+    case 5: OUT(uint8_t, 0) = am_handheld() ? 0 : 1; resp_size(resp, 1); break;   // GetOperationMode
+    case 6: OUT(uint32_t, 0) = am_handheld() ? 0 : 1; resp_size(resp, 4); break;  // GetPerformanceMode: normal / boost
     case 8: OUT(uint8_t, 0) = 0; resp_size(resp, 1); break;   // GetBootMode
     case 9: OUT(uint8_t, 0) = 1; resp_size(resp, 1); break;   // GetCurrentFocusState: in focus
     case 13: case 61: resp->copy_handles[resp->ncopy++] = new_event(); break;
     case 60: {  // GetDefaultDisplayResolution
-        int w = getenv("LARECOMP_DISPLAY_W") ? atoi(getenv("LARECOMP_DISPLAY_W")) : 1920;
-        LOG("[am] GetDefaultDisplayResolution -> %dx1080\n", w);
-        OUT(int32_t, 0) = w; OUT(int32_t, 4) = 1080; resp_size(resp, 8); break;
+        int h = am_handheld() ? 720 : 1080, w = getenv("LARECOMP_DISPLAY_W") ? atoi(getenv("LARECOMP_DISPLAY_W")) : h * 16 / 9;
+        LOG("[am] GetDefaultDisplayResolution -> %dx%d\n", w, h);
+        OUT(int32_t, 0) = w; OUT(int32_t, 4) = h; resp_size(resp, 8); break;
     }
     default: UNHANDLED("ICommonStateGetter");
     }

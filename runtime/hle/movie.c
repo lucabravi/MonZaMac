@@ -225,7 +225,7 @@ static void ex_set_data_source(Cpu *c) {
     }
     e->pkt = av_packet_alloc();
     e->ntracks = 0;
-    // the opening at launch can always be skipped, vanilla and randomizer (with no save yet the game forces it)
+    // the opening at launch can always be skipped (with no save yet the game forces it)
     e->skippable = rel && strstr(rel, "movie/opening.webm");
     if (e->skippable) g_skip_pressed_at = 0;  // (a press that ended the title's attract replay isn't for this one)
     for (unsigned i = 0; i < e->fmt->nb_streams && e->ntracks < 16; i++)

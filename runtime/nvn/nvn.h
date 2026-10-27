@@ -31,6 +31,7 @@ typedef struct NvnTexture {
     uint64_t pool_offset;
     void *backend;  // renderer-side texture
     uint64_t debug_id;
+    bool in_pool;  // registered in a texture pool once (its entries are cleared when it's finalized: objects.c)
     char label[64];
 } NvnTexture;
 

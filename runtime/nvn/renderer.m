@@ -14,6 +14,7 @@
 #include "maxwell/shader.h"
 #include "nvn.h"
 #include "renderer.h"
+#include "../settings.h"  // (g_settings.game_drs)
 
 static id<MTLDevice> dev;
 static id<MTLCommandBuffer> cmdbuf;
@@ -26,7 +27,231 @@ static void dump_pending_arrays(void);
 static uint64_t stat_draws, stat_skipped, stat_passes, stat_dispatches, stat_wait_ns, stat_flushes, stat_feedback_copies;
 static uint64_t stat_skip_none, stat_skip_failed, stat_skip_wait;  // why a draw was dropped
 static double stat_gpu_s;
-uint64_t g_gpu_total_ns;  // GPU time of all completed command buffers (dynamic resolution: output_scale.c)
+static pthread_mutex_t gpu_timing_lock = PTHREAD_MUTEX_INITIALIZER;
+
+// LARECOMP_GPU_TIMING_TRACE: read once (asked at every command buffer submit and completion)
+bool renderer_gpu_timing_trace(void) {
+    static int on = -1;
+    if (on < 0) on = getenv("LARECOMP_GPU_TIMING_TRACE") != NULL;
+    return on;
+}
+
+#define GPU_TIME_WINDOW_CAP 64
+#define GPU_TIME_INTERVAL_CAP 512
+enum { GPU_WINDOW_FREE, GPU_WINDOW_OPEN, GPU_WINDOW_CLOSED, GPU_WINDOW_READY };
+typedef struct {
+    uint64_t id, frame;
+    int state;
+    bool overflow, invalid_timestamps;
+    unsigned pending, buffers, nintervals;
+    double start_s, end_s, frame_ms, span_sum_ms, busy_ms;
+    double intervals[GPU_TIME_INTERVAL_CAP * 2];  // start/end pairs, mach-clock seconds
+} GpuTimeWindow;
+
+struct RendererGpuTimingToken {
+    uint64_t sequence, frame, first_window, last_window;
+    double commit_s;
+    const char *kind;
+    bool trace, discard;
+    struct RendererGpuTimingToken *next;
+};
+
+static GpuTimeWindow gpu_time_windows[GPU_TIME_WINDOW_CAP];
+static GpuTimeWindow *gpu_time_open;
+static RendererGpuTimingToken *gpu_time_pending;
+static uint64_t gpu_time_window_sequence, gpu_time_cb_sequence;
+
+typedef struct { double start, end; } GpuTimeInterval;
+static int compare_gpu_time_interval(const void *a, const void *b) {
+    double d = ((const GpuTimeInterval *)a)->start - ((const GpuTimeInterval *)b)->start;
+    return d < 0 ? -1 : d > 0 ? 1 : 0;
+}
+
+static bool gpu_timestamps_valid(double start, double end) {
+    return isfinite(start) && isfinite(end) && start > 0 && end >= start;
+}
+
+static double gpu_interval_sum_ms(const double *intervals, size_t count, double window_start, double window_end) {
+    if (!intervals || !count || window_end <= window_start) return 0;
+    if (count > GPU_TIME_INTERVAL_CAP) return -1;
+    double total = 0;
+    for (size_t i = 0; i < count; i++) {
+        double start = fmax(intervals[i * 2], window_start);
+        double end = fmin(intervals[i * 2 + 1], window_end);
+        if (end > start) total += end - start;
+    }
+    return total * 1000.0;
+}
+
+static double gpu_interval_union_ms(const double *intervals, size_t count, double window_start, double window_end) {
+    if (!intervals || !count || window_end <= window_start) return 0;
+    if (count > 512) return -1;  // callers overflow the bounded per-window record
+    GpuTimeInterval sorted[512];
+    size_t n = 0;
+    for (size_t i = 0; i < count; i++) {
+        double start = fmax(intervals[i * 2], window_start);
+        double end = fmin(intervals[i * 2 + 1], window_end);
+        if (end > start) sorted[n++] = (GpuTimeInterval){start, end};
+    }
+    if (!n) return 0;
+    qsort(sorted, n, sizeof *sorted, compare_gpu_time_interval);
+    double total = 0, start = sorted[0].start, end = sorted[0].end;
+    for (size_t i = 1; i < n; i++) {
+        if (sorted[i].start > end) { total += end - start; start = sorted[i].start; end = sorted[i].end; }
+        else if (sorted[i].end > end) end = sorted[i].end;
+    }
+    return (total + end - start) * 1000.0;
+}
+
+static GpuTimeWindow *gpu_time_window(uint64_t id) {
+    GpuTimeWindow *w = &gpu_time_windows[id % GPU_TIME_WINDOW_CAP];
+    return w->state != GPU_WINDOW_FREE && w->id == id ? w : NULL;
+}
+
+static void gpu_time_finalize(GpuTimeWindow *w) {
+    if (w->state != GPU_WINDOW_CLOSED || w->pending) return;
+    bool valid = !w->overflow && !w->invalid_timestamps && w->frame_ms > 0 && w->frame_ms <= 250;
+    w->span_sum_ms = valid ? gpu_interval_sum_ms(w->intervals, w->nintervals, w->start_s, w->end_s) : -1;
+    w->busy_ms = valid ? gpu_interval_union_ms(w->intervals, w->nintervals, w->start_s, w->end_s) : -1;
+    if (w->busy_ms >= 0) stat_gpu_s += w->busy_ms / 1000.0;
+    w->state = GPU_WINDOW_READY;
+    if (renderer_gpu_timing_trace())
+        LOG("[gpu-window] frame %llu elapsed %.3fms spans-sum %.3fms gpu-union %.3fms buffers %u intervals %u%s%s\n",
+            (unsigned long long)w->frame, w->frame_ms, w->span_sum_ms, w->busy_ms, w->buffers, w->nintervals,
+            w->invalid_timestamps ? " invalid-time" : "", w->overflow ? " overflow" : "");
+}
+
+static GpuTimeWindow *gpu_time_open_window(double start_s, uint64_t frame) {
+    for (unsigned attempt = 0; attempt < GPU_TIME_WINDOW_CAP; attempt++) {
+        uint64_t id = ++gpu_time_window_sequence;
+        GpuTimeWindow *w = &gpu_time_windows[id % GPU_TIME_WINDOW_CAP];
+        if (w->state != GPU_WINDOW_FREE) continue;
+        memset(w, 0, sizeof *w);
+        w->id = id;
+        w->frame = frame;
+        w->start_s = start_s;
+        w->state = GPU_WINDOW_OPEN;
+        gpu_time_open = w;
+        for (RendererGpuTimingToken *cb = gpu_time_pending; cb; cb = cb->next) {
+            if (cb->discard || cb->last_window >= id) continue;
+            if (!cb->first_window) cb->first_window = id;
+            cb->last_window = id;
+            w->pending++;
+            w->buffers++;
+        }
+        return w;
+    }
+    gpu_time_open = NULL;
+    return NULL;
+}
+
+RendererGpuTimingToken *renderer_gpu_timing_submit(uint64_t frame, const char *kind) {
+    RendererGpuTimingToken *cb = calloc(1, sizeof *cb);
+    if (!cb) return NULL;
+    pthread_mutex_lock(&gpu_timing_lock);
+    cb->sequence = ++gpu_time_cb_sequence;
+    cb->frame = frame;
+    cb->kind = kind;
+    cb->trace = renderer_gpu_timing_trace();
+    double submit_s = renderer_host_time_seconds();
+    if (!gpu_time_open) gpu_time_open_window(submit_s, frame);
+    if (gpu_time_open) {
+        cb->first_window = cb->last_window = gpu_time_open->id;
+        gpu_time_open->pending++;
+        gpu_time_open->buffers++;
+    }
+    cb->next = gpu_time_pending;
+    gpu_time_pending = cb;
+    pthread_mutex_unlock(&gpu_timing_lock);
+    return cb;
+}
+
+void renderer_gpu_timing_mark_commit(RendererGpuTimingToken *cb) {
+    if (!cb) return;
+    double now = renderer_host_time_seconds();
+    pthread_mutex_lock(&gpu_timing_lock);
+    cb->commit_s = now;
+    pthread_mutex_unlock(&gpu_timing_lock);
+}
+
+void renderer_gpu_timing_complete(RendererGpuTimingToken *cb, double gpu_start, double gpu_end) {
+    if (!cb) return;
+    double completed = renderer_host_time_seconds();
+    bool timestamps_valid = gpu_timestamps_valid(gpu_start, gpu_end);
+    pthread_mutex_lock(&gpu_timing_lock);
+    if (!cb->discard && cb->first_window) {
+        for (uint64_t id = cb->first_window; id <= cb->last_window; id++) {
+            GpuTimeWindow *w = gpu_time_window(id);
+            if (!w || w->state == GPU_WINDOW_READY) continue;
+            if (timestamps_valid && gpu_end > gpu_start) {
+                if (w->nintervals < GPU_TIME_INTERVAL_CAP) {
+                    w->intervals[w->nintervals * 2] = gpu_start;
+                    w->intervals[w->nintervals * 2 + 1] = gpu_end;
+                    w->nintervals++;
+                } else w->overflow = true;
+            } else if (!timestamps_valid) w->invalid_timestamps = true;
+            if (w->pending) w->pending--;
+            gpu_time_finalize(w);
+        }
+    }
+    RendererGpuTimingToken **link = &gpu_time_pending;
+    while (*link && *link != cb) link = &(*link)->next;
+    if (*link) *link = cb->next;
+    pthread_mutex_unlock(&gpu_timing_lock);
+    if (cb->trace)
+        LOG("[gpu-cb] frame %llu cb %llu kind %s commit %.6f start %.6f end %.6f complete %.6f queue %.3fms span %.3fms callback %.3fms\n",
+            (unsigned long long)cb->frame, (unsigned long long)cb->sequence, cb->kind ? cb->kind : "unknown",
+            cb->commit_s, gpu_start, gpu_end, completed,
+            cb->commit_s > 0 && gpu_start > 0 ? (gpu_start - cb->commit_s) * 1000.0 : -1.0,
+            timestamps_valid ? (gpu_end - gpu_start) * 1000.0 : -1.0,
+            gpu_end > 0 ? (completed - gpu_end) * 1000.0 : -1.0);
+    free(cb);
+}
+
+double renderer_gpu_timing_present(uint64_t frame, double *present_time, double *frame_ms, unsigned *samples) {
+    double sum_gpu = 0, sum_frame = 0;
+    unsigned n = 0;
+    pthread_mutex_lock(&gpu_timing_lock);
+    double now = renderer_host_time_seconds();
+    if (present_time) *present_time = now;
+    if (gpu_time_open) {
+        GpuTimeWindow *w = gpu_time_open;
+        gpu_time_open = NULL;
+        w->frame = frame;
+        w->end_s = now;
+        w->frame_ms = (now - w->start_s) * 1000.0;
+        w->state = GPU_WINDOW_CLOSED;
+        gpu_time_finalize(w);
+    }
+    for (unsigned i = 0; i < GPU_TIME_WINDOW_CAP; i++) {
+        GpuTimeWindow *w = &gpu_time_windows[i];
+        if (w->state != GPU_WINDOW_READY) continue;
+        if (w->busy_ms >= 0 && w->frame_ms > 0 && w->frame_ms <= 250) {
+            sum_gpu += w->busy_ms;
+            sum_frame += w->frame_ms;
+            n++;
+        }
+        memset(w, 0, sizeof *w);
+    }
+    gpu_time_open_window(now, frame + 1);
+    pthread_mutex_unlock(&gpu_timing_lock);
+    if (frame_ms) *frame_ms = n ? sum_frame / n : -1;
+    if (samples) *samples = n;
+    return n ? sum_gpu / n : -1;
+}
+
+void renderer_gpu_timing_reset(void) {
+    pthread_mutex_lock(&gpu_timing_lock);
+    memset(gpu_time_windows, 0, sizeof gpu_time_windows);
+    gpu_time_open = NULL;
+    stat_gpu_s = 0;
+    for (RendererGpuTimingToken *cb = gpu_time_pending; cb; cb = cb->next) {
+        cb->discard = true;
+        cb->first_window = cb->last_window = 0;
+    }
+    pthread_mutex_unlock(&gpu_timing_lock);
+}
+
 // (forward: texture-lifetime cleanup and stats, defined further down)
 static int g_views_live;
 static void views_forget(void *base);
@@ -108,9 +333,13 @@ const char *renderer_stats(void) {
     struct task_vm_info vmi;
     mach_msg_type_number_t vn = TASK_VM_INFO_COUNT;
     uint64_t foot = task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&vmi, &vn) == KERN_SUCCESS ? vmi.phys_footprint : 0;
+    pthread_mutex_lock(&gpu_timing_lock);
+    double gpu_s = stat_gpu_s;
+    stat_gpu_s = 0;
+    pthread_mutex_unlock(&gpu_timing_lock);
     snprintf(stats_text, sizeof stats_text, "%llu draws, %llu skipped (%llu no shader, %llu failed, %llu compiling), %llu passes, %llu dispatches, %llu flushes, gpu %.0fms, wait %.0fms, compile %d/%.0fms, fbcopy %llu | tex %d (%.0f MB) views %d snaps %lu mem %.0f MB | waits fence %.0fms/%llu flush %.0fms/%llu all %.0fms/%llu", stat_draws, stat_skipped,
              stat_skip_none, stat_skip_failed, stat_skip_wait,
-             stat_passes, stat_dispatches, stat_flushes, stat_gpu_s * 1000.0, (double)stat_wait_ns / 1e6 * 125.0 / 3.0, stat_compiles, stat_compile_ms, stat_feedback_copies,
+             stat_passes, stat_dispatches, stat_flushes, gpu_s * 1000.0, (double)stat_wait_ns / 1e6 * 125.0 / 3.0, stat_compiles, stat_compile_ms, stat_feedback_copies,
              g_tex_live, g_tex_live_bytes / 1048576.0, g_views_live, (unsigned long)(g_snap_copies ? g_snap_copies.count : 0), foot / 1048576.0, stat_wait_by[0] / 24e3, (unsigned long long)stat_wait_n[0], stat_wait_by[1] / 24e3, (unsigned long long)stat_wait_n[1], stat_wait_by[2] / 24e3, (unsigned long long)stat_wait_n[2]);
     stat_compiles = 0;
     stat_feedback_copies = 0;
@@ -118,7 +347,6 @@ const char *renderer_stats(void) {
     stat_draws = stat_skipped = stat_passes = stat_dispatches = stat_flushes = stat_wait_ns = 0;
     stat_skip_none = stat_skip_failed = stat_skip_wait = 0;
     memset(stat_wait_by, 0, sizeof stat_wait_by); memset(stat_wait_n, 0, sizeof stat_wait_n);
-    stat_gpu_s = 0;
     return stats_text;
 }
 
@@ -262,6 +490,12 @@ static pthread_mutex_t cb_lock = PTHREAD_MUTEX_INITIALIZER;
 static uint64_t submit_seq;
 static id<MTLCommandBuffer> cb_hist[CB_HIST];
 
+double renderer_host_time_seconds(void) {
+    mach_timebase_info_data_t tb;
+    mach_timebase_info(&tb);
+    return (double)mach_absolute_time() * (double)tb.numer / (double)tb.denom / 1e9;
+}
+
 static int g_wait_kind;
 static void wait_cb(id<MTLCommandBuffer> c) {
     if (!c) return;
@@ -311,11 +545,13 @@ void renderer_submit(void) {
     if (cmdbuf) {
         id<MTLCommandBuffer> c = cmdbuf;
         cmdbuf = nil;
+        extern uint64_t renderer_present_count(void);
+        RendererGpuTimingToken *gpu_timing = renderer_gpu_timing_submit(renderer_present_count() + 1, "renderer");
         [c addCompletedHandler:^(id<MTLCommandBuffer> done) {
-            stat_gpu_s += done.GPUEndTime - done.GPUStartTime;
-            __atomic_add_fetch(&g_gpu_total_ns, (uint64_t)((done.GPUEndTime - done.GPUStartTime) * 1e9), __ATOMIC_RELAXED);
+            renderer_gpu_timing_complete(gpu_timing, done.GPUStartTime, done.GPUEndTime);
             if (done.error) LOG("[metal] command buffer error: %s\n", done.error.localizedDescription.UTF8String);
         }];
+        renderer_gpu_timing_mark_commit(gpu_timing);
         [c commit];
         g_passes_in_cb = 0;
         pthread_mutex_lock(&cb_lock);
@@ -1050,6 +1286,122 @@ void shader_cache_warm(void) {
     });
 }
 
+// Pipeline archive: every game pipeline built in this run is also added to an MTLBinaryArchive, saved as
+// cache/pipelines.bin. The next run opens that file (no compiling) and looks new pipelines up in it first: a hit is
+// built at once, so its draws are not skipped while it compiles. The archive read from the file is only looked up;
+// this run's pipelines (hits included) go into a new one, written on a background queue, which then replaces the file
+// (on the Mac, saving an archive loaded from a file failed with "Invalid URL").
+// LARECOMP_NO_PIPELINE_ARCHIVE=1 turns it off (A/B); delete cache/ to reset it.
+static id<MTLBinaryArchive> g_archive;       // this run's pipelines, saved to the file (on g_archive_q only)
+static id<MTLBinaryArchive> g_archive_read;  // the last run's file, only looked up (render thread)
+static dispatch_queue_t g_archive_q;
+static int g_archive_dirty;  // pipelines added since the last save (on g_archive_q)
+static NSMutableArray<MTLRenderPipelineDescriptor *> *g_archive_saved, *g_archive_new;  // in the last save / since (on g_archive_q)
+static int g_archive_hits;   // pipelines found in the archive this run (render thread)
+static NSURL *g_archive_url; // absolute, fixed at open: the working directory may be gone at exit (the tests delete it)
+
+// A failed save leaves the archive empty ("Nothing to serialize"): build it again from the pipelines given
+static void pipeline_archive_rebuild(NSArray<MTLRenderPipelineDescriptor *> *with) {  // on g_archive_q
+    g_archive = [dev newBinaryArchiveWithDescriptor:[MTLBinaryArchiveDescriptor new] error:nil];
+    for (MTLRenderPipelineDescriptor *pd in with) [g_archive addRenderPipelineFunctionsWithDescriptor:pd error:nil];
+}
+
+static void pipeline_archive_save(void) {  // on g_archive_q
+    if (!g_archive_dirty || !g_archive) return;
+    // write next to the file and rename: the archive being looked up still reads the old one
+    NSURL *tmp = [g_archive_url URLByAppendingPathExtension:@"tmp"];
+    NSError *err;
+    if (![g_archive serializeToURL:tmp error:&err]) {
+        // Some pipelines save alone but not next to others ("expecting 'fragment' stage in pipeline no. N", where N is
+        // not the order they were added in): start again from the last saved set and add the new ones one at a time,
+        // leaving out each that breaks the save. shortcut: one full save per new pipeline, only after a failure.
+        LOG("[shader] pipeline archive save failed (%s): finding the pipelines that break it\n", err.localizedDescription.UTF8String);
+        NSArray *fresh = [g_archive_new copy];
+        pipeline_archive_rebuild(g_archive_saved);
+        for (MTLRenderPipelineDescriptor *pd in fresh) {
+            if ([g_archive addRenderPipelineFunctionsWithDescriptor:pd error:nil] && [g_archive serializeToURL:tmp error:&err]) {
+                [g_archive_saved addObject:pd];
+                continue;
+            }
+            LOG("[shader] pipeline archive: %s left out: %s\n", pd.label.UTF8String, err.localizedDescription.UTF8String);
+            pipeline_archive_rebuild(g_archive_saved);
+        }
+        [g_archive_new removeAllObjects];
+        if (![g_archive serializeToURL:tmp error:&err]) { LOG("[shader] pipeline archive save failed: %s\n", err.localizedDescription.UTF8String); return; }
+    }
+    if (rename(tmp.fileSystemRepresentation, g_archive_url.fileSystemRepresentation) != 0) {
+        LOG("[shader] pipeline archive save failed: %s\n", strerror(errno));
+        return;
+    }
+    [g_archive_saved addObjectsFromArray:g_archive_new];
+    [g_archive_new removeAllObjects];
+    LOG("[shader] pipeline archive saved (%d new, %d found in it this run)\n", g_archive_dirty, g_archive_hits);
+    g_archive_dirty = 0;
+}
+
+void renderer_save_pipeline_archive(void) { if (g_archive_q) dispatch_sync(g_archive_q, ^{ pipeline_archive_save(); }); }
+
+static id<MTLBinaryArchive> pipeline_archive(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        if (getenv("LARECOMP_NO_PIPELINE_ARCHIVE") && atoi(getenv("LARECOMP_NO_PIPELINE_ARCHIVE"))) return;
+        mkdir("cache", 0755);
+        g_archive_url = [NSURL fileURLWithPath:@"cache/pipelines.bin"].absoluteURL;
+        MTLBinaryArchiveDescriptor *ad = [MTLBinaryArchiveDescriptor new];
+        NSError *err;
+        if (access(g_archive_url.fileSystemRepresentation, R_OK) == 0) {
+            ad.url = g_archive_url;
+            g_archive_read = [dev newBinaryArchiveWithDescriptor:ad error:&err];
+            // made by another OS / GPU, or damaged: this run writes a new one
+            if (!g_archive_read) LOG("[shader] pipeline archive not usable (%s), starting over\n", err.localizedDescription.UTF8String);
+            ad.url = nil;
+        }
+        g_archive = [dev newBinaryArchiveWithDescriptor:ad error:&err];
+        if (!g_archive) { g_archive_read = nil; LOG("[shader] no pipeline archive: %s\n", err.localizedDescription.UTF8String); return; }
+        LOG("[shader] pipeline archive %s\n", g_archive_read ? "loaded" : "new");
+        g_archive_saved = [NSMutableArray new];
+        g_archive_new = [NSMutableArray new];
+        g_archive_q = dispatch_queue_create("pipeline-archive", DISPATCH_QUEUE_SERIAL);
+        atexit(renderer_save_pipeline_archive);
+    });
+    return g_archive;
+}
+
+// Metal drops a fragment stage that has no effect: nothing written to a colour channel an attachment keeps, no depth, no
+// discard (depth-only passes). Such a pipeline can save on its own and still fail the whole archive next to the others
+// ("expecting 'fragment' stage in pipeline no. N" in test-metal-renderer, every pipeline having saved alone; its
+// depth-only draw-multisample-depth is the likely one). Those pipelines, and vertex-only ones (transform feedback), stay on
+// the usual async path.
+static bool pipeline_archivable(MTLRenderPipelineDescriptor *pd, Prog *pr) {
+    if (!pd.rasterizationEnabled || !pr->fi) return false;
+    if (pr->fi->writes_depth || pr->fi->uses_discard) return true;
+    for (int i = 0; i < 8; i++) {
+        MTLColorWriteMask w = pd.colorAttachments[i].writeMask;
+        uint32_t keep = (w & MTLColorWriteMaskRed ? 1 : 0) | (w & MTLColorWriteMaskGreen ? 2 : 0) |
+                        (w & MTLColorWriteMaskBlue ? 4 : 0) | (w & MTLColorWriteMaskAlpha ? 8 : 0);
+        if (pd.colorAttachments[i].pixelFormat && (pr->fi->out_mask >> (i * 4) & keep)) return true;
+    }
+    return false;
+}
+
+static void pipeline_archive_add(MTLRenderPipelineDescriptor *pd, Prog *pr) {
+    if (!g_archive || !pipeline_archivable(pd, pr)) return;
+    dispatch_async(g_archive_q, ^{
+        NSError *err;
+        pd.binaryArchives = nil;  // (our own copy) built from its functions alone
+        if (![g_archive addRenderPipelineFunctionsWithDescriptor:pd error:&err]) {
+            static int n;
+            if (n++ < 10) LOG("[shader] pipeline archive add failed: %s\n", err.localizedDescription.UTF8String);
+            return;
+        }
+        [g_archive_new addObject:pd];
+        // save 30 s after the first unsaved add, so a crash loses little; exit and the screenshot tests save too.
+        // shortcut: each save rewrites the whole file, fine for a few thousand pipelines; append-only files if it gets slow
+        if (g_archive_dirty++ == 0)
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC), g_archive_q, ^{ pipeline_archive_save(); });
+    });
+}
+
 static bool sync_shaders(void) {  // LARECOMP_SYNC_SHADERS: compile on first use, blocking (deterministic tests)
     static int v = -1;
     if (v < 0) v = getenv("LARECOMP_SYNC_SHADERS") != NULL;
@@ -1391,6 +1743,12 @@ static id<MTLTexture> shadow_slot_texture(id<MTLTexture> tex, const ShaderTextur
             rp.depthAttachment.clearDepth = 1.0;
             [[cb renderCommandEncoderWithDescriptor:rp] endEncoding];
         }
+        extern uint64_t renderer_present_count(void);
+        RendererGpuTimingToken *timing = renderer_gpu_timing_submit(renderer_present_count() + 1, "resource-init");
+        [cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
+            renderer_gpu_timing_complete(timing, done.GPUStartTime, done.GPUEndTime);
+        }];
+        renderer_gpu_timing_mark_commit(timing);
         [cb commit];
         t[type] = dt;
     }
@@ -2692,29 +3050,39 @@ static void draw(CmdRec *r, bool indexed) {
             id done = ready_pipes[pk];
             if (done) { [ready_pipes removeObjectForKey:pk]; cache[pk] = done; pobj = done; }
         }
-        if (pobj == pending) { stat_skipped++; dbg_skips++; return; }
+        if (pobj == pending) { stat_skipped++; stat_skip_wait++; dbg_skips++; return; }
+    }
+    if (!pobj && pipeline_archive() && g_archive_read) {
+        // in the last run's archive: built at once without compiling; a miss fails right away and goes the usual way
+        pd.binaryArchives = @[g_archive_read];
+        pobj = [dev newRenderPipelineStateWithDescriptor:pd options:MTLPipelineOptionFailOnBinaryArchiveMiss reflection:nil error:nil];
+        pd.binaryArchives = nil;
+        if (pobj) { cache[pk] = pobj; g_archive_hits++; pipeline_archive_add([pd copy], pr); }  // the new file keeps what is still used
     }
     if (!pobj) {
-        if (sync_shaders()) {
+        if (sync_shaders() || r->x[2] <= 6) {  // a full-screen draw waits for its pipeline too, as for its program (prog_ready_or_wait)
             NSError *err;
             pobj = TIMED_COMPILE([dev newRenderPipelineStateWithDescriptor:pd error:&err]);
             if (!pobj) {
                 static int n;
                 if (n++ < 10) LOG("[metal] pipeline failed: %s\n", err.localizedDescription.UTF8String);
                 pobj = [NSNull null];
-            }
+            } else pipeline_archive_add([pd copy], pr);
             cache[pk] = pobj;
         } else {
             cache[pk] = pending;
             NSString *k = [pk copy];
+            MTLRenderPipelineDescriptor *pdc = [pd copy];
             double t0 = now_ms();
             [dev newRenderPipelineStateWithDescriptor:pd completionHandler:^(id<MTLRenderPipelineState> ps, NSError *e) {
                 if (!ps) { static int n; if (n++ < 10) LOG("[metal] pipeline failed: %s\n", e.localizedDescription.UTF8String); }
+                else pipeline_archive_add(pdc, pr);
                 @synchronized(ready_pipes) { ready_pipes[k] = ps ? (id)ps : (id)[NSNull null]; }
                 @synchronized(cache) { stat_compile_ms += now_ms() - t0; }
                 __atomic_fetch_add(&stat_compiles, 1, __ATOMIC_RELAXED);
             }];
             stat_skipped++;
+            stat_skip_wait++;  // counted as "compiling", like a draw whose shaders are not ready yet
             dbg_skips++;
             return;
         }
@@ -3707,7 +4075,17 @@ static void exec_list(uint64_t handle, int depth) {
             if (out) {
                 out[0] = type == 1 ? (samples += 1u << 20) : 0;
                 // Switch GPU ticks, 614.4 MHz: the game converts the difference to ns itself.
-                out[1] = (uint64_t)((unsigned __int128)plat_now_ns() * 384 / 625);
+                // The game's own dynamic resolution reads the difference of two of these as its GPU time. Here they stamp
+                // the host time the commands run at, so a stall (the window in the background, a throttled app) read as a
+                // huge GPU time and dropped its resolution to the floor, climbing back in steps afterwards. Unless the
+                // setting asks for it, the clock advances at most 0.5 ms between two reports: the game stays at full.
+                extern bool g_za_frame_hook;
+                static uint64_t virt, last_real;
+                uint64_t now = plat_now_ns();
+                if (!g_za_frame_hook || g_settings.game_drs || !last_real) virt = now;
+                else virt += now - last_real < 500000 ? now - last_real : 500000;
+                last_real = now;
+                out[1] = (uint64_t)((unsigned __int128)virt * 384 / 625);
             }
             break;
         }
@@ -3738,6 +4116,7 @@ static void exec_list(uint64_t handle, int depth) {
 // views, snapshots, bound state - so the next boot can't hit a stale entry. Metal's own shader cache stays warm.
 void renderer_reset(void) {
     renderer_flush();
+    renderer_gpu_timing_reset();
     pthread_mutex_lock(&gone_lock);
     ngone = 0;
     pthread_mutex_unlock(&gone_lock);
