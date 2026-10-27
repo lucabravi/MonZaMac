@@ -1,8 +1,8 @@
 // Output resolution, shared by the Metal and Vulkan backends (each calls output_scale() once per presented frame).
 // Render targets the game sizes for the Switch's 1920x1080 screen are allocated at (sx, sy) times their size; the
 // image is then drawn into (vx, vy, vw, vh) of the window. Video tab "Internal resolution" (g_settings.res_mode):
-//   Match display  render at the window's own pixel size (default)
-//   1x .. 4x       N times the Switch's docked image: 1080 lines x N (wide windows keep their shape: 32:9 at 2x =
+//   Match display  render at the window's own pixel size
+//   1x .. 4x       N times the Switch's docked image (1x: the default): 1080 lines x N (wide windows keep their shape: 32:9 at 2x =
 //                  7680 x 2160); capped to the GPU's 16384-pixel texture limit
 //   .75x / .50x / .25x  of Match display (scaled up to the window - with MetalFX on macOS when chosen)
 //   Dynamic        Match display, lowered in steps while the GPU can't hold 60 fps and raised again when it can
