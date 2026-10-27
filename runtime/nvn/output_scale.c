@@ -25,8 +25,11 @@ extern bool g_za_frame_hook;  // (hle/framepace.c) the game is Pokémon Z-A
 static double g_dyn = 1.0;
 static double g_dyn_gpu_sum, g_dyn_dt_sum, g_last_t;
 static int g_dyn_n, g_dyn_gpu_n, g_dyn_good;
-static double g_dyn_cool_until, g_dyn_probe_wait = 5.0, g_dyn_probe_at;
-static double g_dyn_last_raise = -100;
+#define DYN_PROBE_MIN 2.0   // seconds between two tries upwards when the last ones held
+#define DYN_PROBE_MAX 16.0  // ... after tries that were too eager (the frames got slow right after)
+static double g_dyn_cool_until, g_dyn_probe_wait = DYN_PROBE_MIN, g_dyn_probe_at;
+static double g_dyn_last_raise = -100, g_dyn_last_slow = -100;
+static double g_dyn_iv;  // the present interval of the last decision
 static double g_dyn_last_dt = -1, g_dyn_last_gpu = -1;  // (the averages of the last decision: F3)
 static bool g_dyn_gpu_ok;
 int g_out_present_interval = 1;  // (objects.c: vsyncs per presented frame - 2 when the game runs at 30 fps)
@@ -52,21 +55,28 @@ static void dyn_update(double now, double gpu_ms) {
     // the budget is the game's frame period: at 30 fps (interval 2) every frame takes 33 ms by design, and judged
     // against 60 fps that read as too slow and lowered the resolution to the 0.5 floor
     double iv = g_out_present_interval >= 1 && g_out_present_interval <= 4 ? g_out_present_interval : 1;
+    if (iv != g_dyn_iv) {  // a new frame budget (60 <-> 30 fps): what was learnt about the old one does not apply
+        g_dyn_iv = iv;
+        g_dyn_probe_wait = DYN_PROBE_MIN, g_dyn_probe_at = now, g_dyn_good = 0, g_dyn_last_raise = -100;
+    }
     // Slow frames count only when the GPU is a real part of them: a frame that is long on the CPU side (under 9 ms of
     // GPU) is not helped by a lower resolution, and lowering it anyway left the picture soft for nothing.
     bool slow = avg_gpu >= 0 ? avg_gpu > 14.5 * iv || (avg_dt > 17.4 * iv && avg_gpu > 9.0 * iv) : avg_dt > 17.4 * iv;
     if (slow) {
         g_dyn = fmax(0.5, g_dyn - (avg_dt > 22 * iv ? 0.1 : 0.05));
         g_dyn_good = 0;
-        if (now - g_dyn_last_raise < 3.0) g_dyn_probe_wait = fmin(g_dyn_probe_wait * 2, 60.0);  // raised too eagerly
+        g_dyn_last_slow = now;
+        if (now - g_dyn_last_raise < 3.0) g_dyn_probe_wait = fmin(g_dyn_probe_wait * 2, DYN_PROBE_MAX);  // raised too eagerly
     } else if (g_dyn < 1.0) {
         g_dyn_good++;
+        if (now - g_dyn_last_slow > 10.0) g_dyn_probe_wait = DYN_PROBE_MIN;  // (10 s without a slow frame: no backoff)
         // with GPU timing: raise when there is clear headroom; without (Vulkan): probe upwards now and then
         // raise when the next step (pixels grow with the square of the factor) is predicted to stay under the limit:
         // a fixed 10.5 ms bar left the factor low where a higher one would have held (stuck at its floor with 11 ms of GPU)
         double up = (g_dyn + 0.05) / g_dyn;
-        bool room = avg_gpu >= 0 ? avg_gpu * up * up < 13.0 * iv && g_dyn_good >= 4 : now >= g_dyn_probe_at && g_dyn_good >= 2 * (int)g_dyn_probe_wait;
-        if (room) { g_dyn = fmin(1.0, g_dyn + 0.05); g_dyn_good = 0; g_dyn_last_raise = now; g_dyn_probe_at = now + g_dyn_probe_wait; }
+        bool room = avg_gpu >= 0 ? avg_gpu * up * up < 13.0 * iv && g_dyn_good >= 4 : now >= g_dyn_probe_at && g_dyn_good >= 2;
+        // (two steps at once while nothing was slow for a while and the factor is far from the top: a climb of 20 s becomes 10)
+        if (room) { g_dyn = fmin(1.0, g_dyn + (now - g_dyn_last_slow > 6.0 && g_dyn < 0.85 ? 0.10 : 0.05)); g_dyn_good = 0; g_dyn_last_raise = now; g_dyn_probe_at = now + g_dyn_probe_wait; }
     }
     g_dyn = round(g_dyn * 20) / 20;
     if (g_dyn != prev) {
@@ -85,7 +95,7 @@ static void dyn_reset(double now) {
     g_dyn_gpu_sum = g_dyn_dt_sum = 0;
     g_dyn_n = g_dyn_gpu_n = g_dyn_good = 0;
     g_last_t = 0;
-    g_dyn_probe_wait = 5.0;
+    g_dyn_probe_wait = DYN_PROBE_MIN, g_dyn_probe_at = 0;
     g_dyn_cool_until = now + 3.0;
 }
 
