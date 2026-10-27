@@ -38,6 +38,13 @@ bool rt_remove_game_files(const char *game_dir);
 // Bytes taken by the extracted game files in game_dir (links not followed).
 unsigned long long rt_game_files_size(const char *game_dir);
 
+// First-run setup: lock and prepare app-owned scratch storage, then publish a
+// complete install into an empty extracted/ directory. Existing files are never
+// replaced implicitly. Failed/interrupted scratch work is removed on retry.
+// rebuild_code stages only a replacement library, preserving existing game data.
+bool rt_game_setup_begin(const char *game_dir, bool rebuild_code, char *stage, size_t size, char *why, size_t why_size);
+bool rt_game_setup_end(bool publish, char *why, size_t why_size);
+
 typedef struct SDL_Window SDL_Window;
 void rt_window_icon(SDL_Window *w);  // the shipped icon.png, if any
 
