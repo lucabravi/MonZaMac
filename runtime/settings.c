@@ -29,6 +29,7 @@ Settings g_settings = {
     .bloom = true,
     .fov = false,        // (changes the framing: off by default)
     .lod = true,
+    .gpu_overlap = true,
     .shadows_4k = false, // (more GPU memory and work: off by default)
     .upscaler = UPSCALE_SHARP,  // (MetalFX on macOS, AMD FSR 1 on Windows)
 };
