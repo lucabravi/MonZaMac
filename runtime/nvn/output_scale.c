@@ -13,10 +13,10 @@
 
 #include "../hle.h"
 #include "../settings.h"
+#include "../services/am.h"
 #include "output_scale.h"
 
 extern bool g_za_frame_hook;  // (hle/framepace.c) the game is Pokémon Z-A
-extern bool am_handheld(void);  // (services/am.c) the mode the game was told
 
 #define MAX_TEX 16384.0
 
