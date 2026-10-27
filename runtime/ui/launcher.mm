@@ -110,6 +110,12 @@ static std::string tag_label(const std::string &t, bool with_word) {
     return with_word ? "Version " + v : v;
 }
 
+// The build's version for the in-game menu ("0.1.0")
+extern "C" const char *rt_version_label(void) {
+    static std::string v = tag_label(LARECOMP_VERSION, false);
+    return v.c_str();
+}
+
 static std::string g_update_tag;  // a newer release's tag (g_update_lock)
 static pthread_mutex_t g_update_lock = PTHREAD_MUTEX_INITIALIZER;
 
