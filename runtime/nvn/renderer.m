@@ -27,6 +27,7 @@ static void dump_pending_arrays(void);
 static uint64_t stat_draws, stat_skipped, stat_passes, stat_dispatches, stat_wait_ns, stat_flushes, stat_feedback_copies;
 static uint64_t stat_skip_none, stat_skip_failed, stat_skip_wait;  // why a draw was dropped
 static double stat_gpu_s;
+static uint64_t stat_uniform_copied, stat_uniform_reused;
 static pthread_mutex_t gpu_timing_lock = PTHREAD_MUTEX_INITIALIZER;
 
 // LARECOMP_GPU_TIMING_TRACE (read once; asked at every command buffer submit and completion) or the Developer tab's switch
@@ -322,6 +323,9 @@ static uint64_t hmix(uint64_t h, const void *p, size_t n) {
 }
 
 const char *renderer_stats(void) {
+    if (getenv("LARECOMP_UNIFORM_STATS"))
+        LOG("[uniform] copied %.1f MB reused %.1f MB\n", stat_uniform_copied / 1048576.0, stat_uniform_reused / 1048576.0);
+    stat_uniform_copied = stat_uniform_reused = 0;
     static int dumps;
     if (dumps++ < 3) {
         LOG("[metal] command counts:");
@@ -1033,23 +1037,48 @@ static int cbuf_base = 3, tex_base = 8;
 @end
 
 static id<MTLBuffer> ring;
-static uint64_t ring_off;
+static uint8_t *ring_data;
+static uint64_t ring_off, ring_epoch;
 #define RING_SIZE (64u << 20)
 
 static uint64_t ring_alloc(const void *data, uint64_t size) {
-    if (!ring) ring = [dev newBufferWithLength:RING_SIZE options:MTLResourceStorageModeShared];
     uint64_t aligned = (ring_off + 255) & ~255ull;
-    if (aligned + size > RING_SIZE) {
+    if (!ring || aligned + size > RING_SIZE) {
         // Start a fresh ring; command buffers in flight keep the old one alive until they complete.
         ring = [dev newBufferWithLength:(size > RING_SIZE ? size : RING_SIZE) options:MTLResourceStorageModeShared];
+        ring_data = ring.contents;
+        ring_epoch++;
         aligned = 0;
     }
-    memcpy((uint8_t *)ring.contents + aligned, data, size);
+    memcpy(ring_data + aligned, data, size);
     ring_off = aligned + size;
     return aligned;
 }
 
-static void ring_reset(void) { ring_off = 0; }
+static void ring_reset(void) { ring_off = 0; ring_epoch++; }
+
+// Uniforms must remain snapshots even if guest memory changes before the GPU reads them. Reuse a snapshot only
+// after comparing all bytes; reset/reallocation invalidates offsets so new allocations cannot overwrite a reuse.
+static uint64_t ring_snapshot(const void *data, uint64_t size) {
+    static struct { const void *source; uint64_t size, offset, epoch; } recent[128];
+    static int disabled = -1;
+    if (disabled < 0) disabled = getenv("LARECOMP_NO_UNIFORM_CACHE") != NULL;
+    if (disabled) { stat_uniform_copied += size; return ring_alloc(data, size); }
+    uint64_t h = (uintptr_t)data ^ (size * 0x9e3779b97f4a7c15ull);
+    unsigned slot = (h ^ (h >> 33)) & 127;
+    if (ring && recent[slot].epoch == ring_epoch && recent[slot].source == data &&
+        recent[slot].size == size && !memcmp(ring_data + recent[slot].offset, data, size)) {
+        stat_uniform_reused += size;
+        return recent[slot].offset;
+    }
+    uint64_t off = ring_alloc(data, size);
+    recent[slot].source = data;
+    recent[slot].size = size;
+    recent[slot].offset = off;
+    recent[slot].epoch = ring_epoch;
+    stat_uniform_copied += size;
+    return off;
+}
 
 // Bind guest memory [addr, addr+size) as a buffer: zero-copy inside the heap, copied otherwise.
 static void bind_guest(id<MTLRenderCommandEncoder> e, bool vertex_stage, uint64_t addr, uint64_t size, int index) {
@@ -2262,7 +2291,7 @@ static void bind_cbufs(int stage, ShaderInfo *si) {
                 e[2] = (uint32_t)st.sbuf[stage][i].size;
             }
             uint64_t size = si->cbuf_size[0] > sizeof drv ? sizeof drv : (si->cbuf_size[0] ? si->cbuf_size[0] : 256);
-            uint64_t off = ring_alloc(drv, size);
+            uint64_t off = ring_snapshot(drv, size);
             if (stage == 0) [enc setVertexBuffer:ring offset:off atIndex:0];
             else [enc setFragmentBuffer:ring offset:off atIndex:0];
             continue;
@@ -2271,7 +2300,7 @@ static void bind_cbufs(int stage, ShaderInfo *si) {
             NvnShaderStage *ss = &st.program->stages[stage];
             uint64_t size = ss->const_size ? ss->const_size : 16;
             if (size < si->cbuf_size[1]) size = si->cbuf_size[1];
-            uint64_t off = ring_alloc((void *)(uintptr_t)(ss->code_addr + ss->const_offset), size);
+            uint64_t off = ring_snapshot((void *)(uintptr_t)(ss->code_addr + ss->const_offset), size);
             if (stage == 0) [enc setVertexBuffer:ring offset:off atIndex:1];
             else [enc setFragmentBuffer:ring offset:off atIndex:1];
             continue;
@@ -2281,7 +2310,7 @@ static void bind_cbufs(int stage, ShaderInfo *si) {
         uint64_t size = si->cbuf_size[k];
         if (!r.addr) {
             static const uint8_t zeros[0x10000];
-            uint64_t off = ring_alloc(zeros, size ? size : 256);
+            uint64_t off = ring_snapshot(zeros, size ? size : 256);
             if (stage == 0) [enc setVertexBuffer:ring offset:off atIndex:k];
             else [enc setFragmentBuffer:ring offset:off atIndex:k];
             continue;
@@ -2289,7 +2318,7 @@ static void bind_cbufs(int stage, ShaderInfo *si) {
         if ((si->cbuf_dynamic & (1u << k)) && r.size) size = r.size > 0x10000 ? 0x10000 : r.size;  // indexed: whole buffer
         if (size > r.size && r.size) size = r.size;
         if (size < 16) size = 16;
-        uint64_t off = ring_alloc((void *)(uintptr_t)r.addr, size);  // snapshot, as later CPU writes must not leak in
+        uint64_t off = ring_snapshot((void *)(uintptr_t)r.addr, size);  // snapshot, as later CPU writes must not leak in
         if (stage == 0) [enc setVertexBuffer:ring offset:off atIndex:k];
         else [enc setFragmentBuffer:ring offset:off atIndex:k];
     }
@@ -2372,12 +2401,12 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
                 uint32_t *e = &drv[(0x310 + 16 * i) / 4];
                 e[0] = (uint32_t)st.sbuf[5][i].addr; e[1] = (uint32_t)(st.sbuf[5][i].addr >> 32); e[2] = (uint32_t)st.sbuf[5][i].size;
             }
-            off = ring_alloc(drv, sizeof drv);
+            off = ring_snapshot(drv, sizeof drv);
         } else if (k == 1) {
             NvnShaderStage *ss = &st.program->stages[5];
             uint64_t size = ss->const_size ? ss->const_size : 16;
             if (size < si->cbuf_size[1]) size = si->cbuf_size[1];
-            off = ring_alloc((void *)(uintptr_t)(ss->code_addr + ss->const_offset), size);
+            off = ring_snapshot((void *)(uintptr_t)(ss->code_addr + ss->const_offset), size);
         } else {
             int idx = k - cbuf_base;
             Range r = (idx >= 0 && idx < 18) ? st.ubuf[5][idx] : (Range){0, 0};
@@ -2386,10 +2415,10 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
                 if ((si->cbuf_dynamic & (1u << k)) && r.size) size = r.size > 0x10000 ? 0x10000 : r.size;
                 if (size > r.size && r.size) size = r.size;
                 if (size < 16) size = 16;
-                off = ring_alloc((void *)(uintptr_t)r.addr, size);
+                off = ring_snapshot((void *)(uintptr_t)r.addr, size);
             } else {
                 static const uint8_t zeros[0x10000];
-                off = ring_alloc(zeros, size);
+                off = ring_snapshot(zeros, size);
             }
         }
         [ce setBuffer:ring offset:off atIndex:k];
