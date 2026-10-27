@@ -1052,7 +1052,10 @@ extern "C" void launcher_run(const char *root) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_QUIT) exit(0);
-            if (busy) continue;  // the progress overlay is modal; ignore underlying mouse, keyboard and pad input
+            if (busy) {  // the progress overlay is modal: no underlying mouse, keyboard or pad input (a pad plugged in meanwhile is still opened)
+                if (e.type == SDL_EVENT_GAMEPAD_ADDED) launcher_pad_event(e);
+                continue;
+            }
             if (e.type == SDL_EVENT_DROP_FILE) {
                 if (page == SETUP && e.drop.windowID == SDL_GetWindowID(win) && e.drop.data) {
                     g_drop_path = e.drop.data;  // SDL owns the event string; retain a copy for the UI frame.
@@ -1582,7 +1585,7 @@ extern "C" void launcher_run(const char *root) {
                     dl->AddText(font, size, p, col, t);
                     if (bold) dl->AddText(font, size, ImVec2(p.x + 0.7f * s, p.y), col, t);
                 };
-                const std::string ver = "by Rhapsodos93";
+                const std::string ver = tag_label(LARECOMP_VERSION, true) + "  \xc2\xb7  by Rhapsodos93";  // (the build first: bug reports name it)
                 float vs = fs * 1.4f, y = ImGui::GetWindowPos().y + ds.y - 134 * s;
                 ImVec2 vsz = font->CalcTextSizeA(vs, FLT_MAX, 0, ver.c_str());
                 text(ImVec2(right - vsz.x, y), vs, IM_COL32(255, 255, 255, 255), ver.c_str(), false);
