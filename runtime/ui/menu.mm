@@ -526,6 +526,10 @@ static void tab_display(void) {
             opt_toggle("Game FXAA", &g_settings.fxaa, true,
                        "The game's own anti-aliasing, a light blur over the whole image. Off: sharper, with more jagged "
                        "edges (SMAA above can smooth them instead).");
+            opt_toggle("Game dynamic resolution", &g_settings.game_drs, false,
+                       "The game's own resolution scaling, which lowers the picture when it thinks the GPU is slow. Off: "
+                       "it stays at full (a window in the background no longer makes it blurry for a while). Separate "
+                       "from Internal resolution > Dynamic.");
             opt_toggle("Depth of field", &g_settings.dof, true,
                        "The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.");
             opt_toggle("Bloom", &g_settings.bloom, true,

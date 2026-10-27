@@ -95,6 +95,7 @@ void settings_load(void) {
         else if (!strcmp(key, "show_fps")) g_settings.show_fps = atoi(val) != 0;
         else if (!strcmp(key, "fps60")) g_settings.fps60 = atoi(val) != 0;
         else if (!strcmp(key, "game_mode")) g_settings.handheld = !strcmp(val, "handheld");
+        else if (!strcmp(key, "game_dynamic_res")) g_settings.game_drs = atoi(val) != 0;
         else if (!strcmp(key, "depth_of_field")) g_settings.dof = atoi(val) != 0;
         else if (!strcmp(key, "game_fxaa")) g_settings.fxaa = atoi(val) != 0;
         else if (!strcmp(key, "bloom")) g_settings.bloom = atoi(val) != 0;
@@ -143,6 +144,7 @@ void settings_save(void) {
     fprintf(f, "show_fps = %d\n", g_settings.show_fps);
     fprintf(f, "fps60 = %d\n", g_settings.fps60);
     fprintf(f, "game_mode = %s\n", g_settings.handheld ? "handheld" : "docked");
+    fprintf(f, "game_dynamic_res = %d\n", g_settings.game_drs);
     fprintf(f, "depth_of_field = %d\n", g_settings.dof);
     fprintf(f, "game_fxaa = %d\n", g_settings.fxaa);
     fprintf(f, "bloom = %d\n", g_settings.bloom);
