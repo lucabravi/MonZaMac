@@ -27,7 +27,231 @@ static void dump_pending_arrays(void);
 static uint64_t stat_draws, stat_skipped, stat_passes, stat_dispatches, stat_wait_ns, stat_flushes, stat_feedback_copies;
 static uint64_t stat_skip_none, stat_skip_failed, stat_skip_wait;  // why a draw was dropped
 static double stat_gpu_s;
-uint64_t g_gpu_total_ns;  // GPU time of all completed command buffers (dynamic resolution: output_scale.c)
+static pthread_mutex_t gpu_timing_lock = PTHREAD_MUTEX_INITIALIZER;
+
+// LARECOMP_GPU_TIMING_TRACE: read once (asked at every command buffer submit and completion)
+bool renderer_gpu_timing_trace(void) {
+    static int on = -1;
+    if (on < 0) on = getenv("LARECOMP_GPU_TIMING_TRACE") != NULL;
+    return on;
+}
+
+#define GPU_TIME_WINDOW_CAP 64
+#define GPU_TIME_INTERVAL_CAP 512
+enum { GPU_WINDOW_FREE, GPU_WINDOW_OPEN, GPU_WINDOW_CLOSED, GPU_WINDOW_READY };
+typedef struct {
+    uint64_t id, frame;
+    int state;
+    bool overflow, invalid_timestamps;
+    unsigned pending, buffers, nintervals;
+    double start_s, end_s, frame_ms, span_sum_ms, busy_ms;
+    double intervals[GPU_TIME_INTERVAL_CAP * 2];  // start/end pairs, mach-clock seconds
+} GpuTimeWindow;
+
+struct RendererGpuTimingToken {
+    uint64_t sequence, frame, first_window, last_window;
+    double commit_s;
+    const char *kind;
+    bool trace, discard;
+    struct RendererGpuTimingToken *next;
+};
+
+static GpuTimeWindow gpu_time_windows[GPU_TIME_WINDOW_CAP];
+static GpuTimeWindow *gpu_time_open;
+static RendererGpuTimingToken *gpu_time_pending;
+static uint64_t gpu_time_window_sequence, gpu_time_cb_sequence;
+
+typedef struct { double start, end; } GpuTimeInterval;
+static int compare_gpu_time_interval(const void *a, const void *b) {
+    double d = ((const GpuTimeInterval *)a)->start - ((const GpuTimeInterval *)b)->start;
+    return d < 0 ? -1 : d > 0 ? 1 : 0;
+}
+
+static bool gpu_timestamps_valid(double start, double end) {
+    return isfinite(start) && isfinite(end) && start > 0 && end >= start;
+}
+
+static double gpu_interval_sum_ms(const double *intervals, size_t count, double window_start, double window_end) {
+    if (!intervals || !count || window_end <= window_start) return 0;
+    if (count > GPU_TIME_INTERVAL_CAP) return -1;
+    double total = 0;
+    for (size_t i = 0; i < count; i++) {
+        double start = fmax(intervals[i * 2], window_start);
+        double end = fmin(intervals[i * 2 + 1], window_end);
+        if (end > start) total += end - start;
+    }
+    return total * 1000.0;
+}
+
+static double gpu_interval_union_ms(const double *intervals, size_t count, double window_start, double window_end) {
+    if (!intervals || !count || window_end <= window_start) return 0;
+    if (count > 512) return -1;  // callers overflow the bounded per-window record
+    GpuTimeInterval sorted[512];
+    size_t n = 0;
+    for (size_t i = 0; i < count; i++) {
+        double start = fmax(intervals[i * 2], window_start);
+        double end = fmin(intervals[i * 2 + 1], window_end);
+        if (end > start) sorted[n++] = (GpuTimeInterval){start, end};
+    }
+    if (!n) return 0;
+    qsort(sorted, n, sizeof *sorted, compare_gpu_time_interval);
+    double total = 0, start = sorted[0].start, end = sorted[0].end;
+    for (size_t i = 1; i < n; i++) {
+        if (sorted[i].start > end) { total += end - start; start = sorted[i].start; end = sorted[i].end; }
+        else if (sorted[i].end > end) end = sorted[i].end;
+    }
+    return (total + end - start) * 1000.0;
+}
+
+static GpuTimeWindow *gpu_time_window(uint64_t id) {
+    GpuTimeWindow *w = &gpu_time_windows[id % GPU_TIME_WINDOW_CAP];
+    return w->state != GPU_WINDOW_FREE && w->id == id ? w : NULL;
+}
+
+static void gpu_time_finalize(GpuTimeWindow *w) {
+    if (w->state != GPU_WINDOW_CLOSED || w->pending) return;
+    bool valid = !w->overflow && !w->invalid_timestamps && w->frame_ms > 0 && w->frame_ms <= 250;
+    w->span_sum_ms = valid ? gpu_interval_sum_ms(w->intervals, w->nintervals, w->start_s, w->end_s) : -1;
+    w->busy_ms = valid ? gpu_interval_union_ms(w->intervals, w->nintervals, w->start_s, w->end_s) : -1;
+    if (w->busy_ms >= 0) stat_gpu_s += w->busy_ms / 1000.0;
+    w->state = GPU_WINDOW_READY;
+    if (renderer_gpu_timing_trace())
+        LOG("[gpu-window] frame %llu elapsed %.3fms spans-sum %.3fms gpu-union %.3fms buffers %u intervals %u%s%s\n",
+            (unsigned long long)w->frame, w->frame_ms, w->span_sum_ms, w->busy_ms, w->buffers, w->nintervals,
+            w->invalid_timestamps ? " invalid-time" : "", w->overflow ? " overflow" : "");
+}
+
+static GpuTimeWindow *gpu_time_open_window(double start_s, uint64_t frame) {
+    for (unsigned attempt = 0; attempt < GPU_TIME_WINDOW_CAP; attempt++) {
+        uint64_t id = ++gpu_time_window_sequence;
+        GpuTimeWindow *w = &gpu_time_windows[id % GPU_TIME_WINDOW_CAP];
+        if (w->state != GPU_WINDOW_FREE) continue;
+        memset(w, 0, sizeof *w);
+        w->id = id;
+        w->frame = frame;
+        w->start_s = start_s;
+        w->state = GPU_WINDOW_OPEN;
+        gpu_time_open = w;
+        for (RendererGpuTimingToken *cb = gpu_time_pending; cb; cb = cb->next) {
+            if (cb->discard || cb->last_window >= id) continue;
+            if (!cb->first_window) cb->first_window = id;
+            cb->last_window = id;
+            w->pending++;
+            w->buffers++;
+        }
+        return w;
+    }
+    gpu_time_open = NULL;
+    return NULL;
+}
+
+RendererGpuTimingToken *renderer_gpu_timing_submit(uint64_t frame, const char *kind) {
+    RendererGpuTimingToken *cb = calloc(1, sizeof *cb);
+    if (!cb) return NULL;
+    pthread_mutex_lock(&gpu_timing_lock);
+    cb->sequence = ++gpu_time_cb_sequence;
+    cb->frame = frame;
+    cb->kind = kind;
+    cb->trace = renderer_gpu_timing_trace();
+    double submit_s = renderer_host_time_seconds();
+    if (!gpu_time_open) gpu_time_open_window(submit_s, frame);
+    if (gpu_time_open) {
+        cb->first_window = cb->last_window = gpu_time_open->id;
+        gpu_time_open->pending++;
+        gpu_time_open->buffers++;
+    }
+    cb->next = gpu_time_pending;
+    gpu_time_pending = cb;
+    pthread_mutex_unlock(&gpu_timing_lock);
+    return cb;
+}
+
+void renderer_gpu_timing_mark_commit(RendererGpuTimingToken *cb) {
+    if (!cb) return;
+    double now = renderer_host_time_seconds();
+    pthread_mutex_lock(&gpu_timing_lock);
+    cb->commit_s = now;
+    pthread_mutex_unlock(&gpu_timing_lock);
+}
+
+void renderer_gpu_timing_complete(RendererGpuTimingToken *cb, double gpu_start, double gpu_end) {
+    if (!cb) return;
+    double completed = renderer_host_time_seconds();
+    bool timestamps_valid = gpu_timestamps_valid(gpu_start, gpu_end);
+    pthread_mutex_lock(&gpu_timing_lock);
+    if (!cb->discard && cb->first_window) {
+        for (uint64_t id = cb->first_window; id <= cb->last_window; id++) {
+            GpuTimeWindow *w = gpu_time_window(id);
+            if (!w || w->state == GPU_WINDOW_READY) continue;
+            if (timestamps_valid && gpu_end > gpu_start) {
+                if (w->nintervals < GPU_TIME_INTERVAL_CAP) {
+                    w->intervals[w->nintervals * 2] = gpu_start;
+                    w->intervals[w->nintervals * 2 + 1] = gpu_end;
+                    w->nintervals++;
+                } else w->overflow = true;
+            } else if (!timestamps_valid) w->invalid_timestamps = true;
+            if (w->pending) w->pending--;
+            gpu_time_finalize(w);
+        }
+    }
+    RendererGpuTimingToken **link = &gpu_time_pending;
+    while (*link && *link != cb) link = &(*link)->next;
+    if (*link) *link = cb->next;
+    pthread_mutex_unlock(&gpu_timing_lock);
+    if (cb->trace)
+        LOG("[gpu-cb] frame %llu cb %llu kind %s commit %.6f start %.6f end %.6f complete %.6f queue %.3fms span %.3fms callback %.3fms\n",
+            (unsigned long long)cb->frame, (unsigned long long)cb->sequence, cb->kind ? cb->kind : "unknown",
+            cb->commit_s, gpu_start, gpu_end, completed,
+            cb->commit_s > 0 && gpu_start > 0 ? (gpu_start - cb->commit_s) * 1000.0 : -1.0,
+            timestamps_valid ? (gpu_end - gpu_start) * 1000.0 : -1.0,
+            gpu_end > 0 ? (completed - gpu_end) * 1000.0 : -1.0);
+    free(cb);
+}
+
+double renderer_gpu_timing_present(uint64_t frame, double *present_time, double *frame_ms, unsigned *samples) {
+    double sum_gpu = 0, sum_frame = 0;
+    unsigned n = 0;
+    pthread_mutex_lock(&gpu_timing_lock);
+    double now = renderer_host_time_seconds();
+    if (present_time) *present_time = now;
+    if (gpu_time_open) {
+        GpuTimeWindow *w = gpu_time_open;
+        gpu_time_open = NULL;
+        w->frame = frame;
+        w->end_s = now;
+        w->frame_ms = (now - w->start_s) * 1000.0;
+        w->state = GPU_WINDOW_CLOSED;
+        gpu_time_finalize(w);
+    }
+    for (unsigned i = 0; i < GPU_TIME_WINDOW_CAP; i++) {
+        GpuTimeWindow *w = &gpu_time_windows[i];
+        if (w->state != GPU_WINDOW_READY) continue;
+        if (w->busy_ms >= 0 && w->frame_ms > 0 && w->frame_ms <= 250) {
+            sum_gpu += w->busy_ms;
+            sum_frame += w->frame_ms;
+            n++;
+        }
+        memset(w, 0, sizeof *w);
+    }
+    gpu_time_open_window(now, frame + 1);
+    pthread_mutex_unlock(&gpu_timing_lock);
+    if (frame_ms) *frame_ms = n ? sum_frame / n : -1;
+    if (samples) *samples = n;
+    return n ? sum_gpu / n : -1;
+}
+
+void renderer_gpu_timing_reset(void) {
+    pthread_mutex_lock(&gpu_timing_lock);
+    memset(gpu_time_windows, 0, sizeof gpu_time_windows);
+    gpu_time_open = NULL;
+    stat_gpu_s = 0;
+    for (RendererGpuTimingToken *cb = gpu_time_pending; cb; cb = cb->next) {
+        cb->discard = true;
+        cb->first_window = cb->last_window = 0;
+    }
+    pthread_mutex_unlock(&gpu_timing_lock);
+}
+
 // (forward: texture-lifetime cleanup and stats, defined further down)
 static int g_views_live;
 static void views_forget(void *base);
@@ -109,9 +333,13 @@ const char *renderer_stats(void) {
     struct task_vm_info vmi;
     mach_msg_type_number_t vn = TASK_VM_INFO_COUNT;
     uint64_t foot = task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&vmi, &vn) == KERN_SUCCESS ? vmi.phys_footprint : 0;
+    pthread_mutex_lock(&gpu_timing_lock);
+    double gpu_s = stat_gpu_s;
+    stat_gpu_s = 0;
+    pthread_mutex_unlock(&gpu_timing_lock);
     snprintf(stats_text, sizeof stats_text, "%llu draws, %llu skipped (%llu no shader, %llu failed, %llu compiling), %llu passes, %llu dispatches, %llu flushes, gpu %.0fms, wait %.0fms, compile %d/%.0fms, fbcopy %llu | tex %d (%.0f MB) views %d snaps %lu mem %.0f MB | waits fence %.0fms/%llu flush %.0fms/%llu all %.0fms/%llu", stat_draws, stat_skipped,
              stat_skip_none, stat_skip_failed, stat_skip_wait,
-             stat_passes, stat_dispatches, stat_flushes, stat_gpu_s * 1000.0, (double)stat_wait_ns / 1e6 * 125.0 / 3.0, stat_compiles, stat_compile_ms, stat_feedback_copies,
+             stat_passes, stat_dispatches, stat_flushes, gpu_s * 1000.0, (double)stat_wait_ns / 1e6 * 125.0 / 3.0, stat_compiles, stat_compile_ms, stat_feedback_copies,
              g_tex_live, g_tex_live_bytes / 1048576.0, g_views_live, (unsigned long)(g_snap_copies ? g_snap_copies.count : 0), foot / 1048576.0, stat_wait_by[0] / 24e3, (unsigned long long)stat_wait_n[0], stat_wait_by[1] / 24e3, (unsigned long long)stat_wait_n[1], stat_wait_by[2] / 24e3, (unsigned long long)stat_wait_n[2]);
     stat_compiles = 0;
     stat_feedback_copies = 0;
@@ -119,7 +347,6 @@ const char *renderer_stats(void) {
     stat_draws = stat_skipped = stat_passes = stat_dispatches = stat_flushes = stat_wait_ns = 0;
     stat_skip_none = stat_skip_failed = stat_skip_wait = 0;
     memset(stat_wait_by, 0, sizeof stat_wait_by); memset(stat_wait_n, 0, sizeof stat_wait_n);
-    stat_gpu_s = 0;
     return stats_text;
 }
 
@@ -263,6 +490,12 @@ static pthread_mutex_t cb_lock = PTHREAD_MUTEX_INITIALIZER;
 static uint64_t submit_seq;
 static id<MTLCommandBuffer> cb_hist[CB_HIST];
 
+double renderer_host_time_seconds(void) {
+    mach_timebase_info_data_t tb;
+    mach_timebase_info(&tb);
+    return (double)mach_absolute_time() * (double)tb.numer / (double)tb.denom / 1e9;
+}
+
 static int g_wait_kind;
 static void wait_cb(id<MTLCommandBuffer> c) {
     if (!c) return;
@@ -312,11 +545,13 @@ void renderer_submit(void) {
     if (cmdbuf) {
         id<MTLCommandBuffer> c = cmdbuf;
         cmdbuf = nil;
+        extern uint64_t renderer_present_count(void);
+        RendererGpuTimingToken *gpu_timing = renderer_gpu_timing_submit(renderer_present_count() + 1, "renderer");
         [c addCompletedHandler:^(id<MTLCommandBuffer> done) {
-            stat_gpu_s += done.GPUEndTime - done.GPUStartTime;
-            __atomic_add_fetch(&g_gpu_total_ns, (uint64_t)((done.GPUEndTime - done.GPUStartTime) * 1e9), __ATOMIC_RELAXED);
+            renderer_gpu_timing_complete(gpu_timing, done.GPUStartTime, done.GPUEndTime);
             if (done.error) LOG("[metal] command buffer error: %s\n", done.error.localizedDescription.UTF8String);
         }];
+        renderer_gpu_timing_mark_commit(gpu_timing);
         [c commit];
         g_passes_in_cb = 0;
         pthread_mutex_lock(&cb_lock);
@@ -1508,6 +1743,12 @@ static id<MTLTexture> shadow_slot_texture(id<MTLTexture> tex, const ShaderTextur
             rp.depthAttachment.clearDepth = 1.0;
             [[cb renderCommandEncoderWithDescriptor:rp] endEncoding];
         }
+        extern uint64_t renderer_present_count(void);
+        RendererGpuTimingToken *timing = renderer_gpu_timing_submit(renderer_present_count() + 1, "resource-init");
+        [cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
+            renderer_gpu_timing_complete(timing, done.GPUStartTime, done.GPUEndTime);
+        }];
+        renderer_gpu_timing_mark_commit(timing);
         [cb commit];
         t[type] = dt;
     }
@@ -3875,6 +4116,7 @@ static void exec_list(uint64_t handle, int depth) {
 // views, snapshots, bound state - so the next boot can't hit a stale entry. Metal's own shader cache stays warm.
 void renderer_reset(void) {
     renderer_flush();
+    renderer_gpu_timing_reset();
     pthread_mutex_lock(&gone_lock);
     ngone = 0;
     pthread_mutex_unlock(&gone_lock);

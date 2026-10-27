@@ -516,7 +516,15 @@ static void upload_texture(NvnTexture *t, TexBackend *b, id<MTLBlitCommandEncode
                     destinationSlice:slice destinationLevel:lv destinationOrigin:MTLOriginMake(0, 0, 0)];
         }
     }
-    if (own_cb) { [blit endEncoding]; [own_cb commit]; }
+    if (own_cb) {
+        [blit endEncoding];
+        RendererGpuTimingToken *timing = renderer_gpu_timing_submit(total_frames + 1, "upload");
+        [own_cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
+            renderer_gpu_timing_complete(timing, done.GPUStartTime, done.GPUEndTime);
+        }];
+        renderer_gpu_timing_mark_commit(timing);
+        [own_cb commit];
+    }
 }
 
 id<MTLTexture> renderer_texture(NvnTexture *t, id<MTLBlitCommandEncoder> blit, bool for_render) {
@@ -543,6 +551,11 @@ void renderer_upload_rgba(NvnTexture *t, const void *rgba, uint32_t w, uint32_t 
                   sourceSize:MTLSizeMake(MIN(w, b->tex.width), MIN(h, b->tex.height), 1) toTexture:b->tex
             destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0, 0, 0)];
         [blit endEncoding];
+        RendererGpuTimingToken *timing = renderer_gpu_timing_submit(total_frames + 1, "upload");
+        [cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
+            renderer_gpu_timing_complete(timing, done.GPUStartTime, done.GPUEndTime);
+        }];
+        renderer_gpu_timing_mark_commit(timing);
         [cb commit];
     }
 }
@@ -1032,13 +1045,16 @@ void backend_present(NvnTexture *t) {
         double dw = drawable.texture.width, dh = drawable.texture.height;
         extern bool present_unlocked(void);
         // render scale + placement in the window: runtime/nvn/output_scale.c (Video tab "Internal resolution")
-        extern uint64_t g_gpu_total_ns;
-        static uint64_t gpu_prev;
-        uint64_t gpu_now = __atomic_load_n(&g_gpu_total_ns, __ATOMIC_RELAXED);
-        double gpu_ms = gpu_prev ? (gpu_now - gpu_prev) / 1e6 : -1;
-        gpu_prev = gpu_now;
+        extern int g_out_present_interval;
+        uint64_t frame = total_frames + 1;
+        double gpu_sample_time, gpu_frame_ms;
+        unsigned gpu_samples;
+        double gpu_ms = renderer_gpu_timing_present(frame, &gpu_sample_time, &gpu_frame_ms, &gpu_samples);
+        if (renderer_gpu_timing_trace())
+            LOG("[gpu-present] frame %llu time %.6f interval %d window %.3fms gpu %.3fms samples %u\n",
+                (unsigned long long)frame, gpu_sample_time, g_out_present_interval, gpu_frame_ms, gpu_ms, gpu_samples);
         OutScale os;
-        output_scale(dw, dh, present_unlocked(), SDL_GetTicksNS() / 1e9, gpu_ms, &os);
+        output_scale(dw, dh, present_unlocked(), gpu_sample_time, gpu_ms, &os);
         double sx = os.sx, sy = os.sy, vx = os.vx, vy = os.vy, vw = os.vw, vh = os.vh, shape = os.shape;
         bool reshape = shape != 1.0;
         extern void present_crop(double, float *, double *, double *, double *, double *);
@@ -1117,6 +1133,11 @@ void backend_present(NvnTexture *t) {
             [bl endEncoding];
         }
         [cb presentDrawable:drawable];
+        RendererGpuTimingToken *gpu_present_timing = renderer_gpu_timing_submit(frame + 1, "present");
+        [cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
+            renderer_gpu_timing_complete(gpu_present_timing, done.GPUStartTime, done.GPUEndTime);
+        }];
+        renderer_gpu_timing_mark_commit(gpu_present_timing);
         [cb commit];
         if (shot_tex) {
             [cb waitUntilCompleted];
