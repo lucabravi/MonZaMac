@@ -986,24 +986,10 @@ void renderer_save_texture(id<MTLTexture> tex, const char *path) { save_texture_
 static double last_fps_time;
 
 void backend_present(NvnTexture *t);
-// A minimised window can't show anything: nextDrawable would wait for the layer's 1 s timeout on every frame. Only
-// minimised counts: SDL's OCCLUDED / HIDDEN flags turned out to stay set on a window the player was looking at
-// (the game kept running, the picture stopped). LARECOMP_PRESENT_HIDDEN=1: present anyway (the old behaviour); test
-// runs (LARECOMP_HIDDEN, LARECOMP_WINDOW_SHOT) always present, their shots come from here.
-static bool window_hidden(void) {
-    static int force = -1;
-    if (force < 0) force = getenv("LARECOMP_PRESENT_HIDDEN") || getenv("LARECOMP_HIDDEN") || getenv("LARECOMP_WINDOW_SHOT");
-    bool h = !force && (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED);
-    static bool was;
-    if (h != was) LOG("[metal] window %s: %s\n", h ? "minimised" : "restored", h ? "frames not presented" : "presenting");
-    was = h;
-    return h;
-}
-
 // Present the last frame again (the game thread waits in a host dialog, e.g. the software keyboard): the overlay
 // keeps drawing and taking input.
 void backend_represent(void) {
-    if (g_last_presented && !window_hidden()) backend_present(g_last_presented);
+    if (g_last_presented) backend_present(g_last_presented);
     else SDL_Delay(16);
 }
 
@@ -1022,7 +1008,6 @@ void backend_present(NvnTexture *t) {
     renderer_submit();  // same queue: the present pass runs after the frame's work
     TexBackend *b = t->backend;
     if (b) b->presented = true;
-    if (window_hidden()) return;
     @autoreleasepool {
         uint64_t nd0 = SDL_GetTicksNS();
         id<CAMetalDrawable> drawable = [layer nextDrawable];
