@@ -986,16 +986,16 @@ void renderer_save_texture(id<MTLTexture> tex, const char *path) { save_texture_
 static double last_fps_time;
 
 void backend_present(NvnTexture *t);
-// The window can't show anything (another app's window covers it, minimised, another Space): nextDrawable would wait
-// for the layer's 1 s timeout on every frame, so the game crawled at ~1 fps in the background (and hung after a
-// while). The frame isn't shown; vi.c keeps the pace. LARECOMP_PRESENT_HIDDEN=1: present anyway (the old behaviour);
-// test runs (LARECOMP_HIDDEN, LARECOMP_WINDOW_SHOT) always present, their shots come from here.
+// A minimised window can't show anything: nextDrawable would wait for the layer's 1 s timeout on every frame. Only
+// minimised counts: SDL's OCCLUDED / HIDDEN flags turned out to stay set on a window the player was looking at
+// (the game kept running, the picture stopped). LARECOMP_PRESENT_HIDDEN=1: present anyway (the old behaviour); test
+// runs (LARECOMP_HIDDEN, LARECOMP_WINDOW_SHOT) always present, their shots come from here.
 static bool window_hidden(void) {
     static int force = -1;
     if (force < 0) force = getenv("LARECOMP_PRESENT_HIDDEN") || getenv("LARECOMP_HIDDEN") || getenv("LARECOMP_WINDOW_SHOT");
-    bool h = !force && (SDL_GetWindowFlags(window) & (SDL_WINDOW_OCCLUDED | SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN));
+    bool h = !force && (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED);
     static bool was;
-    if (h != was) LOG("[metal] window %s: %s\n", h ? "hidden" : "visible again", h ? "frames not presented" : "presenting");
+    if (h != was) LOG("[metal] window %s: %s\n", h ? "minimised" : "restored", h ? "frames not presented" : "presenting");
     was = h;
     return h;
 }
