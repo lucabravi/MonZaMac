@@ -26,6 +26,44 @@ static void gpu_interval_union(void) {
           "GPU intervals outside a present window contribute no busy time");
 }
 
+static void gpu_timing_state_machine(void) {
+    renderer_gpu_timing_reset();
+    double start, second, third, frame_ms, gpu_ms;
+    unsigned samples;
+
+    gpu_ms = renderer_gpu_timing_present(1, &start, &frame_ms, &samples);
+    CHECK(gpu_ms < 0 && samples == 0, "the first present opens a measurement window");
+    RendererGpuTimingToken *token = renderer_gpu_timing_submit(2, "renderer");
+    CHECK(token != NULL, "a submitted command buffer gets a timing token");
+    renderer_gpu_timing_mark_commit(token);
+    gpu_ms = renderer_gpu_timing_present(2, &second, &frame_ms, &samples);
+    CHECK(gpu_ms < 0 && samples == 0, "a window waits for its delayed command-buffer completion");
+    gpu_ms = renderer_gpu_timing_present(3, &third, &frame_ms, &samples);
+    CHECK(gpu_ms < 0 && samples == 0, "an outstanding command buffer remains attached to later windows");
+    renderer_gpu_timing_complete(token, start, third);
+    gpu_ms = renderer_gpu_timing_present(4, NULL, &frame_ms, &samples);
+    CHECK(samples == 3, "a delayed completion releases all crossed present windows");
+    CHECK(gpu_ms > 0 && gpu_ms <= frame_ms + 0.01, "the union stays bounded by the matching elapsed windows");
+
+    renderer_gpu_timing_reset();
+    renderer_gpu_timing_present(10, &start, &frame_ms, &samples);
+    token = renderer_gpu_timing_submit(11, "renderer");
+    renderer_gpu_timing_mark_commit(token);
+    renderer_gpu_timing_complete(token, 0, renderer_host_time_seconds());
+    gpu_ms = renderer_gpu_timing_present(11, NULL, &frame_ms, &samples);
+    CHECK(gpu_ms < 0 && samples == 0, "a zero GPU start timestamp makes the frame sample unknown");
+
+    renderer_gpu_timing_reset();
+    renderer_gpu_timing_present(20, &start, &frame_ms, &samples);
+    token = renderer_gpu_timing_submit(21, "renderer");
+    renderer_gpu_timing_mark_commit(token);
+    renderer_gpu_timing_reset();
+    renderer_gpu_timing_complete(token, start, renderer_host_time_seconds());
+    gpu_ms = renderer_gpu_timing_present(21, NULL, &frame_ms, &samples);
+    CHECK(gpu_ms < 0 && samples == 0, "reset discards outstanding timing tokens safely");
+    renderer_gpu_timing_reset();
+}
+
 static NvnTexture test_texture(uint32_t target, uint32_t width, uint32_t height, uint32_t layers,
                                uint32_t levels, uint32_t format, uint32_t samples) {
     NvnTexture t = {.target = target, .format = format, .flags = 8, .width = width, .height = height,
@@ -1688,6 +1726,7 @@ static void pipeline_archive_reload(void) {  // a pipeline built once is found i
 typedef void (*TestFn)(void);
 static const struct { const char *name, *group; TestFn run; bool needs_sampler26; } tests[] = {
     {"gpu-interval-union", "gpu-time", gpu_interval_union},
+    {"gpu-timing-state", "gpu-time", gpu_timing_state_machine},
     {"smoke", "smoke", smoke},
     {"live-shader-pipeline", "live", live_shader_pipeline},
     {"break-reconvergence", "flow", break_reconvergence},
