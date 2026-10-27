@@ -5,6 +5,8 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+- **Smoother higher internal resolutions (Metal):** fix the jagged character and scenery edges introduced at
+  1.5x and higher by integer screen-space texture reads losing their subpixel positions.
 - **Texture size queries at higher internal resolutions (Metal):** a shader asking a scaled texture for the size of a
   mip level now gets the guest's size (the base halved per level) instead of the allocation's size divided by the
   scale, which was off by one at some levels (1.5x: 17 rows where the game has 16). A suspect for objects popping
