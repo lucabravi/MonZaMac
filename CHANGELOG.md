@@ -5,9 +5,9 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
-- **Developer > CPU/GPU overlap (experimental, off by default):** the game's frame fence is waited one frame late,
-  so the CPU prepares the next frame while the GPU draws the current one instead of taking turns. Also
-  `LARECOMP_GPU_OVERLAP=1`.
+- **CPU/GPU overlap (on by default; Developer > Experimental to turn it off):** the game's frame fence is waited
+  one frame late, so the CPU prepares the next frame while the GPU draws the current one instead of taking turns
+  (about 49 to 58 fps standing still, 53 to 59 in motion on one Mac). `LARECOMP_GPU_OVERLAP=0` also turns it off.
 
 ## 0.1.0 - first tagged release
 
