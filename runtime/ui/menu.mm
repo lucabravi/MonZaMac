@@ -533,6 +533,10 @@ static void tab_display(void) {
     opt_choice("Anti-aliasing", &g_settings.antialias, aa, 2, AA_SMAA,
                "Smooths jagged edges of the game image before it is scaled to the window. SMAA: finds the edges and "
                "blends only along them, so textures stay sharp. Most useful at a lower internal resolution.");
+    opt_toggle("Wait for shaders", &g_settings.wait_shaders, false,
+               "A shader or pipeline the game needs for the first time is compiled on the spot, and the game waits: a short "
+               "stutter, but nothing is missing from the picture. Off: it compiles in the background and the objects that "
+               "need it are left out of the picture until it is ready (the pipelines saved from earlier runs are quick).");
     {   // Pokémon Z-A's own effects (runtime/hle/za_mods.c): the same patch build as the frame mode
         extern bool g_za_frame_hook;
         if (g_za_frame_hook) {
