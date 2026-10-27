@@ -33,6 +33,9 @@ typedef struct {
     bool handheld;       // Pokémon Z-A: the game is told it runs handheld (720p, lighter settings), not docked (runtime/services/am.c)
     bool fps60_steady;   // Pokémon Z-A, with fps60: the world steps by the real frame time, so it keeps its speed under 60 fps (hle/framepace.c)
     bool fps60;  // Pokémon Z-A: its frame clock at 1/60 s per frame (runtime/hle/framepace.c)
+    bool developer;      // the Developer tab of the menu is shown (ini "developer = 1", LARECOMP_DEVELOPER, Cmd+Shift+D)
+    bool dev_gpu_trace;  // Developer: the GPU timing trace in the log (as LARECOMP_GPU_TIMING_TRACE)
+    bool dev_frame_stats;  // Developer: CPU submit time and GPU busy time per frame on the F3 overlay
     bool game_drs;       // Pokémon Z-A: the game's own dynamic resolution may react to the GPU time it is told (runtime/nvn/renderer.m)
     bool dof;            // Pokémon Z-A: its depth of field blur (runtime/hle/za_mods.c)
     bool fxaa;           // Pokémon Z-A: its own FXAA anti-aliasing
