@@ -509,6 +509,12 @@ static void tab_display(void) {
                        "The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.");
             opt_toggle("Bloom", &g_settings.bloom, true,
                        "The game's glow around bright light. Off: no glow, a plainer image.");
+            opt_toggle("Wider view", &g_settings.fov, false,
+                       "The camera's field of view a little wider: more of the scene at the sides. Off: the game's own.");
+            opt_toggle("Level of detail", &g_settings.lod, true,
+                       "Sharper textures at a distance, with stronger anisotropic filtering. Off: the game's own.");
+            opt_toggle("4K shadows", &g_settings.shadows_4k, false,
+                       "Shadows from a 4096 map, sharper than the game's own. Costs GPU memory and work. Off: the game's own.");
         }
     }
 
