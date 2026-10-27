@@ -52,13 +52,14 @@ uint32_t rt_frame_steps(uint32_t interval) {
 #include "../settings.h"
 bool g_za_frame_hook;  // (the game is Pokémon Z-A: exec.c leaves its GPU timing counters alone)
 
-// 60 fps with a steady speed (the "Dynamic 60 FPS" mod, Fl4sh9174). The game steps its world by a period in
+// 60 fps with a steady speed (after the "Dynamic 60 FPS" mod, Fl4sh9174). The game steps its world by a period in
 // nanoseconds, read from two globals of its own: 16666667 (its 60 fps mode) and 33333334 (30 fps). At a fixed 60 the
-// world slows down with every frame over 16.7 ms. Here each frame's real time (smoothed) replaces the period of the
-// mode in use: from about 58 fps down to 46 the 60 mode steps by the real period; under 46 the game is put in its 30
-// fps mode, stepping by the real period (at most 33.3 ms). While the byte at the third site is set (loading, pause)
-// the nominal periods stay. The sites are data, not code, so they live here by build (2.0.2 only); a build without
-// them, or a global that doesn't hold the nominal periods, turns this off.
+// world slows down with every frame over 16.7 ms. Here the 60 mode's period is the real frame time (smoothed), from
+// 58 fps down to 30 (at most 33.3 ms, the 30 mode's own). The mod also puts the game in its 30 fps mode under 46 fps,
+// but that mode presents every two vsyncs, so the frame rate it then measures is ~30 and never leaves it: it stays
+// in the 60 mode and only stretches the step. While the byte at the third site is set (loading, pause) the nominal
+// period stays. The sites are data, not code, so they live here by build (2.0.2 only); a build without them, or a
+// global that doesn't hold the nominal periods, turns this off.
 #define STEP_NS60 16666667ull
 #define STEP_NS30 33333334ull
 extern uint8_t g_game_build[8];  // (main.c) the exefs/main build ID
@@ -68,11 +69,11 @@ static void step_sites(void) {
     if (!memcmp(g_game_build, b202, 8)) g_step60 = 0x7003393e20, g_step30 = 0x7003393e28, g_step_flag = 0x700610b980;
 }
 
-static bool g_step_slow;  // the game's 30 fps mode (under 46 fps), as of the last frame
 static void dynamic_steps(void) {
     static int ok = -1;
     static uint64_t last;
     static double smooth;  // seconds per frame
+    static int band = -1;
     if (ok < 0) {
         step_sites();
         ok = g_step60 && LD64(g_step60) == STEP_NS60 && LD64(g_step30) == STEP_NS30;
@@ -86,18 +87,16 @@ static void dynamic_steps(void) {
     if (dt > 0.25) dt = 0.25;  // (a stall or a load: not the frame rate)
     smooth = smooth > 0 ? dt * 0.05 + smooth * 0.95 : dt;
     int fps = (int)floor(1.0 / smooth);
-    uint64_t real = fps > 0 ? (uint64_t)(1e9f / (float)fps) : STEP_NS30;
-    bool hold = LD8(g_step_flag) != 0;
-    uint64_t p60 = STEP_NS60, p30 = STEP_NS30;
-    if (fps < 46) {
-        p30 = fps < 31 || hold ? STEP_NS30 : real;
-    } else {
-        p60 = fps >= 58 || hold ? STEP_NS60 : real;
+    uint64_t period = STEP_NS60;
+    if (fps < 58 && !LD8(g_step_flag)) {
+        period = fps > 0 ? (uint64_t)(1e9f / (float)fps) : STEP_NS30;
+        if (period > STEP_NS30) period = STEP_NS30;
     }
-    ST64(g_step60, p60);
-    ST64(g_step30, p30);
-    if (g_step_slow != (fps < 46)) LOG("[pace] steady 60: %s (%d fps)\n", fps < 46 ? "game's 30 fps mode" : "60 fps mode", fps);
-    g_step_slow = fps < 46;
+    ST64(g_step60, period);
+    int now_band = period == STEP_NS60 ? 0 : period == STEP_NS30 ? 2 : 1;
+    static int nlog;
+    if (band != now_band && nlog++ < 30) LOG("[pace] steady 60: step %.1f ms (%d fps)\n", period / 1e6, fps);
+    band = now_band;
 }
 
 int32_t rt_za_frame_cfg(int32_t cfg) {
@@ -107,9 +106,8 @@ int32_t rt_za_frame_cfg(int32_t cfg) {
     static int logged = -1;
     if (logged != (int)on) { logged = on; LOG("[pace] game frame mode %d -> %d (%s)\n", cfg, on ? 0 : cfg, on ? "60 fps" : "as is"); }
     if (on && (ENV("LARECOMP_FPS_STEADY") ? atoi(ENV("LARECOMP_FPS_STEADY")) : g_settings.fps60_steady)) {
-        int32_t prev = g_step_slow;  // (the mode decided a frame ago: the game reads it before the new period)
         dynamic_steps();
-        return prev;
+        return 0;  // (its 60 mode)
     }
     return on ? 0 : cfg;
 }
