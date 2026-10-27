@@ -493,15 +493,15 @@ static pthread_mutex_t cb_lock = PTHREAD_MUTEX_INITIALIZER;
 #define CB_HIST 256
 static uint64_t submit_seq;
 static id<MTLCommandBuffer> cb_hist[CB_HIST];
-// CPU / GPU overlap (on by default; the Developer setting or LARECOMP_GPU_OVERLAP=0/1). The game's frame loop submits a frame, presents it and at once
-// waits on that frame's fence (every nvnSyncWait is on the newest submission), so a frame costs CPU + GPU time in
-// series. With overlap the wait is taken one fence late: SyncWait(fence N) waits for the submission of fence N-1 and
-// returns, so the CPU builds frame N+1 while the GPU draws frame N (at most two frames queued; a fence that is
-// already complete is never waited for). What the game may then touch while the GPU still reads it: its per-frame
-// vertex data in the guest heap (bound in place, as is the memory shaders read through the guest buffer); uniforms
-// and direct-draw indices are snapshotted at translation (ring_alloc), and GPU results the CPU reads are flushed synchronously
-// at translation, so they don't depend on the fence. The game's timing counters are host-side (CMD_REPORT_COUNTER),
-// so they need nothing.
+// CPU / GPU overlap (on by default; the Developer setting, or LARECOMP_GPU_OVERLAP=0/1). The game's frame loop
+// submits a frame, presents it and at once waits on that frame's fence (every nvnSyncWait is on the newest
+// submission), so a frame costs CPU + GPU time in series. With overlap the wait is taken one fence late:
+// SyncWait(fence N) waits for the submission of fence N-1 and returns, so the CPU builds frame N+1 while the GPU
+// draws frame N (at most two frames queued; a fence that is already complete is never waited for). What the game
+// may then touch while the GPU still reads it: its per-frame vertex data in the guest heap (bound in place, as is
+// the memory shaders read through the guest buffer); uniforms and direct-draw indices are snapshotted at
+// translation (ring_alloc), and GPU results the CPU reads are flushed synchronously at translation, so they don't
+// depend on the fence. The game's timing counters are host-side (CMD_REPORT_COUNTER), so they need nothing.
 static uint64_t deferred_seq;  // (cb_lock) the fence the game was told is done but whose submission wasn't waited for
 static bool overlap_on(void) {
     static int env = -1;
