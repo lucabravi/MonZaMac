@@ -433,7 +433,7 @@ static void tab_display(void) {
     opt_begin("##video", scale);
     opt_section("Display");
     const char *aspects[] = {"Unlocked", "Original 16:9"};
-    opt_choice("Aspect ratio", &g_settings.aspect, aspects, 2, ASPECT_UNLOCKED,
+    opt_choice("Aspect ratio", &g_settings.aspect, aspects, 2, ASPECT_ORIGINAL,
                "Unlocked: the view fills the window, so wider (or taller) windows show more of the world - up to "
                "ultrawide. Original 16:9: the game's own framing, with bars.");
     bool fs = g_settings.fullscreen;
@@ -460,7 +460,7 @@ static void tab_display(void) {
     // (Match display in the middle: left from it 75% / 50% / 25%, right Dynamic then 1x-4x; user 2026-10-11)
     static const char *res[] = {"25%", "50%", "75%", "Match display", "Dynamic", "1x", "1.5x", "2x", "3x", "4x"};
     static const int res_mode[] = {RES_Q25, RES_Q50, RES_Q75, RES_MATCH, RES_DYNAMIC, 1, RES_X15, 2, 3, 4};
-    enum { RES_MATCH_AT = 3 };
+    enum { RES_MATCH_AT = 3, RES_1X_AT = 5 };
     enum { NRES = sizeof res_mode / sizeof res_mode[0] };
     {
         int ri = RES_MATCH_AT;
@@ -474,7 +474,7 @@ static void tab_display(void) {
                                       "%.0f x %.0f.", 1920.0 * sx, 1080.0 * sy);
         if (g_settings.res_mode == RES_DYNAMIC)
             snprintf(d + n, sizeof d - n, " Dynamic: %.0f%% of the display right now.", output_scale_dynamic_factor() * 100);
-        if (opt_choice("Internal resolution", &ri, res, NRES, RES_MATCH_AT, d, false)) g_settings.res_mode = res_mode[ri];
+        if (opt_choice("Internal resolution", &ri, res, NRES, RES_1X_AT, d, false)) g_settings.res_mode = res_mode[ri];
     }
     {   // each OS's own upscaler next to bilinear (UPSCALE_SHARP: MetalFX on macOS, AMD FSR 1 on Windows)
 #ifdef __APPLE__
@@ -496,7 +496,7 @@ static void tab_display(void) {
         if (opt_choice("Upscaler", &ui, ups, 2, 1, ud)) g_settings.upscaler = ui ? UPSCALE_SHARP : UPSCALE_BILINEAR;
     }
     static const char *aa[] = {"Off", "SMAA"};
-    opt_choice("Anti-aliasing", &g_settings.antialias, aa, 2, AA_OFF,
+    opt_choice("Anti-aliasing", &g_settings.antialias, aa, 2, AA_SMAA,
                "Smooths jagged edges of the game image before it is scaled to the window. SMAA: finds the edges and "
                "blends only along them, so textures stay sharp. Most useful at a lower internal resolution.");
     {   // Pokémon Z-A's own effects (runtime/hle/za_mods.c): the same patch build as the frame mode
