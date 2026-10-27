@@ -112,10 +112,26 @@ NVN(nvnQueueGetTotalCommandMemoryUsed) { RET(0); }
 NVN(nvnQueueGetTotalControlMemoryUsed) { RET(0); }
 NVN(nvnQueueGetTotalComputeMemoryUsed) { RET(0); }
 NVN(nvnQueueResetMemoryUsageCounts) { (void)c; static int seen_; if (!seen_++ && getenv("LARECOMP_LOG_NOOP")) LOG("[nvn] no-op called: nvnQueueResetMemoryUsageCounts\n"); }
+// A texture is finalized (any game thread) not while a submitted list is being translated that may read it: this
+// lock (recursive) orders nvnTextureFinalize against nvnQueueSubmitCommands.
+static pthread_mutex_t exec_lock;
+static pthread_once_t exec_lock_once = PTHREAD_ONCE_INIT;
+static void exec_lock_init(void) {
+    pthread_mutexattr_t a;
+    pthread_mutexattr_init(&a);
+    pthread_mutexattr_settype(&a, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&exec_lock, &a);
+    pthread_mutexattr_destroy(&a);
+}
+static void exec_lock_take(void) { pthread_once(&exec_lock_once, exec_lock_init); pthread_mutex_lock(&exec_lock); }
+static void exec_lock_give(void) { pthread_mutex_unlock(&exec_lock); }
+
 NVN(nvnQueueSubmitCommands) {
     int n = (int)A(1);
     const uint64_t *handles = AP(2);
+    exec_lock_take();
     for (int i = 0; i < n; i++) backend_execute(handles[i]);
+    exec_lock_give();
 }
 NVN(nvnQueueFlush) { (void)c; static int seen_; if (!seen_++ && getenv("LARECOMP_LOG_NOOP")) LOG("[nvn] no-op called: nvnQueueFlush\n"); }
 NVN(nvnQueueFinish) { (void)c; renderer_sync(); }
@@ -394,9 +410,23 @@ static void texture_reap(void) {
     ndead = keep;
     pthread_mutex_unlock(&dead_lock);
 }
+extern NvnDescPool *g_texture_pools[64];
 NVN(nvnTextureFinalize) {
     NvnTexture *t = HOST(NvnTexture, A(0));
-    if (t) { backend_texture_destroyed(t); texture_retire(t); }
+    if (t) {
+        exec_lock_take();
+        // Z-A finalizes textures still registered in a pool (slots it no longer reads, but a draw state can still bind
+        // them): those entries are emptied, as if the texture had never been registered there.
+        if (t->in_pool)
+            for (int i = 0; i < 64 && g_texture_pools[i]; i++) {
+                NvnTexEntry *e = (NvnTexEntry *)g_texture_pools[i]->entries;
+                for (int k = 0; k < g_texture_pools[i]->count; k++)
+                    if (e[k].tex == t) e[k].tex = NULL;
+            }
+        backend_texture_destroyed(t);
+        texture_retire(t);
+        exec_lock_give();
+    }
     SET_HOST(A(0), 0);
 }
 NVN(nvnTextureSetDebugLabel) {
@@ -569,6 +599,7 @@ static void register_texture(Cpu *c) {
     if (id < 0 || id >= d->count) return;
     NvnTexEntry *e = &((NvnTexEntry *)d->entries)[id];
     e->tex = HOST(NvnTexture, A(2));
+    if (e->tex) e->tex->in_pool = true;
     e->has_view = A(3) != 0;
     if (e->has_view) memcpy(&e->view, AP(3), sizeof e->view);
 }
