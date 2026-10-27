@@ -3,6 +3,12 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
+## Unreleased
+
+- **Developer > CPU/GPU overlap (experimental, off by default):** the game's frame fence is waited one frame late,
+  so the CPU prepares the next frame while the GPU draws the current one instead of taking turns. Also
+  `LARECOMP_GPU_OVERLAP=1`.
+
 ## 0.1.0 - first tagged release
 
 MonZaMac is the native macOS (Apple Silicon, Metal) port of Pokémon Legends: Z-A. This is the first numbered
