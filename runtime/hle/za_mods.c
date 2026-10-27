@@ -1,6 +1,6 @@
 // Pokémon Z-A's graphics options (Display tab), at the sites of StevensND's and Fl4sh9174's exefs mods
-// (tools/patches.py ZA_DOF / ZA_FXAA / ZA_BLOOM / ZA_WIDE). Each applies from the next frame.
-//   LARECOMP_DOF / LARECOMP_FXAA / LARECOMP_BLOOM = 0 / 1   override the setting
+// (tools/patches.py ZA_DOF / ZA_FXAA / ZA_BLOOM / ZA_WIDE / ZA_FOV / ZA_LOD / ZA_SHADOW). Each applies from the next frame.
+//   LARECOMP_DOF / LARECOMP_FXAA / LARECOMP_BLOOM / LARECOMP_FOV / LARECOMP_LOD / LARECOMP_SHADOWS_4K = 0 / 1
 #include <stdlib.h>
 #include <string.h>
 
@@ -60,4 +60,28 @@ __uint128_t rt_za_hud_rect(uint64_t addr) {
     __uint128_t q;
     memcpy(&q, r, sizeof q);
     return q;
+}
+
+// Improved FOV: the mod adds 0.203125 to the camera's field of view (fadd s1, s1, s30) and leaves s30 at that value
+uint32_t rt_za_fov(Cpu *c, uint32_t w) {
+    static int logged = -1;
+    if (!on("field of view", ENV("LARECOMP_FOV"), g_settings.fov, &logged)) return w;
+    float f;
+    memcpy(&f, &w, sizeof f);
+    f += 0.203125f;
+    memcpy(&w, &f, sizeof w);
+    c->v[30] = 0x3e500000u;
+    return w;
+}
+
+// Level of detail: the LOD bias (-1.0) and the anisotropic filtering (8.0), both constants of the mod
+bool rt_za_lod(void) {
+    static int logged = -1;
+    return on("level of detail", ENV("LARECOMP_LOD"), g_settings.lod, &logged);
+}
+
+// 4K shadows: the shadow map is 4096 instead of the size the game loads
+bool rt_za_shadows_4k(void) {
+    static int logged = -1;
+    return on("4K shadows", ENV("LARECOMP_SHADOWS_4K"), g_settings.shadows_4k, &logged);
 }
