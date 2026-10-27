@@ -5,6 +5,7 @@
 //   1x .. 4x       N times the Switch's docked image (1x: the default): 1080 lines x N (wide windows keep their shape: 32:9 at 2x =
 //                  7680 x 2160); capped to the GPU's 16384-pixel texture limit
 //   .75x / .50x / .25x  of Match display (scaled up to the window - with MetalFX on macOS when chosen)
+//   Dynamic 1.5x   1.5x, lowered the same way (to 0.75x at the floor)
 //   Dynamic        Match display, lowered in steps while the GPU can't hold the game's frame rate and raised again when it can
 //                  (each change reallocates the render targets: a short hitch, so it changes rarely, with hysteresis)
 // Test overrides: LARECOMP_SCALE=<f> (render height = 1080 x f), LARECOMP_WIDE_TEST=<f> (forced shape).
@@ -80,6 +81,7 @@ void output_scale(double dw, double dh, bool reshape_allowed, double now, double
     if (forced > 0) h = forced;
     else if (mode >= 1 && mode <= 8) h = mode;
     else if (mode == RES_X15) h = 1.5;  // (between 1x and 2x: most of 2x's smoothing for about half its cost)
+    else if (mode == RES_DYNAMIC_X15) { dyn_update(now, gpu_ms); h = 1.5 * g_dyn; }  // (1.5x while the GPU holds the frame rate, lower when it can't)
     else {
         h = reshape ? dh / 1080.0 : fit;  // Match display
         if (g_za_frame_hook && am_handheld()) h *= 1080.0 / 720.0;
