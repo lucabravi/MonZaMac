@@ -173,6 +173,14 @@ bool menu_handle_event(const SDL_Event *e) {
             settings_save();
             return true;
         }
+        extern bool g_za_frame_hook;
+        extern void am_set_handheld(bool);
+        if (!e->key.repeat && g_za_frame_hook && e->key.scancode == SDL_SCANCODE_H && (e->key.mod & SDL_KMOD_GUI) &&
+            (e->key.mod & SDL_KMOD_CTRL)) {  // Cmd+Ctrl+H: docked <-> handheld
+            am_set_handheld(!g_settings.handheld);
+            settings_save();
+            return true;
+        }
         /* fallthrough */
     case SDL_EVENT_KEY_UP: {
         if (!capturing()) return false;
@@ -442,6 +450,19 @@ static void tab_display(void) {
         g_want_fullscreen_apply.store(true);
     }
     opt_toggle("Show FPS", &g_settings.show_fps, false, "Shows the frame rate in the top right corner.");
+    {   // Pokémon Z-A's game mode (runtime/services/am.c): the mode the game is told it runs in
+        extern bool g_za_frame_hook;
+        extern void am_set_handheld(bool);
+        if (g_za_frame_hook) {
+            int gm = g_settings.handheld ? 1 : 0;
+            static const char *modes[] = {"Docked (1080p)", "Handheld (720p)"};
+            if (opt_choice("Game mode", &gm, modes, 2, 0,
+                           "The mode the game believes it runs in. Handheld: it draws 720p with lighter effects, as on the "
+                           "Switch's own screen - far less work for the GPU, for slower Macs. Docked: 1080p. Also Cmd+Ctrl+H. "
+                           "If the picture does not follow at once, restart the game."))
+                am_set_handheld(gm == 1);
+        }
+    }
     {   // Pokémon Z-A's frame mode (runtime/hle/framepace.c rt_za_frame_cfg): applies from the next frame
         extern bool g_za_frame_hook;
         if (g_za_frame_hook) {
