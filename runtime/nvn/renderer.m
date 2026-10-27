@@ -493,6 +493,24 @@ static pthread_mutex_t cb_lock = PTHREAD_MUTEX_INITIALIZER;
 #define CB_HIST 256
 static uint64_t submit_seq;
 static id<MTLCommandBuffer> cb_hist[CB_HIST];
+// CPU / GPU overlap (on by default; the Developer setting, or LARECOMP_GPU_OVERLAP=0/1). The game's frame loop
+// submits a frame, presents it and at once waits on that frame's fence (every nvnSyncWait is on the newest
+// submission), so a frame costs CPU + GPU time in series. With overlap the wait is taken one fence late:
+// SyncWait(fence N) waits for the submission of fence N-1 and returns, so the CPU builds frame N+1 while the GPU
+// draws frame N (at most two frames queued; a fence that is already complete is never waited for). What the game
+// may then touch while the GPU still reads it: its per-frame vertex data in the guest heap (bound in place, as is
+// the memory shaders read through the guest buffer); uniforms and direct-draw indices are snapshotted at
+// translation (ring_alloc), and GPU results the CPU reads are flushed synchronously at translation, so they don't
+// depend on the fence. The game's timing counters are host-side (CMD_REPORT_COUNTER), so they need nothing.
+static uint64_t deferred_seq;  // (cb_lock) the fence the game was told is done but whose submission wasn't waited for
+static bool overlap_on(void) {
+    static int env = -1;
+    if (env < 0) {
+        const char *e = ENV("LARECOMP_GPU_OVERLAP");
+        env = e ? (atoi(e) != 0) : 2;
+    }
+    return env == 2 ? g_settings.gpu_overlap : env == 1;
+}
 
 double renderer_host_time_seconds(void) {
     mach_timebase_info_data_t tb;
@@ -576,6 +594,9 @@ void renderer_flush(void) {
     g_wait_kind = 1;
     wait_cb(c);
     g_wait_kind = 0;
+    pthread_mutex_lock(&cb_lock);
+    deferred_seq = 0;  // (everything committed so far is done)
+    pthread_mutex_unlock(&cb_lock);
     ring_reset();
 }
 
@@ -588,6 +609,9 @@ void renderer_sync(void) {
     g_wait_kind = 2;
     wait_cb(c);
     g_wait_kind = 0;
+    pthread_mutex_lock(&cb_lock);
+    deferred_seq = 0;
+    pthread_mutex_unlock(&cb_lock);
 }
 
 // Sequence number a fence placed now belongs to: the pending (uncommitted) work's submission, else the last one.
@@ -620,6 +644,26 @@ void renderer_wait_seq(uint64_t seq) {
                 (unsigned long long)frames_seen, hist[0], hist[1], hist[2], hist[3], hist[4], hist[5], (unsigned long long)submit_seq);
             memset(hist, 0, sizeof hist);
             f0 = f;
+        }
+    }
+    if (overlap_on()) {  // (see deferred_seq) wait for the fence deferred last time, defer this one
+        pthread_mutex_lock(&cb_lock);
+        bool done = seq <= submit_seq && submit_seq - seq < CB_HIST && cb_hist[seq % CB_HIST] &&
+                    cb_hist[seq % CB_HIST].status >= MTLCommandBufferStatusCompleted;
+        uint64_t prev = deferred_seq;
+        if (done) {
+            if (seq >= prev) deferred_seq = 0;  // (in order: the older one is complete too)
+            pthread_mutex_unlock(&cb_lock);
+            return;
+        }
+        if (seq > prev) {  // a newer fence: the deferred one is waited for now, this one at the next call
+            deferred_seq = seq;
+            pthread_mutex_unlock(&cb_lock);
+            if (!prev) return;
+            seq = prev;
+        } else {  // the deferred fence again, or an older one: a real wait on it
+            if (seq == prev) deferred_seq = 0;
+            pthread_mutex_unlock(&cb_lock);
         }
     }
     pthread_mutex_lock(&cb_lock);

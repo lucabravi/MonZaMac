@@ -625,6 +625,13 @@ static void tab_developer(void) {
     opt_toggle("GPU timing log", &g_settings.dev_gpu_trace, false,
                "Writes the command buffers' and present windows' GPU times to the log (the same as LARECOMP_GPU_TIMING_TRACE): "
                "a few lines per frame. For measuring; slows the log down.");
+    opt_section("Experimental");
+    opt_toggle("CPU/GPU overlap", &g_settings.gpu_overlap, true,
+               "The game waits for each frame's GPU work right after sending it, so the CPU and the GPU take turns. On: the "
+               "wait is one frame late, so the CPU prepares the next frame while the GPU draws this one: a higher frame "
+               "rate when CPU and GPU are both well used. Risk: the game may overwrite a frame's vertex data "
+               "while the GPU still reads it (flicker or glitched geometry; none seen so far). Turn it off if anything looks "
+               "wrong, and tell us where.");
     opt_section("Menu");
     opt_toggle("Show this tab", &g_settings.developer, false,
                "Off hides the Developer tab again (Cmd+Shift+D or \"developer = 1\" in larecomp.ini bring it back).");
