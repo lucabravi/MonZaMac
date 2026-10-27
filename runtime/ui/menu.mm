@@ -512,8 +512,8 @@ static void tab_display(void) {
             opt_toggle("Wider view", &g_settings.fov, false,
                        "The camera's field of view a little wider: more of the scene at the sides. Off: the game's own.");
             opt_toggle("Sharper textures", &g_settings.lod, true,
-                       "8x anisotropic filtering, so textures stay sharp at a slant. On macOS 26 or later it also biases them toward "
-                       "sharper mips at a distance. Off: the game's own.");
+                       "Textures stay sharp on ground and walls seen at a slant, and (macOS 26 or later) farther away too. "
+                       "Off: the game's own.");
             opt_toggle("4K shadows", &g_settings.shadows_4k, false,
                        "Shadows from a 4096 map, sharper than the game's own. Costs GPU memory and work. Off: the game's own.");
         }
