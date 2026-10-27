@@ -19,7 +19,7 @@ _uc_versioned = (glob.glob(os.path.join(_uc_lib_dir, 'libunicorn.so*'))  # (not 
                  + glob.glob(os.path.join(_uc_lib_dir, 'unicorn.dll')))
 
 a = Analysis(
-    [os.path.join(TOOLS, 'gen.py')],
+    [os.path.join(TOOLS, 'lasgen_main.py')],
     pathex=[TOOLS],
     binaries=collect_dynamic_libs('capstone') + collect_dynamic_libs('unicorn')
              + [(p, 'unicorn/lib') for p in _uc_versioned],
