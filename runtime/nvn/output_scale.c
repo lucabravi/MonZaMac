@@ -27,6 +27,7 @@ static double g_dyn_gpu_sum, g_dyn_dt_sum, g_last_t;
 static int g_dyn_n, g_dyn_gpu_n, g_dyn_good;
 static double g_dyn_cool_until, g_dyn_probe_wait = 5.0, g_dyn_probe_at;
 static double g_dyn_last_raise = -100;
+static double g_dyn_last_dt = -1, g_dyn_last_gpu = -1;  // (the averages of the last decision: F3)
 int g_out_present_interval = 1;  // (objects.c: vsyncs per presented frame - 2 when the game runs at 30 fps)
 
 static void dyn_update(double now, double gpu_ms) {
@@ -42,10 +43,13 @@ static void dyn_update(double now, double gpu_ms) {
     g_dyn_n = g_dyn_gpu_n = 0;
     if (now < g_dyn_cool_until) return;
     double prev = g_dyn;
+    g_dyn_last_dt = avg_dt, g_dyn_last_gpu = avg_gpu;
     // the budget is the game's frame period: at 30 fps (interval 2) every frame takes 33 ms by design, and judged
     // against 60 fps that read as too slow and lowered the resolution to the 0.5 floor
     double iv = g_out_present_interval >= 1 && g_out_present_interval <= 4 ? g_out_present_interval : 1;
-    bool slow = avg_dt > 17.4 * iv || (avg_gpu >= 0 && avg_gpu > 14.5 * iv);
+    // Slow frames count only when the GPU is a real part of them: a frame that is long on the CPU side (under 9 ms of
+    // GPU) is not helped by a lower resolution, and lowering it anyway left the picture soft for nothing.
+    bool slow = avg_gpu >= 0 ? avg_gpu > 14.5 * iv || (avg_dt > 17.4 * iv && avg_gpu > 9.0 * iv) : avg_dt > 17.4 * iv;
     if (slow) {
         g_dyn = fmax(0.5, g_dyn - (avg_dt > 22 * iv ? 0.1 : 0.05));
         g_dyn_good = 0;
@@ -53,7 +57,10 @@ static void dyn_update(double now, double gpu_ms) {
     } else if (g_dyn < 1.0) {
         g_dyn_good++;
         // with GPU timing: raise when there is clear headroom; without (Vulkan): probe upwards now and then
-        bool room = avg_gpu >= 0 ? avg_gpu < 10.5 * iv && g_dyn_good >= 4 : now >= g_dyn_probe_at && g_dyn_good >= 2 * (int)g_dyn_probe_wait;
+        // raise when the next step (pixels grow with the square of the factor) is predicted to stay under the limit:
+        // a fixed 10.5 ms bar left the factor low where a higher one would have held (stuck at its floor with 11 ms of GPU)
+        double up = (g_dyn + 0.05) / g_dyn;
+        bool room = avg_gpu >= 0 ? avg_gpu * up * up < 13.0 * iv && g_dyn_good >= 4 : now >= g_dyn_probe_at && g_dyn_good >= 2 * (int)g_dyn_probe_wait;
         if (room) { g_dyn = fmin(1.0, g_dyn + 0.05); g_dyn_good = 0; g_dyn_last_raise = now; g_dyn_probe_at = now + g_dyn_probe_wait; }
     }
     g_dyn = round(g_dyn * 20) / 20;
@@ -64,6 +71,18 @@ static void dyn_update(double now, double gpu_ms) {
 }
 
 double output_scale_dynamic_factor(void) { return g_dyn; }
+void output_scale_dynamic_stats(double *frame_ms, double *gpu_ms) { *frame_ms = g_dyn_last_dt; *gpu_ms = g_dyn_last_gpu; }
+
+// A change of the resolution mode starts the controller over: it kept the factor of the mode before, and the hitch of
+// the change itself read as a slow frame.
+static void dyn_reset(double now) {
+    g_dyn = 1.0;
+    g_dyn_gpu_sum = g_dyn_dt_sum = 0;
+    g_dyn_n = g_dyn_gpu_n = g_dyn_good = 0;
+    g_last_t = 0;
+    g_dyn_probe_wait = 5.0;
+    g_dyn_cool_until = now + 3.0;
+}
 
 double g_out_shape = 1.0;  // the last frame's shape (runtime/hle/za_mods.c: Pokémon Z-A's camera follows it)
 
@@ -78,6 +97,11 @@ void output_scale(double dw, double dh, bool reshape_allowed, double now, double
     // render height in units of the Switch's 1080 lines
     double h;
     int mode = g_settings.res_mode;
+    static int last_mode = -1;
+    if (mode != last_mode) {
+        if (last_mode >= 0 && (mode == RES_DYNAMIC || mode == RES_DYNAMIC_X15)) dyn_reset(now);
+        last_mode = mode;
+    }
     if (forced > 0) h = forced;
     else if (mode >= 1 && mode <= 8) h = mode;
     else if (mode == RES_X15) h = 1.5;  // (between 1x and 2x: most of 2x's smoothing for about half its cost)
