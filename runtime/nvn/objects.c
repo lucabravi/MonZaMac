@@ -364,9 +364,39 @@ NVN(nvnTextureInitialize) {
     SET_HOST(A(0), t);
     RET(1);
 }
+// A finalized texture's object is freed a few presents later, not at once: the renderer's state (render targets, the
+// last presented image) and commands the game recorded can still name it, and a stale pointer into freed memory (a
+// crash in draw, reading the pointer's bytes as text) is now one to a dead texture with no backend.
+#define TEX_QUARANTINE_PRESENTS 8
+static pthread_mutex_t dead_lock = PTHREAD_MUTEX_INITIALIZER;
+static struct { NvnTexture *t; uint64_t at; } *dead;
+static int ndead, capdead;
+static uint64_t g_presents;
+static void texture_retire(NvnTexture *t) {
+    pthread_mutex_lock(&dead_lock);
+    if (ndead == capdead) {
+        void *grown = realloc(dead, (size_t)(capdead ? capdead * 2 : 256) * sizeof *dead);
+        if (!grown) { pthread_mutex_unlock(&dead_lock); free(t); return; }  // (out of memory: as before)
+        dead = grown, capdead = capdead ? capdead * 2 : 256;
+    }
+    dead[ndead].t = t, dead[ndead].at = g_presents, ndead++;
+    pthread_mutex_unlock(&dead_lock);
+}
+static void texture_reap(void) {
+    pthread_mutex_lock(&dead_lock);
+    g_presents++;
+    int keep = 0;
+    for (int i = 0; i < ndead; i++) {
+        if (g_presents - dead[i].at < TEX_QUARANTINE_PRESENTS) { dead[keep++] = dead[i]; continue; }
+        if (dead[i].t->backend) backend_texture_destroyed(dead[i].t);  // (a stale draw gave it a new one)
+        free(dead[i].t);
+    }
+    ndead = keep;
+    pthread_mutex_unlock(&dead_lock);
+}
 NVN(nvnTextureFinalize) {
     NvnTexture *t = HOST(NvnTexture, A(0));
-    if (t) { backend_texture_destroyed(t); free(t); }
+    if (t) { backend_texture_destroyed(t); texture_retire(t); }
     SET_HOST(A(0), 0);
 }
 NVN(nvnTextureSetDebugLabel) {
@@ -696,6 +726,7 @@ int g_present_tex[2];
 NVN(nvnQueuePresentTexture) {
     NvnWindow *w = HOST(NvnWindow, A(1));
     int i = (int)A(2);
+    texture_reap();
     if (i >= 0 && i < w->num) {
         NvnTexture *pt = HOST(NvnTexture, w->textures[i]);
         memcpy(g_present_crop, w->crop, sizeof g_present_crop);
