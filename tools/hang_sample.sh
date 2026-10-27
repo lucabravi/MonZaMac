@@ -4,12 +4,17 @@
 # presents nothing, so it doesn't count); one sample per freeze. Ctrl+C also samples, then ends the game.
 # usage: tools/hang_sample.sh [extra monzamac args]   (run from the project folder)
 #   EXE (default build/za202/monzamac), STALL (default 20), OUT (default build/hang): play.log, sample-<time>.txt
+#   WAIT_DUMP (default 30, 0 off): every that many seconds the log gets what each guest thread waits on, with the last
+#   events of the keys they park on (kernel.c LARECOMP_WAIT_DUMP + LARECOMP_KEY_RING): a sample only shows the threads
+#   parked in the kernel, this says on what and who last signalled it
 cd "$(dirname "$0")/.."
 EXE=${EXE:-build/za202/monzamac}
 STALL=${STALL:-20}
 OUT=${OUT:-build/hang}
 mkdir -p "$OUT"
 LOG="$OUT/play.log"
+WAIT_DUMP=${WAIT_DUMP:-30}
+[ "$WAIT_DUMP" != 0 ] && export LARECOMP_WAIT_DUMP=$WAIT_DUMP LARECOMP_KEY_RING=1
 
 take() {  # $1: why
     local f; f="$OUT/sample-$(date +%H%M%S).txt"
