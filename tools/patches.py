@@ -9,9 +9,6 @@ PATCHES = {}
 ZA_BUILDS = {'7222e13ecf6adb32': 0x70019e37a8,  # 1.0.0
              '8a1c86c437394b69': 0x7001b29cf8,  # 2.0.0 (Mega Dimension; the same function)
              'b1f12fd919eae86a': 0x7001b296d8}  # 2.0.2
-# 2.0.2's frame periods (ns, 64-bit) the game steps its world by - 16666667 (its 60 fps mode) and 33333334 (30 fps) -
-# and a byte that is set while it loads / pauses: what the "Dynamic 60 FPS" mod rewrites (rt_za_step_sites)
-ZA_STEP = {'b1f12fd919eae86a': (0x7003393e20, 0x7003393e28, 0x700610b980)}
 # The depth of field pass reads its intensity and skips itself at 0 (fcmp s0, #0; b.le): "Disable DOF"
 ZA_DOF = {'7222e13ecf6adb32': 0x7000dee3f0,
           '8a1c86c437394b69': 0x7000f31e50,
@@ -42,15 +39,13 @@ def _word(gen, a):
     return struct.unpack_from('<I', gen.nso.image, a - gen.base)[0]
 
 
-def _za_frame_cfg(gen, a, aspect=None, step=None):
+def _za_frame_cfg(gen, a, aspect=None):
     w = _word(gen, a)
     assert w == 0x39c08134, hex(w)  # ldrsb w20, [x9, #0x20]
     wide = ''
     if aspect:  # (once a frame: the camera's aspect follows the window)
         assert _word(gen, aspect) == 0x3fe38e39, hex(_word(gen, aspect))  # 16 / 9
         wide = f'extern void rt_za_aspect(uint64_t); rt_za_aspect({aspect:#x}); '
-    if step:
-        wide += 'extern void rt_za_step_sites(uint64_t, uint64_t, uint64_t); rt_za_step_sites(%#x, %#x, %#x); ' % step
     return ('{ extern int32_t rt_za_frame_cfg(int32_t); ' + wide +
             'c->x[20] = (uint32_t)rt_za_frame_cfg((int8_t)LD8(c->x[9] + 0x20)); }'
             f'  /* {a:#x}: ldrsb w20, [x9, #0x20] (frame mode) */')
@@ -119,7 +114,7 @@ def _za_shadow(gen, a):
 
 def za_patches(build):
     aspect, hud = ZA_WIDE.get(build, (None, None))
-    p = {ZA_BUILDS[build]: lambda gen, a: _za_frame_cfg(gen, a, aspect, ZA_STEP.get(build)), ZA_DOF[build]: _za_dof,
+    p = {ZA_BUILDS[build]: lambda gen, a: _za_frame_cfg(gen, a, aspect), ZA_DOF[build]: _za_dof,
          ZA_BLOOM[build][0]: _za_bloom, ZA_BLOOM[build][1]: _za_bloom_call}
     p.update({a: _za_fxaa for a in ZA_FXAA[build]})
     if hud:
