@@ -86,30 +86,26 @@ static void save_png(id<MTLTexture> tex, const char *path) {
 
 static const uint8_t BUILD_ID[8] = {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a};  // Pokémon Legends: Z-A v2.0.2 main
 // The release tag this build is (also names the release files; Makefile / tools/bundle_macos.sh / make_dmg.sh read
-// it): beta_<n> until 1.0, then v<major>.<minor>.<patch>.
-#define LARECOMP_VERSION "beta_1"
+// it): v<major>.<minor>.<patch>, 0.x until 1.0.
+#define LARECOMP_VERSION "v0.1.0"
 
 // ------------------------------------------------------------------ update check
 // The start screen asks GitHub for the project's releases once per launch (a background curl, which macOS and
-// Windows 10+ ship) and offers the best one if it outranks this build: any v1.0.0+ above every beta, betas by
-// number; other tags (the alpha_* ones) are ignored. Offline / no curl / anything unexpected: nothing is shown.
+// Windows 10+ ship) and offers the best one if it outranks this build: v<major>.<minor>.<patch> tags by version;
+// other tags are ignored. Offline / no curl / anything unexpected: nothing is shown.
 #define RELEASES_URL "https://api.github.com/repos/lucabravi/MonZaMac/releases?per_page=100"
 #define RELEASE_PAGE "https://github.com/lucabravi/MonZaMac/releases/tag/"
 
 static long long tag_rank(const std::string &t) {
-    int n, a, b, c;
+    int a, b, c;
     char end;
-    if (sscanf(t.c_str(), "beta_%d%c", &n, &end) == 1 && n > 0) return n;
-    if (sscanf(t.c_str(), "v%d.%d.%d%c", &a, &b, &c, &end) == 3 && a >= 1 && b >= 0 && c >= 0 && b < 4096 && c < 4096)
-        return (1LL << 48) + ((long long)a << 24) + ((long long)b << 12) + c;
+    if (sscanf(t.c_str(), "v%d.%d.%d%c", &a, &b, &c, &end) == 3 && a >= 0 && b >= 0 && c >= 0 && b < 4096 && c < 4096)
+        return ((long long)a << 24) + ((long long)b << 12) + c;
     return -1;
 }
 
-// "Beta 2" / "1.0.0" (with_word: "Version 1.0.0")
+// "0.1.0" (with_word: "Version 0.1.0")
 static std::string tag_label(const std::string &t, bool with_word) {
-    int n;
-    char end;
-    if (sscanf(t.c_str(), "beta_%d%c", &n, &end) == 1) return "Beta " + std::to_string(n);
     std::string v = t.size() > 1 && t[0] == 'v' ? t.substr(1) : t;
     return with_word ? "Version " + v : v;
 }
@@ -119,7 +115,7 @@ static pthread_mutex_t g_update_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void *update_thread(void *) {
     std::string body;
-    if (const char *t = getenv("LARECOMP_UPDATE_TAGS")) {  // (test) "beta_2,v1.0.0": these releases, no network
+    if (const char *t = getenv("LARECOMP_UPDATE_TAGS")) {  // (test) "v0.2.0,v1.0.0": these releases, no network
         for (const char *p = t; *p;) {
             const char *c = strchr(p, ',');
             body += "\"tag_name\": \"" + std::string(p, c ? c - p : strlen(p)) + "\"\n";

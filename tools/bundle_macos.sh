@@ -14,11 +14,8 @@ APP="build/MonZaMac.app"
 DEPS=$PWD/build/deps
 BUNDLE_ID=$(sed -n 's/^#define RT_BUNDLE_ID "\(.*\)"/\1/p' runtime/paths.h)
 VERSION=$(sed -n 's/^#define LARECOMP_VERSION "\(.*\)"/\1/p' runtime/ui/launcher.mm)
-# CFBundleShortVersionString must be digits: beta_<n> -> 0.9.<n>, v1.2.3 -> 1.2.3
-case "$VERSION" in
-    beta_*) VERSION="0.9.${VERSION#beta_}" ;;
-    v*) VERSION="${VERSION#v}" ;;
-esac
+# CFBundleShortVersionString must be digits: v0.1.0 -> 0.1.0
+VERSION="${VERSION#v}"
 GEN_HELPER=build/helper/lasgen
 ZIG=build/zig
 [ -x "$EXE" ] || { echo "no $EXE"; exit 1; }
