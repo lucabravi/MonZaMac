@@ -145,6 +145,9 @@ deps:
 	MACOS_MIN=$(APP_MIN) tools/build_deps_macos.sh
 app:
 	@[ -f build/deps/lib/libSDL3.0.dylib ] || { echo "make deps first"; exit 1; }
+	MACOS_MIN=$(APP_MIN) tools/build_nstool.sh
+	$(MAKE) gen-helper
+	tools/fetch_zig.sh
 	$(MAKE) B=$(APP_B) MACOS_MIN=$(APP_MIN) DEPS=$(CURDIR)/build/deps $(APP_B)/monzamac
 	MACOS_MIN=$(APP_MIN) tools/bundle_macos.sh $(APP_B)/monzamac
 

@@ -30,7 +30,7 @@ fetch "https://github.com/astral-sh/python-build-standalone/releases/download/20
 
 if [ ! -f "$P/lib/libSDL3.0.dylib" ]; then
     unpack SDL3-3.4.18.tar.gz sdl
-    cmake -S "$S/sdl" -B "$S/sdl/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$P" \
+    cmake -S "$S/sdl" -B "$S/sdl/build" -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$P" \
           -DCMAKE_OSX_DEPLOYMENT_TARGET="$MIN" -DCMAKE_OSX_ARCHITECTURES=arm64 -DSDL_SHARED=ON -DSDL_STATIC=OFF \
           -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF -DSDL_INSTALL_DOCS=OFF
     cmake --build "$S/sdl/build" -j"$JOBS" && cmake --install "$S/sdl/build"

@@ -14,16 +14,15 @@ APP="build/MonZaMac.app"
 DEPS=$PWD/build/deps
 BUNDLE_ID=$(sed -n 's/^#define RT_BUNDLE_ID "\(.*\)"/\1/p' runtime/paths.h)
 VERSION=$(sed -n 's/^#define LARECOMP_VERSION "\(.*\)"/\1/p' runtime/ui/launcher.mm)
-# CFBundleShortVersionString must be digits: beta_<n> -> 0.9.<n>, v1.2.3 -> 1.2.3
-case "$VERSION" in
-    beta_*) VERSION="0.9.${VERSION#beta_}" ;;
-    v*) VERSION="${VERSION#v}" ;;
-esac
+# CFBundleShortVersionString must be digits: v0.1.0 -> 0.1.0
+VERSION="${VERSION#v}"
 GEN_HELPER=build/helper/lasgen
 ZIG=build/zig
 [ -x "$EXE" ] || { echo "no $EXE"; exit 1; }
 [ -x "$GEN_HELPER/lasgen" ] || { echo "no $GEN_HELPER (make gen-helper)"; exit 1; }
 [ -x "$ZIG/zig" ] || { echo "no $ZIG (tools/fetch_zig.sh)"; exit 1; }
+NSTOOL=tools/nstool
+[ -x "$NSTOOL/bin/nstool" ] || { echo "no nstool (tools/build_nstool.sh)"; exit 1; }
 # the app must hold no game code: that's built on the player's machine (grep without -q: with pipefail, nm cut off
 # early would hide a match)
 if nm "$EXE" | grep ' _f_70' >/dev/null; then echo "$EXE has game code linked in"; exit 1; fi
@@ -35,6 +34,17 @@ cp "$EXE" "$C/MacOS/monzamac"
 strip -S "$C/MacOS/monzamac"  # (debug-map entries only: the symbols crash reports name functions by stay)
 cp -R "$GEN_HELPER" "$C/Resources/lasgen"
 cp -R "$ZIG" "$C/Resources/zig"
+mkdir -p "$C/Resources/nstool/licenses"
+cp "$NSTOOL/bin/nstool" "$C/Resources/nstool/nstool"
+cp "$NSTOOL/LICENSE" "$C/Resources/nstool/licenses/nstool-MIT.txt"
+for dep in libpietendo libtoolchain libfmt liblz4 libmbedtls; do
+    license="$NSTOOL/deps/$dep/LICENSE"
+    [ -f "$license" ] || license="$license.rst"
+    cp "$license" "$C/Resources/nstool/licenses/$dep.txt"
+done
+cp "$NSTOOL/deps/libmbedtls/apache-2.0.txt" "$C/Resources/nstool/licenses/mbedtls-Apache-2.0.txt"
+git -C "$NSTOOL" rev-parse HEAD > "$C/Resources/nstool/source-revision.txt"
+git -C "$NSTOOL" submodule status >> "$C/Resources/nstool/source-revision.txt"
 mkdir "$C/Resources/gamelib-src"
 cp runtime/cpu.h runtime/simd.h runtime/simd_fp.h runtime/gamelib.h tools/gamelib_entry.c runtime/hle/hle_symbols.txt \
    "$C/Resources/gamelib-src/"
@@ -56,7 +66,7 @@ find_dep() {  # dep as referenced by (the original of) $2 -> a real file
 }
 deps_of() { otool -L "$1" | tail -n +2 | awk '{print $1}' | grep -v "^$(otool -D "$1" | tail -n +2 | head -1)\$" || true; }
 origin() { local s; s="$(dirname "$1")/.$(basename "$1").src"; if [ -f "$s" ]; then cat "$s"; else echo "$1"; fi; }
-queue="$C/MacOS/monzamac"
+queue="$C/MacOS/monzamac|$C/Resources/nstool/nstool"
 copied=" "
 while [ -n "$queue" ]; do
     f=${queue%%|*}; [ "$queue" = "$f" ] && queue= || queue=${queue#*|}
@@ -79,6 +89,7 @@ rm -f "$C/Frameworks"/.*.src
 rpaths() { otool -l "$1" | awk '/LC_RPATH/ {getline; getline; print $2}'; }
 for r in $(rpaths "$C/MacOS/monzamac"); do install_name_tool -delete_rpath "$r" "$C/MacOS/monzamac"; done
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$C/MacOS/monzamac"
+# nstool links its dependencies statically and needs no additional rpath.
 for f in "$C/Frameworks"/*.dylib; do  # (their own build rpaths, if any: point them at the bundle instead)
     for r in $(rpaths "$f"); do install_name_tool -delete_rpath "$r" "$f"; done
     install_name_tool -add_rpath "@loader_path" "$f" 2>/dev/null || true
