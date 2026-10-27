@@ -22,8 +22,7 @@ Working:
 - Controller and keyboard input
 
 Known issues:
-- Occasional stalls at startup (restart the game)
-- Shading glitches on animated models, NPCs popping in and out while walking
+- NPCs can still pop in and out while walking
 
 Bugs and questions: [GitHub issues](https://github.com/lucabravi/MonZaMac/issues), see [CONTRIBUTING.md](CONTRIBUTING.md).
 
