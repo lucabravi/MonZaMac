@@ -11,6 +11,65 @@ void metal_test_next_texture_frame(void);
 
 #define CHECK(c, message) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d: %s\n", __func__, __LINE__, message); exit(1); } } while (0)
 
+static void uniform_snapshots(void) {
+    renderer_flush();
+    ring_reset();
+    uint32_t value[4] = {17};
+    uint64_t first = ring_snapshot(value, sizeof value);
+    uint64_t repeated = ring_snapshot(value, sizeof value);
+    if (!getenv("LARECOMP_NO_UNIFORM_CACHE")) CHECK(first == repeated, "unchanged uniforms reuse their snapshot");
+    value[0] = 23;
+    uint64_t second = ring_snapshot(value, sizeof value);
+    CHECK(first != second, "changed uniforms get a separate snapshot");
+
+    NSError *err = nil;
+    id<MTLLibrary> lib = [dev newLibraryWithSource:@"#include <metal_stdlib>\nusing namespace metal;\n"
+        "kernel void copy_value(constant uint *v [[buffer(0)]], device uint *out [[buffer(1)]],"
+        "constant uint &i [[buffer(2)]]) { out[i] = v[0]; }" options:nil error:&err];
+    CHECK(lib != nil, "snapshot test kernel compiles");
+    id<MTLComputePipelineState> pipe = [dev newComputePipelineStateWithFunction:[lib newFunctionWithName:@"copy_value"] error:&err];
+    CHECK(pipe != nil, "snapshot test pipeline compiles");
+    id<MTLBuffer> result = [dev newBufferWithLength:16 options:MTLResourceStorageModeShared];
+    id<MTLCommandBuffer> command = [renderer_queue() commandBuffer];
+    id<MTLComputeCommandEncoder> e = [command computeCommandEncoder];
+    [e setComputePipelineState:pipe];
+    [e setBuffer:result offset:0 atIndex:1];
+    uint64_t offsets[] = {first, second, 0};
+    for (uint32_t i = 0; i < 3; i++) {
+        if (i == 2) {  // replace the ring while the first two GPU reads are encoded but not submitted
+            ring_off = RING_SIZE;
+            value[0] = 31;
+            offsets[i] = ring_snapshot(value, sizeof value);
+        }
+        [e setBuffer:ring offset:offsets[i] atIndex:0];
+        [e setBytes:&i length:sizeof i atIndex:2];
+        [e dispatchThreadgroups:MTLSizeMake(1, 1, 1) threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
+    }
+    [e endEncoding];
+    [command commit];
+    [command waitUntilCompleted];
+    CHECK(command.error == nil, "snapshot GPU reads complete");
+    CHECK(((uint32_t *)result.contents)[0] == 17 && ((uint32_t *)result.contents)[1] == 23 &&
+          ((uint32_t *)result.contents)[2] == 31,
+          "GPU retains snapshots across source changes and ring replacement before submission");
+
+    ring_reset();
+    value[0] = 55;
+    ring_snapshot(value, sizeof value);
+    ring_reset();
+    uint64_t fresh = ring_snapshot(value, sizeof value);
+    uint8_t overwrite[512] = {0};
+    ring_alloc(overwrite, sizeof overwrite);
+    CHECK(*(uint32_t *)(ring_data + fresh) == 55, "reset invalidates reused offsets before new allocations overwrite them");
+    id<MTLBuffer> previous = ring;
+    ring_off = RING_SIZE;
+    ring_alloc(overwrite, 16);
+    CHECK(ring != previous, "ring exhaustion creates a new buffer");
+    uint64_t wrapped = ring_snapshot(value, sizeof value);
+    CHECK(*(uint32_t *)(ring_data + wrapped) == 55 && *(uint32_t *)((uint8_t *)previous.contents + fresh) == 55,
+          "ring replacement preserves the old snapshot and copies uniforms into the new buffer");
+}
+
 static void gpu_interval_union(void) {
     const double intervals[] = {
         0.020, 0.025,  // [20, 25] ms
@@ -1726,6 +1785,7 @@ static void pipeline_archive_reload(void) {  // a pipeline built once is found i
 
 typedef void (*TestFn)(void);
 static const struct { const char *name, *group; TestFn run; bool needs_sampler26; } tests[] = {
+    {"uniform-snapshots", "uniforms", uniform_snapshots},
     {"largest-textures", "diagnostics", metal_test_texture_dump},
     {"gpu-interval-union", "gpu-time", gpu_interval_union},
     {"gpu-timing-state", "gpu-time", gpu_timing_state_machine},
