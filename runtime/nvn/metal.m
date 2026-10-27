@@ -271,7 +271,7 @@ bool renderer_texture_level_fresh(NvnTexture *t) {
     if (keep < 0) keep = getenv("LARECOMP_KEEP_TARGETS") != NULL;
     if (!b || keep || b->level_gen == g_level_gen) return false;
     if (!b->scalable) { b->level_gen = g_level_gen; return false; }  // scene buffers only: UI textures the game draws once
-                                                                       // and reuses (rupee counter) must keep their contents
+                                                                       // and reuses (HUD counters) must keep their contents
     bool fresh = b->level_gen != 0;  // first use ever: nothing stale to hide
     b->level_gen = g_level_gen;
     if (fresh && getenv("LARECOMP_LOG_LEVELCLEAR"))

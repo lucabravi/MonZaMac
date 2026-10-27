@@ -1,5 +1,5 @@
 // Pokémon Z-A's graphics options (Display tab), at the sites of StevensND's and Fl4sh9174's exefs mods
-// (tools/patches.py ZA_DOF / ZA_FXAA / ZA_BLOOM / ZA_WIDE / ZA_FOV / ZA_LOD / ZA_SHADOW). Each applies from the next frame.
+// (tools/patches.py ZA_DOF / ZA_FXAA / ZA_BLOOM / ZA_WIDE / ZA_FOV / ZA_LOD / ZA_SHADOW). Each applies from the next frame (4K shadows: when the game next sizes its shadow map).
 //   LARECOMP_DOF / LARECOMP_FXAA / LARECOMP_BLOOM / LARECOMP_FOV / LARECOMP_LOD / LARECOMP_SHADOWS_4K = 0 / 1
 #include <stdlib.h>
 #include <string.h>
@@ -74,7 +74,7 @@ uint32_t rt_za_fov(Cpu *c, uint32_t w) {
     return w;
 }
 
-// Level of detail: the LOD bias (-1.0) and the anisotropic filtering (8.0), both constants of the mod
+// "Sharper textures" (the mods' Level of detail): the LOD bias (-1.0) and the anisotropic filtering (8.0), both constants of the mod
 bool rt_za_lod(void) {
     static int logged = -1;
     return on("level of detail", ENV("LARECOMP_LOD"), g_settings.lod, &logged);

@@ -35,7 +35,7 @@ typedef struct {
     bool fxaa;           // Pokémon Z-A: its own FXAA anti-aliasing
     bool bloom;          // Pokémon Z-A: its bloom (glow around bright light)
     bool fov;            // Pokémon Z-A: a wider field of view (runtime/hle/za_mods.c rt_za_fov)
-    bool lod;            // Pokémon Z-A: LOD bias and 16x-style anisotropic filtering (rt_za_lod)
+    bool lod;            // Pokémon Z-A: 8x anisotropic filtering and LOD bias -1.0 (the bias needs macOS 26) (rt_za_lod)
     bool shadows_4k;     // Pokémon Z-A: 4096 shadow map (rt_za_shadows_4k)
     bool dpad_move;      // the d-pad (and arrow keys) move like the stick
     bool mirror_mode;    // the world mirrored left to right (Gameplay tab): renderers + runtime/hle/input.c
