@@ -16,8 +16,10 @@ static const char *settings_file(void) {
 }
 
 Settings g_settings = {
-    .aspect = ASPECT_UNLOCKED,
+    .aspect = ASPECT_ORIGINAL,
     .fullscreen = false,
+    .res_mode = 1,  // 1x: the Switch's 1080p
+    .antialias = AA_SMAA,
     .volume = 1.0f,
     .reverb = true,
     .movie_audio = true,
