@@ -1417,10 +1417,10 @@ static void pipeline_archive_add(MTLRenderPipelineDescriptor *pd, Prog *pr) {
     });
 }
 
-static bool sync_shaders(void) {  // LARECOMP_SYNC_SHADERS: compile on first use, blocking (deterministic tests)
+static bool sync_shaders(void) {  // LARECOMP_SYNC_SHADERS or the "Wait for shaders" setting: compile on first use, blocking
     static int v = -1;
     if (v < 0) v = getenv("LARECOMP_SYNC_SHADERS") != NULL;
-    return v;
+    return v || g_settings.wait_shaders;
 }
 
 // Native shader arguments must match the effective view's scalar type; integer/stencil reads return raw bits.
