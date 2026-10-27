@@ -471,8 +471,8 @@ static void tab_display(void) {
             if (opt_choice("Frame rate", &fr, rates, 3, 0,
                            "30 fps: as on the Switch. 60 fps: the game presents every vsync and steps its world 1/60 s "
                            "a frame - smoother, but it slows down whenever a frame takes longer than that. 60 fps, steady "
-                           "speed: the world steps by the time each frame really took, so the speed holds under 60 fps "
-                           "(below about 46 the game drops to its 30 fps mode). Needs a faster CPU."))
+                           "speed: the world steps by the time each frame really took, so the speed holds when a frame "
+                           "takes longer than 1/60 s (down to 30 fps). Needs a faster CPU."))
                 g_settings.fps60 = fr >= 1, g_settings.fps60_steady = fr == 2;
         }
     }
