@@ -1,0 +1,15 @@
+diff --git a/src/FsProcess.cpp b/src/FsProcess.cpp
+index ade3c21..c77336d 100644
+--- a/src/FsProcess.cpp
++++ b/src/FsProcess.cpp
+@@ -2,0 +3 @@
++#include "MonZaMacPathSafety.hpp"
+@@ -123,0 +125,2 @@ void nstool::FsProcess::extractFs()
++				if (!monzamac::safe_nstool_entry_name(itr->virtual_path.back()))
++					throw tc::ArgumentOutOfRangeException(mModuleLabel, "Unsafe filesystem entry name");
+@@ -218,0 +222,2 @@ void nstool::FsProcess::visitDir(const tc::io::Path& v_path, const tc::io::Path&
++		if (extract_fs && !monzamac::safe_nstool_entry_name(*itr))
++			throw tc::ArgumentOutOfRangeException(mModuleLabel, "Unsafe filesystem entry name");
+@@ -255,0 +261,2 @@ void nstool::FsProcess::visitDir(const tc::io::Path& v_path, const tc::io::Path&
++		if (extract_fs && !monzamac::safe_nstool_entry_name(*itr))
++			throw tc::ArgumentOutOfRangeException(mModuleLabel, "Unsafe filesystem entry name");
