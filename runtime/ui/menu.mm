@@ -27,6 +27,7 @@ extern "C" {
 #include "../hle.h"
 #include "../settings.h"
 #include "menu.h"
+#include "../nvn/output_scale.h"
 void input_reset(void);
 void controls_bindings_draw(float scale);  // controls_ui.mm
 #include "../input_bind.h"
@@ -439,7 +440,6 @@ static bool toggle(const char *label, bool *v) {
 
 extern "C" void renderer_get_scale(float *sx, float *sy);
 extern "C" int input_pad_family(void);  // runtime/hle/input.c
-extern "C" double output_scale_dynamic_factor(void);
 
 static void tab_display(void) {
     float scale = ImGui::GetFontSize() / 34;
