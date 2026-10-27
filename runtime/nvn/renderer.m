@@ -1060,18 +1060,47 @@ static id<MTLBinaryArchive> g_archive;       // this run's pipelines, saved to t
 static id<MTLBinaryArchive> g_archive_read;  // the last run's file, only looked up (render thread)
 static dispatch_queue_t g_archive_q;
 static int g_archive_dirty;  // pipelines added since the last save (on g_archive_q)
+static NSMutableArray<MTLRenderPipelineDescriptor *> *g_archive_saved, *g_archive_new;  // in the last save / since (on g_archive_q)
 static int g_archive_hits;   // pipelines found in the archive this run (render thread)
 static NSURL *g_archive_url; // absolute, fixed at open: the working directory may be gone at exit (the tests delete it)
 
+// A failed save leaves the archive empty ("Nothing to serialize"): build it again from the pipelines given
+static void pipeline_archive_rebuild(NSArray<MTLRenderPipelineDescriptor *> *with) {  // on g_archive_q
+    g_archive = [dev newBinaryArchiveWithDescriptor:[MTLBinaryArchiveDescriptor new] error:nil];
+    for (MTLRenderPipelineDescriptor *pd in with) [g_archive addRenderPipelineFunctionsWithDescriptor:pd error:nil];
+}
+
 static void pipeline_archive_save(void) {  // on g_archive_q
-    if (!g_archive_dirty) return;
+    if (!g_archive_dirty || !g_archive) return;
     // write next to the file and rename: the archive being looked up still reads the old one
     NSURL *tmp = [g_archive_url URLByAppendingPathExtension:@"tmp"];
     NSError *err;
-    if ([g_archive serializeToURL:tmp error:&err] && rename(tmp.fileSystemRepresentation, g_archive_url.fileSystemRepresentation) == 0) {
-        LOG("[shader] pipeline archive saved (%d new, %d found in it this run)\n", g_archive_dirty, g_archive_hits);
-        g_archive_dirty = 0;
-    } else LOG("[shader] pipeline archive save failed: %s\n", err ? err.localizedDescription.UTF8String : strerror(errno));
+    if (![g_archive serializeToURL:tmp error:&err]) {
+        // Some pipelines save alone but not next to others ("expecting 'fragment' stage in pipeline no. N", where N is
+        // not the order they were added in): start again from the last saved set and add the new ones one at a time,
+        // leaving out each that breaks the save. shortcut: one full save per new pipeline, only after a failure.
+        LOG("[shader] pipeline archive save failed (%s): finding the pipelines that break it\n", err.localizedDescription.UTF8String);
+        NSArray *fresh = [g_archive_new copy];
+        pipeline_archive_rebuild(g_archive_saved);
+        for (MTLRenderPipelineDescriptor *pd in fresh) {
+            if ([g_archive addRenderPipelineFunctionsWithDescriptor:pd error:nil] && [g_archive serializeToURL:tmp error:&err]) {
+                [g_archive_saved addObject:pd];
+                continue;
+            }
+            LOG("[shader] pipeline archive: %s left out: %s\n", pd.label.UTF8String, err.localizedDescription.UTF8String);
+            pipeline_archive_rebuild(g_archive_saved);
+        }
+        [g_archive_new removeAllObjects];
+        if (![g_archive serializeToURL:tmp error:&err]) { LOG("[shader] pipeline archive save failed: %s\n", err.localizedDescription.UTF8String); return; }
+    }
+    if (rename(tmp.fileSystemRepresentation, g_archive_url.fileSystemRepresentation) != 0) {
+        LOG("[shader] pipeline archive save failed: %s\n", strerror(errno));
+        return;
+    }
+    [g_archive_saved addObjectsFromArray:g_archive_new];
+    [g_archive_new removeAllObjects];
+    LOG("[shader] pipeline archive saved (%d new, %d found in it this run)\n", g_archive_dirty, g_archive_hits);
+    g_archive_dirty = 0;
 }
 
 void renderer_save_pipeline_archive(void) { if (g_archive_q) dispatch_sync(g_archive_q, ^{ pipeline_archive_save(); }); }
@@ -1094,6 +1123,8 @@ static id<MTLBinaryArchive> pipeline_archive(void) {
         g_archive = [dev newBinaryArchiveWithDescriptor:ad error:&err];
         if (!g_archive) { g_archive_read = nil; LOG("[shader] no pipeline archive: %s\n", err.localizedDescription.UTF8String); return; }
         LOG("[shader] pipeline archive %s\n", g_archive_read ? "loaded" : "new");
+        g_archive_saved = [NSMutableArray new];
+        g_archive_new = [NSMutableArray new];
         g_archive_q = dispatch_queue_create("pipeline-archive", DISPATCH_QUEUE_SERIAL);
         atexit(renderer_save_pipeline_archive);
     });
@@ -1120,22 +1151,16 @@ static bool pipeline_archivable(MTLRenderPipelineDescriptor *pd, Prog *pr) {
 static void pipeline_archive_add(MTLRenderPipelineDescriptor *pd, Prog *pr) {
     if (!g_archive || !pipeline_archivable(pd, pr)) return;
     dispatch_async(g_archive_q, ^{
-        // a pipeline that cannot be saved even alone would fail every later save too: save each alone first
-        NSURL *probe = [g_archive_url URLByAppendingPathExtension:@"probe"];
         NSError *err;
         pd.binaryArchives = nil;  // (our own copy) built from its functions alone
-        id<MTLBinaryArchive> one = [dev newBinaryArchiveWithDescriptor:[MTLBinaryArchiveDescriptor new] error:&err];
-        bool ok = one && [one addRenderPipelineFunctionsWithDescriptor:pd error:&err] && [one serializeToURL:probe error:&err] &&
-                  [g_archive addRenderPipelineFunctionsWithDescriptor:pd error:&err];
-        unlink(probe.fileSystemRepresentation);
-        if (!ok) {
+        if (![g_archive addRenderPipelineFunctionsWithDescriptor:pd error:&err]) {
             static int n;
-            if (n++ < 10) LOG("[shader] pipeline archive: %s left out: %s\n", pd.label.UTF8String, err.localizedDescription.UTF8String);
+            if (n++ < 10) LOG("[shader] pipeline archive add failed: %s\n", err.localizedDescription.UTF8String);
             return;
         }
+        [g_archive_new addObject:pd];
         // save 30 s after the first unsaved add, so a crash loses little; exit and the screenshot tests save too.
-        // shortcut: each save rewrites the whole file and each pipeline is built twice more in the background, fine for
-        // a few thousand pipelines; append-only files if it gets slow
+        // shortcut: each save rewrites the whole file, fine for a few thousand pipelines; append-only files if it gets slow
         if (g_archive_dirty++ == 0)
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC), g_archive_q, ^{ pipeline_archive_save(); });
     });
