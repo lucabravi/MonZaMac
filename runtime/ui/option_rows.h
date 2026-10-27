@@ -4,7 +4,7 @@
 //
 //   opt_begin("##gameplay", scale);
 //   opt_section("Difficulty");
-//   if (opt_toggle("One-hit KO", &g_settings.diff_ohko, false, "Any hit defeats Link.")) settings_save();
+//   if (opt_toggle("One-hit KO", &g_settings.diff_ohko, false, "Any hit is fatal.")) settings_save();
 //   opt_end();
 #pragma once
 
