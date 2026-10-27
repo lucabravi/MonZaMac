@@ -466,12 +466,14 @@ static void tab_display(void) {
     {   // Pokémon Z-A's frame mode (runtime/hle/framepace.c rt_za_frame_cfg): applies from the next frame
         extern bool g_za_frame_hook;
         if (g_za_frame_hook) {
-            int fr = g_settings.fps60 ? 1 : 0;
-            static const char *rates[] = {"30 fps (Switch)", "60 fps"};
-            if (opt_choice("Frame rate", &fr, rates, 2, 0,
+            int fr = g_settings.fps60 ? (g_settings.fps60_steady ? 2 : 1) : 0;
+            static const char *rates[] = {"30 fps (Switch)", "60 fps", "60 fps, steady speed"};
+            if (opt_choice("Frame rate", &fr, rates, 3, 0,
                            "30 fps: as on the Switch. 60 fps: the game presents every vsync and steps its world 1/60 s "
-                           "a frame - same speed, smoother; needs a faster CPU."))
-                g_settings.fps60 = fr == 1;
+                           "a frame - smoother, but it slows down whenever a frame takes longer than that. 60 fps, steady "
+                           "speed: the world steps by the time each frame really took, so the speed holds under 60 fps "
+                           "(below about 46 the game drops to its 30 fps mode). Needs a faster CPU."))
+                g_settings.fps60 = fr >= 1, g_settings.fps60_steady = fr == 2;
         }
     }
 
