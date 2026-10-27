@@ -1,5 +1,7 @@
 // Interface between the NVN executor (renderer.m) and the Metal plumbing (metal.m).
 #pragma once
+#include <stdbool.h>
+#include <stdint.h>
 #ifdef __OBJC__
 #import <Metal/Metal.h>
 void renderer_init(id<MTLDevice> dev);
@@ -13,6 +15,14 @@ extern uint64_t g_gwin_base, g_gwin_max;  // guest memory window g_guest_buffer 
 void backend_gwin_pick(void);
 #endif
 #include <SDL3/SDL_events.h>
+
+typedef struct RendererGpuTimingToken RendererGpuTimingToken;
+double renderer_host_time_seconds(void);
+RendererGpuTimingToken *renderer_gpu_timing_submit(uint64_t frame, bool presentation);
+void renderer_gpu_timing_mark_commit(RendererGpuTimingToken *token);
+void renderer_gpu_timing_complete(RendererGpuTimingToken *token, double gpu_start, double gpu_end);
+double renderer_gpu_timing_present(uint64_t frame, double *present_time, double *frame_ms, unsigned *samples);
+void renderer_gpu_timing_reset(void);
 
 bool renderer_is_gpu_owned(NvnTexture *t);
 void renderer_flush(void);  // finish all recorded GPU work

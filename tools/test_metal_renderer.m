@@ -1,4 +1,7 @@
 // Real offscreen Metal regressions; no game files or window are needed.
+#include <stddef.h>
+static double gpu_interval_sum_ms(const double *intervals, size_t count, double window_start, double window_end);
+static double gpu_interval_union_ms(const double *intervals, size_t count, double window_start, double window_end);
 #include "../runtime/nvn/renderer.m"
 #import <ImageIO/ImageIO.h>
 
@@ -6,6 +9,22 @@ void metal_test_bootstrap(void);
 void metal_test_next_texture_frame(void);
 
 #define CHECK(c, message) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d: %s\n", __func__, __LINE__, message); exit(1); } } while (0)
+
+static void gpu_interval_union(void) {
+    const double intervals[] = {
+        0.020, 0.025,  // [20, 25] ms
+        0.000, 0.010,  // [0, 10] ms
+        0.022, 0.028,  // [22, 28] ms
+        0.005, 0.015,  // [5, 15] ms
+        0.022, 0.026,  // contained in [22, 28] ms
+    };
+    double sum = gpu_interval_sum_ms(intervals, 5, 0.003, 0.026);
+    double busy = gpu_interval_union_ms(intervals, 5, 0.003, 0.026);
+    CHECK(sum > 29.999 && sum < 30.001, "summed command-buffer spans are clipped to the present window");
+    CHECK(busy > 17.999 && busy < 18.001, "overlapping GPU intervals are clipped and counted once");
+    CHECK(gpu_interval_union_ms(intervals, 5, 0.030, 0.040) == 0,
+          "GPU intervals outside a present window contribute no busy time");
+}
 
 static NvnTexture test_texture(uint32_t target, uint32_t width, uint32_t height, uint32_t layers,
                                uint32_t levels, uint32_t format, uint32_t samples) {
@@ -1668,6 +1687,7 @@ static void pipeline_archive_reload(void) {  // a pipeline built once is found i
 
 typedef void (*TestFn)(void);
 static const struct { const char *name, *group; TestFn run; bool needs_sampler26; } tests[] = {
+    {"gpu-interval-union", "gpu-time", gpu_interval_union},
     {"smoke", "smoke", smoke},
     {"live-shader-pipeline", "live", live_shader_pipeline},
     {"break-reconvergence", "flow", break_reconvergence},
