@@ -1,6 +1,7 @@
 // MonZaMac entry: load modules, set up the kernel, run nn::init::Start on the main thread.
 #include <SDL3/SDL.h>
 #include <stdbool.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -212,7 +213,14 @@ int main(int argc, char **argv) {
             launcher_run(root);
         }
         boot(root);
-        int kind = ui_run();  // window and input on the main thread; returns when a reboot is requested
+        int kind = ui_run();  // window and input on the main thread
+        if (kind == RT_REBOOT_NONE) {
+            // SDL's signal handlers enqueue quit events; the window loop has finished consuming them.
+            signal(SIGINT, SIG_DFL);
+            signal(SIGTERM, SIG_DFL);
+            kernel_stop_threads(NULL);  // stop producing GPU work before atexit saves the pipeline archive
+            return 0;
+        }
         teardown();
         title = kind == RT_REBOOT_TITLE;
     }
