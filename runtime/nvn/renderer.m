@@ -1306,6 +1306,20 @@ static void pipeline_archive_rebuild(NSArray<MTLRenderPipelineDescriptor *> *wit
     for (MTLRenderPipelineDescriptor *pd in with) [g_archive addRenderPipelineFunctionsWithDescriptor:pd error:nil];
 }
 
+// What a pipeline is made of, for the log line of one the archive leaves out: the pattern of those is what is missing to
+// avoid the "expecting 'fragment' stage" failure (a rule like pipeline_archivable's below).
+static NSString *pipeline_describe(MTLRenderPipelineDescriptor *pd) {
+    NSMutableString *s = [NSMutableString stringWithFormat:@"raster %d samples %lu a2c %d depth %lu stencil %lu vs %@ fs %@ colour",
+        pd.rasterizationEnabled, (unsigned long)pd.rasterSampleCount, pd.alphaToCoverageEnabled,
+        (unsigned long)pd.depthAttachmentPixelFormat, (unsigned long)pd.stencilAttachmentPixelFormat,
+        pd.vertexFunction.name ?: @"-", pd.fragmentFunction.name ?: @"-"];
+    for (int i = 0; i < 8; i++) {
+        MTLRenderPipelineColorAttachmentDescriptor *c = pd.colorAttachments[i];
+        if (c.pixelFormat) [s appendFormat:@" %d:fmt%lu/mask%lx%@", i, (unsigned long)c.pixelFormat, (unsigned long)c.writeMask, c.blendingEnabled ? @"/blend" : @""];
+    }
+    return s;
+}
+
 static void pipeline_archive_save(void) {  // on g_archive_q
     if (!g_archive_dirty || !g_archive) return;
     // write next to the file and rename: the archive being looked up still reads the old one
@@ -1323,7 +1337,8 @@ static void pipeline_archive_save(void) {  // on g_archive_q
                 [g_archive_saved addObject:pd];
                 continue;
             }
-            LOG("[shader] pipeline archive: %s left out: %s\n", pd.label.UTF8String, err.localizedDescription.UTF8String);
+            LOG("[shader] pipeline archive: %s left out: %s | %s\n", pd.label.UTF8String, err.localizedDescription.UTF8String,
+                pipeline_describe(pd).UTF8String);
             pipeline_archive_rebuild(g_archive_saved);
         }
         [g_archive_new removeAllObjects];
@@ -1817,8 +1832,17 @@ static id<MTLTexture> sampled_texture_ex(NvnTexture *t, const NvnTextureView *v,
             tex = view_cached(src, 0x6000000000000000ull | 3, ^{ return [src newTextureViewWithPixelFormat:src.pixelFormat textureType:MTLTextureTypeCube levels:NSMakeRange(0, src.mipmapLevelCount) slices:NSMakeRange(0, 6)]; });
         else {
             static int nlog;
-            if (nlog++ < 30) LOG("[tex] type mismatch: fs %llx want %lu have %lu (%ux%ux%u target %u fmt %#x arr %lu)\n", (unsigned long long)g_cur_fs_hash, (unsigned long)want,
-                                 (unsigned long)tex.textureType, t->width, t->height, t->depth, t->target, t->format, (unsigned long)tex.arrayLength);
+            // Z-A (and Mario Kart 8, as nxnative found) binds a 2D texture, or a small 2D array, where a shader declares a cube:
+            // a placeholder for an environment map, or an input a branch does not take. The zero cube below is what is
+            // bound for it; that is not an error, so it is said apart from the real mismatches.
+            bool cube_slot = (want == MTLTextureTypeCube || want == MTLTextureTypeCubeArray) &&
+                             (tex.textureType == MTLTextureType2D || tex.textureType == MTLTextureType2DArray);
+            if (nlog++ < 30 && cube_slot)
+                LOG("[tex] cube slot holds a 2D texture (a placeholder, or an input not taken): zero cube bound, fs %llx (%ux%u fmt %#x arr %lu)\n",
+                    (unsigned long long)g_cur_fs_hash, t->width, t->height, t->format, (unsigned long)tex.arrayLength);
+            else if (nlog <= 30)
+                LOG("[tex] type mismatch: fs %llx want %lu have %lu (%ux%ux%u target %u fmt %#x arr %lu)\n", (unsigned long long)g_cur_fs_hash, (unsigned long)want,
+                    (unsigned long)tex.textureType, t->width, t->height, t->depth, t->target, t->format, (unsigned long)tex.arrayLength);
             uint32_t format = has_view && (v->setmask & 4) ? v->format : t->format;
             return dummy_texture_ex(want_type, rt_kind(format), image);
         }
