@@ -43,7 +43,7 @@ version: everything below is new since the project began, grouped by what you no
 
 ### Tools
 - `tools/hang_sample.sh` samples every thread and prints the kernel's wait dump when the game freezes.
-- Renderer tests with no game files: `gmake test-metal-renderer` (GPU timing, overlap, state machine, translation).
+- Renderer tests with no game files: `gmake test-metal-renderer` (GPU timing, the renderer, the shader translator).
 
 ### Known issues
 See the README.
