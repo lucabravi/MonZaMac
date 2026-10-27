@@ -85,9 +85,13 @@ void fnprof_hit(uint64_t addr, uint64_t lr, uint64_t x0);
 #define ST64(a, v) (*(u64u *)(uintptr_t)(a) = (uint64_t)(v))
 
 // ---- exclusive monitor (emulated with compare-and-swap)
+// Guest LDAR/LDAXR have RCsc ordering. C acquire loads can become RCpc LDAPR
+// on Apple Silicon, allowing a preceding STLR to be observed after the load.
+// Use seq_cst loads to preserve the guest's store/load ordering (job queues
+// rely on it). The shared LDXR/LDAXR helper conservatively uses the stronger mode.
 #define EXCL(N, T)                                                                         \
     static inline uint64_t ldx##N(Cpu *c, uint64_t a) {                                    \
-        T v = __atomic_load_n((T *)(uintptr_t)a, __ATOMIC_ACQUIRE);                        \
+        T v = __atomic_load_n((T *)(uintptr_t)a, __ATOMIC_SEQ_CST);                        \
         c->excl_addr = a;                                                                  \
         c->excl_val = v;                                                                   \
         return v;                                                                          \
@@ -100,7 +104,7 @@ void fnprof_hit(uint64_t addr, uint64_t lr, uint64_t x0);
                                             __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);           \
     }                                                                                      \
     static inline uint64_t lda##N(uint64_t a) {                                            \
-        return __atomic_load_n((T *)(uintptr_t)a, __ATOMIC_ACQUIRE);                       \
+        return __atomic_load_n((T *)(uintptr_t)a, __ATOMIC_SEQ_CST);                       \
     }                                                                                      \
     /* STLR is RCsc: a later LDAR can't pass it (seq_cst: XCHG on x86, where a release */ \
     /* store and an acquire load may swap - lost wakeups in Pokémon Z-A's job system) */  \
