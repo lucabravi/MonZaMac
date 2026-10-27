@@ -29,6 +29,13 @@ static uint64_t stat_skip_none, stat_skip_failed, stat_skip_wait;  // why a draw
 static double stat_gpu_s;
 static pthread_mutex_t gpu_timing_lock = PTHREAD_MUTEX_INITIALIZER;
 
+// LARECOMP_GPU_TIMING_TRACE: read once (asked at every command buffer submit and completion)
+bool renderer_gpu_timing_trace(void) {
+    static int on = -1;
+    if (on < 0) on = getenv("LARECOMP_GPU_TIMING_TRACE") != NULL;
+    return on;
+}
+
 #define GPU_TIME_WINDOW_CAP 64
 #define GPU_TIME_INTERVAL_CAP 512
 enum { GPU_WINDOW_FREE, GPU_WINDOW_OPEN, GPU_WINDOW_CLOSED, GPU_WINDOW_READY };
@@ -108,7 +115,7 @@ static void gpu_time_finalize(GpuTimeWindow *w) {
     w->busy_ms = valid ? gpu_interval_union_ms(w->intervals, w->nintervals, w->start_s, w->end_s) : -1;
     if (w->busy_ms >= 0) stat_gpu_s += w->busy_ms / 1000.0;
     w->state = GPU_WINDOW_READY;
-    if (getenv("LARECOMP_GPU_TIMING_TRACE"))
+    if (renderer_gpu_timing_trace())
         LOG("[gpu-window] frame %llu elapsed %.3fms spans-sum %.3fms gpu-union %.3fms buffers %u intervals %u%s%s\n",
             (unsigned long long)w->frame, w->frame_ms, w->span_sum_ms, w->busy_ms, w->buffers, w->nintervals,
             w->invalid_timestamps ? " invalid-time" : "", w->overflow ? " overflow" : "");
@@ -145,7 +152,7 @@ RendererGpuTimingToken *renderer_gpu_timing_submit(uint64_t frame, const char *k
     cb->sequence = ++gpu_time_cb_sequence;
     cb->frame = frame;
     cb->kind = kind;
-    cb->trace = getenv("LARECOMP_GPU_TIMING_TRACE") != NULL;
+    cb->trace = renderer_gpu_timing_trace();
     double submit_s = renderer_host_time_seconds();
     if (!gpu_time_open) gpu_time_open_window(submit_s, frame);
     if (gpu_time_open) {

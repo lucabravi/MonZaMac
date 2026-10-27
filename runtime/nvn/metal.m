@@ -1050,7 +1050,7 @@ void backend_present(NvnTexture *t) {
         double gpu_sample_time, gpu_frame_ms;
         unsigned gpu_samples;
         double gpu_ms = renderer_gpu_timing_present(frame, &gpu_sample_time, &gpu_frame_ms, &gpu_samples);
-        if (getenv("LARECOMP_GPU_TIMING_TRACE"))
+        if (renderer_gpu_timing_trace())
             LOG("[gpu-present] frame %llu time %.6f interval %d window %.3fms gpu %.3fms samples %u\n",
                 (unsigned long long)frame, gpu_sample_time, g_out_present_interval, gpu_frame_ms, gpu_ms, gpu_samples);
         OutScale os;

@@ -18,6 +18,7 @@ void backend_gwin_pick(void);
 
 typedef struct RendererGpuTimingToken RendererGpuTimingToken;
 double renderer_host_time_seconds(void);
+bool renderer_gpu_timing_trace(void);  // LARECOMP_GPU_TIMING_TRACE, read once
 RendererGpuTimingToken *renderer_gpu_timing_submit(uint64_t frame, const char *kind);
 void renderer_gpu_timing_mark_commit(RendererGpuTimingToken *token);
 void renderer_gpu_timing_complete(RendererGpuTimingToken *token, double gpu_start, double gpu_end);
