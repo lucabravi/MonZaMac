@@ -688,10 +688,18 @@ static void present_pace(int interval) {
     next += period;
 }
 
+// What the game presents: the crop it set on the window (x, y, w, h in texels) and the window texture's size, in the game's
+// own units (before the render scale). Handheld mode presents a 1280x720 part of a 1920x1080 texture; metal.m shows only it.
+int g_present_crop[4];
+int g_present_tex[2];
+
 NVN(nvnQueuePresentTexture) {
     NvnWindow *w = HOST(NvnWindow, A(1));
     int i = (int)A(2);
     if (i >= 0 && i < w->num) {
+        NvnTexture *pt = HOST(NvnTexture, w->textures[i]);
+        memcpy(g_present_crop, w->crop, sizeof g_present_crop);
+        g_present_tex[0] = pt ? (int)pt->width : 0, g_present_tex[1] = pt ? (int)pt->height : 0;
         present_pace(w->interval);
         backend_present(HOST(NvnTexture, w->textures[i]));
         if (i < 8) w->present_seq[i] = renderer_fence_seq();  // (the submission just presented)
