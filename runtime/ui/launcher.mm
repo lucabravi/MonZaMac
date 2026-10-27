@@ -1585,10 +1585,12 @@ extern "C" void launcher_run(const char *root) {
                     dl->AddText(font, size, p, col, t);
                     if (bold) dl->AddText(font, size, ImVec2(p.x + 0.7f * s, p.y), col, t);
                 };
-                const std::string ver = tag_label(LARECOMP_VERSION, true) + "  \xc2\xb7  by Rhapsodos93";  // (the build first: bug reports name it)
+                const std::string ver = tag_label(LARECOMP_VERSION, true), by = "by Rhapsodos93";  // (the build first: bug reports name it)
                 float vs = fs * 1.4f, y = ImGui::GetWindowPos().y + ds.y - 134 * s;
-                ImVec2 vsz = font->CalcTextSizeA(vs, FLT_MAX, 0, ver.c_str());
+                ImVec2 vsz = font->CalcTextSizeA(vs, FLT_MAX, 0, ver.c_str()), bsz = font->CalcTextSizeA(vs, FLT_MAX, 0, by.c_str());
                 text(ImVec2(right - vsz.x, y), vs, IM_COL32(255, 255, 255, 255), ver.c_str(), false);
+                text(ImVec2(right - bsz.x, y + vsz.y), vs, IM_COL32(255, 255, 255, 255), by.c_str(), false);
+                y += vsz.y;  // (the update link sits under the credit)
                 pthread_mutex_lock(&g_update_lock);
                 std::string upd = g_update_tag;
                 pthread_mutex_unlock(&g_update_lock);
