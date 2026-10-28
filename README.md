@@ -60,7 +60,9 @@ source is for developers: see [Building from source](#building-from-source).
 
 ## Status
 
-Work in progress. It boots, goes through the intro and reaches Lumiose City.
+**Playable.** The game runs from the intro through the first part of the story, with battles, menus and saves, and
+the maintainer has played it that far without problems. It is still a work in progress: later areas and other Macs
+have had less testing, so please report what you find.
 
 Looking for the Windows version? It's available at **[PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp)** by
 **Hexveil404**.
@@ -72,7 +74,8 @@ Working:
 - Controller and keyboard input
 
 Known issues:
-- NPCs can still pop in and out while walking
+- Characters (NPCs) can pop in and out while walking, mostly at Lumiose station. It does not depend on the internal
+  resolution or the filtering options.
 
 Bugs and questions: [GitHub issues](https://github.com/lucabravi/MonZaMac/issues), see [CONTRIBUTING.md](CONTRIBUTING.md).
 
