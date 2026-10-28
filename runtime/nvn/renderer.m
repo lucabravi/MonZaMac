@@ -94,9 +94,10 @@ static void gpu_profile_reset(void) {
 
 // ---- per-pass GPU time ("gpupass N" in build/dbgcmd): the render passes of N frames get start / end timestamps (counter
 // sampling at stage boundaries, no Xcode). Each pass is keyed by its ordinal in the frame, which is stable from frame to
-// frame (the pass histogram of gpuprofile); the log lists the slowest ones at the end with their size, attachments and
-// draws. A pass's span runs from its first vertex work to its last fragment work and neighbouring passes overlap on the
-// GPU, so the spans do not add up to the frame's GPU time: they say where to look, not how much each pass costs alone.
+// frame (the pass histogram of gpuprofile); the log lists the most expensive at the end with size, attachments and draws.
+// A pass's cost is the time from the previous pass's end to its own end (they finish in order; its own start-to-end span
+// includes waiting for earlier passes), so the costs add up to the frame's GPU span. Neighbouring passes can still overlap
+// a little, so a cost is approximate.
 #define PT_MAX 512
 static void renderer_flush_reason(const char *reason);
 static id<MTLCounterSampleBuffer> g_pt_buf;
@@ -154,14 +155,22 @@ static void pass_timing_frame_end(void) {  // (the frame's work is complete)
         NSData *data = [g_pt_buf resolveCounterRange:NSMakeRange(0, n * 2)];
         if (data.length >= n * 2 * sizeof(MTLCounterResultTimestamp)) {
             const MTLCounterResultTimestamp *r = (const MTLCounterResultTimestamp *)data.bytes;
+            // A pass's own span includes the time its fragment work waits for the earlier passes (a 7x4 pass showed 43% of the
+            // frame): the passes finish in order, so a pass costs what lies between the previous pass's end and its own end.
+            // The costs add up to the frame's first start to last end.
             uint64_t first = UINT64_MAX, last = 0;
             for (unsigned i = 0; i < n; i++) {
-                if (r[2 * i].timestamp == MTLCounterErrorValue || r[2 * i + 1].timestamp == MTLCounterErrorValue ||
-                    r[2 * i + 1].timestamp < r[2 * i].timestamp) continue;
-                g_pt_sum[i].ticks += (double)(r[2 * i + 1].timestamp - r[2 * i].timestamp);
-                g_pt_sum[i].frames++;
+                if (r[2 * i].timestamp == MTLCounterErrorValue || r[2 * i + 1].timestamp == MTLCounterErrorValue) continue;
                 if (r[2 * i].timestamp < first) first = r[2 * i].timestamp;
-                if (r[2 * i + 1].timestamp > last) last = r[2 * i + 1].timestamp;
+            }
+            uint64_t prev = first;
+            for (unsigned i = 0; i < n; i++) {
+                uint64_t end = r[2 * i + 1].timestamp;
+                if (r[2 * i].timestamp == MTLCounterErrorValue || end == MTLCounterErrorValue) continue;
+                g_pt_sum[i].ticks += end > prev ? (double)(end - prev) : 0;
+                g_pt_sum[i].frames++;
+                if (end > prev) prev = end;
+                if (end > last) last = end;
             }
             if (last > first) { g_pt_span_sum += (double)(last - first); g_pt_span_n++; }
         }
@@ -182,7 +191,7 @@ static void pass_timing_report(void) {
         for (unsigned b = a; b > 0 && g_pt_sum[order[b]].ticks / g_pt_sum[order[b]].frames > g_pt_sum[order[b - 1]].ticks / g_pt_sum[order[b - 1]].frames; b--) {
             unsigned t = order[b]; order[b] = order[b - 1]; order[b - 1] = t;
         }
-    LOG("[gpupass] %u passes a frame, over %u frames: first start to last end %.0f ticks (~%.2f ms GPU busy per the F3 stats); mean span of each pass as a share of it (they overlap, so shares add to more than 100%%); slowest:\n",
+    LOG("[gpupass] %u passes a frame, over %u frames: first start to last end %.0f ticks (~%.2f ms GPU busy per the F3 stats); mean cost of each pass (the time between the previous pass's end and its own) as a share of it, adding up to 100%%; slowest:\n",
         g_pt_maxn, g_pt_total, frame_span, g_stat_gpu_ms);
     for (unsigned j = 0; j < k && j < 25; j++) {
         unsigned i = order[j];
