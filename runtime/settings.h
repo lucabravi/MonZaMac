@@ -36,6 +36,7 @@ typedef struct {
     bool developer;      // the Developer tab of the menu is shown (ini "developer = 1", LARECOMP_DEVELOPER, Cmd+Shift+D)
     bool dev_gpu_trace;  // Developer: the GPU time per present window in the log (LARECOMP_GPU_TIMING_TRACE adds a line per command buffer)
     bool dev_frame_stats;  // Developer: CPU submit time and GPU busy time per frame on the F3 overlay
+    bool xfb_barrier;    // on by default (Developer tab): the render pass stays open after GPU skinning (a buffer barrier instead of ending it; LARECOMP_XFB_END_BARRIER=0/1 overrides)
     bool gpu_overlap;    // on by default (Developer tab): the game's frame fence is waited one frame late, so its CPU work on frame N+1 overlaps the GPU's frame N (runtime/nvn/renderer.m)
     bool wait_shaders;   // compile a new shader or pipeline when the game first needs it and wait for it (else its draws are skipped meanwhile)
     bool game_drs;       // Pokémon Z-A: the game's own dynamic resolution may react to the GPU time it is told (runtime/nvn/renderer.m)
