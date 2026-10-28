@@ -860,6 +860,39 @@ static void check_xfb_instances(unsigned stream) {
 static void zero_xfb_instances(void) { check_xfb_instances(0); }
 static void xfb_stream_four(void) { check_xfb_instances(4); }
 
+static void xfb_vertex_reuse(void) {
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    bind_targets(&color, NULL, NULL); prepare_draw();
+    static uint8_t control[0x800];
+    *(uint32_t *)(control + 0x4dc) = 4;
+    *(uint16_t *)(control + 0x6dc) = 16;
+    st.program->stages[0].control = control;
+    st.program->stage_mask = 1;
+    g_xfb_on = g_raster_discard = true;
+    g_xfb_addr[0] = g_gwin_base + 1024; g_xfb_size[0] = 48;
+    memset((uint8_t *)g_guest_buffer.contents + 1024, 0, 48);
+    uint64_t passes = stat_passes;
+    fullscreen_draw(1);
+    uint64_t commands[32] = {0};
+    CmdRec *end = (CmdRec *)commands;
+    end->op = CMD_END_XFB; end->size = sizeof *end;
+    ((CmdRec *)((uint8_t *)end + end->size))->op = CMD_END;
+    exec_list((uint64_t)commands, 0);
+    st.program->stage_mask = 3; st.program->stages[0].control = NULL;
+    g_raster_discard = false;
+    st.vbuf[0] = (Range){.addr = g_gwin_base + 1024, .size = 48};
+    // Consume GPU-produced positions without a CPU wait or intervening submission.
+    fullscreen_draw(1);
+    const char *option = getenv("LARECOMP_XFB_END_BARRIER");
+    bool merged = false;
+    if (@available(macOS 13.0, *)) merged = option && atoi(option);
+    CHECK(stat_passes - passes == (merged ? 1 : 2), "XFB barrier reuses the pass; default keeps the original boundary");
+    expect_rgba(&color, 0, 255, 0);
+    g_xfb_on = g_xfb_dirty = false;
+    memset(g_xfb_addr, 0, sizeof g_xfb_addr); memset(g_xfb_size, 0, sizeof g_xfb_size);
+    destroy_texture(&color);
+}
+
 static void vertex_stream_fifteen(void) {
     NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
     bind_targets(&color, NULL, NULL); prepare_draw();
@@ -1950,6 +1983,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"zero-indexed-instances", "draws", zero_indexed_instances},
     {"zero-xfb-instances", "draws", zero_xfb_instances},
     {"xfb-stream-four", "streams", xfb_stream_four},
+    {"xfb-vertex-reuse", "xfb-barrier", xfb_vertex_reuse},
     {"vertex-stream-fifteen", "streams", vertex_stream_fifteen},
     {"vertex-stream-layout-cache", "streams", vertex_stream_layout_cache},
     {"gpu-indirect-arrays", "draws", gpu_indirect_arrays},
