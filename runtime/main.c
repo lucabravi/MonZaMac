@@ -8,6 +8,7 @@
 #include "gamelib.h"
 #include "paths.h"
 #include "settings.h"
+#include "saves.h"
 #include "hle.h"
 #include "kernel.h"
 
@@ -178,13 +179,15 @@ int main(int argc, char **argv) {
     const char *root = "extracted";  // (in the data root)
     bool skip_launcher = getenv("LARECOMP_NO_LAUNCHER") || getenv("LARECOMP_INPUT");  // tests boot straight in
     static char arg_root[1024];
+    bool play_flag = false;
     for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--play")) skip_launcher = true;
+        if (!strcmp(argv[i], "--play")) skip_launcher = play_flag = true;
         else if (argv[i][0] != '-' && !realpath(argv[i], arg_root)) root = argv[i];  // (relative to where we started)
         else if (argv[i][0] != '-') root = arg_root;
     }
     const bool explicit_skip = skip_launcher;  // (--play, tests: no save picker either)
     rt_paths_init();  // the data root becomes the working directory (runtime/paths.h)
+    if (play_flag) saves_select_latest();  // --play skips the start screen: the most recent save, as its CONTINUE
     {   // Pokémon Legends Z-A (exefs/main build 7222e13ecf6adb32: 1.0.0, 8a1c86c437394b69: 2.0.0, b1f12fd919eae86a: 2.0.2): the start screen would ask for
         // game files it doesn't use - straight into the game, as with --play. Started without a log redirect (a
         // double click): the log goes to logs/play.log (the previous one: logs/play-anterior.log).

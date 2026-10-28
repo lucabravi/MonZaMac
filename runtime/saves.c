@@ -187,3 +187,11 @@ void saves_select(const char *id) {
     if (*id && !exists(dir)) slot_path("", dir, sizeof dir);
     g_save_dir = dir;
 }
+
+void saves_select_latest(void) {
+    SaveSlot slots[SAVE_SLOTS_MAX];
+    int n = saves_list(slots, SAVE_SLOTS_MAX), best = -1;
+    for (int i = 0; i < n; i++)
+        if (slots[i].played && (best < 0 || slots[i].played > slots[best].played)) best = i;
+    saves_select(best < 0 ? "" : slots[best].id);
+}
