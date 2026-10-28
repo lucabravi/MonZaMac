@@ -167,6 +167,7 @@ static void boot(const char *root) {
 
 uint8_t g_game_build[8];  // the exefs/main build ID read at start (all zero when unreadable)
 
+extern int g_saves_first;  // runtime/ui/launcher.mm: the start screen opens on the save picker
 int main(int argc, char **argv) {
     plat_init();
 #ifdef _WIN32
@@ -182,6 +183,7 @@ int main(int argc, char **argv) {
         else if (argv[i][0] != '-' && !realpath(argv[i], arg_root)) root = argv[i];  // (relative to where we started)
         else if (argv[i][0] != '-') root = arg_root;
     }
+    const bool explicit_skip = skip_launcher;  // (--play, tests: no save picker either)
     rt_paths_init();  // the data root becomes the working directory (runtime/paths.h)
     {   // Pokémon Legends Z-A (exefs/main build 7222e13ecf6adb32: 1.0.0, 8a1c86c437394b69: 2.0.0, b1f12fd919eae86a: 2.0.2): the start screen would ask for
         // game files it doesn't use - straight into the game, as with --play. Started without a log redirect (a
@@ -196,6 +198,7 @@ int main(int argc, char **argv) {
         if (f) { fseek(f, 0x40, SEEK_SET); if (fread(id, 1, 8, f) != 8) memset(id, 0, 8); fclose(f); }
         if (!memcmp(id, za_build[0], 8) || !memcmp(id, za_build[1], 8) || !memcmp(id, za_build[2], 8)) {
             skip_launcher = true;
+            g_saves_first = !explicit_skip && g_settings.save_ask;  // (the start screen opens on the save picker)
 #ifdef _WIN32
             extern int rt_stderr_is_console(void);
             if (rt_stderr_is_console()) {
@@ -207,7 +210,7 @@ int main(int argc, char **argv) {
 #endif
         }
     }
-    for (bool title = !skip_launcher;;) {
+    for (bool title = !skip_launcher || g_saves_first;;) {
         if (title) {  // start screen (runtime/ui/launcher.mm): game files setup, seed choice, settings
             extern void launcher_run(const char *root);
             launcher_run(root);

@@ -141,7 +141,8 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_) {
     int result = 0;
     ImVec2 ds = ImGui::GetIO().DisplaySize, wp = ImGui::GetWindowPos();
     ImDrawList *dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(wp, ImVec2(wp.x + ds.x, wp.y + ds.y), pal::dim);
+    dl->AddRectFilledMultiColor(wp, ImVec2(wp.x + ds.x, wp.y + ds.y), IM_COL32(3, 8, 24, 215), IM_COL32(3, 8, 24, 150),
+                                IM_COL32(3, 8, 24, 235), IM_COL32(3, 8, 24, 235));
     float x0 = wp.x + 120 * sc, w = fminf(ds.x - 240 * sc, 1180 * sc);
 
     ImGui::SetCursorScreenPos(ImVec2(x0, wp.y + 70 * sc));
@@ -154,8 +155,10 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_) {
     dl->AddRectFilledMultiColor(ImVec2(x0, wp.y + 70 * sc + th + 6 * sc), ImVec2(x0 + w, wp.y + 70 * sc + th + 10 * sc),
                                 pal::accent, IM_COL32(72, 214, 255, 0), IM_COL32(72, 214, 255, 0), pal::accent);
 
-    float top = 70 * sc + th + 36 * sc, bar_h = 56 * sc, foot = 150 * sc;
-    float card_h = 112 * sc, gap = 14 * sc;
+    // (sizes follow the font: the start screen's fonts are big)
+    float u = small_->FontSize;
+    float top = 70 * sc + th + 36 * sc, bar_h = u * 1.9f, foot = u * 5.0f;
+    float card_h = u * 2.9f, gap = u * 0.4f;
     ImGui::SetCursorScreenPos(ImVec2(x0, wp.y + top));
     ImGui::BeginChild("##savelist", ImVec2(w, ds.y - top - foot), 0, ImGuiWindowFlags_NavFlattened);
     ImDrawList *cl = ImGui::GetWindowDrawList();
@@ -175,25 +178,26 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_) {
             ImGui::SetScrollHereY(0.5f);
         } else if (ImGui::IsItemHovered() && ImGui::GetIO().MouseDelta.x + ImGui::GetIO().MouseDelta.y != 0) g_sel = i;
         ImGui::PopID();
-        float r = 16 * sc;
+        float r = u * 0.5f;
         ImVec2 q(p.x + cw, p.y + card_h);
         if (hot) cl->AddRectFilled(ImVec2(p.x - 4 * sc, p.y - 4 * sc), ImVec2(q.x + 4 * sc, q.y + 4 * sc), IM_COL32(72, 214, 255, 38), r + 4 * sc);
         cl->AddRectFilled(p, q, hot ? pal::card_hot : pal::card, r);
         cl->AddRect(p, q, hot ? pal::accent : pal::edge, r, 0, hot ? 3 * sc : 1.5f * sc);
-        float pad = 30 * sc, bd = 62 * sc;
+        float pad = u * 0.8f, bd = u * 1.7f;
         ImVec2 bc(p.x + pad + bd * 0.5f, p.y + card_h * 0.5f);  // the slot's number
         cl->AddCircleFilled(bc, bd * 0.5f, hot ? pal::accent : IM_COL32(44, 70, 118, 255), 32);
         char num[8];
         snprintf(num, sizeof num, "%d", i + 1);
-        ImVec2 ns = body->CalcTextSizeA(body->FontSize * 0.8f, FLT_MAX, 0, num);
-        cl->AddText(body, body->FontSize * 0.8f, ImVec2(bc.x - ns.x * 0.5f, bc.y - ns.y * 0.5f),
+        ImVec2 ns = body->CalcTextSizeA(u * 1.1f, FLT_MAX, 0, num);
+        cl->AddText(body, u * 1.1f, ImVec2(bc.x - ns.x * 0.5f, bc.y - ns.y * 0.5f),
                     hot ? IM_COL32(4, 12, 28, 255) : pal::text, num);
-        float tx = p.x + pad + bd + 28 * sc;
+        float tx = p.x + pad + bd + u * 0.8f;
         char line[96], sz[24];
         when(s, line, sizeof line);
-        float nh = body->FontSize * 0.72f;
-        cl->AddText(body, nh, ImVec2(tx, p.y + 16 * sc), pal::text, s.name);
-        cl->AddText(small_, small_->FontSize, ImVec2(tx, p.y + 16 * sc + nh + 10 * sc), pal::sub, line);
+        float nh = u * 1.3f;
+        float ty = p.y + (card_h - nh - u * 0.95f) * 0.5f;
+        cl->AddText(body, nh, ImVec2(tx, ty), pal::text, s.name);
+        cl->AddText(small_, u * 0.85f, ImVec2(tx, ty + nh + u * 0.1f), pal::sub, line);
         if (s.played) {  // right side: how big the save is
             size_label(s.bytes, sz, sizeof sz);
             ImVec2 zs = small_->CalcTextSizeA(small_->FontSize, FLT_MAX, 0, sz);
@@ -217,9 +221,9 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_) {
     ImGui::EndChild();
 
     // under the list: the actions on the selected save, then the "ask every time" switch
-    float by = ds.y - foot + 20 * sc;
+    float by = ds.y - foot + u * 0.4f;
     ImGui::SetCursorScreenPos(ImVec2(x0, wp.y + by));
-    float bw = 190 * sc, bgap = 16 * sc;
+    float bw = u * 6.2f, bgap = u * 0.5f;
     bool one = g_n < SAVE_SLOTS_MAX;
     ImGui::BeginDisabled(!one);
     if (bar_button("+ New save", bw, bar_h, small_)) g_ask = NEW, g_err[0] = 0;
@@ -239,7 +243,7 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_) {
     ImGui::SameLine(0, bgap * 3);
     if (bar_button("Back", bw * 0.6f, bar_h, small_)) result = -1;
 
-    ImGui::SetCursorScreenPos(ImVec2(x0, wp.y + by + bar_h + 18 * sc));
+    ImGui::SetCursorScreenPos(ImVec2(x0, wp.y + by + bar_h + u * 0.5f));
     ImGui::PushFont(small_);
     ImGui::Checkbox("Ask which save to use every time I press PLAY", &g_settings.save_ask);
     ImGui::PopFont();
