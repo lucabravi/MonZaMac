@@ -22,7 +22,7 @@ typedef struct {
 // The slots: the original first, then the others, newest first. Returns how many (at least 1).
 int saves_list(SaveSlot *out, int max);
 // New empty slot / copy of `id` named `name` (letters, digits, space, - _ ; trimmed). false: bad or taken name.
-bool saves_create(const char *name);
+bool saves_create(const char *name, char *id_out);  // id_out (SAVE_NAME_MAX + 1, or NULL): the new slot's id
 bool saves_copy(const char *id, const char *name);
 bool saves_rename(const char *id, const char *name);  // (not the original slot)
 bool saves_delete(const char *id);                    // removes the slot's folder (the original: empties it)

@@ -1,6 +1,7 @@
 // The start screen's save picker (runtime/saves.h): one card per save slot, a new / copy / rename / delete bar under
 // them. Drawn inside the launcher's window (runtime/ui/launcher.mm).
 #include <float.h>
+#include <initializer_list>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -24,7 +25,8 @@ static const ImU32 sub = IM_COL32(150, 172, 210, 255), warn = IM_COL32(255, 120,
 enum Ask { NONE, NEW, COPY, RENAME, DELETE };
 static SaveSlot g_slots[SAVE_SLOTS_MAX];
 static int g_n, g_sel, g_focus = -1, g_ask = NONE;
-static char g_name[SAVE_NAME_MAX * 4 + 1], g_err[96];
+static char g_name[SAVE_NAME_MAX * 4 + 1], g_err[96], g_created[SAVE_NAME_MAX + 1];
+static bool g_made;  // NEW just made the slot g_created (the home screen's NEW GAME goes on with it)
 
 static void reload(void) { g_n = saves_list(g_slots, SAVE_SLOTS_MAX); if (g_sel >= g_n) g_sel = g_n - 1; }
 
@@ -93,7 +95,16 @@ static bool dialogs(float sc, ImFont *body, ImFont *small_) {
     ImGui::Dummy(ImVec2(0, 8 * sc));
     bool ok = false, cancel = ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false);
     if (naming) {
-        if (ImGui::IsWindowAppearing()) snprintf(g_name, sizeof g_name, "%s", g_ask == RENAME ? cur.name : "");
+        if (ImGui::IsWindowAppearing()) {
+            snprintf(g_name, sizeof g_name, "%s", g_ask == RENAME ? cur.name : "");
+            for (int k = 1; g_ask == NEW && k < 100; k++) {  // "Save 1", "Save 2", ...: the first free
+                char t[32];
+                bool taken = false;
+                snprintf(t, sizeof t, "Save %d", k);
+                for (int i = 0; i < g_n; i++) taken |= !strcmp(g_slots[i].id, t);
+                if (!taken) { snprintf(g_name, sizeof g_name, "%s", t); break; }
+            }
+        }
         if (g_ask == COPY) ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(pal::sub), "Name for the copy of \"%s\"", cur.name);
         ImGui::SetNextItemWidth(-1);
         if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
@@ -115,7 +126,7 @@ static bool dialogs(float sc, ImFont *body, ImFont *small_) {
     if (bar_button(naming ? "Cancel" : "Keep it", bw, 44 * sc, small_)) cancel = true;
     if (go || ok) {
         bool done;
-        if (g_ask == NEW) done = saves_create(g_name);
+        if (g_ask == NEW) done = g_made = saves_create(g_name, g_created);
         else if (g_ask == COPY) done = saves_copy(cur.id, g_name);
         else if (g_ask == RENAME) done = saves_rename(cur.id, g_name);
         else done = saves_delete(cur.id);
@@ -245,7 +256,7 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_) {
 
     ImGui::SetCursorScreenPos(ImVec2(x0, wp.y + by + bar_h + u * 0.5f));
     ImGui::PushFont(small_);
-    ImGui::Checkbox("Ask which save to use every time I press PLAY", &g_settings.save_ask);
+    ImGui::Checkbox("Ask which save to use every time I press CONTINUE", &g_settings.save_ask);
     ImGui::PopFont();
 
     if (g_ask != NONE || ImGui::IsPopupOpen("##saveask")) dialogs(sc, body, small_);
@@ -255,4 +266,111 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_) {
         result = -1;
     if (result) settings_save();
     return result;
+}
+
+// ------------------------------------------------------------------ home screen
+// The start screen's main page, after the Pokémon games' title menu: the logo and name, a card with the save last
+// played, then one wide button per choice.
+void saves_new_game_begin(void) { reload(); g_ask = NEW; g_err[0] = 0; }
+
+// The NEW GAME name dialog; true once the slot is made (it is selected and remembered, the game can start).
+bool saves_new_game_draw(float sc, ImFont *body, ImFont *small_) {
+    if (g_ask != NEW && !ImGui::IsPopupOpen("##saveask")) return false;
+    dialogs(sc, body, small_);
+    if (!g_made) return false;
+    g_made = false;
+    saves_select(g_created);
+    snprintf(g_settings.save_slot, sizeof g_settings.save_slot, "%s", g_created);
+    settings_save();
+    return true;
+}
+
+static bool wide_button(ImDrawList *dl, const char *label, ImVec2 p, float w, float h, ImFont *font, float size, bool enabled,
+                        bool focus) {
+    ImGui::SetCursorScreenPos(p);
+    ImGui::PushID(label);
+    if (focus) ImGui::SetKeyboardFocusHere();
+    ImGui::PushStyleColor(ImGuiCol_NavCursor, ImVec4(0, 0, 0, 0));
+    ImGui::BeginDisabled(!enabled);
+    bool clicked = ImGui::InvisibleButton("##b", ImVec2(w, h), ImGuiButtonFlags_EnableNav);
+    bool hot = enabled && (ImGui::IsItemFocused() || ImGui::IsItemHovered());
+    ImGui::EndDisabled();
+    ImGui::PopStyleColor();
+    ImGui::PopID();
+    ImVec2 q(p.x + w, p.y + h);
+    float r = h * 0.28f;
+    if (hot) dl->AddRectFilled(ImVec2(p.x - 3, p.y - 3), ImVec2(q.x + 3, q.y + 3), IM_COL32(72, 214, 255, 40), r + 3);
+    dl->AddRectFilled(p, q, hot ? pal::card_hot : pal::card, r);
+    dl->AddRect(p, q, hot ? pal::accent : pal::edge, r, 0, hot ? 3.0f : 1.5f);
+    ImVec2 ts = font->CalcTextSizeA(size, FLT_MAX, 0, label);
+    ImU32 col = !enabled ? IM_COL32(120, 135, 165, 150) : hot ? pal::accent : pal::text;
+    dl->AddText(font, size, ImVec2(p.x + (w - ts.x) * 0.5f, p.y + (h - ts.y) * 0.5f), col, label);
+    return clicked && enabled;
+}
+
+// 1 CONTINUE, 2 NEW GAME, 3 SAVES, 4 SETTINGS, 5 SET UP GAME FILES, 6 QUIT; 0 nothing yet
+int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready, bool show_setup, bool focus_first) {
+    static int age = 1000;
+    if (++age > 90) { reload(); age = 0; }
+    ImVec2 ds = ImGui::GetIO().DisplaySize, wp = ImGui::GetWindowPos();
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    // one unit u: the small font's size, shrunk when the window is short (the whole column then fits)
+    int n = show_setup ? 6 : 5;
+    float u = small_->FontSize, rows = 3.9f + 3.2f + n * 1.75f + 0.2f;
+    u *= fminf(1.0f, ds.y * 0.94f / (rows * u));
+    float w = fminf(ds.x * 0.92f, u * 17.0f), x = wp.x + (ds.x - w) * 0.5f, y = wp.y + (ds.y - rows * u) * 0.5f;
+
+    // the glass panel behind it all
+    dl->AddRectFilled(ImVec2(x - u, y - u * 0.7f), ImVec2(x + w + u, y + rows * u + u * 0.7f), IM_COL32(4, 10, 26, 205), u * 0.8f);
+    dl->AddRect(ImVec2(x - u, y - u * 0.7f), ImVec2(x + w + u, y + rows * u + u * 0.7f), pal::edge, u * 0.8f, 0, 1.5f);
+
+    // logo and name
+    float ls = u * 3.2f;
+    if (logo) dl->AddImage(logo, ImVec2(x, y), ImVec2(x + ls, y + ls));
+    float ts = u * 2.0f;
+    ImVec2 tp(x + ls + u * 0.6f, y + (ls - ts) * 0.5f);
+    for (float d : {3.0f, 1.5f}) dl->AddText(title, ts, ImVec2(tp.x + d, tp.y + d), IM_COL32(0, 4, 20, 140), "MonZaMac");
+    dl->AddText(title, ts, tp, pal::text, "MonZaMac");
+    float ty = y + ls + u * 0.7f;
+    dl->AddRectFilledMultiColor(ImVec2(x, ty - u * 0.35f), ImVec2(x + w, ty - u * 0.28f), pal::accent, IM_COL32(72, 214, 255, 0),
+                                IM_COL32(72, 214, 255, 0), pal::accent);
+
+    // the save last played
+    const SaveSlot *cur = &g_slots[0];
+    bool any = false;
+    for (int i = 0; i < g_n; i++) {
+        any |= g_slots[i].played > 0;
+        if (!strcmp(g_slots[i].id, g_settings.save_slot)) cur = &g_slots[i];
+    }
+    float ch = u * 2.7f;
+    ImVec2 cp(x, ty), cq(x + w, ty + ch);
+    dl->AddRectFilled(cp, cq, IM_COL32(22, 40, 74, 235), u * 0.4f);
+    dl->AddRect(cp, cq, pal::edge, u * 0.4f, 0, 1.5f);
+    if (any) {
+        char line[96], sz[24];
+        when(*cur, line, sizeof line);
+        dl->AddText(small_, u * 1.15f, ImVec2(x + u * 0.7f, ty + u * 0.35f), pal::text, cur->name);
+        dl->AddText(small_, u * 0.8f, ImVec2(x + u * 0.7f, ty + u * 1.6f), pal::sub, line);
+        size_label(cur->bytes, sz, sizeof sz);
+        ImVec2 zs = small_->CalcTextSizeA(u * 0.85f, FLT_MAX, 0, sz);
+        dl->AddText(small_, u * 0.85f, ImVec2(x + w - u * 0.7f - zs.x, ty + (ch - zs.y) * 0.5f), pal::sub, sz);
+    } else {
+        dl->AddText(small_, u * 1.0f, ImVec2(x + u * 0.7f, ty + u * 0.45f), pal::text, "No saves yet");
+        dl->AddText(small_, u * 0.8f, ImVec2(x + u * 0.7f, ty + u * 1.55f), pal::sub, "Choose NEW GAME to begin.");
+    }
+
+    // the buttons
+    float by = ty + ch + u * 0.55f, bh = u * 1.45f, step = u * 1.75f;
+    struct Item { const char *label; bool on; int act; } items[6] = {
+        {"CONTINUE", ready && any, 1}, {"NEW GAME", ready, 2}, {"SAVES", ready, 3}, {"SETTINGS", true, 4},
+        {"SET UP GAME FILES", true, 5}, {"QUIT", true, 6}};
+    if (!show_setup) items[4] = items[5];
+    int act = 0;
+    bool first_focus = focus_first;
+    for (int i = 0; i < n; i++) {
+        bool f = first_focus && items[i].on;
+        if (f) first_focus = false;
+        if (wide_button(dl, items[i].label, ImVec2(x, by + step * i), w, bh, small_, u * 0.95f, items[i].on, f)) act = items[i].act;
+    }
+    return act;
 }

@@ -151,9 +151,11 @@ static bool new_slot_path(const char *name, char *id, char *path, size_t n) {
     return true;
 }
 
-bool saves_create(const char *name) {
+bool saves_create(const char *name, char *id_out) {
     char id[SAVE_NAME_MAX + 1], path[128];
-    return new_slot_path(name, id, path, sizeof path) && mkdir(path, 0755) == 0;
+    if (!new_slot_path(name, id, path, sizeof path) || mkdir(path, 0755) != 0) return false;
+    if (id_out) snprintf(id_out, SAVE_NAME_MAX + 1, "%s", id);
+    return true;
 }
 
 bool saves_copy(const char *id, const char *name) {
