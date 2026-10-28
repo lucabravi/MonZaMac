@@ -4012,11 +4012,12 @@ static void exec_list(uint64_t handle, int depth) {
         case CMD_END_XFB:
             g_xfb_on = false;
             if (g_xfb_dirty) {
-                static int keep_pass = -1;
-                if (keep_pass < 0) {
+                static int env = -1;  // LARECOMP_XFB_END_BARRIER=0/1 wins; else the Developer setting, read live
+                if (env < 0) {
                     const char *e = getenv("LARECOMP_XFB_END_BARRIER");
-                    keep_pass = e && atoi(e);
+                    env = e ? (atoi(e) != 0) : 2;
                 }
+                bool keep_pass = env == 2 ? g_settings.xfb_barrier : env == 1;
                 if (keep_pass && enc) {
                     if (@available(macOS 13.0, *))
                         // Preserve tile contents while ordering GPU-produced vertex data before its consumers.

@@ -154,7 +154,8 @@ or `types` to select a group. Native sampler reduction and LOD-bias cases requir
 report those cases as skipped.
 
 An experimental transform-feedback buffer barrier can reuse a render pass after GPU skinning. It is off by
-default; use `LARECOMP_XFB_END_BARRIER=1` when launching to try it, or `=0` for the original behavior. See
+default; turn it on in the Developer tab (Cmd+Shift+D, "Keep passes open after skinning", applies at once), or launch with
+`LARECOMP_XFB_END_BARRIER=1` (`=0` forces the original behavior and overrides the setting). See
 [measurements and limitations](docs/performance-xfb.md). The asset-free regression is `CASE=xfb-barrier`.
 
 For a running development build, `trace 2` in `build/dbgcmd` logs draw and compute metadata for two presents
