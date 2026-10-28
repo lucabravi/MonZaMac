@@ -9,7 +9,8 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   GAME / SAVES / SETTINGS / QUIT under it, as in the Pokémon games. CONTINUE opens "Select a save" (SAVES manages them):
   pick one, start a new one, copy, rename or delete. Your existing save is the first slot, "Main save", untouched; extra
   saves live in `saves/` next to `save/`. The switch under the list ("Ask which save to use every time I press
-  CONTINUE") makes CONTINUE start the last save straight away. The app opens on it (`--play` skips it).
+  CONTINUE") makes CONTINUE start the last save straight away. With only one save that has progress, CONTINUE starts it without
+  asking; hold CONTINUE down (about a second) to get the list anyway. The app opens on it (`--play` skips it).
 - **New look for the menus:** deep blue panels with a cyan accent instead of green and gold (start screen, Settings, in-game
   menu).
 - **Clears as load actions:** a clear the game issues at the start of a pass now clears the attachment as the pass

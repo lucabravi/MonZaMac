@@ -629,6 +629,7 @@ int saves_screen_draw(float scale, ImFont *body, ImFont *small_);
 void saves_home_footer(float *x, float *y, float *w, float *u);  // where the lines under the panel go
 int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready, bool show_setup, bool focus_first);
 void saves_new_game_begin(void);
+bool saves_choice_needed(void);
 bool saves_new_game_draw(float scale, ImFont *body, ImFont *small_);
 static float g_menu_gap = 0.35f;  // space under each item, in line heights
 
@@ -1217,6 +1218,8 @@ extern "C" void launcher_run(const char *root) {
                 int act = saves_home_draw(g_font_title, g_font_small, LOGO_TEXID, ready, !ready || busy, !g_play_focused);
                 g_play_focused = true;
                 bool pressed = act == 1;
+                if (pressed && !saves_choice_needed()) g_slot_done = true;  // (one save: no question)
+                if (act == 7) saves_screen_open(), page = SAVES;  // CONTINUE held down: the picker, whatever the number of saves
                 if (act == 2) saves_new_game_begin();
                 if (act == 3) saves_screen_open(), page = SAVES;
                 if (act == 4) {
