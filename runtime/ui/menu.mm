@@ -18,6 +18,7 @@
 #include "../services/am.h"
 #ifdef __APPLE__
 #include "imgui_impl_metal.h"
+extern "C" void renderer_profile_pass_end(const char *reason);
 #else
 #include "imgui_impl_vulkan.h"
 extern "C" bool vk_imgui_backend_init(void);  // runtime/nvn/vulkan/imgui_glue.cpp
@@ -1009,6 +1010,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
     id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:rp];
     ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), cb, enc);
     [enc endEncoding];
+    renderer_profile_pass_end("overlay");
 #else
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), (VkCommandBuffer)cmd);  // inside the window image's rendering
 #endif

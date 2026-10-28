@@ -839,12 +839,14 @@ static void smaa_pass(id<MTLCommandBuffer> cb, id<MTLRenderPipelineState> p, id<
     rp.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 0);
     rp.colorAttachments[0].storeAction = MTLStoreActionStore;
     id<MTLRenderCommandEncoder> e = [cb renderCommandEncoderWithDescriptor:rp];
+    if (renderer_profile_active()) e.label = [NSString stringWithFormat:@"SMAA %lux%lu", (unsigned long)dst.width, (unsigned long)dst.height];
     [e setRenderPipelineState:p];
     [e setFragmentTexture:t0 atIndex:0];
     if (t1) [e setFragmentTexture:t1 atIndex:1];
     if (t2) [e setFragmentTexture:t2 atIndex:2];
     [e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [e endEncoding];
+    renderer_profile_pass_end("smaa");
 }
 
 static id<MTLTexture> smaa_encode(id<MTLCommandBuffer> cb, id<MTLTexture> in) {
@@ -1046,8 +1048,7 @@ void backend_present(NvnTexture *t) {
                 t ? t->format : 0, t ? (unsigned long long)t->addr : 0);
         }
     }
-    extern void renderer_submit(void);
-    renderer_submit();  // same queue: the present pass runs after the frame's work
+    renderer_present_submit();  // same queue: the present pass runs after the frame's work
     TexBackend *b = t->backend;
     if (b) b->presented = true;
     @autoreleasepool {
@@ -1120,6 +1121,7 @@ void backend_present(NvnTexture *t) {
             // SMAA (Video tab "Anti-aliasing"): first, at the game image's size (MetalFX then upscales its result)
             if (g_settings.antialias == AA_SMAA) {
                 [enc endEncoding];
+                renderer_profile_pass_end("smaa");
                 src = smaa_encode(cb, src);
                 MTLRenderPassDescriptor *rp2 = [MTLRenderPassDescriptor renderPassDescriptor];
                 rp2.colorAttachments[0].texture = drawable.texture;
@@ -1134,6 +1136,7 @@ void backend_present(NvnTexture *t) {
             id<MTLTexture> up = metalfx_upscale(cb, src, vw / crop[2], vh / crop[3]);
             if (up) {
                 [enc endEncoding];
+                renderer_profile_pass_end("metalfx");
                 up = metalfx_encode(cb, src);
                 MTLRenderPassDescriptor *rp2 = [MTLRenderPassDescriptor renderPassDescriptor];
                 rp2.colorAttachments[0].texture = drawable.texture;
@@ -1153,6 +1156,7 @@ void backend_present(NvnTexture *t) {
             [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
         }
         [enc endEncoding];
+        renderer_profile_pass_end("present");
         static long menu_at = -1;  // test hook: open the menu at this frame (LARECOMP_MENU_AT)
         if (menu_at < 0) menu_at = getenv("LARECOMP_MENU_AT") ? atol(getenv("LARECOMP_MENU_AT")) : 0;
         if (menu_at && (long)total_frames + 1 == menu_at) { extern void menu_test_open(void); menu_test_open(); }
@@ -1261,6 +1265,7 @@ void backend_present(NvnTexture *t) {
         frames = 0;
         last_fps_time = now;
     }
+    renderer_debug_frame_boundary(total_frames);
 }
 
 // ================================================================== UI thread

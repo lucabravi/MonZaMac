@@ -30,6 +30,131 @@ static double stat_gpu_s;
 static uint64_t stat_uniform_copied, stat_uniform_reused;
 static pthread_mutex_t gpu_timing_lock = PTHREAD_MUTEX_INITIALIZER;
 
+static const char *gpu_profile_reasons[] = {
+    "attachment", "feedback", "dispatch", "upload", "readback", "texture-copy", "clear-texture", "xfb",
+    "chunk", "guest-submit", "flush", "cpu-read", "debug-readback", "reset", "submit", "present", "smaa",
+    "metalfx", "resource-init", "overlay", "other"
+};
+#define GPU_PROFILE_REASON_COUNT (sizeof gpu_profile_reasons / sizeof *gpu_profile_reasons)
+static struct {
+    uint64_t pass_end[GPU_PROFILE_REASON_COUNT], cb_end[GPU_PROFILE_REASON_COUNT];
+    uint64_t draws, clears, dispatches, feedback_copies;
+} g_profile;
+static unsigned g_profile_frames, g_profile_pending_frames;
+static bool g_capture_pending, g_capture_active;
+static uint64_t g_capture_frame, g_capture_pass;
+static NSURL *g_capture_url;
+
+static unsigned gpu_profile_reason(const char *reason) {
+    for (unsigned i = 0; i < GPU_PROFILE_REASON_COUNT; i++)
+        if (reason && !strcmp(reason, gpu_profile_reasons[i])) return i;
+    return GPU_PROFILE_REASON_COUNT - 1;
+}
+
+bool renderer_profile_active(void) { return g_profile_frames || g_capture_active; }
+
+void renderer_profile_pass_end(const char *reason) {
+    if (g_profile_frames) g_profile.pass_end[gpu_profile_reason(reason)]++;
+}
+
+static bool gpu_profile_request(unsigned frames) {
+    if (!frames || frames > 120 || g_profile_frames || g_profile_pending_frames) return false;
+    g_profile_pending_frames = frames;
+    return true;
+}
+
+static bool gpu_capture_request(void) {
+    if (g_capture_pending || g_capture_active) return false;
+    g_capture_pending = true;
+    if (!g_profile_frames && !g_profile_pending_frames) g_profile_pending_frames = 1;
+    return true;
+}
+
+static void gpu_capture_drain(void) {
+    // Capture initialization and finalization must not race earlier submissions. Never used for ordinary profiling.
+    id<MTLCommandBuffer> marker = [renderer_queue() commandBuffer];
+    marker.label = @"GPU capture boundary";
+    [marker commit];
+    [marker waitUntilCompleted];
+}
+
+static void gpu_profile_reset(void) {
+    if (g_capture_active) {
+        gpu_capture_drain();
+        [[MTLCaptureManager sharedCaptureManager] stopCapture];
+        LOG("[gpucapture] cancelled by renderer reset\n");
+    }
+    g_capture_active = g_capture_pending = false;
+    g_capture_url = nil;
+    pthread_mutex_lock(&gpu_timing_lock);
+    g_profile_frames = g_profile_pending_frames = 0;
+    memset(&g_profile, 0, sizeof g_profile);
+    pthread_mutex_unlock(&gpu_timing_lock);
+}
+
+void renderer_debug_frame_boundary(uint64_t frame) {
+    if (!g_capture_active && !g_capture_pending && !g_profile_frames && !g_profile_pending_frames) return;
+    if (g_capture_active) {
+        gpu_capture_drain();
+        [[MTLCaptureManager sharedCaptureManager] stopCapture];
+        g_capture_active = false;
+        LOG("[gpucapture] completed frame %llu: %s\n", (unsigned long long)g_capture_frame, g_capture_url.path.UTF8String);
+    }
+    g_capture_pass = 0;
+    pthread_mutex_lock(&gpu_timing_lock);
+    if (g_profile_frames) {
+        LOG("[gpu-profile] frame=%llu draws=%llu clears=%llu dispatches=%llu fbcopy=%llu pass-end:",
+            (unsigned long long)frame, g_profile.draws, g_profile.clears, g_profile.dispatches, g_profile.feedback_copies);
+        for (unsigned i = 0; i < GPU_PROFILE_REASON_COUNT; i++)
+            if (g_profile.pass_end[i]) LOG(" %s=%llu", gpu_profile_reasons[i], g_profile.pass_end[i]);
+        LOG(" | cb-end:");
+        for (unsigned i = 0; i < GPU_PROFILE_REASON_COUNT; i++)
+            if (g_profile.cb_end[i]) LOG(" %s=%llu", gpu_profile_reasons[i], g_profile.cb_end[i]);
+        LOG("\n");
+        g_profile_frames--;
+        memset(&g_profile, 0, sizeof g_profile);
+    }
+    if (g_profile_pending_frames) {
+        g_profile_frames = g_profile_pending_frames;
+        g_profile_pending_frames = 0;
+        memset(&g_profile, 0, sizeof g_profile);
+        LOG("[gpu-profile] collecting %u complete frames after %llu\n", g_profile_frames, (unsigned long long)frame);
+    }
+    pthread_mutex_unlock(&gpu_timing_lock);
+    if (!g_capture_pending) return;
+    g_capture_pending = false;
+    const char *enabled = getenv("MTL_CAPTURE_ENABLED");
+    if (!enabled || !atoi(enabled)) {
+        LOG("[gpucapture] unavailable: launch with MTL_CAPTURE_ENABLED=1\n");
+        return;
+    }
+    MTLCaptureManager *manager = [MTLCaptureManager sharedCaptureManager];
+    if (manager.isCapturing || ![manager supportsDestination:MTLCaptureDestinationGPUTraceDocument]) {
+        LOG("[gpucapture] unavailable: capture already active or GPU trace destination unsupported\n");
+        return;
+    }
+    NSError *error = nil;
+    if (![[NSFileManager defaultManager] createDirectoryAtPath:@"build/gputrace" withIntermediateDirectories:YES attributes:nil error:&error]) {
+        LOG("[gpucapture] cannot create output directory: %s\n", error.localizedDescription.UTF8String);
+        return;
+    }
+    NSString *path = [NSString stringWithFormat:@"build/gputrace/frame-%llu-%@.gputrace", (unsigned long long)(frame + 1), NSUUID.UUID.UUIDString];
+    MTLCaptureDescriptor *descriptor = [MTLCaptureDescriptor new];
+    descriptor.captureObject = dev;  // include uploads, renderer work, post-processing and presentation
+    descriptor.destination = MTLCaptureDestinationGPUTraceDocument;
+    descriptor.outputURL = [NSURL fileURLWithPath:path];
+    gpu_capture_drain();
+    if (![manager startCaptureWithDescriptor:descriptor error:&error]) {
+        LOG("[gpucapture] start failed: %s\n", error.localizedDescription.UTF8String);
+        return;
+    }
+    g_capture_active = true;
+    g_capture_frame = frame + 1;
+    g_capture_pass = 0;
+    g_capture_url = descriptor.outputURL;
+    LOG("[gpucapture] recording frame %llu\n", (unsigned long long)g_capture_frame);
+}
+
 // LARECOMP_GPU_TIMING_TRACE (read once; asked at every command buffer submit and completion) or the Developer tab's switch
 bool renderer_gpu_timing_trace(void) {
     static int env = -1;
@@ -174,6 +299,7 @@ void renderer_gpu_timing_mark_commit(RendererGpuTimingToken *cb) {
     double now = renderer_host_time_seconds();
     pthread_mutex_lock(&gpu_timing_lock);
     cb->commit_s = now;
+    if (g_profile_frames) g_profile.cb_end[gpu_profile_reason(cb->kind)]++;
     pthread_mutex_unlock(&gpu_timing_lock);
 }
 
@@ -421,10 +547,11 @@ static bool trace_frame(void) {
 }
 static void debug_live_controls(void);
 static void op_ring_dump(int back);  // (defined with the executor)
-static void end_pass(void) {
+static void end_pass(const char *reason) {
     debug_live_controls();
     if (enc) {
         [enc endEncoding];
+        renderer_profile_pass_end(reason);
         enc = nil;
         if (g_debug_frame && dbg_rt[0] && dbg_rt[0]->backend) {
             // build/nodump: skip the per-attachment PNG dumps and the per-pass GPU wait, so several
@@ -565,14 +692,15 @@ static void drain_gone(void) {
 }
 
 // Commit recorded work without waiting.
-void renderer_submit(void) {
-    end_pass();
+static void renderer_submit_reason(const char *reason) {
+    end_pass(reason);
     drain_gone();
     if (cmdbuf) {
         id<MTLCommandBuffer> c = cmdbuf;
         cmdbuf = nil;
         extern uint64_t renderer_present_count(void);
-        RendererGpuTimingToken *gpu_timing = renderer_gpu_timing_submit(renderer_present_count() + 1, "renderer");
+        if (renderer_profile_active()) c.label = [NSString stringWithFormat:@"NVN submit: %s", reason];
+        RendererGpuTimingToken *gpu_timing = renderer_gpu_timing_submit(renderer_present_count() + 1, g_profile_frames ? reason : "renderer");
         [c addCompletedHandler:^(id<MTLCommandBuffer> done) {
             renderer_gpu_timing_complete(gpu_timing, done.GPUStartTime, done.GPUEndTime);
             if (done.error) LOG("[metal] command buffer error: %s\n", done.error.localizedDescription.UTF8String);
@@ -589,9 +717,12 @@ void renderer_submit(void) {
     }
 }
 
+void renderer_submit(void) { renderer_submit_reason("submit"); }
+void renderer_present_submit(void) { renderer_submit_reason("present"); }
+
 // Finish all recorded GPU work (the CPU is about to read GPU results, or reuse the ring).
-void renderer_flush(void) {
-    renderer_submit();
+static void renderer_flush_reason(const char *reason) {
+    renderer_submit_reason(reason);
     pthread_mutex_lock(&cb_lock);
     id<MTLCommandBuffer> c = last_cb;
     pthread_mutex_unlock(&cb_lock);
@@ -603,6 +734,8 @@ void renderer_flush(void) {
     pthread_mutex_unlock(&cb_lock);
     ring_reset();
 }
+
+void renderer_flush(void) { renderer_flush_reason("flush"); }
 
 // Wait for submitted work without committing anything new (nvnSyncWait / QueueFinish).
 // Callable from any thread: everything submitted so far was committed by renderer_submit.
@@ -795,7 +928,7 @@ static int g_rt_plane = -1;
 
 static void begin_pass(void) {
     if (enc && !st.rt_dirty) return;
-    end_pass();
+    end_pass("attachment");
     st.rt_dirty = false;
     for (int i = 0; i < 8; i++) dbg_rt[i] = i < st.rt.ncolor ? st.rt.color[i] : NULL;
     MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
@@ -875,8 +1008,9 @@ static void begin_pass(void) {
     // ~15.5 + a few ms -> missed vsync -> 30 fps). LARECOMP_CHUNK_PASSES=<n> (0 = one buffer per frame).
     static int chunk = -1;
     if (chunk < 0) { const char *e = ENV("LARECOMP_CHUNK_PASSES"); chunk = e ? atoi(e) : 8; }
-    if (chunk > 0 && cmdbuf && ++g_passes_in_cb >= chunk) renderer_submit();
+    if (chunk > 0 && cmdbuf && ++g_passes_in_cb >= chunk) renderer_submit_reason("chunk");
     enc = [cb() renderCommandEncoderWithDescriptor:rp];
+    if (renderer_profile_active()) enc.label = [NSString stringWithFormat:@"NVN pass %llu %dx%d colors=%d depth=%d", ++g_capture_pass, w, h, st.rt.ncolor, st.rt.depth != NULL];
     vp_sx = pass_sx; vp_sy = pass_sy; vp_ox = 0; vp_oy = 0;
     stat_passes++;
 }
@@ -950,6 +1084,7 @@ static void attachment_formats(MTLRenderPipelineDescriptor *pd) {
 
 static void clear(int index, int kind, const void *color, uint32_t mask, bool depth, float dval, bool stencil,
                   uint32_t sval, uint32_t smask) {
+    if (g_profile_frames) g_profile.clears++;
     if (kind < 0 || kind > 2) kind = 0;  // (records from older encoders may carry garbage here)
     // Metal rejects a float4 output on an integer attachment (and vice versa), and NVN callers don't always
     // match the clear kind to the target's format (DiscardColor is recorded as a float clear). Trust the format.
@@ -1834,6 +1969,7 @@ static id<MTLTexture> shadow_slot_texture(id<MTLTexture> tex, const ShaderTextur
             rp.depthAttachment.storeAction = MTLStoreActionStore;
             rp.depthAttachment.clearDepth = 1.0;
             [[cb renderCommandEncoderWithDescriptor:rp] endEncoding];
+            renderer_profile_pass_end("resource-init");
         }
         extern uint64_t renderer_present_count(void);
         RendererGpuTimingToken *timing = renderer_gpu_timing_submit(renderer_present_count() + 1, "resource-init");
@@ -2039,6 +2175,7 @@ static void resolve_feedback(Prog *pr) {
                 continue;
             }
             stat_feedback_copies++;
+            if (g_profile_frames) g_profile.feedback_copies++;
             static int logfb = -1;
             if (logfb < 0) logfb = getenv("LARECOMP_LOG_FEEDBACK") != NULL;
             if (logfb && stat_feedback_copies % 50 == 1)
@@ -2046,7 +2183,7 @@ static void resolve_feedback(Prog *pr) {
                     t->width, t->height, t->format, sg, (unsigned long long)g_cur_fs_hash, si >= 0 ? snap_why[si] : "new",
                     st.ds[0], st.ds[1], st.ds[2], st.ds[3], st.rt.ncolor, st.rt.ncolor && st.rt.color[0] ? st.rt.color[0]->width : 0,
                     st.rt.ncolor && st.rt.color[0] ? st.rt.color[0]->height : 0, st.rt.ncolor && st.rt.color[0] ? st.rt.color[0]->format : 0, st.channel_mask);
-            end_pass();
+            end_pass("feedback");
             id<MTLTexture> src = renderer_texture(t, nil, true);
             id<MTLTexture> dst = copies[key];
             if (!dst || dst.width != src.width || dst.height != src.height || dst.pixelFormat != src.pixelFormat) {
@@ -2464,7 +2601,7 @@ static void cs_dump(char kind, int i, uint64_t addr, uint64_t size) {
 
 static void cs_audit(ShaderInfo *si, uint32_t gx, uint32_t gy, uint32_t gz) {
     extern uint64_t renderer_present_count(void);
-    renderer_flush();  // the output is read once the dispatch has run
+    renderer_flush_reason("debug-readback");  // the output is read once the dispatch has run
     char line[1024];
     int n = snprintf(line, sizeof line, "[cs-out] f=%llu cs=%llx g=%ux%ux%u", (unsigned long long)renderer_present_count(),
                      (unsigned long long)st.program->stages[5].code_addr, gx, gy, gz);
@@ -2493,7 +2630,7 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
     if (trace < 0) trace = getenv("LARECOMP_TRACE_CS") != NULL;
 #define CST(x) do { if (trace) { fprintf(stderr, "[cs] %s\n", x); fflush(stderr); } } while (0)
     CST("end_pass");
-    end_pass();
+    end_pass("dispatch");
     CST("encoder");
     id<MTLComputeCommandEncoder> ce = [cb() computeCommandEncoder];
     CST("pipeline");
@@ -2593,6 +2730,7 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
     [ce endEncoding];
     CST("done");
     stat_dispatches++;
+    if (g_profile_frames) g_profile.dispatches++;
     if (trace_frame()) cs_audit(si, gx, gy, gz);
 }
 
@@ -2783,7 +2921,12 @@ static void debug_live_controls(void) {
     while (fgets(line, sizeof line, f)) {
         char cmd[32] = "", arg[420] = "";
         if (sscanf(line, "%31s %419[^\n]", cmd, arg) < 1) continue;
-        if (!strcmp(cmd, "cull")) {
+        if (!strcmp(cmd, "gpucapture")) {
+            LOG("[dbgcmd] gpucapture %s\n", gpu_capture_request() ? "queued for the next complete frame" : "already pending or active");
+        } else if (!strcmp(cmd, "gpuprofile")) {
+            int n = arg[0] ? atoi(arg) : 1;
+            LOG("[dbgcmd] gpuprofile %s\n", n > 0 && gpu_profile_request((unsigned)n) ? "queued" : "busy or invalid frame count (1..120)");
+        } else if (!strcmp(cmd, "cull")) {
             int c = atoi(arg);
             g_live_cull = (c == 0 || c == 1 || c == 2) ? c : -1;
             LOG("[dbgcmd] cull %d (-1 = guest)\n", g_live_cull);
@@ -3534,10 +3677,11 @@ static void draw(CmdRec *r, bool indexed) {
     }
     }  // runs
     stat_draws++;
+    if (g_profile_frames) g_profile.draws++;
     if (dbg_this) {
         static int nlog;
         if (nlog++ < 4) {
-            renderer_flush();
+            renderer_flush_reason("debug-readback");
             const float *f = dbgvs.contents;
             LOG("[dbgvs] draw %d:", nlog);
             for (int i = 0; i < 2; i++)
@@ -3580,7 +3724,7 @@ static void draw_indirect(CmdRec *r) {
             if (nl > 0) {   // (the GPU's culling of this frame has run once the work so far is done: read its result then)
                 extern uint64_t renderer_present_count(void);
                 static uint64_t lastf = ~0ull;
-                if (renderer_present_count() != lastf) { lastf = renderer_present_count(); renderer_flush(); }
+                if (renderer_present_count() != lastf) { lastf = renderer_present_count(); renderer_flush_reason("cpu-read"); }
             }
             if (nl > 0) {
                 nl--;
@@ -3653,7 +3797,7 @@ static void copy_buffer_to_texture(uint64_t src, const TexRefRec *dst) {
     snap_reason = "buf2tex"; snapshots_invalidate(NULL);
     NvnTexture *t = (NvnTexture *)(uintptr_t)dst->tex;
     if (!t || !src) return;
-    end_pass();
+    end_pass("upload");
     const FormatInfo *fi;
     int32_t rg[6];
     int level;
@@ -3739,13 +3883,14 @@ static void draw_copy(id<MTLTexture> s, int sx0, int sy0, int sw, int sh, id<MTL
     [e setFragmentSamplerState:linear ? lin : near atIndex:0];
     [e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [e endEncoding];
+    renderer_profile_pass_end("texture-copy");
     stat_passes++;
 }
 
 static void copy_texture_to_buffer(const TexRefRec *src, uint64_t dst) {
     NvnTexture *t = (NvnTexture *)(uintptr_t)src->tex;
     if (!t || !dst || dst < g_gwin_base) return;
-    end_pass();
+    end_pass("readback");
     const FormatInfo *fi;
     int32_t rg[6];
     int level;
@@ -3780,14 +3925,14 @@ static void copy_texture_to_buffer(const TexRefRec *src, uint64_t dst) {
                 sourceSize:MTLSizeMake(rg[3], rg[4], array ? 1 : rg[5]) toBuffer:g_guest_buffer
          destinationOffset:dst - g_gwin_base + (uint64_t)z * img destinationBytesPerRow:row destinationBytesPerImage:img];
     [b endEncoding];
-    renderer_flush();  // the CPU may read the result right after the fence
+    renderer_flush_reason("cpu-read");  // the CPU may read the result right after the fence
 }
 
 static void copy_texture(const TexRefRec *src, const TexRefRec *dst, uint64_t flags) {
     snap_reason = "tex2tex"; snapshots_invalidate(NULL);
     NvnTexture *st_ = (NvnTexture *)(uintptr_t)src->tex, *dt = (NvnTexture *)(uintptr_t)dst->tex;
     if (!st_ || !dt) return;
-    end_pass();
+    end_pass("texture-copy");
     id<MTLTexture> s = sampled_texture(st_, &src->view, src->has_view, TEXTYPE_2D);
     renderer_mark_gpu_owned(dt);
     id<MTLTexture> d = view_texture(dt, &dst->view, dst->has_view, true, nil);
@@ -3868,6 +4013,7 @@ static void copy_texture(const TexRefRec *src, const TexRefRec *dst, uint64_t fl
         [e setFragmentSamplerState:dnear atIndex:0];
         [e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
         [e endEncoding];
+        renderer_profile_pass_end("texture-copy");
         stat_passes++;
         static int dbgc = -1;
         if (dbgc < 0) dbgc = getenv("LARECOMP_DEBUG_DEPTHCOPY") != NULL;
@@ -3883,7 +4029,7 @@ static void copy_texture(const TexRefRec *src, const TexRefRec *dst, uint64_t fl
                 [bb copyFromTexture:d sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(d.width / 2, d.height / 2, 0)
                          sourceSize:MTLSizeMake(1, 1, 1) toBuffer:rb destinationOffset:16 destinationBytesPerRow:4 destinationBytesPerImage:4 options:opt];
                 [bb endEncoding];
-                renderer_flush();
+                renderer_flush_reason("debug-readback");
                 const float *f = rb.contents;
                 LOG("[copy] depth %lux%lu fmt %lu -> %lux%lu fmt %lu: centre src %g dst %g\n", (unsigned long)s.width, (unsigned long)s.height,
                     (unsigned long)s.pixelFormat, (unsigned long)d.width, (unsigned long)d.height, (unsigned long)d.pixelFormat, f[0], f[4]);
@@ -3937,7 +4083,7 @@ static void probe_step(const CmdRec *r) {
         memset(seen_rt, 0, sizeof seen_rt);
     }
     if (prev_rt && prev_rt->backend) {  // what the previous command did to its target
-        end_pass();
+        end_pass("debug-readback");
         id<MTLTexture> t = renderer_texture(prev_rt, nil, true);
         MTLPixelFormat f = t.pixelFormat;
         NSUInteger bpp = f == MTLPixelFormatRGBA32Float ? 16 : (f == MTLPixelFormatRGBA16Float || f == MTLPixelFormatRG32Float) ? 8
@@ -3948,7 +4094,7 @@ static void probe_step(const CmdRec *r) {
         [bl copyFromTexture:t sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(x0, y0, 0) sourceSize:MTLSizeMake(32, 32, 1)
                    toBuffer:pb destinationOffset:0 destinationBytesPerRow:32 * bpp destinationBytesPerImage:32 * 32 * bpp];
         [bl endEncoding];
-        renderer_flush();
+        renderer_flush_reason("debug-readback");
         uint32_t sum = 0;
         const uint8_t *q = pb.contents;
         for (NSUInteger k = 0; k < 32 * 32 * bpp; k++) sum = sum * 31 + q[k];
@@ -4011,7 +4157,7 @@ static void exec_list(uint64_t handle, int depth) {
         case CMD_BEGIN_XFB: g_xfb_on = true; g_xfb_dirty = false; break;
         case CMD_END_XFB:
             g_xfb_on = false;
-            if (g_xfb_dirty) { end_pass(); g_xfb_dirty = false; }  // (later draws read the written buffers as vertex streams)
+            if (g_xfb_dirty) { end_pass("xfb"); g_xfb_dirty = false; }  // (later draws read the written buffers as vertex streams)
             break;
         case CMD_BIND_XFB_BUFFER:
             if (r->x[0] < 4) { g_xfb_addr[r->x[0]] = r->x[1]; g_xfb_size[r->x[0]] = r->x[2]; }
@@ -4146,7 +4292,7 @@ static void exec_list(uint64_t handle, int depth) {
             RtState saved = st.rt;
             int32_t sc[4];
             memcpy(sc, st.scissor[0], sizeof sc);
-            end_pass();
+            end_pass("clear-texture");
             memset(&st.rt, 0, sizeof st.rt);
             st.rt.ncolor = 1;
             st.rt.color[0] = t;
@@ -4160,7 +4306,7 @@ static void exec_list(uint64_t handle, int depth) {
                 LOG("[cleartex] %ux%u f%#x region %d,%d %dx%d color %g %g %g %g mask %#llx kind %llu\n", t->width, t->height, t->format,
                     rg[0], rg[1], rg[3], rg[4], ct->color[0], ct->color[1], ct->color[2], ct->color[3], r->x[4], r->x[6]);
             clear(0, (int)r->x[6], ct->color, (uint32_t)r->x[4] ? (uint32_t)r->x[4] : 0xF, false, 0, false, 0, 0);
-            end_pass();
+            end_pass("clear-texture");
             st.rt = saved;
             memcpy(st.scissor[0], sc, sizeof sc);
             st.rt_dirty = true;
@@ -4272,7 +4418,7 @@ static void exec_list(uint64_t handle, int depth) {
         case CMD_COPY_BUFFER_TO_TEXTURE: copy_buffer_to_texture(r->x[0], x); break;
         case CMD_COPY_TEXTURE_TO_BUFFER: copy_texture_to_buffer(x, r->x[3]); break;
         case CMD_COPY_BUFFER_TO_BUFFER:
-            renderer_flush();
+            renderer_flush_reason("cpu-read");
             memmove((void *)(uintptr_t)r->x[1], (void *)(uintptr_t)r->x[0], r->x[2]);
             break;
         default: break;
@@ -4285,7 +4431,8 @@ static void exec_list(uint64_t handle, int depth) {
 // everything keyed by guest addresses or guest-owned objects - programs (by code address), pipelines (by program),
 // views, snapshots, bound state - so the next boot can't hit a stale entry. Metal's own shader cache stays warm.
 void renderer_reset(void) {
-    renderer_flush();
+    renderer_flush_reason("reset");
+    gpu_profile_reset();
     renderer_gpu_timing_reset();
     pthread_mutex_lock(&gone_lock);
     ngone = 0;
@@ -4321,7 +4468,7 @@ void backend_execute(uint64_t handle) {
         exec_list(handle, 0);
         static int sync_submit = -1;
         if (sync_submit < 0) sync_submit = getenv("LARECOMP_SYNC_SUBMIT") ? 1 : 0;
-        if (sync_submit) renderer_flush();  // old behaviour: finish the GPU work before returning
-        else renderer_submit();  // the guest fences (nvnSyncWait) before reusing memory the GPU reads
+        if (sync_submit) renderer_flush_reason("guest-submit");  // old behaviour: finish the GPU work before returning
+        else renderer_submit_reason("guest-submit");  // the guest fences (nvnSyncWait) before reusing memory the GPU reads
     }
 }

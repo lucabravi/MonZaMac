@@ -3,6 +3,10 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
+## Unreleased
+
+- Developer GPU profiling: opt-in, one-frame Metal captures and per-frame pass/submission break histograms.
+
 ## 0.1.1
 
 ### Performance
