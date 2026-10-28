@@ -138,10 +138,10 @@ static bool dialogs(float sc, ImFont *body, ImFont *small_) {
         bool done;
         if (g_ask == NEW) done = g_made = saves_create(g_name, g_created);
         else if (g_ask == COPY) done = saves_copy(cur.id, g_name);
-        else if (g_ask == RENAME) done = saves_rename(cur.id, g_name);
+        else if (g_ask == RENAME) done = saves_rename(cur.id, g_name, g_created);
         else done = saves_delete(cur.id);
         if (done) {
-            if (g_ask == RENAME && !strcmp(g_settings.save_slot, cur.id)) snprintf(g_settings.save_slot, sizeof g_settings.save_slot, "%s", g_name);
+            if (g_ask == RENAME && !strcmp(g_settings.save_slot, cur.id)) snprintf(g_settings.save_slot, sizeof g_settings.save_slot, "%s", g_created);
             if (g_ask == DELETE && !strcmp(g_settings.save_slot, cur.id)) g_settings.save_slot[0] = 0;
             g_err[0] = 0, g_ask = NONE, changed = true;
             ImGui::CloseCurrentPopup();
@@ -259,7 +259,7 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_) {
     if (bar_button("Copy", bw * 0.7f, bar_h, small_)) g_ask = COPY, g_err[0] = 0;
     ImGui::EndDisabled();
     ImGui::SameLine(0, bgap);
-    ImGui::BeginDisabled(!g_n || !*sel_slot().id);
+    ImGui::BeginDisabled(!g_n);
     if (bar_button("Rename", bw * 0.8f, bar_h, small_)) g_ask = RENAME, g_err[0] = 0;
     ImGui::EndDisabled();
     ImGui::SameLine(0, bgap);

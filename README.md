@@ -52,7 +52,7 @@ You need a Mac with Apple Silicon (macOS 15 or later) and **your own copy of the
    `~/Library/Application Support/com.monzamac.app`, and stay there when you update the app.
 
 **Saves.** The start screen shows the save you played last. **SAVES** lists them all: pick one, start a new one, copy
-(a handy backup before trying something), rename or delete. A save you already had is the first one in the list.
+(a handy backup before trying something), rename or delete. A save you already had is the first one in the list, called "Main save" until you rename it.
 
 In the game: **F1** opens the menu (video, audio, controls), **F3** shows the frame rate and the render resolution.
 Keyboard: WASD move, arrows d-pad, Enter = A, Backspace = B, K = talk, Q / E = L / R; a controller works too.
