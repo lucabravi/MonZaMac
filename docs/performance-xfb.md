@@ -8,17 +8,18 @@ vertices. This experiment keeps the encoder open and inserts a buffer memory bar
 the vertex and fragment stages instead. Attachment changes, compute dispatches, copies and submissions keep
 their existing boundaries. It does not assume all 90 boundaries will disappear in a real frame.
 
-The switch is **off by default**:
+The switch is **on by default** since the first in-game A/B by the maintainer (about 38 to 42 fps at 1.5x, same
+scene on and off); the numbers below are the controlled measurements it was proposed with. Off:
 
 ```sh
-LARECOMP_XFB_END_BARRIER=1 tools/hang_sample.sh
+LARECOMP_XFB_END_BARRIER=0 tools/hang_sample.sh
 ```
 
 It can be switched on in the game, with no restart: Developer tab (Cmd+Shift+D) > "Keep passes open after skinning"
 (`xfb_barrier = 1` in `larecomp.ini`). The variable, when set, wins over the setting. Use
-`LARECOMP_XFB_END_BARRIER=0`, or leave both off, for the original behavior. The barrier path requires macOS 13
+`LARECOMP_XFB_END_BARRIER=0`, or turn the setting off, for the original behavior. The barrier path requires macOS 13
 or later; older systems retain the original pass ending. No shader text, texture allocation, Hi-Z LOD,
-resolution-scaling or CPU/GPU-overlap behavior changes. This is an optional experiment, not a global default.
+resolution-scaling or CPU/GPU-overlap behavior changes. Battles, long sessions and other areas have had little testing, which is why the switch stays in the Developer tab.
 
 ## Repeated A/B measurements
 
