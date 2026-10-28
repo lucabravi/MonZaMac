@@ -5,8 +5,10 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
-- Experimental GPU optimization: opt-in transform-feedback pass reuse through a Metal buffer barrier (Developer tab
-  "Keep passes open after skinning", applies at once, or `LARECOMP_XFB_END_BARRIER=1`; off by default).
+- **Fewer render passes after GPU skinning (on by default):** the pass used to end after each transform-feedback stage;
+  it now stays open with a Metal buffer barrier (about 1 ms less GPU time a frame in the tested scenes: 38 to 42 fps at
+  1.5x in one test). Developer tab "Keep passes open after skinning" turns it off at once;
+  `LARECOMP_XFB_END_BARRIER=0` too.
 
 ## 0.1.1
 

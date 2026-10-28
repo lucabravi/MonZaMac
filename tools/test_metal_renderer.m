@@ -885,8 +885,8 @@ static void xfb_vertex_reuse(void) {
     fullscreen_draw(1);
     const char *option = getenv("LARECOMP_XFB_END_BARRIER");
     bool merged = false;
-    if (@available(macOS 13.0, *)) merged = option && atoi(option);
-    CHECK(stat_passes - passes == (merged ? 1 : 2), "XFB barrier reuses the pass; default keeps the original boundary");
+    if (@available(macOS 13.0, *)) merged = option ? atoi(option) != 0 : g_settings.xfb_barrier;
+    CHECK(stat_passes - passes == (merged ? 1 : 2), "XFB barrier reuses the pass when on (the setting's default); the original boundary when off");
     expect_rgba(&color, 0, 255, 0);
     g_xfb_on = g_xfb_dirty = false;
     memset(g_xfb_addr, 0, sizeof g_xfb_addr); memset(g_xfb_size, 0, sizeof g_xfb_size);
