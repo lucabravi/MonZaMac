@@ -394,6 +394,7 @@ bool renderer_texture_presented(NvnTexture *t);
 // the stretched wide mapping. vp_* is the mapping for the current draw: physical = guest * s + off.
 static float vp_sx = 1, vp_sy = 1, vp_ox = 0, vp_oy = 0;
 static float tex_sc[2][64][2];          // per bound texture slot: allocation scale (for shaders' texel math)
+static float tex_lb[2][64];             // per bound texture slot: added to explicit sample LODs (hiz_lod)
 static float tex_fp[64];                // fragment texture slot: 0, or 1 / 2 = its integer fetches take the min / max of the footprint (fp_read)
 static uint32_t tex_wh[2][64][2];       // per bound texture slot: guest size
 #define RSCALE_BUFFER_INDEX 18
@@ -2000,6 +2001,20 @@ static int hiz_footprint(NvnTexture *t) {
     return mode;
 }
 
+// The culling samples the scene depth's mip chain (its depth pyramid) with a min / max reduction sampler at the LOD whose
+// texels cover the object on the game's screen. A scaled allocation's level L texels cover 1 / scale of that, so the 2 x 2
+// footprint misses part of the object and the test stops being conservative: objects culled above 1x. Its explicit LODs go
+// up by ceil(log2 scale) (1.5x, 2x: +1). LARECOMP_HIZ_LOD=0: off.
+static float hiz_lod(const NvnSamplerDesc *sd, float sx, float sy) {
+    static int off = -1;
+    if (off < 0) off = getenv("LARECOMP_HIZ_LOD") && !atoi(getenv("LARECOMP_HIZ_LOD"));
+    if (off || !sd || !sd->reduction || (sx == 1 && sy == 1)) return 0;
+    float b = ceilf(log2f(fmaxf(sx, sy)) - 1e-4f);
+    static float logged = -100;
+    if (b != logged) { logged = b; LOG("[hiz] reduction sampler on a texture scaled %.2fx%.2f: explicit LODs %+g\n", sx, sy, b); }
+    return b;
+}
+
 static bool needs_feedback_snapshot(NvnTexture *t) {
     if (!t) return false;
     // Z-A builds its depth pyramid by writing higher mips while reading the preceding level.
@@ -2279,6 +2294,7 @@ static void bind_textures(int stage, ShaderInfo *si) {
         }
         NvnSamplerDesc *sd = h && st.spool && tsc < (uint32_t)st.spool->count ? &((NvnSamplerDesc *)st.spool->entries)[tsc] : NULL;
         if (sd) smp = sampler_for(sd);
+        if (i < 64) tex_lb[stage][i] = hiz_lod(sd, tex_sc[stage][i][0], tex_sc[stage][i][1]);
         if (st_->shadow) tex = shadow_slot_texture(tex, st_);
         if (!tex) tex = dummy_texture_ex(st_->type, st_->scalar_kind, st_->is_image);
         {   // LARECOMP_DUMMY_TEX=<fs addr or fsh>:<slot>,...: bind the neutral dummy texture to these fragment shader inputs (A/B tests)
@@ -2570,6 +2586,7 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
         }
         NvnSamplerDesc *sd = h && st.spool && tsc < (uint32_t)st.spool->count ? &((NvnSamplerDesc *)st.spool->entries)[tsc] : NULL;
         if (sd) smp = sampler_for(sd);
+        if (i < 64) tex_lb[0][i] = hiz_lod(sd, tex_sc[0][i][0], tex_sc[0][i][1]);
         if (!smp) smp = default_sampler();
         if (st_->shadow) tex = shadow_slot_texture(tex, st_);
         [ce setTexture:tex ? tex : dummy_texture_ex(st_->type, st_->scalar_kind, st_->is_image) atIndex:i];
@@ -2585,7 +2602,7 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
     }
     if (si->uses_rscale) {
         float rs[65][4] = {{1, 1, 0, 0}};
-        for (int i = 0; i < si->ntex && i < 64; i++) { rs[1 + i][0] = tex_sc[0][i][0]; rs[1 + i][1] = tex_sc[0][i][1]; }
+        for (int i = 0; i < si->ntex && i < 64; i++) { rs[1 + i][0] = tex_sc[0][i][0]; rs[1 + i][1] = tex_sc[0][i][1]; rs[1 + i][3] = tex_lb[0][i]; }
         [ce setBytes:rs length:(NSUInteger)(1 + si->ntex) * 16 atIndex:RSCALE_BUFFER_INDEX];
     }
     CST("dispatch");
@@ -3461,7 +3478,7 @@ static void draw(CmdRec *r, bool indexed) {
     apply_scissor();
     if (pr->fi->uses_rscale) {  // [0] = render target scale, [1 + i] = scale of texture i
         float rs[66][4] = {{vp_sx, vp_sy, vp_ox, vp_oy}};
-        for (int i = 0; i < pr->fi->ntex && i < 64; i++) { rs[1 + i][0] = tex_sc[1][i][0]; rs[1 + i][1] = tex_sc[1][i][1]; rs[1 + i][2] = tex_fp[i]; }
+        for (int i = 0; i < pr->fi->ntex && i < 64; i++) { rs[1 + i][0] = tex_sc[1][i][0]; rs[1 + i][1] = tex_sc[1][i][1]; rs[1 + i][2] = tex_fp[i]; rs[1 + i][3] = tex_lb[1][i]; }
         if (fkey.flip_x) rs[65][0] = (float)st.rt.color[0]->width;  // (mirror mode: the composite's width, guest pixels)
         [enc setFragmentBytes:rs length:(NSUInteger)(fkey.flip_x ? 66 : 1 + pr->fi->ntex) * 16 atIndex:RSCALE_BUFFER_INDEX];
     }
