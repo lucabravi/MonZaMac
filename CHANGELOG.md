@@ -11,6 +11,7 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   first slot, "Main save", untouched; extra saves live in `saves/` next to `save/`. The app opens on it (`--play` skips it).
 - **New look for the menus:** deep blue panels with a cyan accent instead of green and gold (start screen, Settings, in-game
   menu).
+- `gpupass N` (in `build/dbgcmd`): GPU time of each render pass over N frames, no Xcode needed (developer tool).
 - **Clears as load actions:** a clear the game issues at the start of a pass now clears the attachment as the pass
   begins instead of loading it and drawing over it (less GPU bandwidth; `LARECOMP_CLEAR_DRAWS=1` goes back).
 - **Fewer render passes after GPU skinning (on by default):** the pass used to end after each transform-feedback stage;
