@@ -43,6 +43,7 @@ extern "C" {
 #include "gamelib.h"
 #include "romfs_build.h"
 #include "settings.h"
+#include "saves.h"
 #include "input_bind.h"
 void controls_bindings_draw(float scale);  // ui/controls_ui.mm
 void ui_window_init(void);
@@ -528,6 +529,36 @@ typedef void *GpuDevice;
 #endif
 static int g_bg_w, g_bg_h;
 
+// The app's logo (the icon), for the start screen's header. Apple only; without it the header is just the name.
+#ifdef __APPLE__
+static id<MTLTexture> g_logo;
+#define LOGO_TEXID ((ImTextureID)(__bridge void *)g_logo)
+static void load_logo(id<MTLDevice> dev) {
+    char p[1024];
+    if (g_logo || !rt_resource("icon.png", "docs/icon/icon_1024.png", p, sizeof p)) return;
+    CGImageSourceRef src = CGImageSourceCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:@(p)], NULL);
+    CGImageRef img = src ? CGImageSourceCreateImageAtIndex(src, 0, NULL) : NULL;
+    if (img) {
+        size_t w = 256, h = 256;  // (the 1024 px icon, scaled down once)
+        std::vector<uint8_t> px(w * h * 4);
+        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+        CGContextRef cg = CGBitmapContextCreate(px.data(), w, h, 8, w * 4, cs, kCGImageAlphaPremultipliedLast);
+        CGContextSetInterpolationQuality(cg, kCGInterpolationHigh);
+        CGContextDrawImage(cg, CGRectMake(0, 0, w, h), img);
+        CGContextRelease(cg);
+        CGColorSpaceRelease(cs);
+        MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                                                                      width:w height:h mipmapped:NO];
+        g_logo = [dev newTextureWithDescriptor:td];
+        [g_logo replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0 withBytes:px.data() bytesPerRow:w * 4];
+    }
+    if (img) CGImageRelease(img);
+    if (src) CFRelease(src);
+}
+#else
+#define LOGO_TEXID ((ImTextureID)0)
+#endif
+
 static void load_background(GpuDevice dev) {
     std::string path = g_root + "/romfs/region_common/movie/title.webm";
     AVFormatContext *fmt = NULL;
@@ -579,7 +610,7 @@ static void load_background(GpuDevice dev) {
 
 // ------------------------------------------------------------------ screen
 static ImFont *g_font_title, *g_font_menu, *g_font_small;
-enum Page { MAIN, SETTINGS, SETUP };  // SETTINGS: the in-game menu's tabs (runtime/ui/menu.mm)
+enum Page { MAIN, SETTINGS, SETUP, SAVES };  // SETTINGS: the in-game menu's tabs (runtime/ui/menu.mm)
 static int g_refocus = MAIN;  // back on the main page: select the item of the page we came from (controllers)
 
 // A big menu line: gold + a marker when focused / hovered (keyboard, gamepad or mouse), grey when disabled
@@ -588,8 +619,17 @@ void menu_tabs_draw(float scale, ImFont *font, ImFont *font_big, bool in_game, v
 void menu_tabs_focus(bool first_tab);
 extern int g_tab_request_ext;
 extern "C" void menu_apply_window_requests(void *sdl_window);
-extern "C" { int g_start_screen; }  // the start screen is up (no game loaded)
+extern "C" { int g_start_screen; int g_saves_first; }  // the start screen is up (no game loaded); open on the save picker
 static bool g_play_pending;
+static bool g_play_focused;  // PLAY has the controller's selection (false: put it there again)
+static Uint64 g_fs_entered;  // SDL_GetTicks() when the window finished entering fullscreen
+void saves_screen_open(void);  // ui/saves_ui.mm
+int saves_screen_draw(float scale, ImFont *body, ImFont *small_);
+void saves_home_footer(float *x, float *y, float *w, float *u);  // where the lines under the panel go
+int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready, bool show_setup, bool focus_first);
+void saves_new_game_begin(void);
+bool saves_use_latest(void);
+bool saves_new_game_draw(float scale, ImFont *body, ImFont *small_);
 static float g_menu_gap = 0.35f;  // space under each item, in line heights
 
 // The first PLAY ever (settings.menu_tip_seen): a note on opening the MonZaMac menu in game (it isn't obvious),
@@ -719,12 +759,12 @@ static bool menu_item(const char *label, bool enabled, bool *hovered = NULL, con
     bool hot = ImGui::IsItemFocused() || ImGui::IsItemHovered();
     ImGui::PopID();
     if (hovered) *hovered = hot;
-    ImU32 col = !enabled ? IM_COL32(170, 175, 200, 140) : hot ? IM_COL32(255, 214, 64, 255) : IM_COL32(250, 250, 255, 255);
+    ImU32 col = !enabled ? IM_COL32(170, 175, 200, 140) : hot ? IM_COL32(72, 214, 255, 255) : IM_COL32(250, 250, 255, 255);
     ImDrawList *dl = ImGui::GetWindowDrawList();
     if (hot && enabled) {  // a shadow band behind the item (like the version corner's), feathered, with a warm glow
         float x0 = ImGui::GetWindowPos().x, x1 = at.x + sz.x * 0.75f, x2 = at.x + sz.x + sz.y * 3.5f;
         float f = sz.y * 0.22f, y0 = at.y - f * 0.4f, y1 = y0 + f, y3 = at.y + sz.y + f * 0.2f, y2 = y3 - f;
-        ImU32 c = IM_COL32(6, 10, 34, 150), g = IM_COL32(255, 190, 80, 34), n = IM_COL32(6, 10, 34, 0), ng = IM_COL32(255, 190, 80, 0);
+        ImU32 c = IM_COL32(6, 10, 34, 150), g = IM_COL32(80, 170, 255, 34), n = IM_COL32(6, 10, 34, 0), ng = IM_COL32(80, 170, 255, 0);
         for (int pass = 0; pass < 2; pass++) {  // dark band, then the glow over it
             ImU32 a = pass ? g : c, z = pass ? ng : n;
             dl->AddRectFilledMultiColor(ImVec2(x0, y1), ImVec2(x1, y2), a, a, a, a);
@@ -735,7 +775,7 @@ static bool menu_item(const char *label, bool enabled, bool *hovered = NULL, con
             dl->AddRectFilledMultiColor(ImVec2(x1, y2), ImVec2(x2, y3), a, z, z, z);
         }
     }
-    ImU32 col_b = hot && enabled ? IM_COL32(255, 160, 50, 255) : col;
+    ImU32 col_b = hot && enabled ? IM_COL32(60, 150, 255, 255) : col;
     if (split && enabled) {
         std::string head(label, split - label);
         text_fx(dl, ImGui::GetFont(), ImGui::GetFontSize(), at, col, col_b, head.c_str(), sz.y * 0.05f);
@@ -847,7 +887,7 @@ static void reveal_folder(const std::string &dir) {
 static SDL_Window *g_launcher_win;
 static bool g_files_deleted;  // set here: the start screen goes back to setting the game files up
 static void prelaunch_tab(float sc) {
-    const ImVec4 gold(0.93f, 0.76f, 0.33f, 1);
+    const ImVec4 gold(0.28f, 0.84f, 1.0f, 1);  // (the accent)
     auto heading = [&](const char *t) {
         ImGui::PushFont(g_font_menu);
         ImGui::TextColored(gold, "%s", t);
@@ -964,7 +1004,7 @@ extern "C" void launcher_run(const char *root) {
     st.Colors[ImGuiCol_Header] = ImVec4(0, 0, 0, 0);
     st.Colors[ImGuiCol_HeaderHovered] = ImVec4(1, 1, 1, 0.08f);
     st.Colors[ImGuiCol_HeaderActive] = ImVec4(1, 1, 1, 0.14f);
-    st.Colors[ImGuiCol_NavCursor] = ImVec4(0.95f, 0.78f, 0.35f, 1);
+    st.Colors[ImGuiCol_NavCursor] = ImVec4(0.28f, 0.84f, 1.0f, 1);
     st.FrameRounding = st.WindowRounding = 10;
 #ifdef __APPLE__
     ImGui_ImplSDL3_InitForMetal(win);
@@ -977,10 +1017,14 @@ extern "C" void launcher_run(const char *root) {
     launcher_pad_open_all();
     io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
 
+#ifdef __APPLE__
+    load_logo(dev);
+#endif
     std::string status = check_game_files(g_root);
     if (!status.empty() && check_copied_files(g_root).empty()) g_import_mode = 1;
     if (status.empty()) load_background(dev);
     Page page = status.empty() ? MAIN : SETUP;
+    g_saves_first = 0;
     bool play = false;
     // LARECOMP_LAUNCHER_SHOT=<frame>[:<page>] (test): save build/launcher.png at that frame and exit; page: settings[:<tab>] / askdelete / setup / setup-error-update
     long shot_at = getenv("LARECOMP_LAUNCHER_SHOT") ? atol(getenv("LARECOMP_LAUNCHER_SHOT")) : 0, frame = 0;
@@ -991,6 +1035,7 @@ extern "C" void launcher_run(const char *root) {
         const char *pg = strchr(getenv("LARECOMP_LAUNCHER_SHOT"), ':');
         if (pg && (!strncmp(pg + 1, "settings", 8) || !strcmp(pg + 1, "askdelete"))) page = SETTINGS, menu_tabs_focus(true);
         if (pg && !strcmp(pg + 1, "setup")) page = SETUP;
+        if (pg && !strcmp(pg + 1, "saves")) saves_screen_open(), page = SAVES;
         if (pg && !strcmp(pg + 1, "setup-error-update")) {
             page = SETUP;
             g_bad_input = "update";
@@ -1054,6 +1099,7 @@ extern "C" void launcher_run(const char *root) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_QUIT) exit(0);
+            if (e.type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN) g_fs_entered = SDL_GetTicks();
             if (busy) {  // the progress overlay is modal: no underlying mouse, keyboard or pad input (a pad plugged in meanwhile is still opened)
                 if (e.type == SDL_EVENT_GAMEPAD_ADDED) launcher_pad_event(e);
                 continue;
@@ -1086,6 +1132,11 @@ extern "C" void launcher_run(const char *root) {
         int w, h;
         SDL_GetWindowSizeInPixels(win, &w, &h);
         layer.drawableSize = CGSizeMake(w, h);
+        // the window opening or entering fullscreen: macOS stretches the frames while it animates, so show the plain
+        // background until the size has held still for a few frames
+        static int last_w, last_h, still;
+        still = (w == last_w && h == last_h) ? still + 1 : 0;
+        last_w = w, last_h = h;
         @autoreleasepool {
             id<CAMetalDrawable> drawable = [layer nextDrawable];
             if (!drawable) { SDL_Delay(16); continue; }
@@ -1155,15 +1206,6 @@ extern "C" void launcher_run(const char *root) {
             ImGui::SetScrollY(0);
             float x0 = 90 * s;
             ImGui::SetCursorPos(ImVec2(x0, 120 * s));
-            ImGui::PushFont(g_font_title);
-            if (page == MAIN) {  // gold to orange, shadowed (not behind the Settings / Game Files windows)
-                const char *t = "MonZaMac";
-                ImVec2 p = ImGui::GetCursorScreenPos();
-                text_fx(ImGui::GetWindowDrawList(), ImGui::GetFont(), ImGui::GetFontSize(), p, IM_COL32(255, 232, 120, 255),
-                        IM_COL32(255, 138, 48, 255), t, 3 * s);
-                ImGui::Dummy(ImGui::CalcTextSize(t));
-            }
-            ImGui::PopFont();
             ImGui::SetCursorPos(ImVec2(x0, 285 * s));
             // typing in a text field / the on-screen keyboard (osk.h): B / Esc are for it, not "back" (from the frame
             // before too, so the Esc that ends the typing doesn't also leave the page)
@@ -1171,37 +1213,27 @@ extern "C" void launcher_run(const char *root) {
             bool typing = typed_before || ui_text_busy();
 
             if (page == MAIN) {
-                {  // the four items close together, the block anchored where QUIT always was (the gap to the status
-                   // line stays)
-                    ImGui::PushFont(g_font_menu);
-                    float h = ImGui::CalcTextSize("A").y, sp = ImGui::GetStyle().ItemSpacing.y;
-                    ImGui::PopFont();
-                    auto pitch = [&](float gap) { return h + 6 + gap * h + (gap >= 0 ? 2 : 1) * sp; };
-                    g_menu_gap = -0.18f;
-                    ImGui::SetCursorPosY(285 * s + 3 * pitch(0.35f) - 3 * pitch(g_menu_gap));
+                bool ready = status.empty();
+                int act = saves_home_draw(g_font_title, g_font_small, LOGO_TEXID, ready, !ready || busy, !g_play_focused);
+                g_play_focused = true;
+                bool pressed = act == 1;
+                if (pressed) saves_use_latest();  // CONTINUE: the most recent save
+                if (act == 2) saves_new_game_begin();
+                if (act == 3) saves_screen_open(), page = SAVES;
+                if (act == 4) {
+                    static bool opened;
+                    menu_tabs_focus(!opened);  // (first time this session: Prelaunch; later: the selected tab)
+                    opened = true;
+                    page = SETTINGS;
                 }
-                bool hov = false;
-                const char *label = "PLAY";
-                ImGui::SetCursorPosX(x0);
-                static bool focused_once;
-                if (!focused_once) { ImGui::SetKeyboardFocusHere(); focused_once = true; }
-                ImVec2 play_at = ImGui::GetCursorScreenPos();
-                bool pressed = menu_item(label, status.empty(), &hov);
-                if (status.empty()) {  // PLAY twinkles now and then while the game is ready
-                    ImGui::PushFont(g_font_menu);
-                    float w = ImGui::CalcTextSize("PLAY").x, h = ImGui::CalcTextSize("PLAY").y;
-                    ImGui::PopFont();
-                    float t = (float)ImGui::GetTime(), ph = fmodf(t, 3.6f), ph2 = fmodf(t + 0.45f, 3.6f);
-                    float k1 = ph < 0.9f ? sinf(ph / 0.9f * 3.14159265f) : 0, k2 = ph2 < 0.7f ? sinf(ph2 / 0.7f * 3.14159265f) : 0;
-                    ImDrawList *dl = ImGui::GetWindowDrawList();
-                    sparkle(dl, ImVec2(play_at.x + w + h * 0.05f, play_at.y + h * 0.22f), h * 0.2f, k1, t * 0.6f);
-                    sparkle(dl, ImVec2(play_at.x + w - h * 0.32f, play_at.y + h * 0.08f), h * 0.11f, k2 * 0.8f, -t * 0.8f);
-                }
+                if (act == 5) page = SETUP;
+                if (act == 6) exit(0);
+                if (saves_new_game_draw(s, g_font_menu, g_font_small)) pressed = true;  // (the new save is selected)
                 // first PLAY ever: the aspect ratio question, then how to reach our menu, then the game
                 if (g_play_pending && status.empty()) pressed = true, g_play_pending = false;
                 if (pressed) {
-                    if (!g_settings.aspect_asked) ImGui::OpenPopup("##aspect");
-                    else if (!g_settings.menu_tip_seen) ImGui::OpenPopup("##menutip");
+                    g_settings.aspect_asked = true;  // (no question: the saved aspect ratio, authentic 16:9 until changed in Settings)
+                    if (!g_settings.menu_tip_seen) ImGui::OpenPopup("##menutip");
                     else play = true;
                 }
                 if (g_tip_test) ImGui::OpenPopup(g_settings.aspect_asked ? "##menutip" : "##aspect"), g_tip_test = false;
@@ -1210,39 +1242,32 @@ extern "C" void launcher_run(const char *root) {
                     else ImGui::OpenPopup("##menutip");
                 }
                 if (menu_tip(s)) play = true;
-                ImGui::SetCursorPosX(x0);
-                if (g_refocus == SETTINGS) ImGui::SetKeyboardFocusHere(), g_refocus = MAIN;  // (back from Settings: it
-                if (menu_item("SETTINGS", true)) {                                             //  stays selected)
-                    static bool opened;
-                    menu_tabs_focus(!opened);  // (first time this session: Prelaunch; later: the selected tab)
-                    opened = true;
-                    page = SETTINGS;
+            } else if (page == SAVES) {
+                ImGui::PushFont(g_font_menu);
+                int pick = saves_screen_draw(ds.y / 1080.0f, g_font_menu, g_font_small);
+                ImGui::PopFont();
+                if (pick) {
+                    page = MAIN, g_play_focused = false;
+                    if (pick > 0) g_play_pending = true;  // (the card's save is selected)
                 }
-                if (!status.empty() || busy) {  // (once set up, the game files are kept up in Settings > Prelaunch)
-                    ImGui::SetCursorPosX(x0);
-                    if (g_refocus == SETUP) ImGui::SetKeyboardFocusHere(), g_refocus = MAIN;
-                    if (menu_item("SET UP GAME FILES", !busy)) page = SETUP;
-                }
-                ImGui::SetCursorPosX(x0);
-                if (menu_item("QUIT", true)) exit(0);
-                g_menu_gap = 0.35f;
             } else if (page == SETTINGS) {
                 // the in-game menu's tabs (runtime/ui/menu.mm), in a window like the in-game one; tabs that need a
                 // loaded game say so
-                float sc = ds.y / 1080.0f, w = fminf(ds.x * 0.9f, 1500 * sc), h = ds.y - 2 * 18 * sc;  // (all the height: a slim margin)
+                float sc = ds.y / 1080.0f, w = fminf(ds.x * 0.78f, 1260 * sc), h = ds.y * 0.84f;  // (a window, not all the screen)
                 ImGui::GetWindowDrawList()->AddRectFilled(ImGui::GetWindowPos(), ImVec2(ImGui::GetWindowPos().x + ds.x,
                                                           ImGui::GetWindowPos().y + ds.y), IM_COL32(0, 0, 0, 110));
                 ImVec2 wp = ImGui::GetWindowPos();
                 ImGui::SetCursorScreenPos(ImVec2(wp.x + (ds.x - w) * 0.5f, wp.y + (ds.y - h) * 0.5f));
-                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.06f, 0.09f, 0.08f, 0.96f));
+                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.04f, 0.07f, 0.14f, 0.96f));
                 ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 14 * sc);
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(28 * sc, 24 * sc));
                 ImGui::BeginChild("##settings", ImVec2(w, h), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NavFlattened);
                 ImGui::PopStyleVar(2);
                 ImGui::PopStyleColor();
+                ImGui::SetWindowFontScale(0.68f);  // (the start screen's fonts are sized for its big type)
                 ImGui::PushFont(g_font_small);
                 ImGui::PushFont(g_font_menu);
-                ImGui::TextColored(ImVec4(0.93f, 0.76f, 0.33f, 1), "Settings");
+                ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "Settings");
                 ImGui::PopFont();
                 bool back;
                 {  // close: a drawn X in the corner (B / Esc too)
@@ -1253,7 +1278,7 @@ extern "C" void launcher_run(const char *root) {
                     back = ImGui::InvisibleButton("##close", ImVec2(bx, bx), ImGuiButtonFlags_EnableNav);
                     ImGui::PopStyleColor();
                     bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
-                    ImU32 col = hot ? IM_COL32(236, 194, 84, 255) : IM_COL32(220, 216, 205, 255);
+                    ImU32 col = hot ? IM_COL32(72, 214, 255, 255) : IM_COL32(220, 216, 205, 255);
                     float m = bx * 0.3f, t = (hot ? 3.0f : 2.4f) * sc * 1.5f;
                     ImDrawList *dl = ImGui::GetWindowDrawList();
                     if (hot) dl->AddRectFilled(p, ImVec2(p.x + bx, p.y + bx), IM_COL32(255, 255, 255, 20), 8 * sc);
@@ -1272,7 +1297,7 @@ extern "C" void launcher_run(const char *root) {
                 if (back) {
                     bind_capture_cancel();
                     settings_save();
-                    page = MAIN, g_refocus = SETTINGS;
+                    page = MAIN, g_play_focused = false;
                 }
             } else {
                 // SETUP: the game files, in a window like Settings (option rows: runtime/ui/option_rows.h) - choose the
@@ -1282,7 +1307,7 @@ extern "C" void launcher_run(const char *root) {
                                                           ImGui::GetWindowPos().y + ds.y), IM_COL32(0, 0, 0, 110));
                 ImVec2 wp = ImGui::GetWindowPos();
                 ImGui::SetCursorScreenPos(ImVec2(wp.x + (ds.x - w) * 0.5f, wp.y + (ds.y - h) * 0.5f));
-                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.06f, 0.09f, 0.08f, 0.96f));
+                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.04f, 0.07f, 0.14f, 0.96f));
                 ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 14 * sc);
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(28 * sc, 24 * sc));
                 ImGui::BeginChild("##setup", ImVec2(w, h), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NavFlattened);
@@ -1290,7 +1315,7 @@ extern "C" void launcher_run(const char *root) {
                 ImGui::PopStyleColor();
                 ImGui::PushFont(g_font_small);
                 ImGui::PushFont(g_font_menu);
-                ImGui::TextColored(ImVec4(0.93f, 0.76f, 0.33f, 1), "Game Files");
+                ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "Game Files");
                 ImGui::PopFont();
                 bool back = false;
                 if (!busy) {  // close: the drawn X in the corner, as Settings (B / Esc too)
@@ -1301,7 +1326,7 @@ extern "C" void launcher_run(const char *root) {
                     back = ImGui::InvisibleButton("##close", ImVec2(bx, bx), ImGuiButtonFlags_EnableNav);
                     ImGui::PopStyleColor();
                     bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
-                    ImU32 col = hot ? IM_COL32(236, 194, 84, 255) : IM_COL32(220, 216, 205, 255);
+                    ImU32 col = hot ? IM_COL32(72, 214, 255, 255) : IM_COL32(220, 216, 205, 255);
                     float m = bx * 0.3f, t = (hot ? 3.0f : 2.4f) * sc * 1.5f;
                     ImDrawList *dl = ImGui::GetWindowDrawList();
                     if (hot) dl->AddRectFilled(p, ImVec2(p.x + bx, p.y + bx), IM_COL32(255, 255, 255, 20), 8 * sc);
@@ -1487,7 +1512,7 @@ extern "C" void launcher_run(const char *root) {
                 if (!job_line.empty()) {  // the current step / result
                     ImGui::Dummy(ImVec2(0, 14 * sc));
                     ImGui::PushTextWrapPos(0);
-                    ImGui::TextColored(failed ? ImVec4(1, 0.5f, 0.4f, 1) : busy ? ImVec4(0.93f, 0.76f, 0.33f, 1)
+                    ImGui::TextColored(failed ? ImVec4(1, 0.5f, 0.4f, 1) : busy ? ImVec4(0.28f, 0.84f, 1.0f, 1)
                                               : ImVec4(0.45f, 0.95f, 0.55f, 1), "%s", job_line.c_str());
                     if (failed && !job_hint.empty())  // (what to do next, in the rows' own text colour)
                         ImGui::TextColored(ImVec4(0.86f, 0.85f, 0.80f, 1), "%s", job_hint.c_str());
@@ -1511,7 +1536,7 @@ extern "C" void launcher_run(const char *root) {
                 if (back && !busy) {
                     settings_save();
                     g_confirm_delete = false;
-                    page = MAIN, g_refocus = SETUP;
+                    page = MAIN, g_play_focused = false;
                 }
                 if (busy || test_busy) {  // extracting: everything dimmed, a progress bar in front (input waits)
                     ImDrawList *fg = ImGui::GetForegroundDrawList();
@@ -1534,10 +1559,10 @@ extern "C" void launcher_run(const char *root) {
                     ImVec2 a(o.x + (ds.x - pw) * 0.5f, o.y + (ds.y - ph) * 0.5f), b(a.x + pw, a.y + ph);
                     fg->AddRectFilled(a, b, IM_COL32(15, 23, 20, 250), 14 * sc);
                     fg->AddRect(a, b, IM_COL32(236, 194, 84, 140), 14 * sc, 0, 1.5f * sc);
-                    fg->AddText(g_font_menu, tfs, ImVec2((a.x + b.x - ts.x) * 0.5f, a.y + 36 * sc), IM_COL32(236, 194, 84, 255), title);
+                    fg->AddText(g_font_menu, tfs, ImVec2((a.x + b.x - ts.x) * 0.5f, a.y + 36 * sc), IM_COL32(72, 214, 255, 255), title);
                     ImVec2 ba(a.x + 48 * sc, a.y + bar_y), bb(b.x - 48 * sc, a.y + bar_y + 24 * sc);
                     fg->AddRectFilled(ba, bb, IM_COL32(255, 255, 255, 25), 12 * sc);
-                    if (f > 0) fg->AddRectFilled(ba, ImVec2(ba.x + (bb.x - ba.x) * f, bb.y), IM_COL32(236, 194, 84, 255), 12 * sc);
+                    if (f > 0) fg->AddRectFilled(ba, ImVec2(ba.x + (bb.x - ba.x) * f, bb.y), IM_COL32(72, 214, 255, 255), 12 * sc);
                     char line[200];
                     snprintf(line, sizeof line, "%s   %d%%", test_busy ? "Setting up the game files..." : job.c_str(),
                              (int)(f * 100));
@@ -1554,7 +1579,12 @@ extern "C" void launcher_run(const char *root) {
             // status (lower left) and version (lower right) - not under the Settings / Game Files windows
             if (page == MAIN) {
             ImGui::PushFont(g_font_small);
-            ImGui::SetCursorPos(ImVec2(x0, ds.y - 118 * s));
+            // (the lines under the home panel, the width of the panel: its left and right edges)
+            float fx, fy, fw, fu;
+            saves_home_footer(&fx, &fy, &fw, &fu);
+            x0 = fx;
+            ImGui::SetWindowFontScale(fu * 0.8f / ImGui::GetFontSize());
+            ImGui::SetCursorScreenPos(ImVec2(fx, fy));
             if (status.empty()) {
                 {  // a drawn check mark (the Switch font has no ✓)
                     ImVec2 p = ImGui::GetCursorScreenPos();
@@ -1581,14 +1611,14 @@ extern "C" void launcher_run(const char *root) {
                // always the title movie's still: bright clouds here, under a shadow banner from the right
                 ImDrawList *dl = ImGui::GetWindowDrawList();
                 ImFont *font = ImGui::GetFont();
-                float fs = ImGui::GetFontSize(), right = ImGui::GetWindowPos().x + ds.x - 60 * s;
+                float fs = fu * 0.8f, right = fx + fw;
                 auto text = [&](ImVec2 p, float size, ImU32 col, const char *t, bool bold) {
                     for (float d : {2.5f, 1.5f, 0.8f}) dl->AddText(font, size, ImVec2(p.x + d * s, p.y + d * s), IM_COL32(4, 8, 30, 150), t);
                     dl->AddText(font, size, p, col, t);
                     if (bold) dl->AddText(font, size, ImVec2(p.x + 0.7f * s, p.y), col, t);
                 };
                 const std::string ver = tag_label(LARECOMP_VERSION, true), by = "by Rhapsodos93";  // (the build first: bug reports name it)
-                float vs = fs * 1.4f, y = ImGui::GetWindowPos().y + ds.y - 134 * s;
+                float vs = fs, y = fy;
                 ImVec2 vsz = font->CalcTextSizeA(vs, FLT_MAX, 0, ver.c_str()), bsz = font->CalcTextSizeA(vs, FLT_MAX, 0, by.c_str());
                 text(ImVec2(right - vsz.x, y), vs, IM_COL32(255, 255, 255, 255), ver.c_str(), false);
                 text(ImVec2(right - bsz.x, y + vsz.y), vs, IM_COL32(255, 255, 255, 255), by.c_str(), false);
@@ -1619,6 +1649,7 @@ extern "C" void launcher_run(const char *root) {
                 }
             }
             ImGui::PopFont();
+            ImGui::SetWindowFontScale(1);
             }
             ImGui::End();
             ImGui::EndDisabled();
@@ -1626,6 +1657,12 @@ extern "C" void launcher_run(const char *root) {
             osk_draw(g_font_menu, s * 0.7f);  // (a text field activated with the controller)
             typed_before = ui_text_busy();
 
+#ifdef __APPLE__
+            // (the size is final at once, the picture is not: macOS animates into fullscreen and says so when done)
+            bool fs_wait = g_settings.fullscreen && (g_fs_entered ? SDL_GetTicks() - g_fs_entered < 300 : SDL_GetTicks() < 3000);
+            if ((still < 20 || fs_wait) && !shot_at)
+                ImGui::GetForegroundDrawList()->AddRectFilled(ImVec2(0, 0), ds, IM_COL32(10, 13, 15, 255));
+#endif
             ImGui::Render();
 #ifdef __APPLE__
             ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), cb, enc);
