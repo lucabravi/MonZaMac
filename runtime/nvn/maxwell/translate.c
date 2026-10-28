@@ -650,6 +650,18 @@ static void read2d(Ctx *c, char *call, int slot, const char *coord, const char *
             lod ? ")" : "", slot + 1, coord);
 }
 
+// An explicit sample LOD: plus the slot's rscale w outside the vertex stage (renderer.m hiz_lod: 0 unless the texture is
+// scaled and its sampler is a min / max reduction).
+static const char *lvl(Ctx *c, int slot, const char *lod) {
+    static char bufs[4][160];
+    static int bi;
+    char *o = bufs[bi++ & 3];
+    if (c->stage == STAGE_VERTEX || c->glsl) { snprintf(o, 160, "level(%s)", lod); return o; }
+    c->uses_rscale = true;
+    snprintf(o, 160, "level(%s + rscale[%d].w)", lod, slot + 1);
+    return o;
+}
+
 // TEXS / TLDS: texture_info selects target and coordinate layout
 static const char *alayer(Ctx *c, const char *r, int slot, char *buf) {
     if (c->glsl) sprintf(buf, "min(%s, uint(tsize%d(0).z) - 1u)", r, slot);
@@ -815,9 +827,9 @@ static void emit_texs(Ctx *c, uint64_t w, bool fetch) {
         case 1: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
             sprintf(call, "t%d.sample(s%d, float2(%s, %s))", slot, slot, F(A), F(Bv)); break;
         case 2: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
-            sprintf(call, "t%d.sample(s%d, float2(%s, %s), level(0))", slot, slot, F(A), F(Bv)); break;
+            sprintf(call, "t%d.sample(s%d, float2(%s, %s), %s)", slot, slot, F(A), F(Bv), lvl(c, slot, "0.0f")); break;
         case 3: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
-            sprintf(call, "t%d.sample(s%d, float2(%s, %s), level(%s))", slot, slot, F(A), F(A1), F(Bv)); break;
+            sprintf(call, "t%d.sample(s%d, float2(%s, %s), %s)", slot, slot, F(A), F(A1), lvl(c, slot, F(Bv))); break;
         case 4: slot = tex_slot(c, index, TEXTYPE_2D, true, false);
             sprintf(call, "float4(t%d.sample_compare(s%d, float2(%s, %s), %s))", slot, slot, F(A), F(A1), F(Bv)); break;
         case 5: slot = tex_slot(c, index, TEXTYPE_2D, true, false);
@@ -1286,10 +1298,13 @@ static void emit_tex(Ctx *c, uint64_t w, bool bindless) {
     char lod[96] = "", dref[64] = "", off[128] = "";
     if (lod_mode == 2 || lod_mode == 3 || lod_mode == 6 || lod_mode == 7) {
         c->reg_used[pr] = 1;
-        sprintf(lod, lod_mode == 2 || lod_mode == 6 ? ", bias(as_type<float>(r%d))" : ", level(as_type<float>(r%d))", pr);
+        char lr[48];
+        sprintf(lr, "as_type<float>(r%d)", pr);
+        if (lod_mode == 2 || lod_mode == 6) sprintf(lod, ", bias(%s)", lr);
+        else sprintf(lod, ", %s", lvl(c, slot, lr));
         pr++;
     } else if (lod_mode == 1) {
-        strcpy(lod, ", level(0)");
+        sprintf(lod, ", %s", lvl(c, slot, "0.0f"));
     }
     if (aoffi) {
         c->reg_used[pr] = 1;
