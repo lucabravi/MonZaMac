@@ -2434,6 +2434,18 @@ static uint64_t fnv_range(uint64_t addr, uint64_t size) {
     return h;
 }
 
+static void cs_dump(char kind, int i, uint64_t addr, uint64_t size) {
+    extern uint64_t renderer_present_count(void);
+    if (!addr) return;
+    char path[160];
+    snprintf(path, sizeof path, "build/csdump/f%llu_%llx_%c%d.bin", (unsigned long long)renderer_present_count(),
+             (unsigned long long)st.program->stages[5].code_addr, kind, i);
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    fwrite((const void *)(uintptr_t)addr, 1, size > (1u << 20) ? (1u << 20) : size, f);
+    fclose(f);
+}
+
 static void cs_audit(ShaderInfo *si, uint32_t gx, uint32_t gy, uint32_t gz) {
     extern uint64_t renderer_present_count(void);
     renderer_flush();  // the output is read once the dispatch has run
@@ -2449,6 +2461,11 @@ static void cs_audit(ShaderInfo *si, uint32_t gx, uint32_t gy, uint32_t gz) {
             n += snprintf(line + n, sizeof line - n, " t%d=%ux%u%s%s", i, tex_wh[0][i][0], tex_wh[0][i][1],
                           (tex_sc[0][i][0] != 1 || tex_sc[0][i][1] != 1) ? "*" : "", si->tex[i].is_image ? "i" : "");
     LOG("%s\n", line);
+    if (getenv("LARECOMP_CS_DUMP")) {  // the buffers themselves (first 1 MB each) for tools/cs_dump_diff.py
+        mkdir("build/csdump", 0755);
+        for (int i = 0; i < 16; i++) cs_dump('s', i, st.sbuf[5][i].addr, st.sbuf[5][i].size);
+        for (int i = 0; i < 18; i++) cs_dump('u', i, st.ubuf[5][i].addr, st.ubuf[5][i].size);
+    }
 }
 
 static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
