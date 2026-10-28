@@ -1,16 +1,68 @@
-# MonZaMac
+<p align="center">
+  <img src="docs/icon/icon_1024.png" alt="MonZaMac icon" width="168">
+</p>
 
-*Pokémon Legends: Z-A on macOS (Apple Silicon, Metal).*
+<h1 align="center">MonZaMac</h1>
+
+<p align="center">
+  <strong>Pokémon Legends: Z-A, natively on your Mac</strong><br>
+  Apple Silicon &middot; Metal &middot; no emulator
+</p>
+
+<p align="center">
+  <a href="https://github.com/lucabravi/MonZaMac/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/lucabravi/MonZaMac?display_name=tag&color=d9993a"></a>
+  <img alt="Platform: macOS 15+, Apple Silicon" src="https://img.shields.io/badge/macOS-15%2B%20%C2%B7%20Apple%20Silicon-3a2377">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-c2528f"></a>
+</p>
+
+<p align="center">
+  <a href="#download-and-play">Download</a> &middot;
+  <a href="#status">Status</a> &middot;
+  <a href="#building-from-source">Build</a> &middot;
+  <a href="CHANGELOG.md">Changelog</a> &middot;
+  <a href="https://github.com/lucabravi/MonZaMac/issues">Issues</a>
+</p>
+
+---
 
 A native macOS port of **Pokémon Legends: Z-A** (Nintendo Switch, v2.0.2 + the Mega Dimension DLC) built by **static
 recompilation**: the game's ARM64 code is translated ahead of time into C and compiled for the Mac, and the Switch's
 operating system and GPU (NVN) are reimplemented in the runtime. No emulator runs at play time.
 
+- A Metal renderer with internal resolutions from 25% up to 4x (1080p), SMAA and MetalFX upscaling, and a dynamic
+  resolution that follows your GPU
+- 30 fps, 60 fps, or 60 fps with steady speed; docked or handheld mode
+- Keyboard and controller, the game's own menus and your saves
+- A guided setup: point the app at your own game files and it prepares everything on your Mac
+
 > **You need your own copy of the game.** No game files, code, assets or fonts are included in this repository.
+
+## Download and play
+
+You need a Mac with Apple Silicon (macOS 15 or later) and **your own copy of the game** (see above).
+
+1. Download `MonZaMac-<version>-macOS.dmg` from the [latest release](https://github.com/lucabravi/MonZaMac/releases/latest).
+2. Open it and drag **MonZaMac** onto **Applications**.
+3. Open MonZaMac. The app is not notarized by Apple, so the first time macOS may refuse: right-click the app, choose
+   **Open**, then **Open** again.
+4. On the start screen choose **SET UP GAME FILES** and confirm that you own an original copy. Select your base game
+   (**NSP or XCI**), the **v2.0.2 update (NSP)** and your **prod.keys**. The app checks them, applies the update and
+   builds the game on your Mac: it takes a while and needs about 25 GB of free space. Nothing is uploaded.
+5. When it is done, press **PLAY**. Your saves and settings are kept in `~/Library/Application Support/com.monzamac.app`, and stay
+   there when you update the app.
+
+In the game: **F1** opens the menu (video, audio, controls), **F3** shows the frame rate and the render resolution.
+Keyboard: WASD move, arrows d-pad, Enter = A, Backspace = B, K = talk, Q / E = L / R; a controller works too.
+The first start after an update recompiles some shaders and may stutter for a moment.
+
+The details of the setup are in [First-run setup](#first-run-setup-in-the-packaged-app) below. Building the app from
+source is for developers: see [Building from source](#building-from-source).
 
 ## Status
 
-Work in progress. It boots, goes through the intro and reaches Lumiose City.
+**Playable.** The game runs from the intro through the first part of the story, with battles, menus and saves, and
+the maintainer has played it that far without problems. It is still a work in progress: later areas and other Macs
+have had less testing, so please report what you find.
 
 Looking for the Windows version? It's available at **[PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp)** by
 **Hexveil404**.
@@ -22,16 +74,14 @@ Working:
 - Controller and keyboard input
 
 Known issues:
-- NPCs can still pop in and out while walking
+- Characters (NPCs) can pop in and out while walking, mostly at Lumiose station.
 
 Bugs and questions: [GitHub issues](https://github.com/lucabravi/MonZaMac/issues), see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Building and running
-
-### First-run setup in the packaged app
+## First-run setup in the packaged app
 
 The complete app bundle includes its extraction tools, game-code generator and compiler. No Homebrew, Python or
-compiler installation is needed by the player. Open **Game Files**, confirm that you own an original copy and have
+compiler installation is needed by the player. Open **SET UP GAME FILES**, confirm that you own an original copy and have
 permission to use the selected files, then choose your base-game **NSP/XCI**, the **v2.0.2 update NSP** and your
 **prod.keys**. Setup checks the files and free space, applies the update and builds the game locally. Allow at least
 25 GB of free space; the exact requirement can be higher. Compressed NSZ/XCZ packages are not supported; unpack
@@ -43,9 +93,11 @@ must be removed with **Delete game files** before importing a new copy. Saves an
 select **Extracted folder** to import your own `exefs`/`romfs` folders as before.
 
 The ownership declaration records the user's confirmation for setup; it does not replace applicable law or grant
-rights to Nintendo's content. Building the app from source still needs the developer tools below.
+rights to Nintendo's content. Building the app from source still needs the developer tools in [Building from source](#building-from-source).
 
-### From source
+## Building from source
+
+### Build and run
 
 Requirements: macOS on Apple Silicon, Xcode command line tools, GNU Make 4 (`brew install make`, run as `gmake`: the
 macOS `make` is too old), SDL3 and FFmpeg (Homebrew).
@@ -59,6 +111,13 @@ macOS `make` is too old), SDL3 and FFmpeg (Homebrew).
 5. Build: `gmake B=build/za202 GEN=generated-202 -j8` (compiles the generated code and the runtime; the first build
    takes a while).
 6. Run: `./build/za202/monzamac extracted --play`. The log goes to the terminal; redirect it to a file to keep it.
+
+### Packaging the app and the dmg
+
+`gmake deps` (once: SDL3, FFmpeg and Python built from pinned sources for macOS 15) then `gmake dmg` build
+`build/MonZaMac.app` and `build/dist/MonZaMac-<version>-macOS.dmg`, the file the releases carry. The version comes from
+`LARECOMP_VERSION` in `runtime/ui/launcher.mm`; the update check on the start screen reads the GitHub **releases**, not
+the tags, so a release needs its dmg attached. The app holds no game files or game code.
 
 ### Extracting your game files from a dump
 
@@ -77,7 +136,6 @@ tools/extract_game.sh base.nsp update.nsp               # -> extracted/exefs, ex
 and refuses to overwrite an existing `extracted/`. Already have the files extracted another way? Put them in
 `extracted/exefs/` and `extracted/romfs/` (+ `romfs.bin`, which the start screen can also build).
 
-Keyboard: WASD move, arrows d-pad, Enter = A, Backspace = B, K = talk, Q / E = L / R. F1 opens the in-game menu.
 
 ## Layout
 
