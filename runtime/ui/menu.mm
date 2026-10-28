@@ -632,6 +632,11 @@ static void tab_developer(void) {
                "rate when CPU and GPU are both well used. Risk: the game may overwrite a frame's vertex data "
                "while the GPU still reads it (flicker or glitched geometry; none seen so far). Turn it off if anything looks "
                "wrong, and tell us where.");
+    opt_toggle("Keep passes open after skinning", &g_settings.xfb_barrier, false,
+               "The characters' skinning (transform feedback) used to end the GPU's render pass each time. On: the pass "
+               "stays open and a barrier orders the data instead, about 1 ms less GPU time a frame in the tested scenes "
+               "(4% at 1.5x). Applies at once. Risk: if the ordering is not enough, characters can look deformed or "
+               "missing for a frame. Turn it off if anything looks wrong, and tell us where.");
     opt_section("Menu");
     opt_toggle("Show this tab", &g_settings.developer, false,
                "Off hides the Developer tab again (Cmd+Shift+D or \"developer = 1\" in larecomp.ini bring it back).");

@@ -14,7 +14,9 @@ The switch is **off by default**:
 LARECOMP_XFB_END_BARRIER=1 tools/hang_sample.sh
 ```
 
-Use `LARECOMP_XFB_END_BARRIER=0`, or leave it unset, for the original behavior. The barrier path requires macOS 13
+It can be switched on in the game, with no restart: Developer tab (Cmd+Shift+D) > "Keep passes open after skinning"
+(`xfb_barrier = 1` in `larecomp.ini`). The variable, when set, wins over the setting. Use
+`LARECOMP_XFB_END_BARRIER=0`, or leave both off, for the original behavior. The barrier path requires macOS 13
 or later; older systems retain the original pass ending. No shader text, texture allocation, Hi-Z LOD,
 resolution-scaling or CPU/GPU-overlap behavior changes. This is an optional experiment, not a global default.
 

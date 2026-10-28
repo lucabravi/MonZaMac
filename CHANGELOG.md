@@ -5,8 +5,8 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
-- Experimental GPU optimization: opt-in transform-feedback pass reuse through a Metal buffer barrier
-  (`LARECOMP_XFB_END_BARRIER=1`, off by default).
+- Experimental GPU optimization: opt-in transform-feedback pass reuse through a Metal buffer barrier (Developer tab
+  "Keep passes open after skinning", applies at once, or `LARECOMP_XFB_END_BARRIER=1`; off by default).
 
 ## 0.1.1
 
