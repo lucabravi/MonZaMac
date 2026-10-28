@@ -12,6 +12,10 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   old behaviour for a comparison).
 - **Smoother higher internal resolutions (Metal):** fix the jagged character and scenery edges introduced at
   1.5x and higher by integer screen-space texture reads losing their subpixel positions.
+- **Texture size queries at higher internal resolutions (Metal):** a shader asking a scaled texture for the size of a
+  mip level now gets the guest's size (the base halved per level) instead of the allocation's size divided by the
+  scale, which was off by one at some levels (1.5x: 17 rows where the game has 16). A suspect for objects popping
+  in and out at 1.5x; needs a check on a Mac.
 - **CPU/GPU overlap (on by default; Developer > Experimental to turn it off):** the game's frame fence is waited
   one frame late, so the CPU prepares the next frame while the GPU draws the current one instead of taking turns
   (about 49 to 58 fps standing still, 53 to 59 in motion on one Mac). `LARECOMP_GPU_OVERLAP=0` also turns it off.
