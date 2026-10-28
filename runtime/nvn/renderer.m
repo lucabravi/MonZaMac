@@ -395,7 +395,6 @@ bool renderer_texture_presented(NvnTexture *t);
 static float vp_sx = 1, vp_sy = 1, vp_ox = 0, vp_oy = 0;
 static float tex_sc[2][64][2];          // per bound texture slot: allocation scale (for shaders' texel math)
 static float tex_lb[2][64];             // per bound texture slot: added to explicit sample LODs (hiz_lod)
-static float tex_fp[64];                // fragment texture slot: 0, or 1 / 2 = its integer fetches take the min / max of the footprint (fp_read)
 static uint32_t tex_wh[2][64][2];       // per bound texture slot: guest size
 #define RSCALE_BUFFER_INDEX 18
 
@@ -1982,25 +1981,6 @@ static NvnTexture *shader_texture_object(int stage, ShaderTexture *st_) {
     return ((NvnTexEntry *)st.tpool->entries)[tic].tex;
 }
 
-// (experiment, LARECOMP_HIZ_FP=min|max) a draw that writes mip >= 1 of a scaled texture while reading it - the game's depth
-// pyramid - reads every texel of a guest texel's footprint and keeps the min / max: one texel of the 1.5 x 1.5 (or 2 x 2)
-// the guest texel covers drops the others, and the pyramid the culling tests against stops being conservative.
-static int hiz_footprint(NvnTexture *t) {
-    static int mode = -1;
-    if (mode < 0) {
-        const char *e = getenv("LARECOMP_HIZ_FP");
-        mode = !e ? 0 : !strcmp(e, "min") ? 1 : !strcmp(e, "max") ? 2 : 0;
-    }
-    if (!mode || !t || t->levels < 2) return 0;
-    bool hi = t == st.rt.depth && st.rt.has_dview && (st.rt.dview.setmask & 1) && st.rt.dview.base_level;
-    for (int i = 0; i < st.rt.ncolor; i++)
-        hi |= t == st.rt.color[i] && st.rt.has_cview[i] && (st.rt.cview[i].setmask & 1) && st.rt.cview[i].base_level;
-    if (!hi) return 0;
-    static int logged;
-    if (!logged++) LOG("[hiz] footprint %s reads in the pyramid passes of %ux%u f%#x levels %u\n", mode == 1 ? "min" : "max", t->width, t->height, t->format, t->levels);
-    return mode;
-}
-
 // The culling samples the scene depth's mip chain (its depth pyramid) with a min / max reduction sampler at the LOD whose
 // texels cover the object on the game's screen. A scaled allocation's level L texels cover 1 / scale of that, so the 2 x 2
 // footprint misses part of the object and the test stops being conservative: objects culled above 1x. Its explicit LODs go
@@ -2198,7 +2178,6 @@ static void bind_textures(int stage, ShaderInfo *si) {
         uint32_t tic = h & 0xFFFFF, tsc = (uint32_t)(h >> 20) & 0xFFF;
         tex_sc[stage][i][0] = tex_sc[stage][i][1] = 1;
         if (i < 64) tex_wh[stage][i][0] = tex_wh[stage][i][1] = 0;
-        if (i < 64 && stage == 1) tex_fp[i] = 0;
         if (h && st.tpool && tic < (uint32_t)st.tpool->count) {
             NvnTexEntry *e = &((NvnTexEntry *)st.tpool->entries)[tic];
             e_dbg_tex = e->tex;
@@ -2207,7 +2186,6 @@ static void bind_textures(int stage, ShaderInfo *si) {
             if (e->tex && i < 64) {
                 renderer_texture_scale(e->tex, &tex_sc[stage][i][0], &tex_sc[stage][i][1]);
                 tex_wh[stage][i][0] = e->tex->width; tex_wh[stage][i][1] = e->tex->height;
-                if (stage == 1 && (tex_sc[1][i][0] != 1 || tex_sc[1][i][1] != 1)) tex_fp[i] = (float)hiz_footprint(e->tex);
             }
             if (!st_->is_image) tex = feedback_sample(e, tex);
             if (g_debug_frame && e->tex && e->tex->addr) {
@@ -2572,11 +2550,6 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
         if (h && st.tpool && tic < (uint32_t)st.tpool->count) {
             NvnTexEntry *e = &((NvnTexEntry *)st.tpool->entries)[tic];
             if (e->tex && st_->is_image) renderer_texture_unscale(e->tex, "image-bound");
-            // (experiment, LARECOMP_CS_UNSCALE=1) a mipped texture a compute shader samples - the culling's depth pyramid
-            // - at the game's size: its mips, sizes and coordinates then behave as at 1x
-            static int cs_unscale = -1;
-            if (cs_unscale < 0) cs_unscale = getenv("LARECOMP_CS_UNSCALE") != NULL;
-            if (cs_unscale && e->tex && !st_->is_image && e->tex->levels > 1) renderer_texture_unscale(e->tex, "compute-read mipped");
             if (e->tex) tex = st_->stencil ? stencil_texture(e->tex) : sampled_texture_ex(e->tex, &e->view, e->has_view, st_->type, st_->is_image);
             if (e->tex && i < 64) {
                 renderer_texture_scale(e->tex, &tex_sc[0][i][0], &tex_sc[0][i][1]);
@@ -3478,7 +3451,7 @@ static void draw(CmdRec *r, bool indexed) {
     apply_scissor();
     if (pr->fi->uses_rscale) {  // [0] = render target scale, [1 + i] = scale of texture i
         float rs[66][4] = {{vp_sx, vp_sy, vp_ox, vp_oy}};
-        for (int i = 0; i < pr->fi->ntex && i < 64; i++) { rs[1 + i][0] = tex_sc[1][i][0]; rs[1 + i][1] = tex_sc[1][i][1]; rs[1 + i][2] = tex_fp[i]; rs[1 + i][3] = tex_lb[1][i]; }
+        for (int i = 0; i < pr->fi->ntex && i < 64; i++) { rs[1 + i][0] = tex_sc[1][i][0]; rs[1 + i][1] = tex_sc[1][i][1]; rs[1 + i][3] = tex_lb[1][i]; }
         if (fkey.flip_x) rs[65][0] = (float)st.rt.color[0]->width;  // (mirror mode: the composite's width, guest pixels)
         [enc setFragmentBytes:rs length:(NSUInteger)(fkey.flip_x ? 66 : 1 + pr->fi->ntex) * 16 atIndex:RSCALE_BUFFER_INDEX];
     }
