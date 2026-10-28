@@ -1094,6 +1094,11 @@ extern "C" void launcher_run(const char *root) {
         int w, h;
         SDL_GetWindowSizeInPixels(win, &w, &h);
         layer.drawableSize = CGSizeMake(w, h);
+        // the window opening or entering fullscreen: macOS stretches the frames while it animates, so show the plain
+        // background until the size has held still for a few frames
+        static int last_w, last_h, still;
+        still = (w == last_w && h == last_h) ? still + 1 : 0;
+        last_w = w, last_h = h;
         @autoreleasepool {
             id<CAMetalDrawable> drawable = [layer nextDrawable];
             if (!drawable) { SDL_Delay(16); continue; }
@@ -1649,6 +1654,10 @@ extern "C" void launcher_run(const char *root) {
             osk_draw(g_font_menu, s * 0.7f);  // (a text field activated with the controller)
             typed_before = ui_text_busy();
 
+#ifdef __APPLE__
+            if (still < 20 && !shot_at)
+                ImGui::GetForegroundDrawList()->AddRectFilled(ImVec2(0, 0), ds, IM_COL32(10, 13, 15, 255));
+#endif
             ImGui::Render();
 #ifdef __APPLE__
             ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), cb, enc);
