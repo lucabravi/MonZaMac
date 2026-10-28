@@ -5,6 +5,9 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+- **Save slots:** PLAY now opens a "Select a save" screen: pick a save, start a new one, copy, rename or delete. Your
+  existing save is the first slot, "Main save", untouched. The switch under the list ("Ask which save to use every time
+  I press PLAY") skips the screen and plays the one used last. Extra saves live in `saves/` next to `save/`.
 - **Clears as load actions:** a clear the game issues at the start of a pass now clears the attachment as the pass
   begins instead of loading it and drawing over it (less GPU bandwidth; `LARECOMP_CLEAR_DRAWS=1` goes back).
 - **Fewer render passes after GPU skinning (on by default):** the pass used to end after each transform-feedback stage;

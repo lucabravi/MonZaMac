@@ -43,6 +43,7 @@ extern "C" {
 #include "gamelib.h"
 #include "romfs_build.h"
 #include "settings.h"
+#include "saves.h"
 #include "input_bind.h"
 void controls_bindings_draw(float scale);  // ui/controls_ui.mm
 void ui_window_init(void);
@@ -579,7 +580,7 @@ static void load_background(GpuDevice dev) {
 
 // ------------------------------------------------------------------ screen
 static ImFont *g_font_title, *g_font_menu, *g_font_small;
-enum Page { MAIN, SETTINGS, SETUP };  // SETTINGS: the in-game menu's tabs (runtime/ui/menu.mm)
+enum Page { MAIN, SETTINGS, SETUP, SAVES };  // SETTINGS: the in-game menu's tabs (runtime/ui/menu.mm)
 static int g_refocus = MAIN;  // back on the main page: select the item of the page we came from (controllers)
 
 // A big menu line: gold + a marker when focused / hovered (keyboard, gamepad or mouse), grey when disabled
@@ -590,6 +591,10 @@ extern int g_tab_request_ext;
 extern "C" void menu_apply_window_requests(void *sdl_window);
 extern "C" { int g_start_screen; }  // the start screen is up (no game loaded)
 static bool g_play_pending;
+static bool g_play_focused;  // PLAY has the controller's selection (false: put it there again)
+static bool g_slot_done;  // the save picker has just chosen: PLAY goes on without asking again
+void saves_screen_open(void);  // ui/saves_ui.mm
+int saves_screen_draw(float scale, ImFont *body, ImFont *small_);
 static float g_menu_gap = 0.35f;  // space under each item, in line heights
 
 // The first PLAY ever (settings.menu_tip_seen): a note on opening the MonZaMac menu in game (it isn't obvious),
@@ -991,6 +996,7 @@ extern "C" void launcher_run(const char *root) {
         const char *pg = strchr(getenv("LARECOMP_LAUNCHER_SHOT"), ':');
         if (pg && (!strncmp(pg + 1, "settings", 8) || !strcmp(pg + 1, "askdelete"))) page = SETTINGS, menu_tabs_focus(true);
         if (pg && !strcmp(pg + 1, "setup")) page = SETUP;
+        if (pg && !strcmp(pg + 1, "saves")) saves_screen_open(), page = SAVES;
         if (pg && !strcmp(pg + 1, "setup-error-update")) {
             page = SETUP;
             g_bad_input = "update";
@@ -1183,8 +1189,7 @@ extern "C" void launcher_run(const char *root) {
                 bool hov = false;
                 const char *label = "PLAY";
                 ImGui::SetCursorPosX(x0);
-                static bool focused_once;
-                if (!focused_once) { ImGui::SetKeyboardFocusHere(); focused_once = true; }
+                if (!g_play_focused) { ImGui::SetKeyboardFocusHere(); g_play_focused = true; }
                 ImVec2 play_at = ImGui::GetCursorScreenPos();
                 bool pressed = menu_item(label, status.empty(), &hov);
                 if (status.empty()) {  // PLAY twinkles now and then while the game is ready
@@ -1199,6 +1204,14 @@ extern "C" void launcher_run(const char *root) {
                 }
                 // first PLAY ever: the aspect ratio question, then how to reach our menu, then the game
                 if (g_play_pending && status.empty()) pressed = true, g_play_pending = false;
+                if (pressed && g_settings.save_ask && !g_slot_done) {  // which save first (ui/saves_ui.mm)
+                    pressed = false;
+                    saves_screen_open();
+                    page = SAVES;
+                } else if (pressed) {
+                    if (!g_slot_done) saves_select(g_settings.save_slot);  // (not asking: the one played last)
+                    g_slot_done = false;
+                }
                 if (pressed) {
                     if (!g_settings.aspect_asked) ImGui::OpenPopup("##aspect");
                     else if (!g_settings.menu_tip_seen) ImGui::OpenPopup("##menutip");
@@ -1226,6 +1239,14 @@ extern "C" void launcher_run(const char *root) {
                 ImGui::SetCursorPosX(x0);
                 if (menu_item("QUIT", true)) exit(0);
                 g_menu_gap = 0.35f;
+            } else if (page == SAVES) {
+                ImGui::PushFont(g_font_menu);
+                int pick = saves_screen_draw(ds.y / 1080.0f, g_font_menu, g_font_small);
+                ImGui::PopFont();
+                if (pick) {
+                    page = MAIN, g_play_focused = false;
+                    if (pick > 0) g_slot_done = true, g_play_pending = true;
+                }
             } else if (page == SETTINGS) {
                 // the in-game menu's tabs (runtime/ui/menu.mm), in a window like the in-game one; tabs that need a
                 // loaded game say so
