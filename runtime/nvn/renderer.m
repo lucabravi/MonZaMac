@@ -4011,7 +4011,22 @@ static void exec_list(uint64_t handle, int depth) {
         case CMD_BEGIN_XFB: g_xfb_on = true; g_xfb_dirty = false; break;
         case CMD_END_XFB:
             g_xfb_on = false;
-            if (g_xfb_dirty) { end_pass(); g_xfb_dirty = false; }  // (later draws read the written buffers as vertex streams)
+            if (g_xfb_dirty) {
+                static int env = -1;  // LARECOMP_XFB_END_BARRIER=0/1 wins; else the Developer setting, read live
+                if (env < 0) {
+                    const char *e = getenv("LARECOMP_XFB_END_BARRIER");
+                    env = e ? (atoi(e) != 0) : 2;
+                }
+                bool keep_pass = env == 2 ? g_settings.xfb_barrier : env == 1;
+                if (keep_pass && enc) {
+                    if (@available(macOS 13.0, *))
+                        // Preserve tile contents while ordering GPU-produced vertex data before its consumers.
+                        [enc memoryBarrierWithScope:MTLBarrierScopeBuffers afterStages:MTLRenderStageVertex
+                                       beforeStages:MTLRenderStageVertex | MTLRenderStageFragment];
+                    else end_pass();
+                } else end_pass();
+                g_xfb_dirty = false;
+            }
             break;
         case CMD_BIND_XFB_BUFFER:
             if (r->x[0] < 4) { g_xfb_addr[r->x[0]] = r->x[1]; g_xfb_size[r->x[0]] = r->x[2]; }
