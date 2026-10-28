@@ -3,25 +3,39 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
-## Unreleased
+## 0.1.1
 
-- **"Sharper textures" no longer brings the popping back (Metal):** its LOD bias (-1) and anisotropy applied to the
-  min / max sampler the game's culling reads its depth pyramid with, so it looked a level finer than the game asks for
-  and culled visible objects. Reduction samplers now ignore both.
-- **No more objects popping in and out above 1x (Metal):** the game's culling tests objects against the scene depth's
-  mip chain with a min / max sampler; at a higher internal resolution those mips cover less of the screen than the game
-  expects, so visible objects were culled. Those reads now go up a level by the scale (`LARECOMP_HIZ_LOD=0`: off).
-- **Textures a shader writes as an image stay at the game's size (Metal):** SUST / SURED store at the game's pixel
-  coordinates, so such a texture can't be rendered at a scaled resolution (none seen in Z-A so far; `[scale]
-  image-bound texture back to the guest size` in the log names one; `LARECOMP_IMAGE_SCALE=1` keeps the old behaviour).
-- **Smoother higher internal resolutions (Metal):** fix the jagged character and scenery edges introduced at
-  1.5x and higher by integer screen-space texture reads losing their subpixel positions.
-- **Texture size queries at higher internal resolutions (Metal):** a shader asking a scaled texture for the size of a
-  mip level now gets the guest's size (the base halved per level) instead of the allocation's size divided by the
-  scale, which was off by one at some levels (1.5x: 17 rows where the game has 16).
+### Performance
 - **CPU/GPU overlap (on by default; Developer > Experimental to turn it off):** the game's frame fence is waited
   one frame late, so the CPU prepares the next frame while the GPU draws the current one instead of taking turns
   (about 49 to 58 fps standing still, 53 to 59 in motion on one Mac). `LARECOMP_GPU_OVERLAP=0` also turns it off.
+
+### Graphics
+- **No more objects popping in and out above 1x (Metal):** the game's culling tests objects against the scene depth's
+  mip chain with a min / max sampler; at a higher internal resolution those mips cover less of the screen than the game
+  expects, so visible objects were culled. Those reads now go up a level by the scale (`LARECOMP_HIZ_LOD=0`: off).
+- **"Sharper textures" no longer brings the popping back:** its LOD bias (-1) and anisotropy applied to that same
+  min / max sampler, which then looked a level finer than the game asks for. Reduction samplers now ignore both.
+- **Smoother higher internal resolutions:** fixes the jagged character and scenery edges at 1.5x and higher, caused by
+  integer screen-space texture reads losing their subpixel positions.
+- **Texture size queries at higher internal resolutions:** a shader asking a scaled texture for the size of a mip level
+  now gets the guest's size (the base halved per level) instead of the allocation's size divided by the scale, which
+  was off by one at some levels (1.5x: 17 rows where the game has 16).
+- **Textures a shader writes as an image stay at the game's size:** SUST / SURED store at the game's pixel coordinates,
+  so such a texture can't be rendered at a scaled resolution (none seen in Z-A so far; `[scale] image-bound texture
+  back to the guest size` in the log names one; `LARECOMP_IMAGE_SCALE=1` keeps the old behaviour).
+
+### Tools
+- `trace n` (in `build/dbgcmd`) also logs one `[cs-out]` line per compute dispatch: hashes of its storage and uniform
+  buffers and its textures (guest size, `*` scaled, `i` image). `tools/cs_diff.py` compares two such logs (same scene,
+  two internal resolutions) and lists the dispatches whose output depends on the resolution; with
+  `LARECOMP_CS_DUMP=1` the buffers are written to `build/csdump` and `tools/cs_dump_diff.py` shows which words differ.
+- The Developer tab's GPU timing log writes two lines per frame instead of one per command buffer (about 140 a
+  frame); `LARECOMP_GPU_TIMING_TRACE=1` brings the per-buffer lines back.
+
+### Notes
+- The first start after updating recompiles some shaders (their Metal source changed) and the pipeline archive
+  (`cache/pipelines.bin`) keeps the old entries; deleting the file is safe, it is rebuilt.
 
 ## 0.1.0 - first tagged release
 
