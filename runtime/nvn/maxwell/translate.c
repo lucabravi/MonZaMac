@@ -83,6 +83,8 @@ typedef struct {
     bool uses_gmem_store;    // STG present: the gmem buffer is not readonly
     uint32_t cbuf_need[18];  // highest constant vec4 index + 1 per cbuf (array size of the GLSL block)
     bool rsc_track[256];  // only integer-fetch coordinates and their MOV/F2I inputs need runtime phase metadata
+    char rsc_inner[700];  // the guest-unit coordinate of the last RSC2 (fp_read takes it)
+    bool uses_fp_read;
 } Ctx;
 
 static uint64_t bits(uint64_t w, int lo, int n) { return (w >> lo) & ((n == 64) ? ~0ull : ((1ull << n) - 1)); }
@@ -620,6 +622,7 @@ static const char *RSC2(Ctx *c, int slot, int x, int y, const char *fmt, ...) {
     va_start(ap, fmt);
     vsnprintf(inner, sizeof inner, fmt, ap);
     va_end(ap);
+    snprintf(c->rsc_inner, sizeof c->rsc_inner, "%s", inner);
     if (c->stage == STAGE_VERTEX) { snprintf(o, 1024, "%s", inner); return o; }
     c->uses_rscale = true;
     if (x >= RZ) x = RZ;
@@ -631,6 +634,20 @@ static const char *RSC2(Ctx *c, int slot, int x, int y, const char *fmt, ...) {
         snprintf(o, 1024, "rsc(%s, rscale[%d], float2(%s, %s))", inner, slot + 1, px, py);
     } else snprintf(o, 1024, "rsc(%s, rscale[%d])", inner, slot + 1);
     return o;
+}
+
+// A fragment shader's 2D integer fetch: t.read(<rsc coordinate>, lod), or fp_read, which also reduces (min / max) every
+// texel of the guest texel's footprint when the host asks for it (rscale z): a depth pyramid built from a scaled level
+// otherwise loses the texels between the sampled ones and turns less conservative (objects culled above 1x).
+static void read2d(Ctx *c, char *call, int slot, const char *coord, const char *lod) {
+    if (c->stage != STAGE_FRAGMENT || c->glsl) {
+        if (lod) sprintf(call, "t%d.read(%s, uint(%s))", slot, coord, lod);
+        else sprintf(call, "t%d.read(%s)", slot, coord);
+        return;
+    }
+    c->uses_fp_read = true;
+    sprintf(call, "fp_read(t%d, %s, %s%s%s, rscale[%d], %s)", slot, c->rsc_inner, lod ? "uint(" : "0u", lod ? lod : "",
+            lod ? ")" : "", slot + 1, coord);
 }
 
 // TEXS / TLDS: texture_info selects target and coordinate layout
@@ -830,18 +847,18 @@ static void emit_texs(Ctx *c, uint64_t w, bool fetch) {
         case 1: slot = tex_slot(c, index, TEXTYPE_1D, false, false);
             sprintf(call, "t%d.read(uint(%s), uint(%s))", slot, A, Bv); break;
         case 2: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
-            sprintf(call, "t%d.read(%s)", slot, RSC2(c, slot, a, b, "uint2(%s, %s)", A, Bv)); break;
+            read2d(c, call, slot, RSC2(c, slot, a, b, "uint2(%s, %s)", A, Bv), NULL); break;
         case 4: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
-            sprintf(call, "t%d.read(%s)", slot, RSC2(c, slot, a, a + 1, "uint2(int2(%s, %s) + int2(int(%s << 28) >> 28, int(%s << 24) >> 28))", A, A1, Bv, Bv)); break;
+            read2d(c, call, slot, RSC2(c, slot, a, a + 1, "uint2(int2(%s, %s) + int2(int(%s << 28) >> 28, int(%s << 24) >> 28))", A, A1, Bv, Bv), NULL); break;
         case 5: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
-            sprintf(call, "t%d.read(%s, uint(%s))", slot, RSC2(c, slot, a, a + 1, "uint2(%s, %s)", A, A1), Bv); break;
+            read2d(c, call, slot, RSC2(c, slot, a, a + 1, "uint2(%s, %s)", A, A1), Bv); break;
         case 7: slot = tex_slot(c, index, TEXTYPE_3D, false, false);
             sprintf(call, "t%d.read(uint3(%s, %s, %s))", slot, A, A1, Bv); break;
         case 8: slot = tex_slot(c, index, TEXTYPE_2D_ARRAY, false, true);
             // (TLDS 2D array: x = Rb, y = Rb + 1, layer = Ra - unlike TEXS, whose array layout is layer, Ra + 1, Rb; per Ryujinx)
             sprintf(call, "t%d.read(%s, uint(%s))", slot, RSC2(c, slot, b, b + 1, "uint2(%s, %s)", Bv, B1), A); break;
         case 12: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
-            sprintf(call, "t%d.read(%s, uint(%s))", slot, RSC2(c, slot, a, a + 1, "uint2(int2(%s, %s) + int2(int(%s << 28) >> 28, int(%s << 24) >> 28))", A, A1, B1, B1), Bv); break;
+            read2d(c, call, slot, RSC2(c, slot, a, a + 1, "uint2(int2(%s, %s) + int2(int(%s << 28) >> 28, int(%s << 24) >> 28))", A, A1, B1, B1), Bv); break;
         default: fail(c, "tlds info %d", info); return;
         }
     }
@@ -2750,6 +2767,16 @@ ShaderInfo *maxwell_translate(const uint8_t *blob, size_t max_size, int stage, c
     sp(&s, "static inline float2 fmz_mul(float2 a, float2 b) { return float2(fmz_mul(a.x, b.x), fmz_mul(a.y, b.y)); }\n");
     sp(&s, "static inline float2 fmz_fma(float2 a, float2 b, float2 c) { return float2(fmz_fma(a.x, b.x, c.x), fmz_fma(a.y, b.y, c.y)); }\n");
     sp(&s, "static inline uint2 rsc(uint2 c, float4 s) { return (s.x == 1.0f && s.y == 1.0f) ? c : uint2(floor((float2(c) + 0.5f) * s.xy)); }\n");
+    if (c->uses_fp_read)  // (s.z: 0 one texel at p, 1 the min of the footprint of guest texel c, 2 its max)
+        sp(&s, "template <typename T> static inline auto fp_read(T t, uint2 c, uint lod, float4 s, uint2 p) {\n"
+               "  auto r = t.read(p, lod);\n"
+               "  if (s.z == 0.0f) return r;\n"
+               "  uint2 m = uint2(t.get_width(lod), t.get_height(lod)) - 1u;\n"
+               "  uint2 lo = min(uint2(floor(float2(c) * s.xy)), m), hi = min(uint2(ceil(float2(c + 1u) * s.xy)) - 1u, m);\n"
+               "  for (uint y = lo.y; y <= hi.y; y++)\n"
+               "    for (uint x = lo.x; x <= hi.x; x++) { auto v = t.read(uint2(x, y), lod); r = s.z == 1.0f ? min(r, v) : max(r, v); }\n"
+               "  return r;\n"
+               "}\n");
     bool rsc_phase = false;
     for (int i = 0; i < RZ; i++) rsc_phase |= c->rsc_track[i];
     if (rsc_phase)
