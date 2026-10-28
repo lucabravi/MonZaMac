@@ -104,7 +104,7 @@ static id<MTLCounterSampleBuffer> g_pt_buf;
 static unsigned g_pt_frames, g_pt_pending, g_pt_total, g_pt_n;
 static int g_pt_cur = -1;
 static uint64_t g_pt_draws;
-static struct { int w, h, colors; bool depth; uint64_t draws0, draws; } g_pt_meta[PT_MAX];
+static struct { int w, h, colors; bool depth; uint64_t draws0, draws, fs; } g_pt_meta[PT_MAX];  // fs: the first draw's fragment program
 static struct { double ticks; unsigned frames; } g_pt_sum[PT_MAX];
 static unsigned g_pt_maxn;
 static double g_pt_span_sum;  // sum over frames of (last pass end - first pass start), in the counter's ticks
@@ -196,8 +196,9 @@ static void pass_timing_report(void) {
     for (unsigned j = 0; j < k && j < 25; j++) {
         unsigned i = order[j];
         double ticks = g_pt_sum[i].ticks / g_pt_sum[i].frames;
-        LOG("[gpupass] #%u %5.1f%%  ~%.3f ms  %dx%d colors=%d depth=%d draws=%llu\n", i, frame_span > 0 ? 100 * ticks / frame_span : 0,
-            ticks * ms_per_tick, g_pt_meta[i].w, g_pt_meta[i].h, g_pt_meta[i].colors, g_pt_meta[i].depth, (unsigned long long)g_pt_meta[i].draws);
+        LOG("[gpupass] #%u %5.1f%%  ~%.3f ms  %dx%d colors=%d depth=%d draws=%llu fs=%llx\n", i, frame_span > 0 ? 100 * ticks / frame_span : 0,
+            ticks * ms_per_tick, g_pt_meta[i].w, g_pt_meta[i].h, g_pt_meta[i].colors, g_pt_meta[i].depth, (unsigned long long)g_pt_meta[i].draws,
+            (unsigned long long)g_pt_meta[i].fs);
     }
 }
 
@@ -3389,6 +3390,7 @@ static void draw(CmdRec *r, bool indexed) {
     for (int i = 0; i < st.rt.ncolor; i++)
         if (st.rt.color[i] && ((st.channel_mask >> (i * 4)) & 0xF)) snapshots_invalidate(st.rt.color[i]);
     begin_pass();
+    if (g_pt_cur >= 0 && !g_pt_meta[g_pt_cur].fs) g_pt_meta[g_pt_cur].fs = st.program->stages[1].code_addr;
 
     uint32_t used_streams;
     uint8_t stream_slots[16];
