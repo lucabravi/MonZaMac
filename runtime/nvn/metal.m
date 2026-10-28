@@ -341,13 +341,13 @@ static TexBackend *tex_backend(NvnTexture *t) {
 // A texture a shader writes as an image (SUST / SURED, at guest coordinates) can't be scaled: its stores would fill the
 // top-left corner of the larger allocation while the shaders that read it look at the scaled positions. It goes back to
 // the guest's size (its contents are rewritten by the shader that owns it).
-void renderer_texture_unscale(NvnTexture *t) {
+void renderer_texture_unscale(NvnTexture *t, const char *why) {
     static int keep = -1;
     if (keep < 0) keep = getenv("LARECOMP_IMAGE_SCALE") != NULL;  // (old behaviour, for an A/B)
-    TexBackend *b = t && !keep ? tex_backend(t) : NULL;
+    TexBackend *b = t && !(keep && why[0] == 'i') ? tex_backend(t) : NULL;
     if (!b || !b->scalable) return;
-    LOG("[scale] image-bound texture back to the guest size: %ux%u f%#x flags %#x scale %.2fx%.2f (%s)\n", t->width, t->height, t->format,
-        t->flags, b->sx, b->sy, t->label);
+    LOG("[scale] %s texture back to the guest size: %ux%u f%#x levels %u flags %#x scale %.2fx%.2f (%s)\n", why, t->width, t->height,
+        t->format, t->levels, t->flags, b->sx, b->sy, t->label);
     b->scalable = false;
     if (b->sx != 1 || b->sy != 1) {
         release_backend_texture(t, b);
