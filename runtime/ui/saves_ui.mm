@@ -8,7 +8,9 @@
 #include "imgui.h"
 #include "osk.h"
 #include "../saves.h"
+extern "C" {
 #include "../settings.h"
+}
 
 // The picker's colours in one place: a deep blue glass panel, white text, one cool accent.
 namespace pal {
