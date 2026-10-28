@@ -28,7 +28,9 @@ static int g_n, g_sel, g_focus = -1, g_ask = NONE;
 static char g_name[SAVE_NAME_MAX * 4 + 1], g_err[96], g_created[SAVE_NAME_MAX + 1];
 static bool g_made;  // NEW just made the slot g_created (the home screen's NEW GAME goes on with it)
 
-static void reload(void) { g_n = saves_list(g_slots, SAVE_SLOTS_MAX); if (g_sel >= g_n) g_sel = g_n - 1; }
+static SaveSlot g_none;  // (stands in for the selected slot when there is none)
+static void reload(void) { g_n = saves_list(g_slots, SAVE_SLOTS_MAX); if (g_sel >= g_n) g_sel = g_n - 1; if (g_sel < 0) g_sel = 0; }
+static SaveSlot &sel_slot(void) { return g_n ? g_slots[g_sel] : g_none; }
 
 // Called when the page opens: the slot played last is the one selected.
 void saves_screen_open(void) {
@@ -82,7 +84,7 @@ static bool bar_button(const char *label, float w, float h, ImFont *font, bool d
 static bool dialogs(float sc, ImFont *body, ImFont *small_) {
     bool changed = false;
     ImVec2 ds = ImGui::GetIO().DisplaySize;
-    const SaveSlot &cur = g_slots[g_sel];
+    const SaveSlot &cur = sel_slot();
     if (g_ask != NONE && !ImGui::IsPopupOpen("##saveask")) ImGui::OpenPopup("##saveask");
     ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(fminf(ds.x * 0.8f, 720 * sc), 0));
@@ -182,6 +184,11 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_) {
     ImGui::BeginChild("##savelist", ImVec2(w, ds.y - top - foot), 0, ImGuiWindowFlags_NavFlattened);
     ImDrawList *cl = ImGui::GetWindowDrawList();
     ImGui::PushFont(small_);
+    if (!g_n) {
+        ImGui::PushStyleColor(ImGuiCol_Text, pal::sub);
+        ImGui::TextUnformatted("No saves yet. Use + New save, or NEW GAME on the start screen.");
+        ImGui::PopStyleColor();
+    }
     for (int i = 0; i < g_n; i++) {
         const SaveSlot &s = g_slots[i];
         ImVec2 p = ImGui::GetCursorScreenPos();
@@ -248,15 +255,15 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_) {
     if (bar_button("+ New save", bw, bar_h, small_)) g_ask = NEW, g_err[0] = 0;
     ImGui::EndDisabled();
     ImGui::SameLine(0, bgap);
-    ImGui::BeginDisabled(!one || !g_slots[g_sel].played);
+    ImGui::BeginDisabled(!one || !sel_slot().played);
     if (bar_button("Copy", bw * 0.7f, bar_h, small_)) g_ask = COPY, g_err[0] = 0;
     ImGui::EndDisabled();
     ImGui::SameLine(0, bgap);
-    ImGui::BeginDisabled(!*g_slots[g_sel].id);
+    ImGui::BeginDisabled(!g_n || !*sel_slot().id);
     if (bar_button("Rename", bw * 0.8f, bar_h, small_)) g_ask = RENAME, g_err[0] = 0;
     ImGui::EndDisabled();
     ImGui::SameLine(0, bgap);
-    ImGui::BeginDisabled(!g_slots[g_sel].played && !*g_slots[g_sel].id);
+    ImGui::BeginDisabled(!g_n);
     if (bar_button("Delete", bw * 0.7f, bar_h, small_, true)) g_ask = DELETE, g_err[0] = 0;
     ImGui::EndDisabled();
     ImGui::SameLine(0, bgap * 3);
@@ -346,7 +353,7 @@ int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready,
     // the save last played
     const SaveSlot *cur = latest();  // CONTINUE plays this one
     bool any = cur != NULL;
-    if (!cur) cur = &g_slots[0];
+    if (!cur) cur = &g_none;
     float ch = u * 2.7f;
     ImVec2 cp(x, ty), cq(x + w, ty + ch);
     dl->AddRectFilled(cp, cq, IM_COL32(22, 40, 74, 235), u * 0.4f);

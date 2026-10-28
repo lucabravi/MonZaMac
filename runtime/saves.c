@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -12,6 +13,7 @@ extern const char *g_save_dir;  // runtime/services/fs.c
 
 #define ROOT "saves"
 #define DEFAULT_DIR "save"
+#define ORIGINAL_NAME "Save 1"  // what the original save/ is called in the list
 
 static void slot_path(const char *id, char *out, size_t n) {
     if (*id) snprintf(out, n, ROOT "/%s", id);
@@ -60,20 +62,28 @@ static void scan(const char *p, long long *newest, unsigned long long *bytes) {
 static void fill(SaveSlot *s, const char *id) {
     memset(s, 0, sizeof *s);
     snprintf(s->id, sizeof s->id, "%s", id);
-    snprintf(s->name, sizeof s->name, "%s", *id ? id : "Main save");
+    snprintf(s->name, sizeof s->name, "%s", *id ? id : ORIGINAL_NAME);
     slot_path(id, s->path, sizeof s->path);
     scan(s->path, &s->played, &s->bytes);
+    struct stat st;
+    if (stat(s->path, &st) == 0)
+#ifdef __APPLE__
+        s->born = (long long)st.st_birthtimespec.tv_sec;
+#else
+        s->born = (long long)st.st_ctime;
+#endif
 }
 
-static int by_played(const void *a, const void *b) {
-    long long x = ((const SaveSlot *)a)->played, y = ((const SaveSlot *)b)->played;
-    return x < y ? 1 : x > y;
+static int by_born(const void *a, const void *b) {
+    long long x = ((const SaveSlot *)a)->born, y = ((const SaveSlot *)b)->born;
+    return x > y ? 1 : x < y ? -1 : strcmp(((const SaveSlot *)a)->id, ((const SaveSlot *)b)->id);
 }
 
 int saves_list(SaveSlot *out, int max) {
     int n = 0;
     if (max < 1) return 0;
-    fill(&out[n++], "");
+    fill(&out[0], "");
+    if (out[0].played) n = 1;  // (an empty save/ is not a save)
     DIR *d = opendir(ROOT);
     if (d) {
         struct dirent *e;
@@ -86,7 +96,8 @@ int saves_list(SaveSlot *out, int max) {
         }
         closedir(d);
     }
-    if (n > 2) qsort(out + 1, (size_t)n - 1, sizeof *out, by_played);
+    int first = out[0].played ? 1 : 0;
+    if (n - first > 1) qsort(out + first, (size_t)(n - first), sizeof *out, by_born);
     return n;
 }
 
@@ -145,6 +156,12 @@ static void remove_tree(const char *p) {
 // the folder for a new slot called `name`: ROOT/name, which must not exist
 static bool new_slot_path(const char *name, char *id, char *path, size_t n) {
     if (!clean_name(name, id)) return false;
+    if (!strcasecmp(id, ORIGINAL_NAME)) {  // (that name is the original save/'s, while it holds a save)
+        long long t = 0;
+        unsigned long long b = 0;
+        scan(DEFAULT_DIR, &t, &b);
+        if (t) return false;
+    }
     snprintf(path, n, ROOT "/%s", id);
     if (exists(path)) return false;
     mkdir(ROOT, 0755);

@@ -8,7 +8,7 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 - **New start screen, with save slots:** the logo and name on top, a card with the most recent save, and CONTINUE / NEW
   GAME / SAVES / SETTINGS / QUIT under it, as in the Pokémon games. CONTINUE starts the most recent save; NEW GAME asks
   for a name and starts a fresh one; SAVES lists them all to pick one, copy, rename or delete. Your existing save is the
-  first slot, "Main save", untouched; extra saves live in `saves/` next to `save/`. The app opens on it (`--play` skips it).
+  first slot ("Save 1"), untouched; extra saves live in `saves/` next to `save/`. The app opens on it (`--play` skips it).
 - **New look for the menus:** deep blue panels with a cyan accent instead of green and gold (start screen, Settings, in-game
   menu).
 - `gpupass N` (in `build/dbgcmd`): GPU time of each render pass over N frames, no Xcode needed (developer tool).

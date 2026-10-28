@@ -16,10 +16,12 @@ typedef struct {
     char name[40];               // shown
     char path[64];               // relative to the data root
     long long played;            // last write in it (unix seconds); 0 = nothing saved yet
+    long long born;              // when the folder was made (the order of the list)
     unsigned long long bytes;
 } SaveSlot;
 
-// The slots: the original first, then the others, newest first. Returns how many (at least 1).
+// The slots in a fixed order: the original `save/` first (as "Save 1", only when it holds something), then the others as
+// they were made. Returns how many (0: no save yet).
 int saves_list(SaveSlot *out, int max);
 // New empty slot / copy of `id` named `name` (letters, digits, space, - _ ; trimmed). false: bad or taken name.
 bool saves_create(const char *name, char *id_out);  // id_out (SAVE_NAME_MAX + 1, or NULL): the new slot's id
