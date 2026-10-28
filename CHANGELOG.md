@@ -9,6 +9,9 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   it now stays open with a Metal buffer barrier (about 1 ms less GPU time a frame in the tested scenes: 38 to 42 fps at
   1.5x in one test). Developer tab "Keep passes open after skinning" turns it off at once;
   `LARECOMP_XFB_END_BARRIER=0` too.
+- **Faster shaders with jump tables (on by default):** a fragment shader with a computed jump (BRX) got a label on every
+  instruction, which stopped the Metal compiler from optimising it; now only the starts of code blocks are labels.
+  `LARECOMP_BRX_ALL_LABELS=1` restores the old output.
 - Developer GPU profiling: opt-in, one-frame Metal captures and per-frame pass/submission break histograms.
 
 ## 0.1.1

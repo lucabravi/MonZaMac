@@ -2688,7 +2688,7 @@ ShaderInfo *maxwell_translate(const uint8_t *blob, size_t max_size, int stage, c
     // collect branch targets (labels)
     uint8_t *label = calloc(end + 4, 1);
     label[1] = 1;
-    bool any_branch = false;
+    bool any_branch = false, brx = false;
     for (size_t i = 0; i < end; i++) {
         if (i % 4 == 0) continue;
         uint64_t w = ((const uint64_t *)code)[i];
@@ -2699,13 +2699,34 @@ ShaderInfo *maxwell_translate(const uint8_t *blob, size_t max_size, int stage, c
             if (t >= 0 && (size_t)(t / 8) < end) label[t / 8] = 1;
             any_branch = true;
         }
-        if ((w & 0xfff0000000000000ull) == 0xe250000000000000ull) {  // BRX: any instruction may be a target
+        if ((w & 0xfff0000000000000ull) == 0xe250000000000000ull) {  // BRX: targets come from a table we can't see
             any_branch = true;
-            memset(label, 1, end);
+            brx = true;
         }
         if ((w & 0xfff8000000000000ull) == 0xf0f8000000000000ull || (w & 0xfff0000000000000ull) == 0xe340000000000000ull ||
             (w & 0xfff0000000000000ull) == 0xe350000000000000ull)
             any_branch = true;
+    }
+    if (brx) {
+        // The table's targets are the starts of the switch's case bodies, each right after a jump (the compiler ends every
+        // case with one). Labelling only those keeps straight-line code in one block for the Metal compiler; a label on every
+        // instruction (LARECOMP_BRX_ALL_LABELS=1, the old behaviour) made it keep every register live across all of them.
+        static int all = -1;
+        if (all < 0) all = getenv("LARECOMP_BRX_ALL_LABELS") != NULL;
+        if (all) memset(label, 1, end);
+        else
+            for (size_t i = 1; i + 1 < end; i++) {
+                if (!(i % 4)) continue;
+                uint64_t w = ((const uint64_t *)code)[i];
+                uint64_t op = w & 0xfff0000000000000ull;
+                // BRA, EXIT, RET, BRK, CONT, SYNC, BRX, and any other branch-like op: the next instruction starts a block
+                if (has_flow_target(w) || op == 0xe300000000000000ull || op == 0xe320000000000000ull || op == 0xe340000000000000ull ||
+                    op == 0xe350000000000000ull || op == 0xe250000000000000ull || (w & 0xfff8000000000000ull) == 0xf0f8000000000000ull) {
+                    size_t n = i + 1;
+                    if (!(n % 4)) n++;
+                    if (n < end) label[n] = 1;
+                }
+            }
     }
     uint32_t *regions = any_branch ? break_regions((const uint64_t *)code, end) : NULL;
     if (any_branch && !regions) fail(c, "allocating break regions");
