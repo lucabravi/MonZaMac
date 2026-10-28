@@ -1239,8 +1239,8 @@ extern "C" void launcher_run(const char *root) {
                     g_slot_done = false;
                 }
                 if (pressed) {
-                    if (!g_settings.aspect_asked) ImGui::OpenPopup("##aspect");
-                    else if (!g_settings.menu_tip_seen) ImGui::OpenPopup("##menutip");
+                    g_settings.aspect_asked = true;  // (no question: the saved aspect ratio, authentic 16:9 until changed in Settings)
+                    if (!g_settings.menu_tip_seen) ImGui::OpenPopup("##menutip");
                     else play = true;
                 }
                 if (g_tip_test) ImGui::OpenPopup(g_settings.aspect_asked ? "##menutip" : "##aspect"), g_tip_test = false;
