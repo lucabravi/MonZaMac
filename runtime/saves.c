@@ -13,7 +13,7 @@ extern const char *g_save_dir;  // runtime/services/fs.c
 
 #define ROOT "saves"
 #define DEFAULT_DIR "save"
-#define ORIGINAL_NAME "Save 1"  // what the original save/ is called in the list
+#define ORIGINAL_NAME "Main save"  // what the original save/ is called until it is renamed
 
 static void slot_path(const char *id, char *out, size_t n) {
     if (*id) snprintf(out, n, ROOT "/%s", id);
@@ -184,11 +184,13 @@ bool saves_copy(const char *id, const char *name) {
     return false;
 }
 
-bool saves_rename(const char *id, const char *name) {
+bool saves_rename(const char *id, const char *name, char *id_out) {
     char nid[SAVE_NAME_MAX + 1], to[128], from[128];
-    if (!*id || !new_slot_path(name, nid, to, sizeof to)) return false;
-    slot_path(id, from, sizeof from);
-    return rename(from, to) == 0;
+    if (!new_slot_path(name, nid, to, sizeof to)) return false;
+    slot_path(id, from, sizeof from);  // (the original save/ moves into saves/ under its new name)
+    if (rename(from, to) != 0) return false;
+    if (id_out) snprintf(id_out, SAVE_NAME_MAX + 1, "%s", nid);
+    return true;
 }
 
 bool saves_delete(const char *id) {
