@@ -2348,14 +2348,10 @@ static bool emit_forward_flow(Ctx *c, const uint64_t *code, size_t end,
     for (size_t i = 1; i < end; i++) {
         if (!(i % 4)) continue;
         uint64_t w = code[i], op = w & 0xfff0000000000000ull;
-        if (op != 0xe290000000000000ull && op != 0xe2a0000000000000ull && bits(w, 16, 4) == 15) {  // (@!PT: never runs)
-            // a flow op that never runs would be emitted as a plain instruction, naming the pc state this path doesn't have
-            if (op == 0xe240000000000000ull || op == 0xe250000000000000ull || (w & 0xfff8000000000000ull) == 0xf0f8000000000000ull ||
-                op == 0xe340000000000000ull || op == 0xe300000000000000ull || op == 0xe2b0000000000000ull ||
-                op == 0xe350000000000000ull || op == 0xe260000000000000ull || op == 0xe270000000000000ull ||
-                op == 0xe320000000000000ull) goto done;
-            continue;
-        }
+        // PCNT/PRET are unpredicated: their unused predicate bits cannot make unsupported flow a no-op.
+        if (op == 0xe2b0000000000000ull || op == 0xe270000000000000ull) goto done;
+        // emit_insn also drops genuinely never-executed instructions before emitting any PC/stack references.
+        if (op != 0xe290000000000000ull && op != 0xe2a0000000000000ull && bits(w, 16, 4) == 15) continue;
         if (op == 0xe290000000000000ull) f[i].kind = FLOW_SSY;
         else if (op == 0xe2a0000000000000ull) f[i].kind = FLOW_PBK;
         else if (op == 0xe240000000000000ull) f[i].kind = FLOW_BRA;
@@ -2365,8 +2361,7 @@ static bool emit_forward_flow(Ctx *c, const uint64_t *code, size_t end,
         } else if ((w & 0xfff8000000000000ull) == 0xf0f8000000000000ull) f[i].kind = FLOW_SYNC;
         else if (op == 0xe340000000000000ull) f[i].kind = FLOW_BRK;
         else if (op == 0xe300000000000000ull) f[i].kind = FLOW_EXIT;
-        else if (op == 0xe2b0000000000000ull || op == 0xe350000000000000ull ||
-                 op == 0xe260000000000000ull || op == 0xe270000000000000ull || op == 0xe320000000000000ull) goto done;
+        else if (op == 0xe350000000000000ull || op == 0xe260000000000000ull || op == 0xe320000000000000ull) goto done;
         if (f[i].kind == FLOW_SSY || f[i].kind == FLOW_PBK || f[i].kind == FLOW_BRA) {
             uint32_t t = norm_target((int64_t)i * 8 + 8 + sbits(w, 20, 24));
             if (bits(w, 5, 1) || (t & 7) || t / 8 <= i || t / 8 >= end) goto done;
