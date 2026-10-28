@@ -160,6 +160,12 @@ default; turn it off in the Developer tab (Cmd+Shift+D, "Keep passes open after 
 
 ### Local GPU profiling
 
+`gpupass 30` in `build/dbgcmd` times each render pass of 30 frames with GPU timestamps (no Xcode, no capture): after the
+last frame the log lists the 25 slowest passes by their ordinal in the frame, with size, attachments and draws
+(`[gpupass] #12 2.31 ms 2880x1620 colors=3 depth=1 draws=412`). The spans of neighbouring passes overlap on the GPU, so
+they show where the time goes, not what each pass costs alone. It waits for the GPU at each frame end: run it on its own,
+not together with a benchmark.
+
 In a running development build, write `gpuprofile 30` to `build/dbgcmd` to collect 30 complete presented frames.
 The `[gpu-profile]` lines count guest draws, clear requests, compute dispatches, feedback copies, and the reasons
 actual render encoders and command buffers ended. Empty close/submit requests do not count. This is off until
