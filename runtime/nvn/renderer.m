@@ -2420,6 +2420,35 @@ static CsProg *compute_program(NvnProgram *p) {
     return cp;
 }
 
+// (diagnostics, "trace n" in build/dbgcmd) one line per compute dispatch: what it wrote to its storage buffers and the
+// uniforms it read (FNV-1a over the first 4 MB of each range), and its textures as guest size, "*" if scaled, "i" if bound
+// as an image. Two logs of the same still scene at different internal resolutions then show which dispatch's output
+// changed with the resolution: tools/cs_diff.py.
+static uint64_t fnv_range(uint64_t addr, uint64_t size) {
+    uint64_t h = 1469598103934665603ull;
+    const uint64_t *p = (const uint64_t *)(uintptr_t)addr;
+    if (size > (4u << 20)) size = 4u << 20;
+    for (uint64_t i = 0; i < size / 8; i++) h = (h ^ p[i]) * 1099511628211ull;
+    return h;
+}
+
+static void cs_audit(ShaderInfo *si, uint32_t gx, uint32_t gy, uint32_t gz) {
+    extern uint64_t renderer_present_count(void);
+    renderer_flush();  // the output is read once the dispatch has run
+    char line[1024];
+    int n = snprintf(line, sizeof line, "[cs-out] f=%llu cs=%llx g=%ux%ux%u", (unsigned long long)renderer_present_count(),
+                     (unsigned long long)st.program->stages[5].code_addr, gx, gy, gz);
+    for (int i = 0; i < 16 && n < 900; i++)
+        if (st.sbuf[5][i].addr) n += snprintf(line + n, sizeof line - n, " s%d=%llx", i, (unsigned long long)fnv_range(st.sbuf[5][i].addr, st.sbuf[5][i].size));
+    for (int i = 0; i < 18 && n < 900; i++)
+        if (st.ubuf[5][i].addr) n += snprintf(line + n, sizeof line - n, " u%d=%llx", i, (unsigned long long)fnv_range(st.ubuf[5][i].addr, st.ubuf[5][i].size));
+    for (int i = 0; i < si->ntex && i < 64 && n < 900; i++)
+        if (tex_wh[0][i][0])
+            n += snprintf(line + n, sizeof line - n, " t%d=%ux%u%s%s", i, tex_wh[0][i][0], tex_wh[0][i][1],
+                          (tex_sc[0][i][0] != 1 || tex_sc[0][i][1] != 1) ? "*" : "", si->tex[i].is_image ? "i" : "");
+    LOG("%s\n", line);
+}
+
 static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
     snap_reason = "compute"; snapshots_invalidate(NULL);
     if (!st.program || !gx || !gy || !gz) return;
@@ -2482,11 +2511,15 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
         id<MTLSamplerState> smp = nil;
         uint32_t tic = h & 0xFFFFF, tsc = (uint32_t)(h >> 20) & 0xFFF;
         tex_sc[0][i][0] = tex_sc[0][i][1] = 1;
+        if (i < 64) tex_wh[0][i][0] = tex_wh[0][i][1] = 0;
         if (h && st.tpool && tic < (uint32_t)st.tpool->count) {
             NvnTexEntry *e = &((NvnTexEntry *)st.tpool->entries)[tic];
             if (e->tex && st_->is_image) renderer_texture_unscale(e->tex);
             if (e->tex) tex = st_->stencil ? stencil_texture(e->tex) : sampled_texture_ex(e->tex, &e->view, e->has_view, st_->type, st_->is_image);
-            if (e->tex && i < 64) renderer_texture_scale(e->tex, &tex_sc[0][i][0], &tex_sc[0][i][1]);
+            if (e->tex && i < 64) {
+                renderer_texture_scale(e->tex, &tex_sc[0][i][0], &tex_sc[0][i][1]);
+                tex_wh[0][i][0] = e->tex->width; tex_wh[0][i][1] = e->tex->height;
+            }
             if (!st_->is_image) tex = feedback_sample(e, tex);
         }
         NvnSamplerDesc *sd = h && st.spool && tsc < (uint32_t)st.spool->count ? &((NvnSamplerDesc *)st.spool->entries)[tsc] : NULL;
@@ -2524,6 +2557,7 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
     [ce endEncoding];
     CST("done");
     stat_dispatches++;
+    if (trace_frame()) cs_audit(si, gx, gy, gz);
 }
 
 static MTLPrimitiveType prim_type(uint32_t mode, bool *ok) {
