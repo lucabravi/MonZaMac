@@ -6,10 +6,15 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 ## Unreleased
 
 - `gpupass N` (in `build/dbgcmd`): GPU time of each render pass over N frames, no Xcode needed (developer tool).
+- **Clears as load actions:** a clear the game issues at the start of a pass now clears the attachment as the pass
+  begins instead of loading it and drawing over it (less GPU bandwidth; `LARECOMP_CLEAR_DRAWS=1` goes back).
 - **Fewer render passes after GPU skinning (on by default):** the pass used to end after each transform-feedback stage;
   it now stays open with a Metal buffer barrier (about 1 ms less GPU time a frame in the tested scenes: 38 to 42 fps at
   1.5x in one test). Developer tab "Keep passes open after skinning" turns it off at once;
   `LARECOMP_XFB_END_BARRIER=0` too.
+- **Faster shaders with jump tables (on by default):** a fragment shader with a computed jump (BRX) got a label on every
+  instruction, which stopped the Metal compiler from optimising it; now only the starts of code blocks are labels.
+  `LARECOMP_BRX_ALL_LABELS=1` restores the old output.
 - Developer GPU profiling: opt-in, one-frame Metal captures and per-frame pass/submission break histograms.
 
 ## 0.1.1
