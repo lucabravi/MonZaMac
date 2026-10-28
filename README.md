@@ -74,8 +74,7 @@ Working:
 - Controller and keyboard input
 
 Known issues:
-- Characters (NPCs) can pop in and out while walking, mostly at Lumiose station. It does not depend on the internal
-  resolution or the filtering options.
+- Characters (NPCs) can pop in and out while walking, mostly at Lumiose station.
 
 Bugs and questions: [GitHub issues](https://github.com/lucabravi/MonZaMac/issues), see [CONTRIBUTING.md](CONTRIBUTING.md).
 
