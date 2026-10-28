@@ -5,6 +5,7 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+- `gpupass N` (in `build/dbgcmd`): GPU time of each render pass over N frames, no Xcode needed (developer tool).
 - **Fewer render passes after GPU skinning (on by default):** the pass used to end after each transform-feedback stage;
   it now stays open with a Metal buffer barrier (about 1 ms less GPU time a frame in the tested scenes: 38 to 42 fps at
   1.5x in one test). Developer tab "Keep passes open after skinning" turns it off at once;
