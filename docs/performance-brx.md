@@ -5,7 +5,8 @@
 The translator normally emits a `switch (pc)` loop for shaders with branches. The
 structured path (on by default; `LARECOMP_STRUCTURED_FLOW=0` turns it off) emits proven acyclic control flow as native conditional blocks and small
 direct switches. Incoming edge predicates merge before a block executes; accepted shaders no longer need the
-PC loop or SSY/PBK arrays. A flow instruction that never runs (`@!PT`) also keeps the dispatcher.
+PC loop or SSY/PBK arrays. Genuinely never-executed instructions (`@!PT`) are skipped. Unsupported unpredicated
+PCNT/PRET instructions keep the dispatcher regardless of the value of their unused predicate bits.
 
 Computed targets come from compiler-owned c1 tables. The recognizer requires consecutive unsigned immediate
 MIN, shift-left-by-two, 32-bit c1 load and BRX instructions, validates their register chain and predicates,

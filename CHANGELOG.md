@@ -6,8 +6,8 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 ## Unreleased
 
 - **Structured shader flow (on by default):** a shader whose only computed jumps are bounded forward jump tables now
-  runs as plain conditionals and small switches instead of a `switch (pc)` loop (the lighting pass: about 20% less GPU
-  time in one test, 48 to 60 fps at 1.5x). Anything it cannot prove falls back to the old output.
+  runs as plain conditionals and small switches instead of a `switch (pc)` loop (about 20% less measured GPU time for
+  the whole frame in one test, 48 to 60 fps at 1.5x). Anything it cannot prove falls back to the old output.
   `LARECOMP_STRUCTURED_FLOW=0` turns it off.
 
 - **New start screen, with save slots:** the logo and name on top, a card with the most recent save, and CONTINUE / NEW
