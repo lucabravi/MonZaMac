@@ -592,6 +592,7 @@ extern "C" void menu_apply_window_requests(void *sdl_window);
 extern "C" { int g_start_screen; int g_saves_first; }  // the start screen is up (no game loaded); open on the save picker
 static bool g_play_pending;
 static bool g_play_focused;  // PLAY has the controller's selection (false: put it there again)
+static Uint64 g_fs_entered;  // SDL_GetTicks() when the window finished entering fullscreen
 static bool g_slot_done;  // the save picker has just chosen: PLAY goes on without asking again
 void saves_screen_open(void);  // ui/saves_ui.mm
 int saves_screen_draw(float scale, ImFont *body, ImFont *small_);
@@ -1062,6 +1063,7 @@ extern "C" void launcher_run(const char *root) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_QUIT) exit(0);
+            if (e.type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN) g_fs_entered = SDL_GetTicks();
             if (busy) {  // the progress overlay is modal: no underlying mouse, keyboard or pad input (a pad plugged in meanwhile is still opened)
                 if (e.type == SDL_EVENT_GAMEPAD_ADDED) launcher_pad_event(e);
                 continue;
@@ -1655,7 +1657,9 @@ extern "C" void launcher_run(const char *root) {
             typed_before = ui_text_busy();
 
 #ifdef __APPLE__
-            if (still < 20 && !shot_at)
+            // (the size is final at once, the picture is not: macOS animates into fullscreen and says so when done)
+            bool fs_wait = g_settings.fullscreen && (g_fs_entered ? SDL_GetTicks() - g_fs_entered < 300 : SDL_GetTicks() < 3000);
+            if ((still < 20 || fs_wait) && !shot_at)
                 ImGui::GetForegroundDrawList()->AddRectFilled(ImVec2(0, 0), ds, IM_COL32(10, 13, 15, 255));
 #endif
             ImGui::Render();
