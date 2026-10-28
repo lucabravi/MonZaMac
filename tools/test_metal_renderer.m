@@ -1783,7 +1783,7 @@ static void structured_brx(void) {
     const uint32_t values[] = {11, 21, 30, 40};
     for (unsigned i = 0; i < 32; i++) CHECK(out[i] == values[MIN(i ^ 1, 3u)], "bounded BRX and nested SYNC/BRK reconverge before SHFL");
     const char *enabled = getenv("LARECOMP_STRUCTURED_FLOW");
-    CHECK(compute_program(&program)->si->structured_flow == (enabled && atoi(enabled)), "the bounded forward switch uses the requested structured path");
+    CHECK(compute_program(&program)->si->structured_flow == !(enabled && !atoi(enabled)), "the bounded forward switch uses the structured path unless it is turned off");
     ShaderInfo *fallback = maxwell_translate_with_constants((uint8_t *)code, 512, STAGE_COMPUTE, NULL, (uint8_t *)table, 4);
     CHECK(fallback->msl && !fallback->structured_flow, "an incomplete constant table retains the dispatcher");
     maxwell_free(fallback);
