@@ -663,8 +663,27 @@ static bool trace_frame(void) {
 }
 static void debug_live_controls(void);
 static void op_ring_dump(int back);  // (defined with the executor)
+// A clear the game issues before anything else is drawn in a pass becomes the pass's load action (Clear) instead of a
+// full-screen draw over a loaded attachment: the whole target is neither read back into tile memory nor drawn over.
+// defer_clear records it; begin_pass consumes it; any pass end, and a render target change, carries it out first.
+// LARECOMP_CLEAR_DRAWS=1: always the draw, as before.
+static struct { bool on; MTLClearColor c; } g_lc[8];
+static bool g_ld_on, g_ls_on, g_in_begin;
+static double g_ld;
+static uint32_t g_ls;
+static bool load_clears_pending(void) {
+    for (int i = 0; i < 8; i++) if (g_lc[i].on) return true;
+    return g_ld_on || g_ls_on;
+}
+static void begin_pass(void);
+static void flush_load_clears(void) {
+    if (!load_clears_pending()) return;
+    st.rt_dirty = true;
+    begin_pass();
+}
 static void end_pass(const char *reason) {
     debug_live_controls();
+    if (!g_in_begin) flush_load_clears();  // (the deferred clears happen in a pass of their own, ended just below)
     if (enc) {
         [enc endEncoding];
         if (g_pt_cur >= 0) { g_pt_meta[g_pt_cur].draws = g_pt_draws - g_pt_meta[g_pt_cur].draws0; g_pt_cur = -1; }
@@ -1045,7 +1064,9 @@ static int g_rt_plane = -1;
 
 static void begin_pass(void) {
     if (enc && !st.rt_dirty) return;
+    g_in_begin = true;
     end_pass("attachment");
+    g_in_begin = false;
     st.rt_dirty = false;
     for (int i = 0; i < 8; i++) dbg_rt[i] = i < st.rt.ncolor ? st.rt.color[i] : NULL;
     MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
@@ -1071,6 +1092,7 @@ static void begin_pass(void) {
             rp.colorAttachments[i].clearColor = MTLClearColorMake(0, 0, 0, fresh ? 0 : 1);
         }
         rp.colorAttachments[i].storeAction = MTLStoreActionStore;
+        if (g_lc[i].on) { rp.colorAttachments[i].loadAction = MTLLoadActionClear; rp.colorAttachments[i].clearColor = g_lc[i].c; }
         {   // LARECOMP_CLEAR_ALL=<rrggbbaa hex>[:<pass>]: force a clear colour (proves which attachment reaches the window)
             static int ca_once;
             if (!ca_once) {
@@ -1098,11 +1120,13 @@ static void begin_pass(void) {
             rp.depthAttachment.texture = tex;
             rp.depthAttachment.loadAction = MTLLoadActionLoad;
             rp.depthAttachment.storeAction = MTLStoreActionStore;
+            if (g_ld_on) { rp.depthAttachment.loadAction = MTLLoadActionClear; rp.depthAttachment.clearDepth = g_ld; }
         }
         if (renderer_format_has_stencil(st.rt.depth->format)) {
             rp.stencilAttachment.texture = tex;
             rp.stencilAttachment.loadAction = MTLLoadActionLoad;
             rp.stencilAttachment.storeAction = MTLStoreActionStore;
+            if (g_ls_on) { rp.stencilAttachment.loadAction = MTLLoadActionClear; rp.stencilAttachment.clearStencil = g_ls; }
         }
         if (rp.depthAttachment.texture || rp.stencilAttachment.texture) {
             layers = MIN(layers, texture_layers(tex));
@@ -1110,6 +1134,8 @@ static void begin_pass(void) {
             else { w = MIN(w, (int)tex.width); h = MIN(h, (int)tex.height); }
         }
     }
+    memset(g_lc, 0, sizeof g_lc);
+    g_ld_on = g_ls_on = false;
     if (!w) {
         pass_sx = pass_sy = 1;
         rp.renderTargetWidth = w = 16; rp.renderTargetHeight = h = 16;
@@ -1209,6 +1235,50 @@ static void attachment_formats(MTLRenderPipelineDescriptor *pd) {
         if (st.rt.color[i] && st.rt.color[i]->samples > 1) pd.rasterSampleCount = st.rt.color[i]->samples;
 }
 
+// (see g_lc) true when the clear was recorded as the next pass's load action. Only at a pass start, for a clear that
+// covers the whole attachment, when every attachment is a single-sample 2D one of the same size and scale: the draw
+// clears the pass's area, a load action the whole attachment, and those must be the same.
+static bool defer_clear(int index, int kind, const void *color, uint32_t mask, bool depth, float dval, bool stencil,
+                        uint32_t sval, uint32_t smask) {
+    static int off = -1;
+    if (off < 0) off = getenv("LARECOMP_CLEAR_DRAWS") != NULL;
+    if (off || g_debug_frame || g_rt_plane >= 0 || (enc && !st.rt_dirty)) return false;
+    uint32_t w0 = 0, h0 = 0;
+    float sx0 = 0, sy0 = 0;
+    for (int i = -1; i < st.rt.ncolor; i++) {
+        NvnTexture *t = i < 0 ? st.rt.depth : st.rt.color[i];
+        if (!t) continue;
+        const NvnTextureView *v = i < 0 ? &st.rt.dview : &st.rt.cview[i];
+        bool hv = i < 0 ? st.rt.has_dview : st.rt.has_cview[i];
+        if (t->target != 1 || t->samples > 1) return false;
+        uint32_t l = hv && (v->setmask & 1) ? v->base_level : 0;
+        uint32_t w = t->width >> l ? t->width >> l : 1, h = t->height >> l ? t->height >> l : 1;
+        float sx, sy;
+        renderer_texture_scale(t, &sx, &sy);
+        if (!w0) { w0 = w; h0 = h; sx0 = sx; sy0 = sy; }
+        else if (w != w0 || h != h0 || sx != sx0 || sy != sy0) return false;
+    }
+    const int32_t *s = st.scissor[0];
+    if (!w0 || s[0] > 0 || s[1] > 0 || (s[2] < 16384 && s[0] + s[2] < (int32_t)w0) || (s[3] < 16384 && s[1] + s[3] < (int32_t)h0))
+        return false;
+    if (index >= 0) {
+        if (index >= st.rt.ncolor || !st.rt.color[index] || !color || (mask & 0xF) != 0xF) return false;
+        double c[4];
+        for (int i = 0; i < 4; i++)
+            c[i] = kind == 2 ? (double)((const uint32_t *)color)[i] : kind == 1 ? (double)((const int32_t *)color)[i] : (double)((const float *)color)[i];
+        g_lc[index].on = true;
+        g_lc[index].c = MTLClearColorMake(c[0], c[1], c[2], c[3]);
+        return true;
+    }
+    if (!st.rt.depth || (!depth && !stencil)) return false;
+    uint32_t f = st.rt.depth->format;
+    if ((depth && (!renderer_format_is_depth(f) || f == 0x31)) || (stencil && (!renderer_format_has_stencil(f) || (smask & 0xFF) != 0xFF)))
+        return false;
+    if (depth) { g_ld_on = true; g_ld = dval; }
+    if (stencil) { g_ls_on = true; g_ls = sval & 0xFF; }
+    return true;
+}
+
 static void clear(int index, int kind, const void *color, uint32_t mask, bool depth, float dval, bool stencil,
                   uint32_t sval, uint32_t smask) {
     if (g_profile_frames) g_profile.clears++;
@@ -1235,6 +1305,7 @@ static void clear(int index, int kind, const void *color, uint32_t mask, bool de
         }
         color = conv;
     }
+    if (defer_clear(index, kind, color, mask, depth, dval, stencil, sval, smask)) return;
     begin_pass();
     if (g_debug_frame) {
         int pw, ph;
@@ -4365,6 +4436,7 @@ static void exec_list(uint64_t handle, int depth) {
             }
             const struct { uint64_t tex[8]; NvnTextureView views[8]; uint8_t has_view[8]; uint64_t depth;
                            NvnTextureView dview; uint8_t has_dview; } *rt = x;
+            flush_load_clears();  // (a deferred clear belongs to the targets being replaced)
             memset(&st.rt, 0, sizeof st.rt);
             st.rt.ncolor = (int)r->x[0];
             for (int i = 0; i < st.rt.ncolor; i++) {
