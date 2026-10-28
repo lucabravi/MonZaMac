@@ -102,6 +102,23 @@ is a representative stationary frame, not a universal constant:
 
 These counts identify places to inspect; they do not establish that merging a boundary is legal or profitable.
 
+## Command-buffer chunk screen
+
+A bounded screen changed only `LARECOMP_CHUNK_PASSES`, using the same 1.5x scene/settings and 300-frame warm
+window. The nondefault values each have one run; the default row is the median of the three baseline runs above.
+This is a candidate screen, not a repeated confirmation of small differences.
+
+| Chunk limit | FPS | Median GPU-union ms |
+| --- | ---: | ---: |
+| 0 (no chunk limit) | 36.28 | 26.945 |
+| **8 (default, three-run median)** | **38.94** | **25.317** |
+| 16 | 39.11 | 25.345 |
+| 32 | 38.74 | 25.752 |
+| 64 | 38.07 | 26.072 |
+
+None reduced the measured GPU time. No setting is promoted and the default remains 8. The near-equal result at
+16 is below the 3% threshold, so it does not justify further confirmation runs or a configuration change.
+
 ## Measurement cautions
 
 - Enabling Metal capture support adds CPU overhead even outside the captured frame. Live benchmarks must be run
@@ -140,10 +157,11 @@ and other Macs have not been tested.
 
 Per-pass GPU time, bandwidth and top shader costs remain unmeasured; the pass-count table cannot substitute for
 them. No load/store, texture-usage, pass-merging, feedback-copy or shader change is justified by this data alone.
-The chunk-size sweep (0, 8, 16, 32, 64) and option costs (SMAA, MetalFX, Sharper textures, 4K shadows) are also
-pending. They can use the existing interval-union tracker without full-frame Xcode replay. Any candidate should
-still use three comparable warm runs at each scale, visual checks, and a separate PR; stop if the measured GPU
-gain is below 3%.
+The chunk-size screen above found no useful candidate. Option costs (SMAA, MetalFX, Sharper textures, 4K shadows)
+remain pending. They can use the existing interval-union tracker without full-frame Xcode replay. Start each
+candidate with one 1.5x run off and one on in the same scene/settings; deepen only for a useful signal, with
+focused visual checks and a separate PR. Do not repeat unchanged matrices. Stop if the measured GPU gain is
+below 3%.
 
 ## References
 
