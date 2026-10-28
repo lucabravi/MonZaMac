@@ -105,8 +105,9 @@ static int g_pt_cur = -1;
 static uint64_t g_pt_draws;
 static struct { int w, h, colors; bool depth; uint64_t draws0, draws; } g_pt_meta[PT_MAX];
 static struct { double ticks; unsigned frames; } g_pt_sum[PT_MAX];
-static uint64_t g_pt_cpu0, g_pt_gpu0;
 static unsigned g_pt_maxn;
+static double g_pt_span_sum;  // sum over frames of (last pass end - first pass start), in the counter's ticks
+static unsigned g_pt_span_n;
 
 static bool pass_timing_request(unsigned frames) {
     if (!frames || frames > 120 || g_pt_frames || g_pt_pending) return false;
@@ -135,10 +136,10 @@ static void pass_timing_begin(uint64_t frame) {
             }
         }
         memset(g_pt_sum, 0, sizeof g_pt_sum);
+        g_pt_span_sum = 0; g_pt_span_n = 0;
         g_pt_total = g_pt_pending;
         g_pt_frames = g_pt_pending;
         g_pt_maxn = 0;
-        [dev sampleTimestamps:&g_pt_cpu0 gpuTimestamp:&g_pt_gpu0];
         LOG("[gpupass] timing the passes of %u frames after %llu\n", g_pt_frames, (unsigned long long)frame);
     }
     g_pt_pending = 0;
@@ -153,40 +154,41 @@ static void pass_timing_frame_end(void) {  // (the frame's work is complete)
         NSData *data = [g_pt_buf resolveCounterRange:NSMakeRange(0, n * 2)];
         if (data.length >= n * 2 * sizeof(MTLCounterResultTimestamp)) {
             const MTLCounterResultTimestamp *r = (const MTLCounterResultTimestamp *)data.bytes;
+            uint64_t first = UINT64_MAX, last = 0;
             for (unsigned i = 0; i < n; i++) {
                 if (r[2 * i].timestamp == MTLCounterErrorValue || r[2 * i + 1].timestamp == MTLCounterErrorValue ||
                     r[2 * i + 1].timestamp < r[2 * i].timestamp) continue;
                 g_pt_sum[i].ticks += (double)(r[2 * i + 1].timestamp - r[2 * i].timestamp);
                 g_pt_sum[i].frames++;
+                if (r[2 * i].timestamp < first) first = r[2 * i].timestamp;
+                if (r[2 * i + 1].timestamp > last) last = r[2 * i + 1].timestamp;
             }
+            if (last > first) { g_pt_span_sum += (double)(last - first); g_pt_span_n++; }
         }
         if (n > g_pt_maxn) g_pt_maxn = n;
     }
 }
 
 static void pass_timing_report(void) {
-    uint64_t cpu1 = 0, gpu1 = 0;
-    [dev sampleTimestamps:&cpu1 gpuTimestamp:&gpu1];
-    mach_timebase_info_data_t tb;
-    mach_timebase_info(&tb);
-    double ns_per_tick = gpu1 > g_pt_gpu0 ? (double)(cpu1 - g_pt_cpu0) * tb.numer / tb.denom / (double)(gpu1 - g_pt_gpu0) : 1.0;
+    // The timestamp unit is not documented to match the CPU clock (a CPU/GPU pair gave nonsense: tiny passes at hundreds of
+    // ms), so the spans are reported as a share of the frame's first-start to last-end span, and in ms by taking that frame
+    // span as the GPU busy time of the F3 stats (right when the frame is GPU bound, as at 1.5x).
+    extern double g_stat_gpu_ms;
+    double frame_span = g_pt_span_n ? g_pt_span_sum / g_pt_span_n : 0;
+    double ms_per_tick = frame_span > 0 && g_stat_gpu_ms > 0 ? g_stat_gpu_ms / frame_span : 0;
     unsigned order[PT_MAX], k = 0;
-    double total = 0;
-    for (unsigned i = 0; i < g_pt_maxn; i++) {
-        if (!g_pt_sum[i].frames) continue;
-        order[k++] = i;
-        total += g_pt_sum[i].ticks / g_pt_sum[i].frames * ns_per_tick / 1e6;
-    }
+    for (unsigned i = 0; i < g_pt_maxn; i++) if (g_pt_sum[i].frames) order[k++] = i;
     for (unsigned a = 1; a < k; a++)
         for (unsigned b = a; b > 0 && g_pt_sum[order[b]].ticks / g_pt_sum[order[b]].frames > g_pt_sum[order[b - 1]].ticks / g_pt_sum[order[b - 1]].frames; b--) {
             unsigned t = order[b]; order[b] = order[b - 1]; order[b - 1] = t;
         }
-    LOG("[gpupass] %u passes a frame, mean span of each over %u frames (ms, spans overlap: their sum %.2f is not the frame's GPU time); slowest:\n", g_pt_maxn, g_pt_total, total);
+    LOG("[gpupass] %u passes a frame, over %u frames: first start to last end %.0f ticks (~%.2f ms GPU busy per the F3 stats); mean span of each pass as a share of it (they overlap, so shares add to more than 100%%); slowest:\n",
+        g_pt_maxn, g_pt_total, frame_span, g_stat_gpu_ms);
     for (unsigned j = 0; j < k && j < 25; j++) {
         unsigned i = order[j];
-        double ms = g_pt_sum[i].ticks / g_pt_sum[i].frames * ns_per_tick / 1e6;
-        LOG("[gpupass] #%u %.3f ms  %dx%d colors=%d depth=%d draws=%llu\n", i, ms, g_pt_meta[i].w, g_pt_meta[i].h, g_pt_meta[i].colors,
-            g_pt_meta[i].depth, (unsigned long long)g_pt_meta[i].draws);
+        double ticks = g_pt_sum[i].ticks / g_pt_sum[i].frames;
+        LOG("[gpupass] #%u %5.1f%%  ~%.3f ms  %dx%d colors=%d depth=%d draws=%llu\n", i, frame_span > 0 ? 100 * ticks / frame_span : 0,
+            ticks * ms_per_tick, g_pt_meta[i].w, g_pt_meta[i].h, g_pt_meta[i].colors, g_pt_meta[i].depth, (unsigned long long)g_pt_meta[i].draws);
     }
 }
 
