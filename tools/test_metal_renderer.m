@@ -1769,6 +1769,9 @@ static void structured_brx(void) {
         0x010000000007f015ull | ((g_gwin_base >> 32) << 20),
         (0x5cc0ull << 48) | (255ull << 39) | (10ull << 20) | (7ull << 16) | (20ull << 8) | 20,
         0xeed8000000000000ull | (4ull << 48) | (1ull << 45) | (7ull << 16) | (20ull << 8) | 8,
+        // These flow ops never execute, including BRX with no bounded-table producer.
+        0xe2400000000f000full, 0xe2500000000fff0full, 0xf0f80000000f000full,
+        0xe3400000000f000full, 0xe3000000000f000full, 0xe3500000000f000full,
     };
     compute_fixture(code, &program, ops, sizeof ops / sizeof *ops);
     program.stages[5].const_offset = 512; program.stages[5].const_size = 16;
@@ -1783,7 +1786,7 @@ static void structured_brx(void) {
     const uint32_t values[] = {11, 21, 30, 40};
     for (unsigned i = 0; i < 32; i++) CHECK(out[i] == values[MIN(i ^ 1, 3u)], "bounded BRX and nested SYNC/BRK reconverge before SHFL");
     const char *enabled = getenv("LARECOMP_STRUCTURED_FLOW");
-    CHECK(compute_program(&program)->si->structured_flow == (enabled && atoi(enabled)), "the bounded forward switch uses the requested structured path");
+    CHECK(compute_program(&program)->si->structured_flow == !(enabled && !atoi(enabled)), "the bounded forward switch uses the structured path unless it is turned off");
     ShaderInfo *fallback = maxwell_translate_with_constants((uint8_t *)code, 512, STAGE_COMPUTE, NULL, (uint8_t *)table, 4);
     CHECK(fallback->msl && !fallback->structured_flow, "an incomplete constant table retains the dispatcher");
     maxwell_free(fallback);
@@ -1791,6 +1794,15 @@ static void structured_brx(void) {
     fallback = maxwell_translate_with_constants((uint8_t *)code, 512, STAGE_COMPUTE, NULL, (uint8_t *)table, 16);
     CHECK(fallback->msl && !fallback->structured_flow, "a backward computed edge retains the dispatcher");
     maxwell_free(fallback); table[0] = saved;
+    uint64_t saved_op = code[FPC(26) / 8];
+    const uint64_t unpredicated[] = {0xe2b00000000f0000ull, 0xe2700000000f0000ull};
+    for (unsigned i = 0; i < 2; i++) {
+        code[FPC(26) / 8] = unpredicated[i];
+        fallback = maxwell_translate_with_constants((uint8_t *)code, 512, STAGE_COMPUTE, NULL, (uint8_t *)table, 16);
+        CHECK(!fallback->structured_flow, "PCNT/PRET remain unsupported regardless of their unused predicate bits");
+        maxwell_free(fallback);
+    }
+    code[FPC(26) / 8] = saved_op;
 #undef FPC
 }
 
