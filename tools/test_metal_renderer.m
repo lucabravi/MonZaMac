@@ -472,7 +472,7 @@ static void view_chain_cleanup(void) {
 }
 
 static void bind_targets(NvnTexture *color, NvnTexture *depth, NvnTexture *second) {
-    end_pass();
+    end_pass("attachment");
     memset(&st.rt, 0, sizeof st.rt);
     st.rt.ncolor = second ? 2 : color ? 1 : 0;
     st.rt.color[0] = color; st.rt.color[1] = second; st.rt.depth = depth; st.rt_dirty = true;
@@ -521,6 +521,106 @@ static void prepare_draw(void) {
 static void fullscreen_draw(uint32_t instances) {
     CmdRec r = {.op = CMD_DRAW_ARRAYS, .size = sizeof(CmdRec), .x = {4, 0, 3, 0, instances}};
     draw(&r, false);
+}
+
+static void gpu_profile_boundaries(void) {
+    NvnTexture first = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    NvnTexture second = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    CHECK(!g_profile_frames && !g_capture_pending && !g_capture_active, "profiling is off by default");
+    CHECK(!gpu_profile_request(0), "zero frames cannot arm a profile");
+    mkdir("build", 0755);
+    FILE *command = fopen("build/dbgcmd", "w");
+    CHECK(command != NULL, "live profiler command file");
+    fputs("gpuprofile 2\n", command); fclose(command);
+    for (unsigned i = 0; i < 16; i++) debug_live_controls();
+    CHECK(g_profile_pending_frames == 2 && access("build/dbgcmd", F_OK), "live command arms and consumes a profile request");
+    renderer_profile_pass_end("attachment");
+    CHECK(!g_profile_frames, "a request must not include the partial current frame");
+    renderer_debug_frame_boundary(100);
+    CHECK(g_profile_frames == 2, "profiling starts at the next frame boundary");
+    CHECK(!gpu_profile_request(1), "an in-progress profile cannot be replaced");
+    bind_targets(&first, NULL, NULL); prepare_draw(); fullscreen_draw(1);
+    bind_targets(&second, NULL, NULL); prepare_draw(); fullscreen_draw(1);
+    renderer_submit_reason("guest-submit");
+    renderer_submit_reason("guest-submit");  // no pending command buffer
+    CHECK(g_profile.pass_end[gpu_profile_reason("attachment")] == 1, "only an actual attachment break is counted");
+    CHECK(g_profile.pass_end[gpu_profile_reason("guest-submit")] == 1, "submission closes the second pass");
+    CHECK(g_profile.cb_end[gpu_profile_reason("guest-submit")] == 1, "empty submissions are not counted");
+    CHECK(g_profile.draws == 2, "count the encoded guest draws");
+    renderer_debug_frame_boundary(101);
+    CHECK(g_profile_frames == 1 && !g_profile.draws, "each completed frame has separate counters");
+    bind_targets(&second, NULL, NULL); prepare_draw(); fullscreen_draw(1);
+    TexRefRec source = {.tex = (uint64_t)&second};
+    copy_texture_to_buffer(&source, g_gwin_base + 1024);
+    CHECK(g_profile.pass_end[gpu_profile_reason("readback")] == 1, "CPU texture read closes the render pass");
+    CHECK(g_profile.cb_end[gpu_profile_reason("cpu-read")] == 1, "CPU read records its actual flush cause");
+    renderer_debug_frame_boundary(102);
+    CHECK(!g_profile_frames, "profiling ends after exactly the requested frames");
+    renderer_profile_pass_end("attachment");
+    CHECK(!g_profile.pass_end[gpu_profile_reason("attachment")], "disabled profiling stops counting");
+    id<MTLBuffer> pixels = read_texture(renderer_texture(&second, nil, true), 0, 0, 4);
+    for (unsigned y = 0; y < 4; y++) for (unsigned x = 0; x < 4; x++) {
+        const uint8_t *p = (const uint8_t *)pixels.contents + y * 256 + x * 4;
+        CHECK(p[0] == 0 && p[1] == 255 && p[2] == 0 && p[3] == 255, "profiling preserves rendered pixels");
+    }
+    CHECK(gpu_profile_request(1), "a later profile can be armed");
+    renderer_reset();
+    renderer_debug_frame_boundary(103);
+    CHECK(!g_profile_frames && !g_profile_pending_frames, "reboot cancels a pending profile");
+    destroy_texture(&first); destroy_texture(&second);
+}
+
+static void gpu_capture_boundaries(void) {
+    CHECK(!g_capture_active && !g_capture_pending, "capture starts disabled");
+    CHECK(gpu_capture_request(), "arm a capture");
+    CHECK(!gpu_capture_request(), "a second capture request cannot replace the first");
+    CHECK(!g_capture_active, "requesting mid-frame does not start the capture");
+    renderer_debug_frame_boundary(200);
+    CHECK(!g_capture_pending, "the boundary consumes the capture request even on failure");
+    const char *capture_enabled = getenv("MTL_CAPTURE_ENABLED");
+    if (!capture_enabled || !atoi(capture_enabled)) {
+        CHECK(!g_capture_active, "capture fails safely without launch-time Metal capture support");
+        CHECK(access("build/gputrace", F_OK) != 0, "unsupported capture creates no output directory");
+        renderer_reset();
+        return;
+    }
+    CHECK(g_capture_active && [MTLCaptureManager sharedCaptureManager].isCapturing,
+          "capture is active for the next complete frame");
+    NSURL *first_path = g_capture_url;
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    bind_targets(&color, NULL, NULL); prepare_draw(); fullscreen_draw(1); renderer_submit();
+    renderer_debug_frame_boundary(201);
+    CHECK(!g_capture_active && ![MTLCaptureManager sharedCaptureManager].isCapturing, "capture stops after one frame");
+    CHECK([[NSFileManager defaultManager] fileExistsAtPath:first_path.path], "one-frame GPU trace was written");
+    CHECK(gpu_capture_request(), "a later capture can be armed");
+    renderer_debug_frame_boundary(202);
+    CHECK(![first_path isEqual:g_capture_url], "captures never overwrite an existing file");
+    renderer_reset();
+    CHECK(!g_capture_active && !g_capture_pending && ![MTLCaptureManager sharedCaptureManager].isCapturing,
+          "reset stops only the capture owned by the profiler");
+
+    NSFileManager *files = [NSFileManager defaultManager];
+    CHECK([files moveItemAtPath:@"build/gputrace" toPath:@"build/saved-traces" error:nil], "temporarily block output directory");
+    FILE *blocker = fopen("build/gputrace", "w"); CHECK(blocker != NULL, "capture directory failure fixture"); fclose(blocker);
+    CHECK(gpu_capture_request(), "arm capture with an invalid output directory");
+    renderer_debug_frame_boundary(204);
+    CHECK(!g_capture_active && !g_capture_pending, "directory failure leaves no capture in flight");
+    remove("build/gputrace");
+    CHECK([files moveItemAtPath:@"build/saved-traces" toPath:@"build/gputrace" error:nil], "restore fixture traces");
+    renderer_reset();
+
+    MTLCaptureManager *manager = [MTLCaptureManager sharedCaptureManager];
+    MTLCaptureDescriptor *external = [MTLCaptureDescriptor new];
+    external.captureObject = dev; external.destination = MTLCaptureDestinationGPUTraceDocument;
+    external.outputURL = [NSURL fileURLWithPath:@"build/gputrace/external.gputrace"];
+    CHECK([manager startCaptureWithDescriptor:external error:nil], "external capture fixture starts");
+    gpu_capture_drain();
+    CHECK(gpu_capture_request(), "request while another tool owns the capture");
+    renderer_debug_frame_boundary(205);
+    renderer_reset();
+    CHECK(manager.isCapturing && !g_capture_active, "request and reset must leave another tool's capture untouched");
+    [manager stopCapture];
+    destroy_texture(&color);
 }
 
 static void expect_rgba_slice(NvnTexture *t, unsigned slice, uint8_t red, uint8_t green, uint8_t blue) {
@@ -936,7 +1036,7 @@ static void gpu_indirect_instances(bool indexed) {
         args[0] = 3; args[1] = !visible; args[2] = args[3] = args[4] = 0;
         uint32_t count = (uint32_t)visible;
         id<MTLBuffer> update = [dev newBufferWithBytes:&count length:sizeof count options:MTLResourceStorageModeShared];
-        end_pass();
+        end_pass("other");
         id<MTLBlitCommandEncoder> bl = [cb() blitCommandEncoder];
         [bl copyFromBuffer:update sourceOffset:0 toBuffer:g_guest_buffer destinationOffset:2052 size:4];
         [bl endEncoding];
@@ -1336,7 +1436,7 @@ static void feedback_mip_chain(bool depth) {
             unsigned lod = level - 1;
             [enc setFragmentBytes:&lod length:sizeof lod atIndex:0];
             [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
-            end_pass(); snapshots_invalidate(&texture);
+            end_pass("other"); snapshots_invalidate(&texture);
         }
         for (unsigned level = 1; level < 4; level++) {
             id<MTLBuffer> out = read_texture(renderer_texture(&texture, nil, true), 0, level, 4);
@@ -1495,7 +1595,7 @@ static void shadow_fallback(void) {
         }
         [init commit];
         for (unsigned input = 0; input < 3; input++) for (unsigned face = 0; face < cases[i].faces; face++) {
-            end_pass(); (void)cb(); // fallback initialization must precede this already-created, uncommitted buffer
+            end_pass("other"); (void)cb(); // fallback initialization must precede this already-created, uncommitted buffer
             id<MTLTexture> texture = shadow_slot_texture(input == 0 ? nil : input == 1 ? color : valid, &shape);
             id<MTLBuffer> result = [dev newBufferWithLength:4 options:MTLResourceStorageModeShared];
             *(float *)result.contents = -1;
@@ -1894,6 +1994,8 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"largest-textures", "diagnostics", metal_test_texture_dump},
     {"gpu-interval-union", "gpu-time", gpu_interval_union},
     {"gpu-timing-state", "gpu-time", gpu_timing_state_machine},
+    {"gpu-profile-boundaries", "profiling", gpu_profile_boundaries},
+    {"gpu-capture-boundaries", "profiling", gpu_capture_boundaries},
     {"smoke", "smoke", smoke},
     {"live-shader-pipeline", "live", live_shader_pipeline},
     {"break-reconvergence", "flow", break_reconvergence},
