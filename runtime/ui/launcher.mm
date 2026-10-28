@@ -623,13 +623,12 @@ extern "C" { int g_start_screen; int g_saves_first; }  // the start screen is up
 static bool g_play_pending;
 static bool g_play_focused;  // PLAY has the controller's selection (false: put it there again)
 static Uint64 g_fs_entered;  // SDL_GetTicks() when the window finished entering fullscreen
-static bool g_slot_done;  // the save picker has just chosen: PLAY goes on without asking again
 void saves_screen_open(void);  // ui/saves_ui.mm
 int saves_screen_draw(float scale, ImFont *body, ImFont *small_);
 void saves_home_footer(float *x, float *y, float *w, float *u);  // where the lines under the panel go
 int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready, bool show_setup, bool focus_first);
 void saves_new_game_begin(void);
-bool saves_choice_needed(void);
+bool saves_use_latest(void);
 bool saves_new_game_draw(float scale, ImFont *body, ImFont *small_);
 static float g_menu_gap = 0.35f;  // space under each item, in line heights
 
@@ -1218,8 +1217,7 @@ extern "C" void launcher_run(const char *root) {
                 int act = saves_home_draw(g_font_title, g_font_small, LOGO_TEXID, ready, !ready || busy, !g_play_focused);
                 g_play_focused = true;
                 bool pressed = act == 1;
-                if (pressed && !saves_choice_needed()) g_slot_done = true;  // (one save: no question)
-                if (act == 7) saves_screen_open(), page = SAVES;  // CONTINUE held down: the picker, whatever the number of saves
+                if (pressed) saves_use_latest();  // CONTINUE: the most recent save
                 if (act == 2) saves_new_game_begin();
                 if (act == 3) saves_screen_open(), page = SAVES;
                 if (act == 4) {
@@ -1230,17 +1228,9 @@ extern "C" void launcher_run(const char *root) {
                 }
                 if (act == 5) page = SETUP;
                 if (act == 6) exit(0);
-                if (saves_new_game_draw(s, g_font_menu, g_font_small)) g_slot_done = true, pressed = true;
+                if (saves_new_game_draw(s, g_font_menu, g_font_small)) pressed = true;  // (the new save is selected)
                 // first PLAY ever: the aspect ratio question, then how to reach our menu, then the game
                 if (g_play_pending && status.empty()) pressed = true, g_play_pending = false;
-                if (pressed && g_settings.save_ask && !g_slot_done) {  // which save first (ui/saves_ui.mm)
-                    pressed = false;
-                    saves_screen_open();
-                    page = SAVES;
-                } else if (pressed) {
-                    if (!g_slot_done) saves_select(g_settings.save_slot);  // (not asking: the one played last)
-                    g_slot_done = false;
-                }
                 if (pressed) {
                     g_settings.aspect_asked = true;  // (no question: the saved aspect ratio, authentic 16:9 until changed in Settings)
                     if (!g_settings.menu_tip_seen) ImGui::OpenPopup("##menutip");
@@ -1258,7 +1248,7 @@ extern "C" void launcher_run(const char *root) {
                 ImGui::PopFont();
                 if (pick) {
                     page = MAIN, g_play_focused = false;
-                    if (pick > 0) g_slot_done = true, g_play_pending = true;
+                    if (pick > 0) g_play_pending = true;  // (the card's save is selected)
                 }
             } else if (page == SETTINGS) {
                 // the in-game menu's tabs (runtime/ui/menu.mm), in a window like the in-game one; tabs that need a

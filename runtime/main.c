@@ -198,7 +198,7 @@ int main(int argc, char **argv) {
         if (f) { fseek(f, 0x40, SEEK_SET); if (fread(id, 1, 8, f) != 8) memset(id, 0, 8); fclose(f); }
         if (!memcmp(id, za_build[0], 8) || !memcmp(id, za_build[1], 8) || !memcmp(id, za_build[2], 8)) {
             skip_launcher = true;
-            g_saves_first = !explicit_skip && g_settings.save_ask;  // (the start screen opens on the save picker)
+            g_saves_first = !explicit_skip;  // (the start screen opens, with its CONTINUE: runtime/ui/saves_ui.mm)
 #ifdef _WIN32
             extern int rt_stderr_is_console(void);
             if (rt_stderr_is_console()) {
