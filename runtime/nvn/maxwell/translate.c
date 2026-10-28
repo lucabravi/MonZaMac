@@ -2286,6 +2286,155 @@ static bool has_flow_target(uint64_t w) {
            op == 0xe2a0000000000000ull || op == 0xe2b0000000000000ull;
 }
 
+enum { FLOW_LINEAR, FLOW_SSY, FLOW_PBK, FLOW_SYNC, FLOW_BRK, FLOW_BRA, FLOW_BRX, FLOW_EXIT };
+typedef struct {
+    unsigned kind, to, parent, ssy, pbk, first, njumps;
+    unsigned *jumps;
+    bool seen, entry, split;
+} ForwardFlow;
+
+static size_t previous_insn(size_t i) { return i > 1 ? i - 1 - ((i - 1) % 4 == 0) : 0; }
+
+static bool forward_edge(ForwardFlow *f, size_t end, size_t from, size_t to, unsigned ssy, unsigned pbk) {
+    if (to >= end) return to == end || to == end + 1;
+    if (to <= from || !(to % 4)) return false;
+    if (f[to].seen && (f[to].ssy != ssy || f[to].pbk != pbk)) return false;
+    f[to].seen = true; f[to].ssy = ssy; f[to].pbk = pbk;
+    return true;
+}
+
+// The compiler's bounded switch: unsigned MIN, SHL by 2, LDC.U32 c1, BRX.
+// All four instructions must be consecutive, with no incoming edge bypassing the bound.
+static bool forward_table(ForwardFlow *f, const uint64_t *code, size_t end, size_t i,
+                          const uint8_t *constants, size_t size) {
+    size_t l = previous_insn(i), s = previous_insn(l), m = previous_insn(s);
+    if (!m) return false;
+    uint64_t load = code[l], shift = code[s], limit = code[m], jump = code[i];
+    if ((load & 0xfff8000000000000ull) != 0xef90000000000000ull || bits(load, 36, 5) != 1 || bits(load, 48, 3) != 4 ||
+        (shift & 0xfef8000000000000ull) != 0x3848000000000000ull || bits(shift, 20, 19) != 2 || bits(shift, 56, 1) ||
+        (limit & 0xfef8000000000000ull) != 0x3820000000000000ull || bits(limit, 48, 1) || bits(limit, 39, 4) != PT || bits(limit, 56, 1) ||
+        bits(load, 16, 4) != PT || bits(shift, 16, 4) != PT || bits(limit, 16, 4) != PT ||
+        bits(load, 0, 8) == RZ || bits(shift, 0, 8) == RZ || bits(limit, 0, 8) == RZ ||
+        bits(jump, 8, 8) != bits(load, 0, 8) || bits(load, 8, 8) != bits(shift, 0, 8) ||
+        bits(shift, 8, 8) != bits(limit, 0, 8) || bits(jump, 5, 1)) return false;
+    unsigned count = (unsigned)bits(limit, 20, 19) + 1, offset = (unsigned)bits(load, 20, 16);
+    if (count > 64 || (offset & 3) || offset > size || count * 4 > size - offset) return false;
+    f[i].jumps = calloc(count, sizeof *f[i].jumps);
+    if (!f[i].jumps) return false;
+    f[i].first = (unsigned)m;
+    for (unsigned k = 0; k < count; k++) {
+        uint32_t value;
+        memcpy(&value, constants + offset + k * 4, 4);
+        uint32_t target = norm_target((uint32_t)(i * 8 + 8 + sbits(jump, 20, 24) + value));
+        if ((target & 7) || target / 8 <= i || target / 8 >= end) return false;
+        unsigned t = target / 8, j = 0;
+        while (j < f[i].njumps && f[i].jumps[j] != t) j++;
+        if (j == f[i].njumps) f[i].jumps[f[i].njumps++] = t;
+        f[t].entry = f[t].split = true;
+    }
+    return true;
+}
+
+// Run a forward CFG once in address order under native ifs. Incoming edge predicates merge before a
+// block executes, reconverging lanes without keeping registers live around a PC loop. Ambiguous token
+// stacks, loops and unbounded tables retain the dispatcher. Only compiler-owned c1 is specialized.
+static bool emit_forward_flow(Ctx *c, const uint64_t *code, size_t end,
+                              const uint8_t *constants, size_t constants_size, bool annotate) {
+    const char *enabled = getenv("LARECOMP_STRUCTURED_FLOW");
+    if (c->glsl || !enabled || !atoi(enabled) || !constants || !constants_size || end < 2) return false;
+    ForwardFlow *f = calloc(end + 2, sizeof *f);
+    if (!f) return false;
+    bool ok = false, has_brx = false;
+    for (size_t i = 1; i < end; i++) {
+        if (!(i % 4)) continue;
+        uint64_t w = code[i], op = w & 0xfff0000000000000ull;
+        if (op != 0xe290000000000000ull && op != 0xe2a0000000000000ull && bits(w, 16, 4) == 15) continue;
+        if (op == 0xe290000000000000ull) f[i].kind = FLOW_SSY;
+        else if (op == 0xe2a0000000000000ull) f[i].kind = FLOW_PBK;
+        else if (op == 0xe240000000000000ull) f[i].kind = FLOW_BRA;
+        else if (op == 0xe250000000000000ull) {
+            f[i].kind = FLOW_BRX; has_brx = true;
+            if (!forward_table(f, code, end, i, constants, constants_size)) goto done;
+        } else if ((w & 0xfff8000000000000ull) == 0xf0f8000000000000ull) f[i].kind = FLOW_SYNC;
+        else if (op == 0xe340000000000000ull) f[i].kind = FLOW_BRK;
+        else if (op == 0xe300000000000000ull) f[i].kind = FLOW_EXIT;
+        else if (op == 0xe2b0000000000000ull || op == 0xe350000000000000ull ||
+                 op == 0xe260000000000000ull || op == 0xe270000000000000ull || op == 0xe320000000000000ull) goto done;
+        if (f[i].kind == FLOW_SSY || f[i].kind == FLOW_PBK || f[i].kind == FLOW_BRA) {
+            uint32_t t = norm_target((int64_t)i * 8 + 8 + sbits(w, 20, 24));
+            if (bits(w, 5, 1) || (t & 7) || t / 8 <= i || t / 8 >= end) goto done;
+            f[i].to = t / 8; f[t / 8].entry = f[t / 8].split = true;
+        }
+        if (f[i].kind >= FLOW_SYNC) f[norm_target(i * 8 + 8) / 8].split = true;
+    }
+    if (!has_brx) goto done;
+    for (size_t i = 1; i < end; i++) if (f[i].kind == FLOW_BRX)
+        for (size_t j = f[i].first + 1; j <= i; j++) if (f[j].entry) goto done;
+    f[1].seen = f[1].split = true;
+    for (size_t i = 1; i < end; i++) {
+        if (!f[i].seen || !(i % 4)) continue;
+        unsigned ssy = f[i].ssy, pbk = f[i].pbk;
+        if (f[i].kind == FLOW_SSY) { f[i].parent = ssy; ssy = (unsigned)i; }
+        else if (f[i].kind == FLOW_PBK) { f[i].parent = pbk; pbk = (unsigned)i; }
+        else if (f[i].kind == FLOW_SYNC) {
+            if (!ssy) goto done;
+            f[i].to = f[ssy].to; ssy = f[ssy].parent;
+        } else if (f[i].kind == FLOW_BRK) {
+            if (!pbk) goto done;
+            f[i].to = f[pbk].to; pbk = f[pbk].parent;
+        }
+        if (f[i].kind == FLOW_SYNC || f[i].kind == FLOW_BRK || f[i].kind == FLOW_BRA) {
+            unsigned t = f[i].to;
+            if (!forward_edge(f, end, i, t, ssy, pbk)) goto done;
+            f[t].entry = f[t].split = true;
+        } else if (f[i].kind == FLOW_BRX) {
+            for (unsigned j = 0; j < f[i].njumps; j++)
+                if (!forward_edge(f, end, i, f[i].jumps[j], ssy, pbk)) goto done;
+        }
+        if (f[i].kind < FLOW_SYNC || bits(code[i], 16, 4) != PT) {
+            if (f[i].kind >= FLOW_SYNC) { ssy = f[i].ssy; pbk = f[i].pbk; }
+            if (!forward_edge(f, end, i, norm_target(i * 8 + 8) / 8, ssy, pbk)) goto done;
+        }
+    }
+    c->branchy = false;
+    sp(&c->body, "  bool flow_live = true;\n");
+    for (size_t i = 1; i < end; i++) if (f[i].seen && f[i].entry)
+        sp(&c->body, "  bool flow_%zu = false;\n", i);
+    bool open = false;
+    for (size_t i = 1; i < end && !c->fail; i++) {
+        if (!(i % 4) || !f[i].seen) continue;
+        if (f[i].split) {
+            if (open) sp(&c->body, "  }\n");
+            if (f[i].entry) sp(&c->body, "  flow_live = flow_live || flow_%zu;\n", i);
+            sp(&c->body, "  if (flow_live) {\n"); open = true;
+        }
+        uint64_t w = code[i]; unsigned pc = (unsigned)i * 8;
+        if (annotate) sp(&c->body, "    // pc %x: %016llx\n", pc, (unsigned long long)w);
+        if (f[i].kind == FLOW_LINEAR) emit_insn(c, w, pc);
+        else if (f[i].kind >= FLOW_SYNC) {
+            bool predicated = bits(w, 16, 4) != PT;
+            if (predicated) sp(&c->body, "    if (%s) {\n", P((int)bits(w, 16, 3), bits(w, 19, 1)));
+            if (f[i].kind == FLOW_BRX) {
+                sp(&c->body, "    { uint t = %uu + %s + 0x%08xu; if (((t >> 3) & 3u) == 0u) t += 8u;\n    switch (t) {\n",
+                   pc + 8, R((int)bits(w, 8, 8)), (uint32_t)sbits(w, 20, 24));
+                for (unsigned j = 0; j < f[i].njumps; j++)
+                    sp(&c->body, "    case %uu: flow_%u = true; break;\n", f[i].jumps[j] * 8, f[i].jumps[j]);
+                sp(&c->body, "    default: break;\n    } }\n");
+            } else if (f[i].kind != FLOW_EXIT) sp(&c->body, "    flow_%u = true;\n", f[i].to);
+            sp(&c->body, "    flow_live = false;\n");
+            if (predicated) sp(&c->body, "    }\n");
+        }
+        c->info->num_insts++;
+    }
+    if (open) sp(&c->body, "  }\n");
+    c->info->structured_flow = true;
+    ok = true;
+done:
+    for (size_t i = 0; i < end; i++) free(f[i].jumps);
+    free(f);
+    return ok;
+}
+
 // A per-invocation PC loop does not reconverge lanes at BRK: an early lane can
 // sample or shuffle while its neighbours are still executing the loop. Keep a
 // simple PBK region in its own structured loop, then resume with all lanes.
@@ -2655,7 +2804,8 @@ static ShaderInfo *glsl_finish(Ctx *c, bool any_branch, bool dbg) {
     return info;
 }
 
-ShaderInfo *maxwell_translate(const uint8_t *blob, size_t max_size, int stage, const ShaderKey *key) {
+ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_size, int stage, const ShaderKey *key,
+                                           const uint8_t *constants, size_t constants_size) {
     ShaderInfo *info = calloc(1, sizeof *info);
     info->stage = stage;
     Ctx *c = calloc(1, sizeof *c);
@@ -2734,9 +2884,11 @@ ShaderInfo *maxwell_translate(const uint8_t *blob, size_t max_size, int stage, c
     bool dbg = maxwell_dbg_code && blob == maxwell_dbg_code && stage == STAGE_FRAGMENT;
     static int annotate = -1;
     if (annotate < 0) annotate = getenv("LARECOMP_SAVE_MSL") != NULL;
+    bool forward = any_branch && !dbg && emit_forward_flow(c, (const uint64_t *)code, end, constants, constants_size, annotate);
+    if (forward) any_branch = false;
     c->branchy = any_branch;
     uint32_t region_end = 0;
-    for (size_t i = 0; i < end && !c->fail; i++) {
+    for (size_t i = 0; !forward && i < end && !c->fail; i++) {
         if (i % 4 == 0) continue;
         uint32_t pc = (uint32_t)(i * 8);
         if (region_end && pc == region_end) {
@@ -2980,6 +3132,10 @@ void maxwell_free(ShaderInfo *s) {
     if (!s) return;
     free(s->msl);
     free(s);
+}
+
+ShaderInfo *maxwell_translate(const uint8_t *code, size_t max_size, int stage, const ShaderKey *key) {
+    return maxwell_translate_with_constants(code, max_size, stage, key, NULL, 0);
 }
 
 void maxwell_disassemble(const uint8_t *code, size_t max_size, int stage, void *file) {

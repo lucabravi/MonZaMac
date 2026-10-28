@@ -1963,8 +1963,11 @@ static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
         dispatch_async(xq, ^{ compile_program(pr); });
         return pr;
     }
-    pr->fi = maxwell_translate((const uint8_t *)(uintptr_t)p->stages[1].code_addr, fmax, STAGE_FRAGMENT, fkey);
+    NvnShaderStage *fs = &p->stages[1];
+    pr->fi = maxwell_translate_with_constants((const uint8_t *)(uintptr_t)fs->code_addr, fmax, STAGE_FRAGMENT, fkey,
+                                             (const uint8_t *)(uintptr_t)(fs->code_addr + fs->const_offset), fs->const_offset ? fs->const_size : 0);
     if (!pr->fi->msl) { LOG("[shader] FS translate failed (%llx): %s\n", p->stages[1].code_addr, pr->fi->error); pr->failed = true; return nil; }
+    if (pr->fi->structured_flow) LOG("[shader] structured FS %llx: %u instructions\n", fs->code_addr, pr->fi->num_insts);
     if (getenv("LARECOMP_SAVE_MSL")) {
         mkdir("build/msl", 0755);
         char path[256];
@@ -2747,7 +2750,9 @@ static CsProg *compute_program(NvnProgram *p) {
     backend_gwin_pick();
     maxwell_gmem_base = g_gwin_base;
     maxwell_gmem_size = g_gwin_max;
-    cp->si = maxwell_translate((const uint8_t *)(uintptr_t)ss->code_addr, ss->const_offset ? ss->const_offset : 0x10000, STAGE_COMPUTE, &k);
+    cp->si = maxwell_translate_with_constants((const uint8_t *)(uintptr_t)ss->code_addr,
+        ss->const_offset ? ss->const_offset : 0x10000, STAGE_COMPUTE, &k,
+        (const uint8_t *)(uintptr_t)(ss->code_addr + ss->const_offset), ss->const_offset ? ss->const_size : 0);
     if (!cp->si->msl) { LOG("[compute] translate failed: %s (code %llx)\n", cp->si->error, ss->code_addr); cp->failed = true; return NULL; }
     for (int i = 0; i < 3; i++) {
         cp->local[i] = ss->control ? *(const uint32_t *)(ss->control + 0x748 + 4 * i) : 1;
