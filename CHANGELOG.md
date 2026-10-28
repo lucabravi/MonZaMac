@@ -5,6 +5,8 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+- **Compressed render targets:** only textures a shader writes as an image get shader-write usage now, so Apple GPUs can
+  keep the others losslessly compressed (less GPU bandwidth; `LARECOMP_ALL_SHADER_WRITE=1` goes back).
 - **Fewer render passes after GPU skinning (on by default):** the pass used to end after each transform-feedback stage;
   it now stays open with a Metal buffer barrier (about 1 ms less GPU time a frame in the tested scenes: 38 to 42 fps at
   1.5x in one test). Developer tab "Keep passes open after skinning" turns it off at once;
