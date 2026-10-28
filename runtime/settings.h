@@ -34,7 +34,7 @@ typedef struct {
     bool fps60_steady;   // Pokémon Z-A, with fps60: the world steps by the real frame time, so it keeps its speed under 60 fps (hle/framepace.c)
     bool fps60;  // Pokémon Z-A: its frame clock at 1/60 s per frame (runtime/hle/framepace.c)
     bool developer;      // the Developer tab of the menu is shown (ini "developer = 1", LARECOMP_DEVELOPER, Cmd+Shift+D)
-    bool dev_gpu_trace;  // Developer: the GPU timing trace in the log (as LARECOMP_GPU_TIMING_TRACE)
+    bool dev_gpu_trace;  // Developer: the GPU time per present window in the log (LARECOMP_GPU_TIMING_TRACE adds a line per command buffer)
     bool dev_frame_stats;  // Developer: CPU submit time and GPU busy time per frame on the F3 overlay
     bool gpu_overlap;    // on by default (Developer tab): the game's frame fence is waited one frame late, so its CPU work on frame N+1 overlaps the GPU's frame N (runtime/nvn/renderer.m)
     bool wait_shaders;   // compile a new shader or pipeline when the game first needs it and wait for it (else its draws are skipped meanwhile)
