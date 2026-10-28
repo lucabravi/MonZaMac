@@ -1721,12 +1721,12 @@ static id<MTLSamplerState> sampler_for(NvnSamplerDesc *d) {
     if (@available(macOS 26.0, *)) {
         if (d->reduction == 1) sd.reductionMode = MTLSamplerReductionModeMinimum;
         else if (d->reduction == 2) sd.reductionMode = MTLSamplerReductionModeMaximum;
-        sd.lodBias = d->lod_bias;
+        sd.lodBias = d->reduction ? 0 : d->lod_bias;  // (the Hi-Z min / max sampler keeps the level the culling asks for)
     }
 #endif
     sd.lodMinClamp = d->lod_min;
     sd.lodMaxClamp = d->lod_max > 1000 ? FLT_MAX : d->lod_max;
-    if (d->max_aniso > 1) sd.maxAnisotropy = (NSUInteger)fminf(d->max_aniso, 16);
+    if (d->max_aniso > 1 && !d->reduction) sd.maxAnisotropy = (NSUInteger)fminf(d->max_aniso, 16);
     if (d->lod_bias != 0 && getenv("LARECOMP_LOG_BIAS"))
         LOG("[sampler] lod bias %g (min filter %u, aniso %g)\n", d->lod_bias, mf, d->max_aniso);
     static float lodmin = -1;  // LARECOMP_LOD_MIN=<n>: skip the n sharpest mips everywhere (aliasing experiments)
