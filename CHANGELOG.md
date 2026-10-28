@@ -5,6 +5,11 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+- **Textures a shader writes as an image stay at the game's size (Metal):** SUST / SURED store at the game's pixel
+  coordinates, so such a texture can't be rendered at a scaled resolution (its data ended up in a corner of the larger
+  allocation). A suspect for objects popping in and out at any internal resolution but 1x; needs a check on a Mac
+  (`[scale] image-bound texture back to the guest size` in the log names them; `LARECOMP_IMAGE_SCALE=1` restores the
+  old behaviour for a comparison).
 - **Smoother higher internal resolutions (Metal):** fix the jagged character and scenery edges introduced at
   1.5x and higher by integer screen-space texture reads losing their subpixel positions.
 - **CPU/GPU overlap (on by default; Developer > Experimental to turn it off):** the game's frame fence is waited
