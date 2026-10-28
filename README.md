@@ -1,10 +1,39 @@
-# MonZaMac
+<p align="center">
+  <img src="docs/icon/icon_1024.png" alt="MonZaMac icon" width="168">
+</p>
 
-*Pokémon Legends: Z-A on macOS (Apple Silicon, Metal).*
+<h1 align="center">MonZaMac</h1>
+
+<p align="center">
+  <strong>Pokémon Legends: Z-A, natively on your Mac</strong><br>
+  Apple Silicon &middot; Metal &middot; no emulator
+</p>
+
+<p align="center">
+  <a href="https://github.com/lucabravi/MonZaMac/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/lucabravi/MonZaMac?display_name=tag&color=d9993a"></a>
+  <img alt="Platform: macOS 15+, Apple Silicon" src="https://img.shields.io/badge/macOS-15%2B%20%C2%B7%20Apple%20Silicon-3a2377">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-c2528f"></a>
+</p>
+
+<p align="center">
+  <a href="#download-and-play">Download</a> &middot;
+  <a href="#status">Status</a> &middot;
+  <a href="#building-from-source">Build</a> &middot;
+  <a href="CHANGELOG.md">Changelog</a> &middot;
+  <a href="https://github.com/lucabravi/MonZaMac/issues">Issues</a>
+</p>
+
+---
 
 A native macOS port of **Pokémon Legends: Z-A** (Nintendo Switch, v2.0.2 + the Mega Dimension DLC) built by **static
 recompilation**: the game's ARM64 code is translated ahead of time into C and compiled for the Mac, and the Switch's
 operating system and GPU (NVN) are reimplemented in the runtime. No emulator runs at play time.
+
+- A Metal renderer with internal resolutions from 25% up to 4x (1080p), SMAA and MetalFX upscaling, and a dynamic
+  resolution that follows your GPU
+- 30 fps, 60 fps, or 60 fps with steady speed; docked or handheld mode
+- Keyboard and controller, the game's own menus and your saves
+- A guided setup: point the app at your own game files and it prepares everything on your Mac
 
 > **You need your own copy of the game.** No game files, code, assets or fonts are included in this repository.
 
