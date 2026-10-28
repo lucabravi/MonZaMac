@@ -5,6 +5,9 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+- **"Sharper textures" no longer brings the popping back (Metal):** its LOD bias (-1) and anisotropy applied to the
+  min / max sampler the game's culling reads its depth pyramid with, so it looked a level finer than the game asks for
+  and culled visible objects. Reduction samplers now ignore both.
 - **No more objects popping in and out above 1x (Metal):** the game's culling tests objects against the scene depth's
   mip chain with a min / max sampler; at a higher internal resolution those mips cover less of the screen than the game
   expects, so visible objects were culled. Those reads now go up a level by the scale (`LARECOMP_HIZ_LOD=0`: off).
