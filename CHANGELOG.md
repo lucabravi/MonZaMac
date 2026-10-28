@@ -5,6 +5,7 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+- `gpupass N` (in `build/dbgcmd`): GPU time of each render pass over N frames, no Xcode needed (developer tool).
 - **Clears as load actions:** a clear the game issues at the start of a pass now clears the attachment as the pass
   begins instead of loading it and drawing over it (less GPU bandwidth; `LARECOMP_CLEAR_DRAWS=1` goes back).
 - **Fewer render passes after GPU skinning (on by default):** the pass used to end after each transform-feedback stage;

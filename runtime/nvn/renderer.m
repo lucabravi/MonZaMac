@@ -92,7 +92,123 @@ static void gpu_profile_reset(void) {
     pthread_mutex_unlock(&gpu_timing_lock);
 }
 
+// ---- per-pass GPU time ("gpupass N" in build/dbgcmd): the render passes of N frames get start / end timestamps (counter
+// sampling at stage boundaries, no Xcode). Each pass is keyed by its ordinal in the frame, which is stable from frame to
+// frame (the pass histogram of gpuprofile); the log lists the most expensive at the end with size, attachments and draws.
+// A pass's cost is the time from the previous pass's end to its own end (they finish in order; its own start-to-end span
+// includes waiting for earlier passes), so the costs add up to the frame's GPU span. Neighbouring passes can still overlap
+// a little, so a cost is approximate.
+#define PT_MAX 512
+static void renderer_flush_reason(const char *reason);
+static id<MTLCounterSampleBuffer> g_pt_buf;
+static unsigned g_pt_frames, g_pt_pending, g_pt_total, g_pt_n;
+static int g_pt_cur = -1;
+static uint64_t g_pt_draws;
+static struct { int w, h, colors; bool depth; uint64_t draws0, draws, fs; } g_pt_meta[PT_MAX];  // fs: the first draw's fragment program
+static struct { double ticks; unsigned frames; } g_pt_sum[PT_MAX];
+static unsigned g_pt_maxn;
+static double g_pt_span_sum;  // sum over frames of (last pass end - first pass start), in the counter's ticks
+static unsigned g_pt_span_n;
+
+static bool pass_timing_request(unsigned frames) {
+    if (!frames || frames > 120 || g_pt_frames || g_pt_pending) return false;
+    g_pt_pending = frames;
+    return true;
+}
+
+static void pass_timing_begin(uint64_t frame) {
+    if (@available(macOS 11.0, *)) {
+        if (!g_pt_buf) {
+            id<MTLCounterSet> set = nil;
+            for (id<MTLCounterSet> cs in dev.counterSets) if ([cs.name isEqualToString:MTLCommonCounterSetTimestamp]) set = cs;
+            if (!set || ![dev supportsCounterSampling:MTLCounterSamplingPointAtStageBoundary]) {
+                LOG("[gpupass] unavailable: no timestamp counter sampling at stage boundaries on this GPU\n");
+                return;
+            }
+            MTLCounterSampleBufferDescriptor *d = [MTLCounterSampleBufferDescriptor new];
+            d.counterSet = set;
+            d.storageMode = MTLStorageModeShared;
+            d.sampleCount = PT_MAX * 2;
+            NSError *err = nil;
+            g_pt_buf = [dev newCounterSampleBufferWithDescriptor:d error:&err];
+            if (!g_pt_buf) {
+                LOG("[gpupass] cannot create the sample buffer: %s\n", err.localizedDescription.UTF8String);
+                return;
+            }
+        }
+        memset(g_pt_sum, 0, sizeof g_pt_sum);
+        g_pt_span_sum = 0; g_pt_span_n = 0;
+        g_pt_total = g_pt_pending;
+        g_pt_frames = g_pt_pending;
+        g_pt_maxn = 0;
+        LOG("[gpupass] timing the passes of %u frames after %llu\n", g_pt_frames, (unsigned long long)frame);
+    }
+    g_pt_pending = 0;
+}
+
+static void pass_timing_frame_end(void) {  // (the frame's work is complete)
+    if (@available(macOS 11.0, *)) {
+        unsigned n = g_pt_n;
+        g_pt_n = 0;
+        g_pt_cur = -1;
+        if (!n) return;
+        NSData *data = [g_pt_buf resolveCounterRange:NSMakeRange(0, n * 2)];
+        if (data.length >= n * 2 * sizeof(MTLCounterResultTimestamp)) {
+            const MTLCounterResultTimestamp *r = (const MTLCounterResultTimestamp *)data.bytes;
+            // A pass's own span includes the time its fragment work waits for the earlier passes (a 7x4 pass showed 43% of the
+            // frame): the passes finish in order, so a pass costs what lies between the previous pass's end and its own end.
+            // The costs add up to the frame's first start to last end.
+            uint64_t first = UINT64_MAX, last = 0;
+            for (unsigned i = 0; i < n; i++) {
+                if (r[2 * i].timestamp == MTLCounterErrorValue || r[2 * i + 1].timestamp == MTLCounterErrorValue) continue;
+                if (r[2 * i].timestamp < first) first = r[2 * i].timestamp;
+            }
+            uint64_t prev = first;
+            for (unsigned i = 0; i < n; i++) {
+                uint64_t end = r[2 * i + 1].timestamp;
+                if (r[2 * i].timestamp == MTLCounterErrorValue || end == MTLCounterErrorValue) continue;
+                g_pt_sum[i].ticks += end > prev ? (double)(end - prev) : 0;
+                g_pt_sum[i].frames++;
+                if (end > prev) prev = end;
+                if (end > last) last = end;
+            }
+            if (last > first) { g_pt_span_sum += (double)(last - first); g_pt_span_n++; }
+        }
+        if (n > g_pt_maxn) g_pt_maxn = n;
+    }
+}
+
+static void pass_timing_report(void) {
+    // The timestamp unit is not documented to match the CPU clock (a CPU/GPU pair gave nonsense: tiny passes at hundreds of
+    // ms), so the spans are reported as a share of the frame's first-start to last-end span, and in ms by taking that frame
+    // span as the GPU busy time of the F3 stats (right when the frame is GPU bound, as at 1.5x).
+    extern double g_stat_gpu_ms;
+    double frame_span = g_pt_span_n ? g_pt_span_sum / g_pt_span_n : 0;
+    double ms_per_tick = frame_span > 0 && g_stat_gpu_ms > 0 ? g_stat_gpu_ms / frame_span : 0;
+    unsigned order[PT_MAX], k = 0;
+    for (unsigned i = 0; i < g_pt_maxn; i++) if (g_pt_sum[i].frames) order[k++] = i;
+    for (unsigned a = 1; a < k; a++)
+        for (unsigned b = a; b > 0 && g_pt_sum[order[b]].ticks / g_pt_sum[order[b]].frames > g_pt_sum[order[b - 1]].ticks / g_pt_sum[order[b - 1]].frames; b--) {
+            unsigned t = order[b]; order[b] = order[b - 1]; order[b - 1] = t;
+        }
+    LOG("[gpupass] %u passes a frame, over %u frames: first start to last end %.0f ticks (~%.2f ms GPU busy per the F3 stats); mean cost of each pass (the time between the previous pass's end and its own) as a share of it, adding up to 100%%; slowest:\n",
+        g_pt_maxn, g_pt_total, frame_span, g_stat_gpu_ms);
+    for (unsigned j = 0; j < k && j < 25; j++) {
+        unsigned i = order[j];
+        double ticks = g_pt_sum[i].ticks / g_pt_sum[i].frames;
+        LOG("[gpupass] #%u %5.1f%%  ~%.3f ms  %dx%d colors=%d depth=%d draws=%llu fs=%llx\n", i, frame_span > 0 ? 100 * ticks / frame_span : 0,
+            ticks * ms_per_tick, g_pt_meta[i].w, g_pt_meta[i].h, g_pt_meta[i].colors, g_pt_meta[i].depth, (unsigned long long)g_pt_meta[i].draws,
+            (unsigned long long)g_pt_meta[i].fs);
+    }
+}
+
 void renderer_debug_frame_boundary(uint64_t frame) {
+    if (g_pt_frames) {  // the frame's passes are done: wait for them, read their timestamps
+        renderer_flush_reason("debug-readback");
+        pass_timing_frame_end();
+        if (--g_pt_frames == 0) pass_timing_report();
+    }
+    if (g_pt_pending && !g_pt_frames) pass_timing_begin(frame);
     if (!g_capture_active && !g_capture_pending && !g_profile_frames && !g_profile_pending_frames) return;
     if (g_capture_active) {
         gpu_capture_drain();
@@ -570,6 +686,7 @@ static void end_pass(const char *reason) {
     if (!g_in_begin) flush_load_clears();  // (the deferred clears happen in a pass of their own, ended just below)
     if (enc) {
         [enc endEncoding];
+        if (g_pt_cur >= 0) { g_pt_meta[g_pt_cur].draws = g_pt_draws - g_pt_meta[g_pt_cur].draws0; g_pt_cur = -1; }
         renderer_profile_pass_end(reason);
         enc = nil;
         if (g_debug_frame && dbg_rt[0] && dbg_rt[0]->backend) {
@@ -1035,6 +1152,16 @@ static void begin_pass(void) {
     static int chunk = -1;
     if (chunk < 0) { const char *e = ENV("LARECOMP_CHUNK_PASSES"); chunk = e ? atoi(e) : 8; }
     if (chunk > 0 && cmdbuf && ++g_passes_in_cb >= chunk) renderer_submit_reason("chunk");
+    g_pt_cur = -1;
+    if (g_pt_frames && g_pt_buf && g_pt_n < PT_MAX) {
+        if (@available(macOS 11.0, *)) {
+            rp.sampleBufferAttachments[0].sampleBuffer = g_pt_buf;
+            rp.sampleBufferAttachments[0].startOfVertexSampleIndex = g_pt_n * 2;
+            rp.sampleBufferAttachments[0].endOfFragmentSampleIndex = g_pt_n * 2 + 1;
+            g_pt_meta[g_pt_n] = (typeof(g_pt_meta[0])){.w = w, .h = h, .colors = st.rt.ncolor, .depth = st.rt.depth != NULL, .draws0 = g_pt_draws};
+            g_pt_cur = (int)g_pt_n++;
+        }
+    }
     enc = [cb() renderCommandEncoderWithDescriptor:rp];
     if (renderer_profile_active()) enc.label = [NSString stringWithFormat:@"NVN pass %llu %dx%d colors=%d depth=%d", ++g_capture_pass, w, h, st.rt.ncolor, st.rt.depth != NULL];
     vp_sx = pass_sx; vp_sy = pass_sy; vp_ox = 0; vp_oy = 0;
@@ -2994,6 +3121,9 @@ static void debug_live_controls(void) {
         if (sscanf(line, "%31s %419[^\n]", cmd, arg) < 1) continue;
         if (!strcmp(cmd, "gpucapture")) {
             LOG("[dbgcmd] gpucapture %s\n", gpu_capture_request() ? "queued for the next complete frame" : "already pending or active");
+        } else if (!strcmp(cmd, "gpupass")) {
+            int n = arg[0] ? atoi(arg) : 30;
+            LOG("[dbgcmd] gpupass %s\n", n > 0 && pass_timing_request((unsigned)n) ? "queued" : "busy or invalid frame count (1..120)");
         } else if (!strcmp(cmd, "gpuprofile")) {
             int n = arg[0] ? atoi(arg) : 1;
             LOG("[dbgcmd] gpuprofile %s\n", n > 0 && gpu_profile_request((unsigned)n) ? "queued" : "busy or invalid frame count (1..120)");
@@ -3331,6 +3461,7 @@ static void draw(CmdRec *r, bool indexed) {
     for (int i = 0; i < st.rt.ncolor; i++)
         if (st.rt.color[i] && ((st.channel_mask >> (i * 4)) & 0xF)) snapshots_invalidate(st.rt.color[i]);
     begin_pass();
+    if (g_pt_cur >= 0 && !g_pt_meta[g_pt_cur].fs) g_pt_meta[g_pt_cur].fs = st.program->stages[1].code_addr;
 
     uint32_t used_streams;
     uint8_t stream_slots[16];
@@ -3748,6 +3879,7 @@ static void draw(CmdRec *r, bool indexed) {
     }
     }  // runs
     stat_draws++;
+    g_pt_draws++;
     if (g_profile_frames) g_profile.draws++;
     if (dbg_this) {
         static int nlog;
