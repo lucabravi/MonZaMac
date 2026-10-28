@@ -52,7 +52,6 @@ typedef struct {
     int prompts;         // PROMPTS_*: button glyphs (auto = follow the controller SDL reports): runtime/nvn/texpatch.c
     bool aspect_asked;   // the start screen's one-time "authentic 16:9 or unlocked?" question was answered
     bool menu_tip_seen;  // the start screen's one-time "how to open the menu" note was shown (first PLAY ever)
-    bool save_ask;       // PLAY asks which save to use (runtime/saves.h); off: the last one, straight in
     char save_slot[25];  // the save slot played last (its id; empty = the original `save/`)
 } Settings;
 
