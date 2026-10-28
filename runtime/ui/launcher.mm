@@ -87,7 +87,7 @@ static void save_png(id<MTLTexture> tex, const char *path) {
 static const uint8_t BUILD_ID[8] = {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a};  // Pokémon Legends: Z-A v2.0.2 main
 // The release tag this build is (also names the release files; Makefile / tools/bundle_macos.sh / make_dmg.sh read
 // it): v<major>.<minor>.<patch>, 0.x until 1.0.
-#define LARECOMP_VERSION "v0.1.0"
+#define LARECOMP_VERSION "v0.1.1"
 
 // ------------------------------------------------------------------ update check
 // The start screen asks GitHub for the project's releases once per launch (a background curl, which macOS and
@@ -104,13 +104,13 @@ static long long tag_rank(const std::string &t) {
     return -1;
 }
 
-// "0.1.0" (with_word: "Version 0.1.0")
+// "0.1.1" (with_word: "Version 0.1.1")
 static std::string tag_label(const std::string &t, bool with_word) {
     std::string v = t.size() > 1 && t[0] == 'v' ? t.substr(1) : t;
     return with_word ? "Version " + v : v;
 }
 
-// The build's version for the in-game menu ("0.1.0")
+// The build's version for the in-game menu ("0.1.1")
 extern "C" const char *rt_version_label(void) {
     static std::string v = tag_label(LARECOMP_VERSION, false);
     return v.c_str();

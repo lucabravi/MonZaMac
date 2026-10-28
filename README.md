@@ -97,7 +97,11 @@ report those cases as skipped.
 
 For a running development build, `trace 2` in `build/dbgcmd` logs draw and compute metadata for two presents
 without dumping textures. The window is capped at 120 presents; draw records include the frame and indirect-buffer offset.
-The offset describes GPU-backed indirect arguments; CPU-decoded indirect draws share the direct-draw sentinel.
+The offset describes GPU-backed indirect arguments; CPU-decoded indirect draws share the direct-draw sentinel. The same
+window also logs one `[cs-out]` line per compute dispatch (hashes of its storage and uniform buffers, its textures);
+`tools/cs_diff.py a.log b.log` compares two captures of the same still scene (for example at 1x and 1.5x) and lists the
+dispatches whose output differs, and with `LARECOMP_CS_DUMP=1` `tools/cs_dump_diff.py play.log build/csdump` shows which
+words changed. Each traced dispatch is waited for, so the game runs slowly while a window is open.
 
 ## Credits and license
 
