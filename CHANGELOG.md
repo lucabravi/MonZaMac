@@ -5,6 +5,9 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+- **Experimental structured shader flow:** `LARECOMP_STRUCTURED_FLOW=1` replaces proven forward BRX control flow
+  with native conditionals and bounded switches; disabled by default, with the existing dispatcher as fallback.
+
 - **New start screen, with save slots:** the logo and name on top, a card with the most recent save, and CONTINUE / NEW
   GAME / SAVES / SETTINGS / QUIT under it, as in the Pokémon games. CONTINUE starts the most recent save; NEW GAME asks
   for a name and starts a fresh one; SAVES lists them all to pick one, copy, rename or delete. Your existing save is the

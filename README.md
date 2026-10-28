@@ -148,6 +148,10 @@ Debug aids: `LARECOMP_*` environment variables (see `runtime/nvn/renderer.m`); `
 
 ## Renderer checks
 
+`LARECOMP_STRUCTURED_FLOW=1` enables experimental structured flow for shaders whose forward jump tables and
+reconvergence can be proven. It is off by default; unset it or use `=0` to retain the existing dispatcher.
+See [measurements and limitations](docs/performance-brx.md). The focused GPU case is `CASE=structured-brx`.
+
 On macOS, `MTL_DEBUG_LAYER=1 gmake B=build/za202 GEN=generated-202 test-metal-renderer` runs offscreen tests against
 the real Metal backend without loading game files. Use `CASE=views`, `clears`, `draws`, `streams`, `layers`, `aspects`, `samplers`
 or `types` to select a group. Native sampler reduction and LOD-bias cases require macOS 26 and SDK 26; older builds

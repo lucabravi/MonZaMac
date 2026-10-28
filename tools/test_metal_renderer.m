@@ -1741,6 +1741,59 @@ static void audit_shuffle(void) {
     CHECK(!bad,"shuffle register amounts and UP clamp must preserve the hardware value and validity predicate");
 }
 
+static void structured_brx(void) {
+    // A bounded c1 switch nested inside reconvergence, followed by a cross-lane read.
+    static uint64_t code[8320]; static NvnProgram program; static uint8_t control[0x754];
+#define FPC(n) ((unsigned)((n) / 3 * 4 + (n) % 3 + 1) * 8)
+    uint64_t ops[] = {
+        0xf0c8000000070000ull,
+        0xe290000000000000ull | ((uint64_t)(FPC(20) - FPC(1) - 8) << 20),
+        0xe2a0000000000000ull | ((uint64_t)(FPC(15) - FPC(2) - 8) << 20),
+        0x3820000000000000ull | (7ull << 39) | (3ull << 20) | (7ull << 16) | 2,
+        0x3848000000000000ull | (2ull << 20) | (7ull << 16) | (2ull << 8) | 2,
+        0xef90000000000000ull | (4ull << 48) | (1ull << 36) | (7ull << 16) | (2ull << 8) | 3,
+        0xe25000000007000full | (3ull << 8),
+        0x010000000007f005ull | (10ull << 20), 0xe34000000007000full,
+        0x010000000007f005ull | (20ull << 20), 0xe34000000007000full,
+        0x010000000007f005ull | (30ull << 20), 0xe34000000007000full,
+        0x010000000007f005ull | (40ull << 20), 0xe34000000007000full,
+        0x010000000007f006ull | (30ull << 20),
+        0x5b6d038000070507ull | (6ull << 20),
+        0xf0f800000000000full,
+        0x1c00000000170505ull,
+        0xf0f800000007000full,
+        0xef10000000000000ull | (3ull << 30) | (1ull << 29) | (1ull << 28) | (7171ull << 34) |
+            (1ull << 20) | (7ull << 16) | (5ull << 8) | 8,
+        (0x1full << 56) | (4ull << 20) | (7ull << 16) | 10,
+        0x010000000007f014ull | ((uint64_t)(uint32_t)(g_gwin_base + 512) << 20),
+        0x010000000007f015ull | ((g_gwin_base >> 32) << 20),
+        (0x5cc0ull << 48) | (255ull << 39) | (10ull << 20) | (7ull << 16) | (20ull << 8) | 20,
+        0xeed8000000000000ull | (4ull << 48) | (1ull << 45) | (7ull << 16) | (20ull << 8) | 8,
+    };
+    compute_fixture(code, &program, ops, sizeof ops / sizeof *ops);
+    program.stages[5].const_offset = 512; program.stages[5].const_size = 16;
+    uint32_t *table = (uint32_t *)((uint8_t *)code + 512);
+    for (unsigned i = 0; i < 4; i++) table[i] = FPC(7 + 2 * i) - FPC(6) - 8;
+    table[1] -= 8;  // a target on the scheduling word normalizes to the next instruction
+    *(uint32_t *)(control + 0x748) = 32;
+    program.stages[5].control = control; st.program = &program;
+    uint32_t *out = (uint32_t *)((uint8_t *)g_guest_buffer.contents + 512);
+    for (unsigned i = 0; i < 32; i++) out[i] = 0xdeadbeef;
+    dispatch_compute(1, 1, 1); check_gpu();
+    const uint32_t values[] = {11, 21, 30, 40};
+    for (unsigned i = 0; i < 32; i++) CHECK(out[i] == values[MIN(i ^ 1, 3u)], "bounded BRX and nested SYNC/BRK reconverge before SHFL");
+    const char *enabled = getenv("LARECOMP_STRUCTURED_FLOW");
+    CHECK(compute_program(&program)->si->structured_flow == (enabled && atoi(enabled)), "the bounded forward switch uses the requested structured path");
+    ShaderInfo *fallback = maxwell_translate_with_constants((uint8_t *)code, 512, STAGE_COMPUTE, NULL, (uint8_t *)table, 4);
+    CHECK(fallback->msl && !fallback->structured_flow, "an incomplete constant table retains the dispatcher");
+    maxwell_free(fallback);
+    uint32_t saved = table[0]; table[0] = FPC(0) - FPC(6) - 8;
+    fallback = maxwell_translate_with_constants((uint8_t *)code, 512, STAGE_COMPUTE, NULL, (uint8_t *)table, 16);
+    CHECK(fallback->msl && !fallback->structured_flow, "a backward computed edge retains the dispatcher");
+    maxwell_free(fallback); table[0] = saved;
+#undef FPC
+}
+
 static void break_reconvergence(void) {
     // Every lane leaves this PBK loop after a different number of iterations.
     // The following SHFL must see its neighbour's completed loop result.
@@ -2032,6 +2085,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"smoke", "smoke", smoke},
     {"live-shader-pipeline", "live", live_shader_pipeline},
     {"break-reconvergence", "flow", break_reconvergence},
+    {"structured-brx", "flow", structured_brx},
     {"compute-image-store", "images", compute_image_store},
     {"compute-image-feedback", "images", compute_image_feedback},
     {"compute-image-ownership", "images", compute_image_ownership},
