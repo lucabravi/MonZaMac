@@ -59,7 +59,8 @@ See the README. In short: `tools/build_nstool.sh`, then `tools/extract_game.sh b
 
 ## Pull requests
 
-- Branch from `main`, keep each pull request focused on one change, and describe what changed, why and how you tested it.
+- Branch from `develop` (the integration branch; `main` only gets tested releases) and open the pull request against
+  `develop`. Keep each pull request focused on one change, and describe what changed, why and how you tested it.
 
 ## License
 

@@ -444,7 +444,7 @@ static bool toggle(const char *label, bool *v) {
 }
 
 extern "C" void renderer_get_scale(float *sx, float *sy);
-extern "C" const char *rt_version_label(void);  // launcher.mm: "0.1.0"
+extern "C" const char *rt_version_label(void);  // launcher.mm: "0.1.1"
 extern "C" int input_pad_family(void);  // runtime/hle/input.c
 
 static void tab_display(void) {
