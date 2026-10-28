@@ -1263,7 +1263,7 @@ extern "C" void launcher_run(const char *root) {
             } else if (page == SETTINGS) {
                 // the in-game menu's tabs (runtime/ui/menu.mm), in a window like the in-game one; tabs that need a
                 // loaded game say so
-                float sc = ds.y / 1080.0f, w = fminf(ds.x * 0.9f, 1500 * sc), h = ds.y - 2 * 18 * sc;  // (all the height: a slim margin)
+                float sc = ds.y / 1080.0f, w = fminf(ds.x * 0.78f, 1260 * sc), h = ds.y * 0.84f;  // (a window, not all the screen)
                 ImGui::GetWindowDrawList()->AddRectFilled(ImGui::GetWindowPos(), ImVec2(ImGui::GetWindowPos().x + ds.x,
                                                           ImGui::GetWindowPos().y + ds.y), IM_COL32(0, 0, 0, 110));
                 ImVec2 wp = ImGui::GetWindowPos();
@@ -1274,6 +1274,7 @@ extern "C" void launcher_run(const char *root) {
                 ImGui::BeginChild("##settings", ImVec2(w, h), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NavFlattened);
                 ImGui::PopStyleVar(2);
                 ImGui::PopStyleColor();
+                ImGui::SetWindowFontScale(0.68f);  // (the start screen's fonts are sized for its big type)
                 ImGui::PushFont(g_font_small);
                 ImGui::PushFont(g_font_menu);
                 ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "Settings");

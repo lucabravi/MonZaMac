@@ -361,8 +361,8 @@ static void init(void) {
     char baloo[1024];
     if (const char *f = getenv("LARECOMP_MENU_FONT")) strlcpy(baloo, f, sizeof baloo);  // (test) another weight / face
     if (getenv("LARECOMP_MENU_FONT") || rt_resource("Baloo2-SemiBold.ttf", "third_party/fonts/Baloo2/Baloo2-SemiBold.ttf", baloo, sizeof baloo)) {
-        g_menu_font = io.Fonts->AddFontFromFileTTF(baloo, 39, &cfg);
-        g_menu_font_big = io.Fonts->AddFontFromFileTTF(baloo, 72, &cfg);
+        g_menu_font = io.Fonts->AddFontFromFileTTF(baloo, 33, &cfg);
+        g_menu_font_big = io.Fonts->AddFontFromFileTTF(baloo, 54, &cfg);
     }
     if (!g_font) g_font = io.Fonts->AddFontDefault();
     if (!g_font_big) g_font_big = g_font;
@@ -962,7 +962,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
     if (open) {
         // dim the game behind the menu
         ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(0, 0, 0, 110));
-        float w = fminf(io.DisplaySize.x * 0.9f, 1500 * scale), h = io.DisplaySize.y - 2 * 18 * scale;  // (all the height: a slim margin)
+        float w = fminf(io.DisplaySize.x * 0.78f, 1260 * scale), h = io.DisplaySize.y * 0.84f;  // (a window over the game, not all of it)
         ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
         ImGui::SetNextWindowSize(ImVec2(w, h), ImGuiCond_Always);
         ImGui::Begin("##menu", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
@@ -971,12 +971,18 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         ImGui::PushFont(g_menu_font);
         // header as on the start screen's Settings: the title, and a close X in the corner (B / Esc too). ("Title
         // screen" - rt_request_reboot(RT_REBOOT_TITLE) - is to find a new home; user 2026-10-11.)
+        ImVec2 title_at = ImGui::GetCursorScreenPos();
         ImGui::PushFont(g_font_big);
         ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "Settings");
+        float title_h = ImGui::GetTextLineHeight();
         ImGui::PopFont();
-        {   // the build's version beside the title (bug reports name it)
-            ImGui::SameLine(0, 18 * scale);
-            ImGui::TextColored(ImVec4(0.62f, 0.70f, 0.82f, 1), "MonZaMac %s", rt_version_label());
+        {   // the build's version (bug reports name it): small, right side of the header, before the close X
+            char ver[64];
+            snprintf(ver, sizeof ver, "MonZaMac %s", rt_version_label());
+            float vs = ImGui::GetFontSize() * 0.85f, vw = ImGui::GetFont()->CalcTextSizeA(vs, FLT_MAX, 0, ver).x;
+            float right = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - 44 * scale - 26 * scale;
+            ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), vs, ImVec2(right - vw, title_at.y + (title_h - vs) * 0.6f),
+                                                IM_COL32(150, 172, 210, 255), ver);
         }
         {
             float bx = 44 * scale;
