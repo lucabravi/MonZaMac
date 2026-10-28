@@ -168,6 +168,11 @@ bool menu_handle_event(const SDL_Event *e) {
             if (!typing) set_open(!g_open.load());  // (Esc with the menu open goes to ImGui below: it cancels a field)
             return true;
         }
+        if (!e->key.repeat && e->key.scancode == SDL_SCANCODE_D && (e->key.mod & SDL_KMOD_GUI) && (e->key.mod & SDL_KMOD_SHIFT)) {
+            g_settings.developer = !g_settings.developer;  // Cmd+Shift+D: the Developer tab
+            settings_save();
+            return true;
+        }
         if (!e->key.repeat && e->key.scancode == SDL_SCANCODE_F3) {
             g_stats = !g_stats.load();
             return true;
@@ -439,7 +444,7 @@ static bool toggle(const char *label, bool *v) {
 }
 
 extern "C" void renderer_get_scale(float *sx, float *sy);
-extern "C" const char *rt_version_label(void);  // launcher.mm: "0.1.0"
+extern "C" const char *rt_version_label(void);  // launcher.mm: "0.1.1"
 extern "C" int input_pad_family(void);  // runtime/hle/input.c
 
 static void tab_display(void) {
@@ -528,6 +533,10 @@ static void tab_display(void) {
     opt_choice("Anti-aliasing", &g_settings.antialias, aa, 2, AA_SMAA,
                "Smooths jagged edges of the game image before it is scaled to the window. SMAA: finds the edges and "
                "blends only along them, so textures stay sharp. Most useful at a lower internal resolution.");
+    opt_toggle("Wait for shaders", &g_settings.wait_shaders, false,
+               "A shader or pipeline the game needs for the first time is compiled on the spot, and the game waits: a short "
+               "stutter, but nothing is missing from the picture. Off: it compiles in the background and the objects that "
+               "need it are left out of the picture until it is ready (the pipelines saved from earlier runs are quick).");
     {   // Pokémon Z-A's own effects (runtime/hle/za_mods.c): the same patch build as the frame mode
         extern bool g_za_frame_hook;
         if (g_za_frame_hook) {
@@ -601,6 +610,31 @@ static void tab_quit(float scale, bool in_game) {
         }
         if (opt_action("Cancel", "", "Stays where you are.")) ask = 0;
     }
+    opt_end();
+}
+
+// Developer: switches for diagnostics, shown with "developer = 1" in the ini (or LARECOMP_DEVELOPER=1, or Cmd+Shift+D).
+// Each applies at once; LARECOMP_* variables still work and win where a feature has one.
+static void tab_developer(void) {
+    opt_begin("##developer", ImGui::GetFontSize() / 34);
+    opt_section("Diagnostics");
+    opt_toggle("Frame times in F3", &g_settings.dev_frame_stats, false,
+               "Adds to the F3 overlay the time the CPU spends translating and submitting a frame's commands (the game's "
+               "thread) and the time the GPU is busy per frame (smoothed). If the CPU number is close to the frame time, "
+               "the CPU is the limit; if the GPU number is, the GPU is.");
+    opt_toggle("GPU timing log", &g_settings.dev_gpu_trace, false,
+               "Writes the GPU time of each frame's present window to the log, two lines per frame. For measuring. "
+               "LARECOMP_GPU_TIMING_TRACE=1 also writes a line per command buffer (about 140 a frame).");
+    opt_section("Experimental");
+    opt_toggle("CPU/GPU overlap", &g_settings.gpu_overlap, true,
+               "The game waits for each frame's GPU work right after sending it, so the CPU and the GPU take turns. On: the "
+               "wait is one frame late, so the CPU prepares the next frame while the GPU draws this one: a higher frame "
+               "rate when CPU and GPU are both well used. Risk: the game may overwrite a frame's vertex data "
+               "while the GPU still reads it (flicker or glitched geometry; none seen so far). Turn it off if anything looks "
+               "wrong, and tell us where.");
+    opt_section("Menu");
+    opt_toggle("Show this tab", &g_settings.developer, false,
+               "Off hides the Developer tab again (Cmd+Shift+D or \"developer = 1\" in larecomp.ini bring it back).");
     opt_end();
 }
 
@@ -730,10 +764,11 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
     Tab tabs[6];
     int ntabs = 0;
     if (prelaunch) tabs[ntabs++] = {"Prelaunch", -1, true};
-    static const char *names[] = {"Video", "Audio", "", "", "", "", "", "", "Controls", "Quit"};
+    static const char *names[] = {"Video", "Audio", "", "", "", "", "", "", "Controls", "Quit", "Developer"};
     static const int order[] = {8, 0, 1, 9};  // Controls, Video, Audio, Quit (ids stay: test hooks)
     for (int i : order)  // (Quit: in game only - the start screen has its own QUIT)
         if (i != 9 || !prelaunch) tabs[ntabs++] = {names[i], i, true};
+    if (g_settings.developer || getenv("LARECOMP_DEVELOPER")) tabs[ntabs++] = {names[10], 10, true};
     int cur = 0;  // g_tab / g_tab_request hold ids
     for (int i = 0; i < ntabs; i++) if (tabs[i].id == g_tab) cur = i;
     if (!tabs[cur].on) cur = 0;
@@ -812,6 +847,7 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
                 case 1: tab_audio(); break;
                 case 8: tab_about(); break;
                 case 9: tab_quit(scale, in_game); break;
+                case 10: tab_developer(); break;
                 }
                 static const char *scroll_test = getenv("LARECOMP_MENU_SCROLL");  // test hook: page scroll, 0..1
                 if (scroll_test) ImGui::SetScrollY(ImGui::GetScrollMaxY() * (float)atof(scroll_test));
@@ -909,6 +945,10 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
                 ImGui::Text("dynamic %.0f%%  (frame %.1f ms, gpu %.1f ms%s)", output_scale_dynamic_factor() * 100, fm, gm, gok ? "" : ", not used");
             }
             ImGui::Text("present interval %d", g_out_present_interval);
+            if (g_settings.dev_frame_stats) {  // Developer: where the frame's time goes
+                extern double g_stat_cpu_ms, g_stat_gpu_ms;
+                ImGui::Text("submit cpu %.1f ms   gpu %.1f ms   (frame %.1f ms)", g_stat_cpu_ms, g_stat_gpu_ms, 1000.0 / fmax(io.Framerate, 1.0f));
+            }
         }
         ImGui::End();
     }

@@ -29,6 +29,7 @@ Settings g_settings = {
     .bloom = true,
     .fov = false,        // (changes the framing: off by default)
     .lod = true,
+    .gpu_overlap = true,
     .shadows_4k = false, // (more GPU memory and work: off by default)
     .upscaler = UPSCALE_SHARP,  // (MetalFX on macOS, AMD FSR 1 on Windows)
 };
@@ -96,7 +97,12 @@ void settings_load(void) {
         else if (!strcmp(key, "fps60")) g_settings.fps60 = atoi(val) != 0;
         else if (!strcmp(key, "fps60_steady")) g_settings.fps60_steady = atoi(val) != 0;
         else if (!strcmp(key, "game_mode")) g_settings.handheld = !strcmp(val, "handheld");
+        else if (!strcmp(key, "wait_for_shaders")) g_settings.wait_shaders = atoi(val) != 0;
+        else if (!strcmp(key, "gpu_overlap")) g_settings.gpu_overlap = atoi(val) != 0;
         else if (!strcmp(key, "game_dynamic_res")) g_settings.game_drs = atoi(val) != 0;
+        else if (!strcmp(key, "developer")) g_settings.developer = atoi(val) != 0;
+        else if (!strcmp(key, "dev_gpu_trace")) g_settings.dev_gpu_trace = atoi(val) != 0;
+        else if (!strcmp(key, "dev_frame_stats")) g_settings.dev_frame_stats = atoi(val) != 0;
         else if (!strcmp(key, "depth_of_field")) g_settings.dof = atoi(val) != 0;
         else if (!strcmp(key, "game_fxaa")) g_settings.fxaa = atoi(val) != 0;
         else if (!strcmp(key, "bloom")) g_settings.bloom = atoi(val) != 0;
@@ -146,7 +152,12 @@ void settings_save(void) {
     fprintf(f, "fps60 = %d\n", g_settings.fps60);
     fprintf(f, "fps60_steady = %d\n", g_settings.fps60_steady);
     fprintf(f, "game_mode = %s\n", g_settings.handheld ? "handheld" : "docked");
+    fprintf(f, "wait_for_shaders = %d\n", g_settings.wait_shaders);
+    fprintf(f, "gpu_overlap = %d\n", g_settings.gpu_overlap);
     fprintf(f, "game_dynamic_res = %d\n", g_settings.game_drs);
+    fprintf(f, "developer = %d\n", g_settings.developer);
+    fprintf(f, "dev_gpu_trace = %d\n", g_settings.dev_gpu_trace);
+    fprintf(f, "dev_frame_stats = %d\n", g_settings.dev_frame_stats);
     fprintf(f, "depth_of_field = %d\n", g_settings.dof);
     fprintf(f, "game_fxaa = %d\n", g_settings.fxaa);
     fprintf(f, "bloom = %d\n", g_settings.bloom);

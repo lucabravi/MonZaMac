@@ -82,6 +82,7 @@ typedef struct {
     bool glsl;               // emit Vulkan GLSL: dialect-specific constructs here, the rest via glsl_rewrite()
     bool uses_gmem_store;    // STG present: the gmem buffer is not readonly
     uint32_t cbuf_need[18];  // highest constant vec4 index + 1 per cbuf (array size of the GLSL block)
+    bool rsc_track[256];  // only integer-fetch coordinates and their MOV/F2I inputs need runtime phase metadata
 } Ctx;
 
 static uint64_t bits(uint64_t w, int lo, int n) { return (w >> lo) & ((n == 64) ? ~0ull : ((1ull << n) - 1)); }
@@ -174,13 +175,67 @@ static const char *operand_c_for_ffma(Ctx *c, uint64_t w, char *buf, const char 
     return reg(c, (int)bits(w, 39, 8), buf);
 }
 
-static void set_reg(Ctx *c, int r, const char *expr) {
+static void rsc_clear(Ctx *c, int r) {
+    if (r < RZ && c->rsc_track[r]) sp(&c->body, "    rp%d = float2(0.5f);\n", r);
+}
+
+static void set_reg_phase(Ctx *c, int r, const char *expr, const char *phase) {
     if (r == RZ) return;
     c->reg_used[r] = 1;
     sp(&c->body, "    r%d = %s;\n", r, expr);
+    if (r < RZ && c->rsc_track[r]) sp(&c->body, "    rp%d = %s;\n", r, phase ? phase : "float2(0.5f)");
     // (a bindless surface handle is a constant buffer word: SUST / SURED resolve it statically)
     int cb, a, b, n = 0;
     c->reg_cbsrc[r] = sscanf(expr, "cb%d[%d][%d]%n", &cb, &a, &b, &n) == 3 && n == (int)strlen(expr) ? ((cb << 16) | (a * 16 + b * 4)) + 1 : 0;
+}
+
+static void set_reg(Ctx *c, int r, const char *expr) { set_reg_phase(c, r, expr, NULL); }
+
+static bool rsc_f2i(uint64_t w) {
+    return (w & 0xfff8000000000000ull) == 0x5cb0000000000000ull &&
+           bits(w, 10, 2) == 2 && bits(w, 8, 2) == 2 && !bits(w, 45, 1) && !bits(w, 49, 1) &&
+           (bits(w, 39, 2) == 1 || bits(w, 39, 2) == 3);
+}
+
+// Track only fetch coordinates and their MOV/F2I inputs. The emitted per-register pair contains the fraction of
+// a loaded float position and that of a converted integer coordinate. Runtime metadata follows predication and
+// control flow; overwritten or unrelated coordinates return to the ordinary guest-texel centre (.5).
+static void rsc_registers(Ctx *c, const uint64_t *code, size_t end) {
+    if (c->stage != STAGE_FRAGMENT || c->glsl) return;
+    bool screen = false;
+    for (size_t i = 0; i < end; i++) {
+        if (!(i & 3)) continue;
+        uint64_t w = code[i];
+        if ((w & 0xfff8000000000000ull) == 0xefd8000000000000ull) {
+            unsigned a = (unsigned)bits(w, 20, 10), n = 1 + (unsigned)bits(w, 47, 2);
+            for (unsigned k = 0; k < n; k++) if (a + k * 4 == 0x70 || a + k * 4 == 0x74) screen = true;
+        }
+        if ((w & 0xff0000400000ff00ull) == 0xe00000000000ff00ull) {
+            unsigned a = (unsigned)bits(w, 28, 10);  // non-indexed IPA position, also handled by attr_load
+            if (a == 0x70 || a == 0x74) screen = true;
+        }
+        if ((w & 0xf600000000000000ull) != 0xd200000000000000ull) continue;
+        int a = (int)bits(w, 8, 8), b = (int)bits(w, 20, 8), x = RZ, y = RZ;
+        switch (bits(w, 53, 4)) {
+        case 2: x = a; y = b; break;
+        case 4: case 5: case 12: x = a; y = a + 1; break;
+        case 8: x = b; y = b + 1; break;
+        }
+        if (x < RZ) c->rsc_track[x] = true;
+        if (y < RZ) c->rsc_track[y] = true;
+    }
+    if (!screen) { memset(c->rsc_track, 0, sizeof c->rsc_track); return; }
+    bool changed;
+    do {
+        changed = false;
+        for (size_t i = 0; i < end; i++) {
+            if (!(i & 3)) continue;
+            uint64_t w = code[i];
+            if (!rsc_f2i(w) && (w & 0xfff8000000000000ull) != 0x5c98000000000000ull) continue;
+            int d = (int)bits(w, 0, 8), b = (int)bits(w, 20, 8);
+            if (c->rsc_track[d] && b < RZ && !c->rsc_track[b]) c->rsc_track[b] = changed = true;
+        }
+    } while (changed);
 }
 
 static const char *fneg_abs(const char *e, bool neg, bool abs_, char *buf) {
@@ -282,7 +337,13 @@ static void attr_load(Ctx *c, int dst, uint32_t addr, const char *idx) {
     } else {
         sprintf(e, "0u /* attr %#x */", addr);
     }
-    set_reg(c, dst, e);
+    char phase[80];
+    const char *p = NULL;
+    if (dst < RZ && c->rsc_track[dst] && c->stage == STAGE_FRAGMENT && (addr == 0x70 || addr == 0x74)) {
+        snprintf(phase, sizeof phase, "float2(fract(as_type<float>(r%d)), 0.5f)", dst);
+        p = phase;
+    }
+    set_reg_phase(c, dst, e, p);
 }
 
 static void attr_store(Ctx *c, int src, uint32_t addr) {
@@ -458,6 +519,7 @@ static bool emit_half(Ctx *c, uint64_t w) {
                 sp(&c->body, "      l = l %s pp; h = h %s pp;\n", bool_op(bop), bool_op(bop));
                 sp(&c->body, bf ? "      r%d = (l ? 0x3c00u : 0u) | (h ? 0x3c000000u : 0u);\n"
                                 : "      r%d = (l ? 0xFFFFu : 0u) | (h ? 0xFFFF0000u : 0u);\n", d);
+                rsc_clear(c, d);
             }
         }
         sp(&c->body, "    }\n");
@@ -527,8 +589,8 @@ static void write_tex_result(Ctx *c, int slot, const char *call, uint32_t mask, 
         char v[4][16];
         for (int i = 0; i < 4; i++) { if (i < n) sprintf(v[i], "t[%d]", comps[i]); else strcpy(v[i], "0.0f"); }
         const char *pk = c->glsl ? "      r%d = packHalf2x16(vec2(%s, %s));\n" : "      r%d = as_type<uint>(half2(half(%s), half(%s)));\n";
-        if (d0 != RZ) { c->reg_used[d0] = 1; sp(&c->body, pk, d0, v[0], v[1]); }
-        if (d1 != RZ) { c->reg_used[d1] = 1; sp(&c->body, pk, d1, v[2], v[3]); }
+        if (d0 != RZ) { c->reg_used[d0] = 1; sp(&c->body, pk, d0, v[0], v[1]); rsc_clear(c, d0); }
+        if (d1 != RZ) { c->reg_used[d1] = 1; sp(&c->body, pk, d1, v[2], v[3]); rsc_clear(c, d1); }
         sp(&c->body, "    }\n");
         return;
     }
@@ -543,13 +605,13 @@ static void write_tex_result(Ctx *c, int slot, const char *call, uint32_t mask, 
     for (int comp = 0; comp < 4; comp++) {
         if (!(mask & (1u << comp))) continue;
         int r = regs[n++];
-        if (r != RZ) { c->reg_used[r] = 1; sp(&c->body, "      r%d = as_type<uint>(t[%d]);\n", r, comp); }
+        if (r != RZ) { c->reg_used[r] = 1; sp(&c->body, "      r%d = as_type<uint>(t[%d]);\n", r, comp); rsc_clear(c, r); }
     }
     sp(&c->body, "    }\n");
 }
 
 // Integer texel coordinates in guest units -> the (possibly larger) allocation of texture slot `slot`.
-static const char *RSC2(Ctx *c, int slot, const char *fmt, ...) {
+static const char *RSC2(Ctx *c, int slot, int x, int y, const char *fmt, ...) {
     static char bufs[4][1024];
     static int bi;
     char *o = bufs[bi++ & 3];
@@ -560,7 +622,26 @@ static const char *RSC2(Ctx *c, int slot, const char *fmt, ...) {
     va_end(ap);
     if (c->stage == STAGE_VERTEX) { snprintf(o, 1024, "%s", inner); return o; }
     c->uses_rscale = true;
-    snprintf(o, 1024, "rsc(%s, rscale[%d])", inner, slot + 1);
+    if (x >= RZ) x = RZ;
+    if (y >= RZ) y = RZ;
+    if (c->stage == STAGE_FRAGMENT && !c->glsl && (c->rsc_track[x] || c->rsc_track[y])) {
+        char px[24] = "0.5f", py[24] = "0.5f";
+        if (c->rsc_track[x]) snprintf(px, sizeof px, "rp%d.y", x);
+        if (c->rsc_track[y]) snprintf(py, sizeof py, "rp%d.y", y);
+        snprintf(o, 1024, "rsc(%s, rscale[%d], float2(%s, %s))", inner, slot + 1, px, py);
+    } else snprintf(o, 1024, "rsc(%s, rscale[%d])", inner, slot + 1);
+    return o;
+}
+
+// An explicit sample LOD: plus the slot's rscale w outside the vertex stage (renderer.m hiz_lod: 0 unless the texture is
+// scaled and its sampler is a min / max reduction).
+static const char *lvl(Ctx *c, int slot, const char *lod) {
+    static char bufs[4][160];
+    static int bi;
+    char *o = bufs[bi++ & 3];
+    if (c->stage == STAGE_VERTEX || c->glsl) { snprintf(o, 160, "level(%s)", lod); return o; }
+    c->uses_rscale = true;
+    snprintf(o, 160, "level(%s + rscale[%d].w)", lod, slot + 1);
     return o;
 }
 
@@ -634,6 +715,7 @@ static bool glsl_texs(Ctx *c, uint64_t w, bool fetch, int *slot_out, char *call,
                       const char *Bv, const char *B1) {
     uint32_t index = (uint32_t)bits(w, 36, 13);
     int info = (int)bits(w, 53, 4);
+    int a = (int)bits(w, 8, 8), b = (int)bits(w, 20, 8);
     int slot;
     const char *co[3];
     char fa[64], fa1[64], fb[64], fb1[64];
@@ -678,18 +760,18 @@ static bool glsl_texs(Ctx *c, uint64_t w, bool fetch, int *slot_out, char *call,
         case 1: slot = tex_slot(c, index, TEXTYPE_1D, false, false);
             sprintf(call, "texelFetch(t%d, int(%s), int(%s))", slot, A, Bv); break;
         case 2: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
-            sprintf(call, "texelFetch(t%d, ivec2(%s), 0)", slot, RSC2(c, slot, "uint2(%s, %s)", A, Bv)); break;
+            sprintf(call, "texelFetch(t%d, ivec2(%s), 0)", slot, RSC2(c, slot, a, b, "uint2(%s, %s)", A, Bv)); break;
         case 4: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
-            sprintf(call, "texelFetch(t%d, ivec2(%s), 0)", slot, RSC2(c, slot, "uint2(int2(%s, %s) + int2(int(%s << 28) >> 28, int(%s << 24) >> 28))", A, A1, Bv, Bv)); break;
+            sprintf(call, "texelFetch(t%d, ivec2(%s), 0)", slot, RSC2(c, slot, a, a + 1, "uint2(int2(%s, %s) + int2(int(%s << 28) >> 28, int(%s << 24) >> 28))", A, A1, Bv, Bv)); break;
         case 5: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
-            sprintf(call, "texelFetch(t%d, ivec2(%s), int(%s))", slot, RSC2(c, slot, "uint2(%s, %s)", A, A1), Bv); break;
+            sprintf(call, "texelFetch(t%d, ivec2(%s), int(%s))", slot, RSC2(c, slot, a, a + 1, "uint2(%s, %s)", A, A1), Bv); break;
         case 7: slot = tex_slot(c, index, TEXTYPE_3D, false, false);
             sprintf(call, "texelFetch(t%d, ivec3(%s, %s, %s), 0)", slot, A, A1, Bv); break;
         case 8: slot = tex_slot(c, index, TEXTYPE_2D_ARRAY, false, true);
             // (TLDS 2D array: x = Rb, y = Rb + 1, layer = Ra - unlike TEXS, whose array layout is layer, Ra + 1, Rb; per Ryujinx)
-            sprintf(call, "texelFetch(t%d, ivec3(ivec2(%s), int(%s)), 0)", slot, RSC2(c, slot, "uint2(%s, %s)", Bv, B1), A); break;
+            sprintf(call, "texelFetch(t%d, ivec3(ivec2(%s), int(%s)), 0)", slot, RSC2(c, slot, b, b + 1, "uint2(%s, %s)", Bv, B1), A); break;
         case 12: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
-            sprintf(call, "texelFetch(t%d, ivec2(%s), int(%s))", slot, RSC2(c, slot, "uint2(int2(%s, %s) + int2(int(%s << 28) >> 28, int(%s << 24) >> 28))", A, A1, B1, B1), Bv); break;
+            sprintf(call, "texelFetch(t%d, ivec2(%s), int(%s))", slot, RSC2(c, slot, a, a + 1, "uint2(int2(%s, %s) + int2(int(%s << 28) >> 28, int(%s << 24) >> 28))", A, A1, B1, B1), Bv); break;
         default: fail(c, "tlds info %d", info); return false;
         }
     }
@@ -728,9 +810,9 @@ static void emit_texs(Ctx *c, uint64_t w, bool fetch) {
         case 1: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
             sprintf(call, "t%d.sample(s%d, float2(%s, %s))", slot, slot, F(A), F(Bv)); break;
         case 2: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
-            sprintf(call, "t%d.sample(s%d, float2(%s, %s), level(0))", slot, slot, F(A), F(Bv)); break;
+            sprintf(call, "t%d.sample(s%d, float2(%s, %s), %s)", slot, slot, F(A), F(Bv), lvl(c, slot, "0.0f")); break;
         case 3: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
-            sprintf(call, "t%d.sample(s%d, float2(%s, %s), level(%s))", slot, slot, F(A), F(A1), F(Bv)); break;
+            sprintf(call, "t%d.sample(s%d, float2(%s, %s), %s)", slot, slot, F(A), F(A1), lvl(c, slot, F(Bv))); break;
         case 4: slot = tex_slot(c, index, TEXTYPE_2D, true, false);
             sprintf(call, "float4(t%d.sample_compare(s%d, float2(%s, %s), %s))", slot, slot, F(A), F(A1), F(Bv)); break;
         case 5: slot = tex_slot(c, index, TEXTYPE_2D, true, false);
@@ -760,18 +842,18 @@ static void emit_texs(Ctx *c, uint64_t w, bool fetch) {
         case 1: slot = tex_slot(c, index, TEXTYPE_1D, false, false);
             sprintf(call, "t%d.read(uint(%s), uint(%s))", slot, A, Bv); break;
         case 2: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
-            sprintf(call, "t%d.read(%s)", slot, RSC2(c, slot, "uint2(%s, %s)", A, Bv)); break;
+            sprintf(call, "t%d.read(%s)", slot, RSC2(c, slot, a, b, "uint2(%s, %s)", A, Bv)); break;
         case 4: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
-            sprintf(call, "t%d.read(%s)", slot, RSC2(c, slot, "uint2(int2(%s, %s) + int2(int(%s << 28) >> 28, int(%s << 24) >> 28))", A, A1, Bv, Bv)); break;
+            sprintf(call, "t%d.read(%s)", slot, RSC2(c, slot, a, a + 1, "uint2(int2(%s, %s) + int2(int(%s << 28) >> 28, int(%s << 24) >> 28))", A, A1, Bv, Bv)); break;
         case 5: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
-            sprintf(call, "t%d.read(%s, uint(%s))", slot, RSC2(c, slot, "uint2(%s, %s)", A, A1), Bv); break;
+            sprintf(call, "t%d.read(%s, uint(%s))", slot, RSC2(c, slot, a, a + 1, "uint2(%s, %s)", A, A1), Bv); break;
         case 7: slot = tex_slot(c, index, TEXTYPE_3D, false, false);
             sprintf(call, "t%d.read(uint3(%s, %s, %s))", slot, A, A1, Bv); break;
         case 8: slot = tex_slot(c, index, TEXTYPE_2D_ARRAY, false, true);
             // (TLDS 2D array: x = Rb, y = Rb + 1, layer = Ra - unlike TEXS, whose array layout is layer, Ra + 1, Rb; per Ryujinx)
-            sprintf(call, "t%d.read(%s, uint(%s))", slot, RSC2(c, slot, "uint2(%s, %s)", Bv, B1), A); break;
+            sprintf(call, "t%d.read(%s, uint(%s))", slot, RSC2(c, slot, b, b + 1, "uint2(%s, %s)", Bv, B1), A); break;
         case 12: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
-            sprintf(call, "t%d.read(%s, uint(%s))", slot, RSC2(c, slot, "uint2(int2(%s, %s) + int2(int(%s << 28) >> 28, int(%s << 24) >> 28))", A, A1, B1, B1), Bv); break;
+            sprintf(call, "t%d.read(%s, uint(%s))", slot, RSC2(c, slot, a, a + 1, "uint2(int2(%s, %s) + int2(int(%s << 28) >> 28, int(%s << 24) >> 28))", A, A1, B1, B1), Bv); break;
         default: fail(c, "tlds info %d", info); return;
         }
     }
@@ -813,7 +895,7 @@ static void emit_atom(Ctx *c, uint64_t w, bool red) {
         } else {
             sp(&c->body, "      if (ok) old = atomic_%s_explicit(%s, %s, memory_order_relaxed);\n", mfn[op], p32, v);
         }
-        if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = old;\n", d); }
+        if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = old;\n", d); rsc_clear(c, d); }
         sp(&c->body, "    }\n");
         return;
     }
@@ -840,7 +922,7 @@ static void emit_atom(Ctx *c, uint64_t w, bool red) {
                "old = o_; }\n", guard, m, m, nv);
         }
     }
-    if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = old;\n", d); }
+    if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = old;\n", d); rsc_clear(c, d); }
     sp(&c->body, "    }\n");
 }
 
@@ -1027,6 +1109,7 @@ static void emit_tmml(Ctx *c, uint64_t w) {
         // (the instruction's component order is the reverse of GLSL's)
         if (comp < 2) sp(&c->body, "      r%d = uint(int(lq[%d] * 256.0f));\n", out, comp ^ 1);
         else sp(&c->body, "      r%d = 0u;\n", out);
+        rsc_clear(c, out);
         out++;
     }
     sp(&c->body, "    }\n");
@@ -1198,10 +1281,13 @@ static void emit_tex(Ctx *c, uint64_t w, bool bindless) {
     char lod[96] = "", dref[64] = "", off[128] = "";
     if (lod_mode == 2 || lod_mode == 3 || lod_mode == 6 || lod_mode == 7) {
         c->reg_used[pr] = 1;
-        sprintf(lod, lod_mode == 2 || lod_mode == 6 ? ", bias(as_type<float>(r%d))" : ", level(as_type<float>(r%d))", pr);
+        char lr[48];
+        sprintf(lr, "as_type<float>(r%d)", pr);
+        if (lod_mode == 2 || lod_mode == 6) sprintf(lod, ", bias(%s)", lr);
+        else sprintf(lod, ", %s", lvl(c, slot, lr));
         pr++;
     } else if (lod_mode == 1) {
-        strcpy(lod, ", level(0)");
+        sprintf(lod, ", %s", lvl(c, slot, "0.0f"));
     }
     if (aoffi) {
         c->reg_used[pr] = 1;
@@ -1283,7 +1369,10 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         c->ipa_mul = (int)bits(w, 20, 8);
         attr_load(c, d, addr, NULL);
         c->ipa_mode = -1;
-        if (bits(w, 51, 1) && d != RZ) sp(&c->body, "    r%d = as_type<uint>(saturate(as_type<float>(r%d)));\n", d, d);
+        if (bits(w, 51, 1) && d != RZ) {
+            sp(&c->body, "    r%d = as_type<uint>(saturate(as_type<float>(r%d)));\n", d, d);
+            rsc_clear(c, d);
+        }
     } else if (OPM(0xefd8000000000000ull, 0xfff8000000000000ull)) {  // LD attribute
         int n = 1 + (int)bits(w, 47, 2);
         uint32_t addr = (uint32_t)bits(w, 20, 10);
@@ -1388,14 +1477,17 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             }
             int n = 0;
             for (int i = 0; i < 4; i++)
-                if (mask & (1u << i)) { c->reg_used[d + n] = 1; sp(&c->body, "      r%d = q[%d];\n", d + n, i); n++; }
+                if (mask & (1u << i)) { c->reg_used[d + n] = 1; sp(&c->body, "      r%d = q[%d];\n", d + n, i); rsc_clear(c, d + n); n++; }
             sp(&c->body, "    }\n");
         } else if (qt == 1) {  // dimension (z: depth or layers, as Ryujinx's TextureQuerySize; 1 for 1D / 2D / cube)
             if (slot < 32) c->txq_z |= 1u << slot;
             if (c->stage != STAGE_VERTEX) {  // report the guest size of scaled allocations
                 c->uses_rscale = true;
-                sp(&c->body, "    { uint lv = %s; uint4 q = uint4(uint(round(float(t%d.get_width(lv)) / rscale[%d].x)), "
-                   "uint(round(float(t%d.get_height(lv)) / rscale[%d].y)), tz%d(lv), t%d.get_num_mip_levels());\n",
+                // (level lv is the guest's base size halved lv times: a scaled allocation's own mip sizes divided by the
+                // scale differ from that at some levels - 1.5x: 25 rows / 1.5 = 17, the guest has 16 - and a depth
+                // pyramid's culling reads texels past its last written row)
+                sp(&c->body, "    { uint lv = %s; uint4 q = uint4(max(1u, uint(round(float(t%d.get_width()) / rscale[%d].x)) >> min(lv, 31u)), "
+                   "max(1u, uint(round(float(t%d.get_height()) / rscale[%d].y)) >> min(lv, 31u)), tz%d(lv), t%d.get_num_mip_levels());\n",
                    R(a), slot, slot + 1, slot, slot + 1, slot, slot);
             } else {
                 sp(&c->body, "    { uint lv = %s; uint4 q = uint4(t%d.get_width(lv), t%d.get_height(lv), tz%d(lv), t%d.get_num_mip_levels());\n",
@@ -1403,7 +1495,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             }
             int n = 0;
             for (int i = 0; i < 4; i++)
-                if (mask & (1u << i)) { c->reg_used[d + n] = 1; sp(&c->body, "      r%d = q[%d];\n", d + n, i); n++; }
+                if (mask & (1u << i)) { c->reg_used[d + n] = 1; sp(&c->body, "      r%d = q[%d];\n", d + n, i); rsc_clear(c, d + n); n++; }
             sp(&c->body, "    }\n");
         } else {
             fail(c, "txq type %d", qt);
@@ -1497,7 +1589,12 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         set_reg(c, d, t);
     } else if (OPM(0x5c98000000000000ull, 0xfff8000000000000ull) || OPM(0x4c98000000000000ull, 0xfff8000000000000ull) ||
                OPM(0x3898000000000000ull, 0xfef8000000000000ull)) {  // MOV
-        set_reg(c, d, B(false));
+        char phase[24]; const char *p = NULL;
+        int src = (int)bits(w, 20, 8);
+        if (c->rsc_track[d] && OPM(0x5c98000000000000ull, 0xfff8000000000000ull) && src < RZ) {
+            snprintf(phase, sizeof phase, "rp%d", src); p = phase;
+        }
+        set_reg_phase(c, d, B(false), p);
     } else if (OPM(0x0100000000000000ull, 0xfff0000000000000ull)) {  // MOV32I
         sprintf(t, "0x%08xu", (uint32_t)bits(w, 20, 32));
         set_reg(c, d, t);
@@ -1519,7 +1616,12 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             sprintf(t, sgn ? "uint(int(clamp(%s(%s), -32768.0f, 32767.0f)))" : "uint(clamp(%s(%s), 0.0f, 65535.0f))", rf[rnd], x);
         else
             sprintf(t, sgn ? "uint(int(clamp(%s(%s), -2147483648.0f, 2147483520.0f)))" : "uint(clamp(%s(%s), 0.0f, 4294967040.0f))", rf[rnd], x);
-        set_reg(c, d, t);
+        char phase[48]; const char *p = NULL;
+        int src = (int)bits(w, 20, 8);
+        if (c->rsc_track[d] && rsc_f2i(w) && src < RZ) {
+            snprintf(phase, sizeof phase, "float2(0.5f, rp%d.x)", src); p = phase;
+        }
+        set_reg_phase(c, d, t, p);
     } else if (OPM(0x5cb8000000000000ull, 0xfff8000000000000ull) || OPM(0x4cb8000000000000ull, 0xfff8000000000000ull) ||
                OPM(0x38b8000000000000ull, 0xfef8000000000000ull)) {  // I2F
         bool sgn = bits(w, 13, 1);
@@ -1571,7 +1673,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         if (bits(w, 47, 1)) {
             sp(&c->body, "    { uint s = %s%s; uint t2 = %s%s; uint res = s + t2%s; cc = (res < s) ? 1u : 0u;\n", bits(w, 49, 1) ? "-" : "",
                R(a), bits(w, 48, 1) ? "-" : "", B(false), bits(w, 43, 1) ? " + cc" : "");
-            if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = res;\n", d); }
+            if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = res;\n", d); rsc_clear(c, d); }
             sp(&c->body, "    }\n");
         } else {
             set_reg(c, d, t);
@@ -1581,7 +1683,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         if (wcc || x) c->uses_cc = true;
         sp(&c->body, "    { ulong sum = ulong(%s%s) + ulong(0x%08xu)%s;%s\n", bits(w, 56, 1) ? "-" : "", R(a), (uint32_t)bits(w, 20, 32),
            x ? " + ulong(cc)" : "", wcc ? " cc = uint(sum >> 32) & 1u;" : "");
-        if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = uint(sum);\n", d); }
+        if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = uint(sum);\n", d); rsc_clear(c, d); }
         sp(&c->body, "    }\n");
     } else if (OPM(0x5cc0000000000000ull, 0xfff0000000000000ull) || OPM(0x4cc0000000000000ull, 0xfff0000000000000ull) ||
                OPM(0x38c0000000000000ull, 0xfef0000000000000ull)) {  // IADD3
@@ -1606,7 +1708,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             c->uses_cc = true;
             sp(&c->body, "    { ulong sum = ulong(%s) + ulong(%s) + ulong(%s)%s;\n", s3[0], s3[1], s3[2], x3 ? " + ulong(cc)" : "");
             if (wcc3) sp(&c->body, "      cc = uint(sum >> 32) & 1u;\n");
-            if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = uint(sum);\n", d); }
+            if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = uint(sum);\n", d); rsc_clear(c, d); }
             sp(&c->body, "    }\n");
         } else {
             if (lrs == 1) sprintf(t, "(uint((ulong(uint(%s)) + ulong(uint(%s))) >> 16) + %s)", s3[0], s3[1], s3[2]);
@@ -1622,7 +1724,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             c->uses_cc = true;
             sp(&c->body, "    { uint s = %s%s << %du; uint t2 = %s%s; uint res = s + t2; cc = (res < s) ? 1u : 0u;\n",
                bits(w, 49, 1) ? "-" : "", R(a), (int)bits(w, 39, 5), bits(w, 48, 1) ? "-" : "", B(false));
-            if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = res;\n", d); }
+            if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = res;\n", d); rsc_clear(c, d); }
             sp(&c->body, "    }\n");
         } else {
             set_reg(c, d, t);
@@ -1787,7 +1889,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         else sp(&c->body, "      uint res = prod + cc_;\n");
         if (wcc) sp(&c->body, "      cc = (res < prod) ? 1u : 0u;\n");
         if (mrg) sp(&c->body, "      res = (res & 0xFFFFu) | (xbu << 16);\n");
-        if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = res;\n", d); }
+        if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = res;\n", d); rsc_clear(c, d); }
         sp(&c->body, "    }\n");
     } else if (OPM(0x5090000000000000ull, 0xfff8000000000000ull)) {  // PSETP
         const char *pa = P((int)bits(w, 12, 3), bits(w, 15, 1)), *pb = P((int)bits(w, 29, 3), bits(w, 32, 1));
@@ -2016,6 +2118,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
                 for (int k = 0; k < nw; k++)
                     sp(&c->body, "      if (ok) *(device uint *)(gmem + ga + %du) = %s;\n", k * 4, R(d == RZ ? RZ : d + k));
         }
+        if (!store && d != RZ) for (int k = 0; k < nw && d + k < RZ; k++) rsc_clear(c, d + k);
         sp(&c->body, "    }\n");
     } else if (emit_half(c, w)) {
     } else if (OPM(0x50f8000000000000ull, 0xfff8000000000000ull)) {  // FSWZADD
@@ -2072,6 +2175,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
                     sp(&c->body, "      lmem[((la >> 2) + %du) & %du] = %s;\n", k, LMEM_WORDS - 1, R(d == RZ ? RZ : d + k));
             }
         }
+        if (!store && d != RZ) for (int k = 0; k < nw && d + k < RZ; k++) rsc_clear(c, d + k);
         sp(&c->body, "    }\n");
     } else if (OPM(0xef10000000000000ull, 0xfff8000000000000ull)) {  // SHFL
         int mode = (int)bits(w, 30, 2);
@@ -2127,14 +2231,14 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             c->uses_cc = true;
             sp(&c->body, "    { uint pr = (ccz ? 1u : 0u) | (ccs ? 2u : 0u) | ((cc & 1u) << 2);\n");
             sp(&c->body, "      uint m = (%s & 0xFu) << %du;\n", mask, shift);
-            if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = (%s & ~m) | ((pr << %du) & m);\n", d, R(a), shift); }
+            if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = (%s & ~m) | ((pr << %du) & m);\n", d, R(a), shift); rsc_clear(c, d); }
             sp(&c->body, "    }\n");
             goto p2r_done;
         }
         sp(&c->body, "    { uint pr = 0u;\n");
         for (int i = 0; i < 7; i++) { c->pred_used[i] = 1; sp(&c->body, "      pr |= (p%d ? 1u : 0u) << %du;\n", i, i); }
         sp(&c->body, "      uint m = (%s & 0x7Fu) << %du;\n", mask, shift);
-        if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = (%s & ~m) | ((pr << %du) & m);\n", d, R(a), shift); }
+        if (d != RZ) { c->reg_used[d] = 1; sp(&c->body, "      r%d = (%s & ~m) | ((pr << %du) & m);\n", d, R(a), shift); rsc_clear(c, d); }
         sp(&c->body, "    }\n");
     p2r_done:;
     } else if (OPM(0xe250000000000000ull, 0xfff0000000000020ull)) {  // BRX reg + imm (relative)
@@ -2580,6 +2684,7 @@ ShaderInfo *maxwell_translate(const uint8_t *blob, size_t max_size, int stage, c
         if (w == 0 && i > 4) break;
         end = i + 1;
     }
+    rsc_registers(c, (const uint64_t *)code, end);
     // collect branch targets (labels)
     uint8_t *label = calloc(end + 4, 1);
     label[1] = 1;
@@ -2660,6 +2765,10 @@ ShaderInfo *maxwell_translate(const uint8_t *blob, size_t max_size, int stage, c
     sp(&s, "static inline float2 fmz_mul(float2 a, float2 b) { return float2(fmz_mul(a.x, b.x), fmz_mul(a.y, b.y)); }\n");
     sp(&s, "static inline float2 fmz_fma(float2 a, float2 b, float2 c) { return float2(fmz_fma(a.x, b.x, c.x), fmz_fma(a.y, b.y, c.y)); }\n");
     sp(&s, "static inline uint2 rsc(uint2 c, float4 s) { return (s.x == 1.0f && s.y == 1.0f) ? c : uint2(floor((float2(c) + 0.5f) * s.xy)); }\n");
+    bool rsc_phase = false;
+    for (int i = 0; i < RZ; i++) rsc_phase |= c->rsc_track[i];
+    if (rsc_phase)
+        sp(&s, "static inline uint2 rsc(uint2 c, float4 s, float2 phase) { return (s.x == 1.0f && s.y == 1.0f) ? c : uint2(floor((float2(c) + phase) * s.xy)); }\n");
     sp(&s, "static inline float2 hx(uint v, uint swz) { if (swz == 1u) return float2(as_type<float>(v)); float2 h = float2(as_type<half2>(v)); return swz == 2u ? h.xx : swz == 3u ? h.yy : h; }\n");
     // merges on half2 lanes rather than with integer masks: on an M1 (macOS 15.0.1) the Metal compiler miscompiled
     // (old & 0xFFFF0000u) | lo in a character body shader - the merged low half read back as a constant 512.0 and the
@@ -2771,6 +2880,8 @@ ShaderInfo *maxwell_translate(const uint8_t *blob, size_t max_size, int stage, c
         for (int i = 0; i < info->ntex; i++) sp(&s, "  sampler s%d = ss[smap[%d]];\n", i, i);
     for (int i = 0; i < 256; i++)
         if (c->reg_used[i]) sp(&s, "  uint r%d = 0;\n", i);
+    for (int i = 0; i < RZ; i++)
+        if (c->rsc_track[i]) sp(&s, "  float2 rp%d = float2(0.5f);\n", i);
     for (int i = 0; i < 7; i++)
         if (c->pred_used[i]) sp(&s, "  bool p%d = false;\n", i);
     if (c->uses_cc) sp(&s, "  uint cc = 0; bool ccz = false, ccs = false;\n");
