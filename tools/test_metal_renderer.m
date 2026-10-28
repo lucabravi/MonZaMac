@@ -1649,6 +1649,7 @@ static void surface_handle_provenance(void) {
     unsigned bad = 0;
     for (unsigned computed = 0; computed < 3; computed++) {
         NvnTexture output = test_texture(1, 4, 4, 1, 1, 0x0a, 1);
+        output.flags |= 4;  // NVN_TEXTURE_FLAGS_IMAGE: allocated with shader write from the start
         NvnTexture screen = test_texture(1, 4, 4, 1, 1, 0x25, 1);
         bind_targets(&output, NULL, NULL);
         const float initial[4] = {1, 0, 0, 1};
@@ -1812,7 +1813,7 @@ static void audit_shadow_array(void) {
 static void audit_sured_bytes(void) {
     static uint64_t code[2][128];static NvnProgram programs[2];unsigned bad=0;
     for(unsigned ba=0;ba<2;ba++) {
-        NvnTexture image=test_texture(1,8,4,1,1,0x0b,1),screen=test_texture(1,4,4,1,1,0x25,1);
+        NvnTexture image=test_texture(1,8,4,1,1,0x0b,1),screen=test_texture(1,4,4,1,1,0x25,1);image.flags|=4;
         bind_targets(&image,NULL,NULL);st.scissor[0][2]=8;
         const uint32_t zero[4]={0};clear(0,2,zero,15,false,0,false,0,0);
         bind_targets(&screen,NULL,NULL);prepare_draw();programs[ba]=*st.program;st.scissor[0][2]=st.scissor[0][3]=1;
@@ -1860,6 +1861,7 @@ static void compute_images(bool reduction, bool array, bool view) {
     for (unsigned c = reduction ? 1 : 0; c < (reduction ? 4 : 5); c++) {
         NvnTexture output = test_texture(array || view ? 4 : 1, view ? 8 : 4, view ? 8 : 4, array || view ? 3 : 1, view ? 3 : 1, cases[c].format, 1);
         output.swizzle[0] = 5; output.swizzle[3] = 2; // writes must ignore sampled swizzles
+        output.flags |= 4;  // NVN_TEXTURE_FLAGS_IMAGE
         NvnTexture decoy = test_texture(1, 4, 4, 1, 1, 0x0a, 1); // sampled kind stays float as image kinds change
         id<MTLTexture> native = renderer_texture(&output, nil, true);
         id<MTLCommandBuffer> init = [renderer_queue() commandBuffer];
@@ -1908,7 +1910,7 @@ static void compute_image_atomic(void) { compute_images(true,false,false); }
 static void compute_image_atomic_array(void) { compute_images(true,true,false); }
 
 static void compute_image_missing(void) {
-    NvnTexture image = test_texture(1,4,4,1,1,0x0a,1);
+    NvnTexture image = test_texture(1,4,4,1,1,0x0a,1);  // (no NVN image flag: renderer_texture_writable recreates it)
     bind_targets(&image,NULL,NULL); const float zero[4]={0}; clear(0,0,zero,15,false,0,false,0,0);
     NvnTexEntry entries[2]={{0},{.tex=&image}}; NvnDescPool pool={.entries=entries,.count=2};st.tpool=&pool;
     uint32_t value[4]={0x3f000000,0,0,0};st.ubuf[5][1]=(Range){.addr=(uint64_t)value,.size=sizeof value};
@@ -1924,7 +1926,7 @@ static void compute_image_missing(void) {
 
 static void compute_image_ownership(void) {
     NvnTexture image = test_texture(1,4,4,1,1,0x0b,1);
-    image.flags |= 0x10; image.stride = 16; // CPU-written linear textures are checked every frame
+    image.flags |= 0x10 | 4; image.stride = 16; // CPU-written linear textures are checked every frame; 4: NVN image flag
     uint64_t size = tegra_total_size(&image.layout);
     CHECK(size <= 4096 && !(size & 3), "CPU-backed image fixture fits the reserved guest storage");
     uint32_t *storage = (uint32_t *)((uint8_t *)g_guest_buffer.contents + 2048);
@@ -1947,7 +1949,7 @@ static void compute_image_ownership(void) {
 }
 
 static void compute_image_feedback(void) {
-    NvnTexture image=test_texture(1,4,4,1,1,0x0a,1);
+    NvnTexture image=test_texture(1,4,4,1,1,0x0a,1);image.flags|=4;
     bind_targets(&image,NULL,NULL);const float initial[4]={0.25f,0,0,1};clear(0,0,initial,15,false,0,false,0,0);
     NvnTexEntry entries[2]={{0},{.tex=&image}};NvnDescPool pool={.entries=entries,.count=2};st.tpool=&pool;st.tex[1][0]=1;
     ShaderInfo vi={.stage=STAGE_VERTEX},fi={.stage=STAGE_FRAGMENT,.ntex=1};

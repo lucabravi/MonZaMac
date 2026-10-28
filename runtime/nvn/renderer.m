@@ -511,6 +511,7 @@ static id<MTLCommandBuffer> cb(void) {
 
 void renderer_texture_scale(NvnTexture *t, float *sx, float *sy);
 void renderer_texture_unscale(NvnTexture *t, const char *why);
+void renderer_texture_writable(NvnTexture *t);
 void renderer_get_scale(float *sx, float *sy);
 static float pass_sx = 1, pass_sy = 1;  // allocation scale of the current pass's attachments
 static NSUInteger pass_layers = 1;
@@ -2318,7 +2319,7 @@ static void bind_textures(int stage, ShaderInfo *si) {
         if (h && st.tpool && tic < (uint32_t)st.tpool->count) {
             NvnTexEntry *e = &((NvnTexEntry *)st.tpool->entries)[tic];
             e_dbg_tex = e->tex;
-            if (e->tex && st_->is_image) renderer_texture_unscale(e->tex, "image-bound");
+            if (e->tex && st_->is_image) { renderer_texture_unscale(e->tex, "image-bound"); renderer_texture_writable(e->tex); }
             if (e->tex) tex = st_->stencil ? stencil_texture(e->tex) : sampled_texture_ex(e->tex, &e->view, e->has_view, st_->type, st_->is_image);
             if (e->tex && i < 64) {
                 renderer_texture_scale(e->tex, &tex_sc[stage][i][0], &tex_sc[stage][i][1]);
@@ -2686,7 +2687,7 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
         if (i < 64) tex_wh[0][i][0] = tex_wh[0][i][1] = 0;
         if (h && st.tpool && tic < (uint32_t)st.tpool->count) {
             NvnTexEntry *e = &((NvnTexEntry *)st.tpool->entries)[tic];
-            if (e->tex && st_->is_image) renderer_texture_unscale(e->tex, "image-bound");
+            if (e->tex && st_->is_image) { renderer_texture_unscale(e->tex, "image-bound"); renderer_texture_writable(e->tex); }
             if (e->tex) tex = st_->stencil ? stencil_texture(e->tex) : sampled_texture_ex(e->tex, &e->view, e->has_view, st_->type, st_->is_image);
             if (e->tex && i < 64) {
                 renderer_texture_scale(e->tex, &tex_sc[0][i][0], &tex_sc[0][i][1]);

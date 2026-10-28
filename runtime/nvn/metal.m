@@ -175,6 +175,7 @@ typedef struct {
     uint64_t data_hash, sample_hash;
     uint64_t checked_frame, full_frame;
     bool scalable;       // screen-shaped render target: allocated at the output resolution
+    bool writable;       // created with ShaderWrite: NVN's image flag, or bound as an image (renderer_texture_writable)
     bool presented;      // has been shown by backend_present (a swapchain image)
     uint64_t touched_frame;  // last frame it was written (cleared at the first write of a frame when reshaped)
     uint32_t level_gen;      // g_level_gen when last used as a render target
@@ -341,6 +342,18 @@ static TexBackend *tex_backend(NvnTexture *t) {
 // A texture a shader writes as an image (SUST / SURED, at guest coordinates) can't be scaled: its stores would fill the
 // top-left corner of the larger allocation while the shaders that read it look at the scaled positions. It goes back to
 // the guest's size (its contents are rewritten by the shader that owns it).
+// A texture bound as an image whose allocation has no ShaderWrite (the game left out NVN's image flag): recreated with it,
+// once. Its contents are lost then (an image is normally rewritten by the shader that owns it).
+void renderer_texture_writable(NvnTexture *t) {
+    TexBackend *b = t ? tex_backend(t) : NULL;
+    if (!b || b->writable) return;
+    LOG("[tex] image use of a texture created without the image flag: recreated with shader write (%ux%u f%#x flags %#x %s)\n",
+        t->width, t->height, t->format, t->flags, t->label);
+    b->writable = true;
+    release_backend_texture(t, b);
+    create_backend_texture(t, b);
+}
+
 void renderer_texture_unscale(NvnTexture *t, const char *why) {
     static int keep = -1;
     if (keep < 0) keep = getenv("LARECOMP_IMAGE_SCALE") != NULL;  // (old behaviour, for an A/B)
@@ -381,10 +394,18 @@ static void create_backend_texture(NvnTexture *t, TexBackend *b) {
         if (d.mipmapLevelCount > m) d.mipmapLevelCount = m;
     }
     if (t->samples > 1) { d.sampleCount = t->samples; d.mipmapLevelCount = 1; }
+    // ShaderWrite only where a shader writes the texture as an image (SUST / SURED): Apple GPUs keep a texture with it
+    // uncompressed, and every render target load, store and sample then moves the full bytes. NVN wants its image flag
+    // (NVN_TEXTURE_FLAGS_IMAGE, 1 << 2) on such textures; one bound as an image without it is recreated with ShaderWrite
+    // (renderer_texture_writable). LARECOMP_ALL_SHADER_WRITE=1: every texture writable, as before.
+    static int all_write = -1;
+    if (all_write < 0) all_write = getenv("LARECOMP_ALL_SHADER_WRITE") != NULL;
+    if (all_write || (t->flags & 4)) b->writable = true;
     d.usage = MTLTextureUsageShaderRead | MTLTextureUsagePixelFormatView | MTLTextureUsageRenderTarget |
-              MTLTextureUsageShaderWrite;
+              (b->writable ? MTLTextureUsageShaderWrite : 0);
     if (@available(macOS 14.0, *))  // SURED (image atomics) on integer colour textures
-        if (d.pixelFormat == MTLPixelFormatR32Uint || d.pixelFormat == MTLPixelFormatR32Sint) d.usage |= MTLTextureUsageShaderAtomic;
+        if (b->writable && (d.pixelFormat == MTLPixelFormatR32Uint || d.pixelFormat == MTLPixelFormatR32Sint))
+            d.usage |= MTLTextureUsageShaderAtomic;
     d.storageMode = MTLStorageModePrivate;
     // Shaders sample depth through ordinary texture2d bindings (Maxwell has no separate depth type);
     // keep depth uncompressed so those reads see the stored values.
