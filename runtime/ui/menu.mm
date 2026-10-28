@@ -623,8 +623,8 @@ static void tab_developer(void) {
                "thread) and the time the GPU is busy per frame (smoothed). If the CPU number is close to the frame time, "
                "the CPU is the limit; if the GPU number is, the GPU is.");
     opt_toggle("GPU timing log", &g_settings.dev_gpu_trace, false,
-               "Writes the command buffers' and present windows' GPU times to the log (the same as LARECOMP_GPU_TIMING_TRACE): "
-               "a few lines per frame. For measuring; slows the log down.");
+               "Writes the GPU time of each frame's present window to the log, two lines per frame. For measuring. "
+               "LARECOMP_GPU_TIMING_TRACE=1 also writes a line per command buffer (about 140 a frame).");
     opt_section("Experimental");
     opt_toggle("CPU/GPU overlap", &g_settings.gpu_overlap, true,
                "The game waits for each frame's GPU work right after sending it, so the CPU and the GPU take turns. On: the "

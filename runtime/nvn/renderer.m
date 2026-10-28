@@ -153,7 +153,9 @@ RendererGpuTimingToken *renderer_gpu_timing_submit(uint64_t frame, const char *k
     cb->sequence = ++gpu_time_cb_sequence;
     cb->frame = frame;
     cb->kind = kind;
-    cb->trace = renderer_gpu_timing_trace();
+    static int per_cb = -1;  // (a line per command buffer, about 140 a frame: only by the variable, not the Developer switch)
+    if (per_cb < 0) per_cb = getenv("LARECOMP_GPU_TIMING_TRACE") != NULL;
+    cb->trace = per_cb;
     double submit_s = renderer_host_time_seconds();
     if (!gpu_time_open) gpu_time_open_window(submit_s, frame);
     if (gpu_time_open) {
