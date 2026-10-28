@@ -93,6 +93,9 @@ is a representative stationary frame, not a universal constant:
 | Overlay | 1 |
 | **Total** | **208** |
 
+These counts were taken with the transform-feedback pass ending of the time (`LARECOMP_XFB_END_BARRIER=0`); with the
+barrier on, which is the default after `docs/performance-xfb.md`, those 90 boundaries stay inside open passes.
+
 | Command buffer committed for | Count |
 | --- | ---: |
 | End of guest submission | 75 |

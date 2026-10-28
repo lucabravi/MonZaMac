@@ -153,6 +153,11 @@ the real Metal backend without loading game files. Use `CASE=views`, `clears`, `
 or `types` to select a group. Native sampler reduction and LOD-bias cases require macOS 26 and SDK 26; older builds
 report those cases as skipped.
 
+A transform-feedback buffer barrier reuses a render pass after GPU skinning. It is on by
+default; turn it off in the Developer tab (Cmd+Shift+D, "Keep passes open after skinning", applies at once), or launch with
+`LARECOMP_XFB_END_BARRIER=0` (forces the original behavior and overrides the setting; `=1` forces it on). See
+[measurements and limitations](docs/performance-xfb.md). The asset-free regression is `CASE=xfb-barrier`.
+
 ### Local GPU profiling
 
 In a running development build, write `gpuprofile 30` to `build/dbgcmd` to collect 30 complete presented frames.

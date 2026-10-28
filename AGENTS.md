@@ -55,5 +55,8 @@ Renderer tests need no game files: `MTL_DEBUG_LAYER=1 gmake B=build/za202 GEN=ge
 - Keep each change focused. A graphics fix isn't verified until seen on screen: say what you tested and what you
   couldn't (a Mac with the user's game files is needed for in-game checks).
 - Debug hooks are `LARECOMP_*` environment variables (grep `getenv("LARECOMP_`).
+- **Debugging the NPC pop-in (station)**: first switch off the borderline optimizations so they cannot hide or cause it:
+  `LARECOMP_XFB_END_BARRIER=0 LARECOMP_GPU_OVERLAP=0` (or both off in the Developer tab). Re-enable them one at a time to
+  check the fix holds with them on.
 - Never commit to `develop` or `main` directly: branch from `develop` (a worktree is fine) and open a PR to `develop` of
   `lucabravi/MonZaMac`, from a fork if you can't push there. `main` is updated by a PR from `develop` for each release.
