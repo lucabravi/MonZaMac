@@ -81,6 +81,12 @@ Independent code review found no production correctness issue. Its minor test fi
 the expected pass count respect the same macOS availability boundary. The production runtime was unchanged by
 that test-only correction.
 
+## Debugging the NPC pop-in
+
+The barrier (this change) and the CPU/GPU overlap are borderline optimizations: both rely on GPU ordering the game did not
+expect. When testing a fix for the characters popping in and out (mostly at Lumiose station), run with both off
+(`LARECOMP_XFB_END_BARRIER=0 LARECOMP_GPU_OVERLAP=0`, or the Developer tab), then turn them back on one at a time.
+
 ## Follow-up measurements
 
 Start future modifications with **one 1.5x run off and one on**, using the same scene/settings. Investigate further only when that pair
