@@ -384,7 +384,7 @@ static id<MTLCommandBuffer> cb(void) {
 }
 
 void renderer_texture_scale(NvnTexture *t, float *sx, float *sy);
-void renderer_texture_unscale(NvnTexture *t);
+void renderer_texture_unscale(NvnTexture *t, const char *why);
 void renderer_get_scale(float *sx, float *sy);
 static float pass_sx = 1, pass_sy = 1;  // allocation scale of the current pass's attachments
 static NSUInteger pass_layers = 1;
@@ -2166,7 +2166,7 @@ static void bind_textures(int stage, ShaderInfo *si) {
         if (h && st.tpool && tic < (uint32_t)st.tpool->count) {
             NvnTexEntry *e = &((NvnTexEntry *)st.tpool->entries)[tic];
             e_dbg_tex = e->tex;
-            if (e->tex && st_->is_image) renderer_texture_unscale(e->tex);
+            if (e->tex && st_->is_image) renderer_texture_unscale(e->tex, "image-bound");
             if (e->tex) tex = st_->stencil ? stencil_texture(e->tex) : sampled_texture_ex(e->tex, &e->view, e->has_view, st_->type, st_->is_image);
             if (e->tex && i < 64) {
                 renderer_texture_scale(e->tex, &tex_sc[stage][i][0], &tex_sc[stage][i][1]);
@@ -2533,7 +2533,12 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
         if (i < 64) tex_wh[0][i][0] = tex_wh[0][i][1] = 0;
         if (h && st.tpool && tic < (uint32_t)st.tpool->count) {
             NvnTexEntry *e = &((NvnTexEntry *)st.tpool->entries)[tic];
-            if (e->tex && st_->is_image) renderer_texture_unscale(e->tex);
+            if (e->tex && st_->is_image) renderer_texture_unscale(e->tex, "image-bound");
+            // (experiment, LARECOMP_CS_UNSCALE=1) a mipped texture a compute shader samples - the culling's depth pyramid
+            // - at the game's size: its mips, sizes and coordinates then behave as at 1x
+            static int cs_unscale = -1;
+            if (cs_unscale < 0) cs_unscale = getenv("LARECOMP_CS_UNSCALE") != NULL;
+            if (cs_unscale && e->tex && !st_->is_image && e->tex->levels > 1) renderer_texture_unscale(e->tex, "compute-read mipped");
             if (e->tex) tex = st_->stencil ? stencil_texture(e->tex) : sampled_texture_ex(e->tex, &e->view, e->has_view, st_->type, st_->is_image);
             if (e->tex && i < 64) {
                 renderer_texture_scale(e->tex, &tex_sc[0][i][0], &tex_sc[0][i][1]);
