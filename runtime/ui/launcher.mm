@@ -626,6 +626,7 @@ static Uint64 g_fs_entered;  // SDL_GetTicks() when the window finished entering
 static bool g_slot_done;  // the save picker has just chosen: PLAY goes on without asking again
 void saves_screen_open(void);  // ui/saves_ui.mm
 int saves_screen_draw(float scale, ImFont *body, ImFont *small_);
+void saves_home_footer(float *x, float *y, float *w, float *u);  // where the lines under the panel go
 int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready, bool show_setup, bool focus_first);
 void saves_new_game_begin(void);
 bool saves_new_game_draw(float scale, ImFont *body, ImFont *small_);
@@ -1584,7 +1585,12 @@ extern "C" void launcher_run(const char *root) {
             // status (lower left) and version (lower right) - not under the Settings / Game Files windows
             if (page == MAIN) {
             ImGui::PushFont(g_font_small);
-            ImGui::SetCursorPos(ImVec2(x0, ds.y - 118 * s));
+            // (the lines under the home panel, the width of the panel: its left and right edges)
+            float fx, fy, fw, fu;
+            saves_home_footer(&fx, &fy, &fw, &fu);
+            x0 = fx;
+            ImGui::SetWindowFontScale(fu * 0.8f / ImGui::GetFontSize());
+            ImGui::SetCursorScreenPos(ImVec2(fx, fy));
             if (status.empty()) {
                 {  // a drawn check mark (the Switch font has no ✓)
                     ImVec2 p = ImGui::GetCursorScreenPos();
@@ -1611,14 +1617,14 @@ extern "C" void launcher_run(const char *root) {
                // always the title movie's still: bright clouds here, under a shadow banner from the right
                 ImDrawList *dl = ImGui::GetWindowDrawList();
                 ImFont *font = ImGui::GetFont();
-                float fs = ImGui::GetFontSize(), right = ImGui::GetWindowPos().x + ds.x - 60 * s;
+                float fs = fu * 0.8f, right = fx + fw;
                 auto text = [&](ImVec2 p, float size, ImU32 col, const char *t, bool bold) {
                     for (float d : {2.5f, 1.5f, 0.8f}) dl->AddText(font, size, ImVec2(p.x + d * s, p.y + d * s), IM_COL32(4, 8, 30, 150), t);
                     dl->AddText(font, size, p, col, t);
                     if (bold) dl->AddText(font, size, ImVec2(p.x + 0.7f * s, p.y), col, t);
                 };
                 const std::string ver = tag_label(LARECOMP_VERSION, true), by = "by Rhapsodos93";  // (the build first: bug reports name it)
-                float vs = fs * 1.4f, y = ImGui::GetWindowPos().y + ds.y - 134 * s;
+                float vs = fs, y = fy;
                 ImVec2 vsz = font->CalcTextSizeA(vs, FLT_MAX, 0, ver.c_str()), bsz = font->CalcTextSizeA(vs, FLT_MAX, 0, by.c_str());
                 text(ImVec2(right - vsz.x, y), vs, IM_COL32(255, 255, 255, 255), ver.c_str(), false);
                 text(ImVec2(right - bsz.x, y + vsz.y), vs, IM_COL32(255, 255, 255, 255), by.c_str(), false);
@@ -1649,6 +1655,7 @@ extern "C" void launcher_run(const char *root) {
                 }
             }
             ImGui::PopFont();
+            ImGui::SetWindowFontScale(1);
             }
             ImGui::End();
             ImGui::EndDisabled();

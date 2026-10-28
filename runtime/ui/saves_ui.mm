@@ -309,6 +309,9 @@ static bool wide_button(ImDrawList *dl, const char *label, ImVec2 p, float w, fl
 }
 
 // 1 CONTINUE, 2 NEW GAME, 3 SAVES, 4 SETTINGS, 5 SET UP GAME FILES, 6 QUIT; 0 nothing yet
+static float g_foot[4];  // x, y, width, unit of the lines under the panel
+void saves_home_footer(float *x, float *y, float *w, float *u) { *x = g_foot[0], *y = g_foot[1], *w = g_foot[2], *u = g_foot[3]; }
+
 int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready, bool show_setup, bool focus_first) {
     static int age = 1000;
     if (++age > 90) { reload(); age = 0; }
@@ -317,8 +320,10 @@ int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready,
     // one unit u: the small font's size, shrunk when the window is short (the whole column then fits)
     int n = show_setup ? 6 : 5;
     float u = small_->FontSize, rows = 3.9f + 3.2f + n * 1.75f + 0.2f;
-    u *= fminf(1.0f, ds.y * 0.94f / (rows * u));
-    float w = fminf(ds.x * 0.92f, u * 17.0f), x = wp.x + (ds.x - w) * 0.5f, y = wp.y + (ds.y - rows * u) * 0.5f;
+    const float foot = 3.0f;  // (room for the two lines under the panel, in units)
+    u *= fminf(1.0f, ds.y * 0.94f / ((rows + foot) * u));
+    float w = fminf(ds.x * 0.92f, u * 17.0f), x = wp.x + (ds.x - w) * 0.5f, y = wp.y + (ds.y - (rows + foot) * u) * 0.5f + u * 0.7f;
+    g_foot[0] = x, g_foot[1] = y + rows * u + u * 1.5f, g_foot[2] = w, g_foot[3] = u;
 
     // the glass panel behind it all
     dl->AddRectFilled(ImVec2(x - u, y - u * 0.7f), ImVec2(x + w + u, y + rows * u + u * 0.7f), IM_COL32(4, 10, 26, 205), u * 0.8f);
