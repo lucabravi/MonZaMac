@@ -158,6 +158,36 @@ default; turn it off in the Developer tab (Cmd+Shift+D, "Keep passes open after 
 `LARECOMP_XFB_END_BARRIER=0` (forces the original behavior and overrides the setting; `=1` forces it on). See
 [measurements and limitations](docs/performance-xfb.md). The asset-free regression is `CASE=xfb-barrier`.
 
+### Local GPU profiling
+
+In a running development build, write `gpuprofile 30` to `build/dbgcmd` to collect 30 complete presented frames.
+The `[gpu-profile]` lines count guest draws, clear requests, compute dispatches, feedback copies, and the reasons
+actual render encoders and command buffers ended. Empty close/submit requests do not count. This is off until
+requested; it changes no render state and does not wait for the GPU. See [GPU measurements](docs/performance-gpu.md)
+for scope, results and limitations.
+
+To capture one complete frame, launch with Metal capture support, then request the capture from another terminal:
+
+```sh
+MTL_CAPTURE_ENABLED=1 tools/hang_sample.sh
+printf 'gpucapture\n' > build/dbgcmd
+```
+
+The command arms at a present boundary and captures the following frame, including uploads, post-processing and
+presentation. A `[gpucapture] completed` line gives the unique `.gputrace` path under `build/gputrace/` in the runtime
+data directory. Capture drains the queue at its boundaries, so capture-frame FPS is not a benchmark. Renderer
+reset cancels a pending or owned capture; another tool's active capture is left alone.
+
+Keep `.gputrace` documents local: they contain game buffers, textures and shaders, and can occupy tens of gigabytes.
+Do not commit or upload them, or derived shader sources. Report numeric measurements and descriptions instead.
+Xcode replay and **Profile after replay** can consume much more memory than the trace's disk size. Full-game
+counter profiling exceeded the available memory on the test Mac; prefer the lightweight histogram and HUD first.
+If inspecting a capture, supervise it and use an external process deadline; the one-frame command limits recorded
+frames, not Apple's capture finalization or Xcode analysis time.
+For live HUD measurements, use a separate launch with `MTL_HUD_ENABLED=1` and, optionally,
+`MTL_HUD_ENCODER_TIMING_ENABLED=1`; use a HUD-free process for capture. A combined HUD/capture run failed inside
+Apple's capture writer; a later HUD-free capture in a different scene completed, so the cause is not established.
+
 For a running development build, `trace 2` in `build/dbgcmd` logs draw and compute metadata for two presents
 without dumping textures. The window is capped at 120 presents; draw records include the frame and indirect-buffer offset.
 The offset describes GPU-backed indirect arguments; CPU-decoded indirect draws share the direct-draw sentinel. The same

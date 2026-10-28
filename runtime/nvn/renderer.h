@@ -25,6 +25,12 @@ void renderer_gpu_timing_complete(RendererGpuTimingToken *token, double gpu_star
 double renderer_gpu_timing_present(uint64_t frame, double *present_time, double *frame_ms, unsigned *samples);
 void renderer_gpu_timing_reset(void);
 
+// Opt-in live diagnostics; the boundary is after all work for a presented frame has been submitted.
+void renderer_debug_frame_boundary(uint64_t frame);
+void renderer_profile_pass_end(const char *reason);
+bool renderer_profile_active(void);
+void renderer_present_submit(void);
+
 bool renderer_is_gpu_owned(NvnTexture *t);
 void renderer_flush(void);  // finish all recorded GPU work
 void renderer_save_pipeline_archive(void);  // write cache/pipelines.bin now (also done at exit)
