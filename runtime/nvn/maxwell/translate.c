@@ -1468,8 +1468,11 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             if (slot < 32) c->txq_z |= 1u << slot;
             if (c->stage != STAGE_VERTEX) {  // report the guest size of scaled allocations
                 c->uses_rscale = true;
-                sp(&c->body, "    { uint lv = %s; uint4 q = uint4(uint(round(float(t%d.get_width(lv)) / rscale[%d].x)), "
-                   "uint(round(float(t%d.get_height(lv)) / rscale[%d].y)), tz%d(lv), t%d.get_num_mip_levels());\n",
+                // (level lv is the guest's base size halved lv times: a scaled allocation's own mip sizes divided by the
+                // scale differ from that at some levels - 1.5x: 25 rows / 1.5 = 17, the guest has 16 - and a depth
+                // pyramid's culling reads texels past its last written row)
+                sp(&c->body, "    { uint lv = %s; uint4 q = uint4(max(1u, uint(round(float(t%d.get_width()) / rscale[%d].x)) >> min(lv, 31u)), "
+                   "max(1u, uint(round(float(t%d.get_height()) / rscale[%d].y)) >> min(lv, 31u)), tz%d(lv), t%d.get_num_mip_levels());\n",
                    R(a), slot, slot + 1, slot, slot + 1, slot, slot);
             } else {
                 sp(&c->body, "    { uint lv = %s; uint4 q = uint4(t%d.get_width(lv), t%d.get_height(lv), tz%d(lv), t%d.get_num_mip_levels());\n",
