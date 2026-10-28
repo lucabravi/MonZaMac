@@ -285,8 +285,10 @@ bool saves_new_game_draw(float sc, ImFont *body, ImFont *small_) {
     return true;
 }
 
-static bool wide_button(ImDrawList *dl, const char *label, ImVec2 p, float w, float h, ImFont *font, float size, bool enabled,
-                        bool focus) {
+// 1: clicked; 2 (hold only): held down for HOLD_SECS (the click that ends the hold is dropped)
+static const float HOLD_SECS = 0.7f;
+static int wide_button(ImDrawList *dl, const char *label, ImVec2 p, float w, float h, ImFont *font, float size, bool enabled,
+                       bool focus, bool hold = false) {
     ImGui::SetCursorScreenPos(p);
     ImGui::PushID(label);
     if (focus) ImGui::SetKeyboardFocusHere();
@@ -294,6 +296,18 @@ static bool wide_button(ImDrawList *dl, const char *label, ImVec2 p, float w, fl
     ImGui::BeginDisabled(!enabled);
     bool clicked = ImGui::InvisibleButton("##b", ImVec2(w, h), ImGuiButtonFlags_EnableNav);
     bool hot = enabled && (ImGui::IsItemFocused() || ImGui::IsItemHovered());
+    static float held;
+    static bool held_fired;  // the hold already acted: the release after it is not a click
+    float frac = 0;
+    bool fired = false, swallow = false;
+    if (hold && enabled && ImGui::IsItemActive()) {
+        held += ImGui::GetIO().DeltaTime;
+        frac = fminf(held / HOLD_SECS, 1.0f);
+        if (frac >= 1.0f && !held_fired) fired = held_fired = true;
+    } else if (hold) {
+        swallow = held_fired && clicked;
+        held = 0, held_fired = false;
+    }
     ImGui::EndDisabled();
     ImGui::PopStyleColor();
     ImGui::PopID();
@@ -305,10 +319,12 @@ static bool wide_button(ImDrawList *dl, const char *label, ImVec2 p, float w, fl
     ImVec2 ts = font->CalcTextSizeA(size, FLT_MAX, 0, label);
     ImU32 col = !enabled ? IM_COL32(120, 135, 165, 150) : hot ? pal::accent : pal::text;
     dl->AddText(font, size, ImVec2(p.x + (w - ts.x) * 0.5f, p.y + (h - ts.y) * 0.5f), col, label);
-    return clicked && enabled;
+    if (frac > 0.15f) dl->AddRectFilled(ImVec2(p.x + r, q.y - 5), ImVec2(p.x + r + (w - 2 * r) * frac, q.y - 2), pal::accent, 2);
+    if (fired) return 2;
+    return clicked && enabled && !swallow ? 1 : 0;
 }
 
-// 1 CONTINUE, 2 NEW GAME, 3 SAVES, 4 SETTINGS, 5 SET UP GAME FILES, 6 QUIT; 0 nothing yet
+// 1 CONTINUE, 2 NEW GAME, 3 SAVES, 4 SETTINGS, 5 SET UP GAME FILES, 6 QUIT, 7 CONTINUE held down; 0 nothing yet
 static float g_foot[4];  // x, y, width, unit of the lines under the panel
 void saves_home_footer(float *x, float *y, float *w, float *u) { *x = g_foot[0], *y = g_foot[1], *w = g_foot[2], *u = g_foot[3]; }
 
@@ -375,7 +391,19 @@ int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready,
     for (int i = 0; i < n; i++) {
         bool f = first_focus && items[i].on;
         if (f) first_focus = false;
-        if (wide_button(dl, items[i].label, ImVec2(x, by + step * i), w, bh, small_, u * 0.95f, items[i].on, f)) act = items[i].act;
+        int r = wide_button(dl, items[i].label, ImVec2(x, by + step * i), w, bh, small_, u * 0.95f, items[i].on, f, items[i].act == 1);
+        if (r) act = r == 2 ? 7 : items[i].act;
     }
     return act;
+}
+
+// CONTINUE: does it have to ask? Not with one save that has progress: that one is used (selected and remembered).
+bool saves_choice_needed(void) {
+    int n = 0, last = 0;
+    for (int i = 0; i < g_n; i++)
+        if (g_slots[i].played) n++, last = i;
+    if (n != 1) return true;
+    saves_select(g_slots[last].id);
+    snprintf(g_settings.save_slot, sizeof g_settings.save_slot, "%s", g_slots[last].id);
+    return false;
 }
