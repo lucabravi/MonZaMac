@@ -305,30 +305,30 @@ static void style_init(void) {
     s.WindowPadding = ImVec2(28, 24); s.FramePadding = ImVec2(14, 8); s.ItemSpacing = ImVec2(14, 12);
     s.WindowBorderSize = 0; s.ScrollbarSize = 18;
     ImVec4 *c = s.Colors;
-    ImVec4 gold(0.93f, 0.76f, 0.33f, 1), gold_dim(0.62f, 0.49f, 0.20f, 1), green(0.15f, 0.36f, 0.25f, 1);
-    c[ImGuiCol_WindowBg] = ImVec4(0.06f, 0.09f, 0.08f, 0.94f);
-    c[ImGuiCol_ChildBg] = ImVec4(0.09f, 0.13f, 0.11f, 0.85f);
-    c[ImGuiCol_PopupBg] = ImVec4(0.07f, 0.10f, 0.09f, 0.98f);
-    c[ImGuiCol_Text] = ImVec4(0.96f, 0.94f, 0.88f, 1);
-    c[ImGuiCol_TextDisabled] = ImVec4(0.62f, 0.64f, 0.58f, 1);
-    c[ImGuiCol_FrameBg] = ImVec4(0.13f, 0.19f, 0.16f, 1);
+    ImVec4 gold(0.28f, 0.84f, 1.0f, 1), gold_dim(0.16f, 0.46f, 0.58f, 1), green(0.10f, 0.25f, 0.45f, 1);  // (the accent, kept under its old names)
+    c[ImGuiCol_WindowBg] = ImVec4(0.04f, 0.07f, 0.14f, 0.94f);
+    c[ImGuiCol_ChildBg] = ImVec4(0.06f, 0.11f, 0.20f, 0.85f);
+    c[ImGuiCol_PopupBg] = ImVec4(0.05f, 0.08f, 0.16f, 0.98f);
+    c[ImGuiCol_Text] = ImVec4(0.95f, 0.97f, 1.0f, 1);
+    c[ImGuiCol_TextDisabled] = ImVec4(0.58f, 0.64f, 0.74f, 1);
+    c[ImGuiCol_FrameBg] = ImVec4(0.09f, 0.16f, 0.28f, 1);
     c[ImGuiCol_FrameBgHovered] = green;
-    c[ImGuiCol_FrameBgActive] = ImVec4(0.19f, 0.45f, 0.31f, 1);
-    c[ImGuiCol_Button] = ImVec4(0.14f, 0.22f, 0.18f, 1);
+    c[ImGuiCol_FrameBgActive] = ImVec4(0.14f, 0.34f, 0.58f, 1);
+    c[ImGuiCol_Button] = ImVec4(0.10f, 0.18f, 0.32f, 1);
     c[ImGuiCol_ButtonHovered] = green;
-    c[ImGuiCol_ButtonActive] = ImVec4(0.21f, 0.50f, 0.34f, 1);
+    c[ImGuiCol_ButtonActive] = ImVec4(0.16f, 0.38f, 0.64f, 1);
     c[ImGuiCol_Header] = green;
-    c[ImGuiCol_HeaderHovered] = ImVec4(0.19f, 0.45f, 0.31f, 1);
-    c[ImGuiCol_HeaderActive] = ImVec4(0.21f, 0.50f, 0.34f, 1);
-    c[ImGuiCol_Tab] = ImVec4(0.12f, 0.18f, 0.15f, 1);
+    c[ImGuiCol_HeaderHovered] = ImVec4(0.14f, 0.34f, 0.58f, 1);
+    c[ImGuiCol_HeaderActive] = ImVec4(0.16f, 0.38f, 0.64f, 1);
+    c[ImGuiCol_Tab] = ImVec4(0.08f, 0.14f, 0.26f, 1);
     c[ImGuiCol_TabHovered] = green;
-    c[ImGuiCol_TabSelected] = ImVec4(0.21f, 0.44f, 0.31f, 1);
+    c[ImGuiCol_TabSelected] = ImVec4(0.14f, 0.34f, 0.56f, 1);
     c[ImGuiCol_TabSelectedOverline] = gold;
     c[ImGuiCol_CheckMark] = gold;
     c[ImGuiCol_SliderGrab] = gold_dim;
     c[ImGuiCol_SliderGrabActive] = gold;
     c[ImGuiCol_NavCursor] = gold;
-    c[ImGuiCol_Separator] = ImVec4(0.30f, 0.36f, 0.30f, 1);
+    c[ImGuiCol_Separator] = ImVec4(0.22f, 0.32f, 0.48f, 1);
     c[ImGuiCol_TitleBg] = c[ImGuiCol_TitleBgActive] = c[ImGuiCol_WindowBg];
 }
 
@@ -361,8 +361,8 @@ static void init(void) {
     char baloo[1024];
     if (const char *f = getenv("LARECOMP_MENU_FONT")) strlcpy(baloo, f, sizeof baloo);  // (test) another weight / face
     if (getenv("LARECOMP_MENU_FONT") || rt_resource("Baloo2-SemiBold.ttf", "third_party/fonts/Baloo2/Baloo2-SemiBold.ttf", baloo, sizeof baloo)) {
-        g_menu_font = io.Fonts->AddFontFromFileTTF(baloo, 39, &cfg);
-        g_menu_font_big = io.Fonts->AddFontFromFileTTF(baloo, 72, &cfg);
+        g_menu_font = io.Fonts->AddFontFromFileTTF(baloo, 33, &cfg);
+        g_menu_font_big = io.Fonts->AddFontFromFileTTF(baloo, 54, &cfg);
     }
     if (!g_font) g_font = io.Fonts->AddFontDefault();
     if (!g_font_big) g_font_big = g_font;
@@ -396,7 +396,7 @@ static void drain_events(ImGuiIO &io) {
 // Section header in the big font.
 static void header(const char *t) {
     ImGui::PushFont(g_font_big);
-    ImGui::TextColored(ImVec4(0.93f, 0.76f, 0.33f, 1), "%s", t);
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "%s", t);
     ImGui::PopFont();
     ImGui::Separator();
     ImGui::Spacing();
@@ -698,7 +698,7 @@ static void keyboard_draw(ImGuiIO &io, float scale) {
     ImGui::Begin("##kbd", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                                     ImGuiWindowFlags_AlwaysAutoResize);
     ImGui::PushFont(g_font_big);
-    ImGui::TextColored(ImVec4(0.93f, 0.76f, 0.33f, 1), "Enter your name");
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "Enter your name");
     ImGui::PopFont();
     static bool was_open, was_pad;
     bool pad = g_last_pad.load(), appearing = !was_open || pad != was_pad;  // (switching device: focus the new one)
@@ -812,8 +812,8 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
             bool lit = focused_tab == t.id && ImGui::GetCurrentContext()->NavCursorVisible;
             ImGui::PushStyleColor(ImGuiCol_NavCursor, ImVec4(0, 0, 0, 0));
             if (lit) {
-                ImGui::PushStyleColor(ImGuiCol_Tab, ImVec4(0.19f, 0.27f, 0.22f, 1));
-                ImGui::PushStyleColor(ImGuiCol_TabHovered, ImVec4(0.19f, 0.27f, 0.22f, 1));
+                ImGui::PushStyleColor(ImGuiCol_Tab, ImVec4(0.12f, 0.20f, 0.34f, 1));
+                ImGui::PushStyleColor(ImGuiCol_TabHovered, ImVec4(0.12f, 0.20f, 0.34f, 1));
             }
             if (g_focus_tab == -1 && !prelaunch) g_focus_tab = 8;  // (no Prelaunch in game: Controls, the first tab)
             bool focus_here = g_focus_tab == t.id || (g_focus_tab == -100 && t.id == g_tab);
@@ -830,7 +830,7 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
                 ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
                 float h = 4 * scale > 2 ? 4 * scale : 2;
                 ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(a.x + 2, b.y - h), ImVec2(b.x - 2, b.y),
-                                                          IM_COL32(236, 194, 84, 255));  // (the menu's gold)
+                                                          IM_COL32(72, 214, 255, 255));  // (the menu's gold)
             }
             if (ImGui::IsItemFocused()) focused_tab = t.id;
             else if (focused_tab == t.id) focused_tab = -99;
@@ -962,7 +962,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
     if (open) {
         // dim the game behind the menu
         ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(0, 0, 0, 110));
-        float w = fminf(io.DisplaySize.x * 0.9f, 1500 * scale), h = io.DisplaySize.y - 2 * 18 * scale;  // (all the height: a slim margin)
+        float w = fminf(io.DisplaySize.x * 0.78f, 1260 * scale), h = io.DisplaySize.y * 0.84f;  // (a window over the game, not all of it)
         ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
         ImGui::SetNextWindowSize(ImVec2(w, h), ImGuiCond_Always);
         ImGui::Begin("##menu", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
@@ -971,12 +971,18 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         ImGui::PushFont(g_menu_font);
         // header as on the start screen's Settings: the title, and a close X in the corner (B / Esc too). ("Title
         // screen" - rt_request_reboot(RT_REBOOT_TITLE) - is to find a new home; user 2026-10-11.)
+        ImVec2 title_at = ImGui::GetCursorScreenPos();
         ImGui::PushFont(g_font_big);
-        ImGui::TextColored(ImVec4(0.93f, 0.76f, 0.33f, 1), "Settings");
+        ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "Settings");
+        float title_h = ImGui::GetTextLineHeight();
         ImGui::PopFont();
-        {   // the build's version beside the title (bug reports name it)
-            ImGui::SameLine(0, 18 * scale);
-            ImGui::TextColored(ImVec4(0.72f, 0.70f, 0.64f, 1), "MonZaMac %s", rt_version_label());
+        {   // the build's version (bug reports name it): small, right side of the header, before the close X
+            char ver[64];
+            snprintf(ver, sizeof ver, "MonZaMac %s", rt_version_label());
+            float vs = ImGui::GetFontSize() * 0.85f, vw = ImGui::GetFont()->CalcTextSizeA(vs, FLT_MAX, 0, ver).x;
+            float right = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - 44 * scale - 26 * scale;
+            ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), vs, ImVec2(right - vw, title_at.y + (title_h - vs) * 0.6f),
+                                                IM_COL32(150, 172, 210, 255), ver);
         }
         {
             float bx = 44 * scale;
@@ -986,7 +992,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
             bool close = ImGui::InvisibleButton("##close", ImVec2(bx, bx), ImGuiButtonFlags_EnableNav);
             ImGui::PopStyleColor();
             bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
-            ImU32 col = hot ? IM_COL32(236, 194, 84, 255) : IM_COL32(220, 216, 205, 255);
+            ImU32 col = hot ? IM_COL32(72, 214, 255, 255) : IM_COL32(220, 228, 240, 255);
             float m = bx * 0.3f, t = (hot ? 3.0f : 2.4f) * scale * 1.5f;
             ImDrawList *dl = ImGui::GetWindowDrawList();
             if (hot) dl->AddRectFilled(p, ImVec2(p.x + bx, p.y + bx), IM_COL32(255, 255, 255, 20), 8 * scale);
