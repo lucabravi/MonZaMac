@@ -126,11 +126,15 @@ static void exec_lock_init(void) {
 static void exec_lock_take(void) { pthread_once(&exec_lock_once, exec_lock_init); pthread_mutex_lock(&exec_lock); }
 static void exec_lock_give(void) { pthread_mutex_unlock(&exec_lock); }
 
+uint64_t g_submit_ns;  // host time spent translating and submitting the game's command lists (Developer: F3)
+
 NVN(nvnQueueSubmitCommands) {
     int n = (int)A(1);
     const uint64_t *handles = AP(2);
     exec_lock_take();
+    uint64_t t0 = plat_now_ns();
     for (int i = 0; i < n; i++) backend_execute(handles[i]);
+    __atomic_add_fetch(&g_submit_ns, plat_now_ns() - t0, __ATOMIC_RELAXED);
     exec_lock_give();
 }
 NVN(nvnQueueFlush) { (void)c; static int seen_; if (!seen_++ && getenv("LARECOMP_LOG_NOOP")) LOG("[nvn] no-op called: nvnQueueFlush\n"); }

@@ -44,7 +44,38 @@ difference or a gap worth an in-game check; **n/a** not translated (the shader f
 | TEX array index | yuzu masks it to 16 bits | **unsure** (as TLDS 8) |
 | TEX.B, TLD, TLD.B, TXD, TMML.B, TXQ.B | | n/a |
 | TMML | Ra: layer (skipped), coords; Rd components swapped (comp ^ 1), 8.8 fixed point, z / w = 0 | ok (1D in MSL n/a) |
-| TXQ | query 22-27, WMask 31-34, lod Ra; dimension query | ok for width / height / levels. z is always 1: Ryujinx / yuzu return the depth or layer count for 3D / array textures. **unsure** (the slot's type may only be known after the TXQ) |
+| TXQ | query 22-27, WMask 31-34, lod Ra; dimension query | ok for width / height / levels (a scaled texture reports the guest size of the level: the base halved per level). z is always 1: Ryujinx / yuzu return the depth or layer count for 3D / array textures. **unsure** (the slot's type may only be known after the TXQ) |
+
+### Scaled screen-space integer reads (Metal)
+
+Render-target allocations can be larger than their guest dimensions. Converting fragment position to guest
+pixels, truncating it, and then fetching the centre of that guest texel repeated pixels in deferred lighting:
+raising internal resolution to 1.5x or 2x produced more jagged edges instead of preserving the extra samples.
+
+The Metal translator now carries the fractional position through ALD/IPA position.x/y, register MOV, and unmodified
+F32-to-I32 floor/truncate conversions into the individual TLDS coordinate. Metadata follows runtime predicates
+and branches and resets on other register writes, so a fixed lookup in the same shader stays fixed. Array layers
+and explicit LOD values are separate. Other coordinate arithmetic, vertex/compute stages,
+and GLSL retain their previous behaviour.
+
+The asset-free `scaled-fragment-fetch` Metal test (`CASE=scaling`) checks physical pixel IDs at 1x, 1.5x, 2x,
+1.5x-by-2x and 0.75x, including fixed lookups, mixed screen/fixed reads, MOV, a skipped predicated write, and
+explicit-LOD-zero TLDS, and IPA position loads. The original code lost 2,880 of 5,184 pixel IDs at 1.5x; the repaired
+path preserves all.
+
+### Scaled mip chains read by the culling (Metal)
+
+The game's culling reads the scene depth's own mip chain (its depth pyramid) with a min / max reduction sampler at the
+LOD whose texels cover an object on its screen. In a scaled allocation the texels of level L cover 1 / scale of that, so
+the sampler's footprint missed part of the object and visible objects were culled above 1x (never below, where texels
+cover more). Explicit sample LODs in fragment and compute shaders therefore add `rscale[slot].w`, which the host sets to
+`ceil(log2 scale)` for a scaled texture sampled with a reduction sampler and 0 otherwise (`hiz_lod`, `renderer.m`;
+`LARECOMP_HIZ_LOD=0` turns it off). Reduction samplers also ignore the LOD bias and anisotropy the "Sharper textures"
+patch sets on every sampler: the bias undid the level. Found by comparing the culling dispatches' buffers at 1x and
+1.5x (`tools/cs_diff.py`, `tools/cs_dump_diff.py`): the indirect draw arguments held fewer instances at 1.5x.
+
+Image stores and atomics (SUST / SURED) take the game's pixel coordinates, so a texture bound as an image is put back
+to the game's size (`renderer_texture_unscale`).
 
 ## Surfaces
 

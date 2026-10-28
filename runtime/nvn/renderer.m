@@ -27,13 +27,14 @@ static void dump_pending_arrays(void);
 static uint64_t stat_draws, stat_skipped, stat_passes, stat_dispatches, stat_wait_ns, stat_flushes, stat_feedback_copies;
 static uint64_t stat_skip_none, stat_skip_failed, stat_skip_wait;  // why a draw was dropped
 static double stat_gpu_s;
+static uint64_t stat_uniform_copied, stat_uniform_reused;
 static pthread_mutex_t gpu_timing_lock = PTHREAD_MUTEX_INITIALIZER;
 
-// LARECOMP_GPU_TIMING_TRACE: read once (asked at every command buffer submit and completion)
+// LARECOMP_GPU_TIMING_TRACE (read once; asked at every command buffer submit and completion) or the Developer tab's switch
 bool renderer_gpu_timing_trace(void) {
-    static int on = -1;
-    if (on < 0) on = getenv("LARECOMP_GPU_TIMING_TRACE") != NULL;
-    return on;
+    static int env = -1;
+    if (env < 0) env = getenv("LARECOMP_GPU_TIMING_TRACE") != NULL;
+    return env || g_settings.dev_gpu_trace;
 }
 
 #define GPU_TIME_WINDOW_CAP 64
@@ -152,7 +153,9 @@ RendererGpuTimingToken *renderer_gpu_timing_submit(uint64_t frame, const char *k
     cb->sequence = ++gpu_time_cb_sequence;
     cb->frame = frame;
     cb->kind = kind;
-    cb->trace = renderer_gpu_timing_trace();
+    static int per_cb = -1;  // (a line per command buffer, about 140 a frame: only by the variable, not the Developer switch)
+    if (per_cb < 0) per_cb = getenv("LARECOMP_GPU_TIMING_TRACE") != NULL;
+    cb->trace = per_cb;
     double submit_s = renderer_host_time_seconds();
     if (!gpu_time_open) gpu_time_open_window(submit_s, frame);
     if (gpu_time_open) {
@@ -322,6 +325,9 @@ static uint64_t hmix(uint64_t h, const void *p, size_t n) {
 }
 
 const char *renderer_stats(void) {
+    if (getenv("LARECOMP_UNIFORM_STATS"))
+        LOG("[uniform] copied %.1f MB reused %.1f MB\n", stat_uniform_copied / 1048576.0, stat_uniform_reused / 1048576.0);
+    stat_uniform_copied = stat_uniform_reused = 0;
     static int dumps;
     if (dumps++ < 3) {
         LOG("[metal] command counts:");
@@ -378,6 +384,7 @@ static id<MTLCommandBuffer> cb(void) {
 }
 
 void renderer_texture_scale(NvnTexture *t, float *sx, float *sy);
+void renderer_texture_unscale(NvnTexture *t, const char *why);
 void renderer_get_scale(float *sx, float *sy);
 static float pass_sx = 1, pass_sy = 1;  // allocation scale of the current pass's attachments
 static NSUInteger pass_layers = 1;
@@ -387,6 +394,7 @@ bool renderer_texture_presented(NvnTexture *t);
 // the stretched wide mapping. vp_* is the mapping for the current draw: physical = guest * s + off.
 static float vp_sx = 1, vp_sy = 1, vp_ox = 0, vp_oy = 0;
 static float tex_sc[2][64][2];          // per bound texture slot: allocation scale (for shaders' texel math)
+static float tex_lb[2][64];             // per bound texture slot: added to explicit sample LODs (hiz_lod)
 static uint32_t tex_wh[2][64][2];       // per bound texture slot: guest size
 #define RSCALE_BUFFER_INDEX 18
 
@@ -489,6 +497,24 @@ static pthread_mutex_t cb_lock = PTHREAD_MUTEX_INITIALIZER;
 #define CB_HIST 256
 static uint64_t submit_seq;
 static id<MTLCommandBuffer> cb_hist[CB_HIST];
+// CPU / GPU overlap (on by default; the Developer setting, or LARECOMP_GPU_OVERLAP=0/1). The game's frame loop
+// submits a frame, presents it and at once waits on that frame's fence (every nvnSyncWait is on the newest
+// submission), so a frame costs CPU + GPU time in series. With overlap the wait is taken one fence late:
+// SyncWait(fence N) waits for the submission of fence N-1 and returns, so the CPU builds frame N+1 while the GPU
+// draws frame N (at most two frames queued; a fence that is already complete is never waited for). What the game
+// may then touch while the GPU still reads it: its per-frame vertex data in the guest heap (bound in place, as is
+// the memory shaders read through the guest buffer); uniforms and direct-draw indices are snapshotted at
+// translation (ring_alloc), and GPU results the CPU reads are flushed synchronously at translation, so they don't
+// depend on the fence. The game's timing counters are host-side (CMD_REPORT_COUNTER), so they need nothing.
+static uint64_t deferred_seq;  // (cb_lock) the fence the game was told is done but whose submission wasn't waited for
+static bool overlap_on(void) {
+    static int env = -1;
+    if (env < 0) {
+        const char *e = ENV("LARECOMP_GPU_OVERLAP");
+        env = e ? (atoi(e) != 0) : 2;
+    }
+    return env == 2 ? g_settings.gpu_overlap : env == 1;
+}
 
 double renderer_host_time_seconds(void) {
     mach_timebase_info_data_t tb;
@@ -572,6 +598,9 @@ void renderer_flush(void) {
     g_wait_kind = 1;
     wait_cb(c);
     g_wait_kind = 0;
+    pthread_mutex_lock(&cb_lock);
+    deferred_seq = 0;  // (everything committed so far is done)
+    pthread_mutex_unlock(&cb_lock);
     ring_reset();
 }
 
@@ -584,6 +613,9 @@ void renderer_sync(void) {
     g_wait_kind = 2;
     wait_cb(c);
     g_wait_kind = 0;
+    pthread_mutex_lock(&cb_lock);
+    deferred_seq = 0;
+    pthread_mutex_unlock(&cb_lock);
 }
 
 // Sequence number a fence placed now belongs to: the pending (uncommitted) work's submission, else the last one.
@@ -616,6 +648,26 @@ void renderer_wait_seq(uint64_t seq) {
                 (unsigned long long)frames_seen, hist[0], hist[1], hist[2], hist[3], hist[4], hist[5], (unsigned long long)submit_seq);
             memset(hist, 0, sizeof hist);
             f0 = f;
+        }
+    }
+    if (overlap_on()) {  // (see deferred_seq) wait for the fence deferred last time, defer this one
+        pthread_mutex_lock(&cb_lock);
+        bool done = seq <= submit_seq && submit_seq - seq < CB_HIST && cb_hist[seq % CB_HIST] &&
+                    cb_hist[seq % CB_HIST].status >= MTLCommandBufferStatusCompleted;
+        uint64_t prev = deferred_seq;
+        if (done) {
+            if (seq >= prev) deferred_seq = 0;  // (in order: the older one is complete too)
+            pthread_mutex_unlock(&cb_lock);
+            return;
+        }
+        if (seq > prev) {  // a newer fence: the deferred one is waited for now, this one at the next call
+            deferred_seq = seq;
+            pthread_mutex_unlock(&cb_lock);
+            if (!prev) return;
+            seq = prev;
+        } else {  // the deferred fence again, or an older one: a real wait on it
+            if (seq == prev) deferred_seq = 0;
+            pthread_mutex_unlock(&cb_lock);
         }
     }
     pthread_mutex_lock(&cb_lock);
@@ -1033,23 +1085,48 @@ static int cbuf_base = 3, tex_base = 8;
 @end
 
 static id<MTLBuffer> ring;
-static uint64_t ring_off;
+static uint8_t *ring_data;
+static uint64_t ring_off, ring_epoch;
 #define RING_SIZE (64u << 20)
 
 static uint64_t ring_alloc(const void *data, uint64_t size) {
-    if (!ring) ring = [dev newBufferWithLength:RING_SIZE options:MTLResourceStorageModeShared];
     uint64_t aligned = (ring_off + 255) & ~255ull;
-    if (aligned + size > RING_SIZE) {
+    if (!ring || aligned + size > RING_SIZE) {
         // Start a fresh ring; command buffers in flight keep the old one alive until they complete.
         ring = [dev newBufferWithLength:(size > RING_SIZE ? size : RING_SIZE) options:MTLResourceStorageModeShared];
+        ring_data = ring.contents;
+        ring_epoch++;
         aligned = 0;
     }
-    memcpy((uint8_t *)ring.contents + aligned, data, size);
+    memcpy(ring_data + aligned, data, size);
     ring_off = aligned + size;
     return aligned;
 }
 
-static void ring_reset(void) { ring_off = 0; }
+static void ring_reset(void) { ring_off = 0; ring_epoch++; }
+
+// Uniforms must remain snapshots even if guest memory changes before the GPU reads them. Reuse a snapshot only
+// after comparing all bytes; reset/reallocation invalidates offsets so new allocations cannot overwrite a reuse.
+static uint64_t ring_snapshot(const void *data, uint64_t size) {
+    static struct { const void *source; uint64_t size, offset, epoch; } recent[128];
+    static int disabled = -1;
+    if (disabled < 0) disabled = getenv("LARECOMP_NO_UNIFORM_CACHE") != NULL;
+    if (disabled) { stat_uniform_copied += size; return ring_alloc(data, size); }
+    uint64_t h = (uintptr_t)data ^ (size * 0x9e3779b97f4a7c15ull);
+    unsigned slot = (h ^ (h >> 33)) & 127;
+    if (ring && recent[slot].epoch == ring_epoch && recent[slot].source == data &&
+        recent[slot].size == size && !memcmp(ring_data + recent[slot].offset, data, size)) {
+        stat_uniform_reused += size;
+        return recent[slot].offset;
+    }
+    uint64_t off = ring_alloc(data, size);
+    recent[slot].source = data;
+    recent[slot].size = size;
+    recent[slot].offset = off;
+    recent[slot].epoch = ring_epoch;
+    stat_uniform_copied += size;
+    return off;
+}
 
 // Bind guest memory [addr, addr+size) as a buffer: zero-copy inside the heap, copied otherwise.
 static void bind_guest(id<MTLRenderCommandEncoder> e, bool vertex_stage, uint64_t addr, uint64_t size, int index) {
@@ -1306,6 +1383,20 @@ static void pipeline_archive_rebuild(NSArray<MTLRenderPipelineDescriptor *> *wit
     for (MTLRenderPipelineDescriptor *pd in with) [g_archive addRenderPipelineFunctionsWithDescriptor:pd error:nil];
 }
 
+// What a pipeline is made of, for the log line of one the archive leaves out: the pattern of those is what is missing to
+// avoid the "expecting 'fragment' stage" failure (a rule like pipeline_archivable's below).
+static NSString *pipeline_describe(MTLRenderPipelineDescriptor *pd) {
+    NSMutableString *s = [NSMutableString stringWithFormat:@"raster %d samples %lu a2c %d depth %lu stencil %lu vs %@ fs %@ colour",
+        pd.rasterizationEnabled, (unsigned long)pd.rasterSampleCount, pd.alphaToCoverageEnabled,
+        (unsigned long)pd.depthAttachmentPixelFormat, (unsigned long)pd.stencilAttachmentPixelFormat,
+        pd.vertexFunction.name ?: @"-", pd.fragmentFunction.name ?: @"-"];
+    for (int i = 0; i < 8; i++) {
+        MTLRenderPipelineColorAttachmentDescriptor *c = pd.colorAttachments[i];
+        if (c.pixelFormat) [s appendFormat:@" %d:fmt%lu/mask%lx%@", i, (unsigned long)c.pixelFormat, (unsigned long)c.writeMask, c.blendingEnabled ? @"/blend" : @""];
+    }
+    return s;
+}
+
 static void pipeline_archive_save(void) {  // on g_archive_q
     if (!g_archive_dirty || !g_archive) return;
     // write next to the file and rename: the archive being looked up still reads the old one
@@ -1323,7 +1414,8 @@ static void pipeline_archive_save(void) {  // on g_archive_q
                 [g_archive_saved addObject:pd];
                 continue;
             }
-            LOG("[shader] pipeline archive: %s left out: %s\n", pd.label.UTF8String, err.localizedDescription.UTF8String);
+            LOG("[shader] pipeline archive: %s left out: %s | %s\n", pd.label.UTF8String, err.localizedDescription.UTF8String,
+                pipeline_describe(pd).UTF8String);
             pipeline_archive_rebuild(g_archive_saved);
         }
         [g_archive_new removeAllObjects];
@@ -1402,10 +1494,10 @@ static void pipeline_archive_add(MTLRenderPipelineDescriptor *pd, Prog *pr) {
     });
 }
 
-static bool sync_shaders(void) {  // LARECOMP_SYNC_SHADERS: compile on first use, blocking (deterministic tests)
+static bool sync_shaders(void) {  // LARECOMP_SYNC_SHADERS or the "Wait for shaders" setting: compile on first use, blocking
     static int v = -1;
     if (v < 0) v = getenv("LARECOMP_SYNC_SHADERS") != NULL;
-    return v;
+    return v || g_settings.wait_shaders;
 }
 
 // Native shader arguments must match the effective view's scalar type; integer/stencil reads return raw bits.
@@ -1629,12 +1721,12 @@ static id<MTLSamplerState> sampler_for(NvnSamplerDesc *d) {
     if (@available(macOS 26.0, *)) {
         if (d->reduction == 1) sd.reductionMode = MTLSamplerReductionModeMinimum;
         else if (d->reduction == 2) sd.reductionMode = MTLSamplerReductionModeMaximum;
-        sd.lodBias = d->lod_bias;
+        sd.lodBias = d->reduction ? 0 : d->lod_bias;  // (the Hi-Z min / max sampler keeps the level the culling asks for)
     }
 #endif
     sd.lodMinClamp = d->lod_min;
     sd.lodMaxClamp = d->lod_max > 1000 ? FLT_MAX : d->lod_max;
-    if (d->max_aniso > 1) sd.maxAnisotropy = (NSUInteger)fminf(d->max_aniso, 16);
+    if (d->max_aniso > 1 && !d->reduction) sd.maxAnisotropy = (NSUInteger)fminf(d->max_aniso, 16);
     if (d->lod_bias != 0 && getenv("LARECOMP_LOG_BIAS"))
         LOG("[sampler] lod bias %g (min filter %u, aniso %g)\n", d->lod_bias, mf, d->max_aniso);
     static float lodmin = -1;  // LARECOMP_LOD_MIN=<n>: skip the n sharpest mips everywhere (aliasing experiments)
@@ -1817,8 +1909,17 @@ static id<MTLTexture> sampled_texture_ex(NvnTexture *t, const NvnTextureView *v,
             tex = view_cached(src, 0x6000000000000000ull | 3, ^{ return [src newTextureViewWithPixelFormat:src.pixelFormat textureType:MTLTextureTypeCube levels:NSMakeRange(0, src.mipmapLevelCount) slices:NSMakeRange(0, 6)]; });
         else {
             static int nlog;
-            if (nlog++ < 30) LOG("[tex] type mismatch: fs %llx want %lu have %lu (%ux%ux%u target %u fmt %#x arr %lu)\n", (unsigned long long)g_cur_fs_hash, (unsigned long)want,
-                                 (unsigned long)tex.textureType, t->width, t->height, t->depth, t->target, t->format, (unsigned long)tex.arrayLength);
+            // Z-A (and Mario Kart 8, as nxnative found) binds a 2D texture, or a small 2D array, where a shader declares a cube:
+            // a placeholder for an environment map, or an input a branch does not take. The zero cube below is what is
+            // bound for it; that is not an error, so it is said apart from the real mismatches.
+            bool cube_slot = (want == MTLTextureTypeCube || want == MTLTextureTypeCubeArray) &&
+                             (tex.textureType == MTLTextureType2D || tex.textureType == MTLTextureType2DArray);
+            if (nlog++ < 30 && cube_slot)
+                LOG("[tex] cube slot holds a 2D texture (a placeholder, or an input not taken): zero cube bound, fs %llx (%ux%u fmt %#x arr %lu)\n",
+                    (unsigned long long)g_cur_fs_hash, t->width, t->height, t->format, (unsigned long)tex.arrayLength);
+            else if (nlog <= 30)
+                LOG("[tex] type mismatch: fs %llx want %lu have %lu (%ux%ux%u target %u fmt %#x arr %lu)\n", (unsigned long long)g_cur_fs_hash, (unsigned long)want,
+                    (unsigned long)tex.textureType, t->width, t->height, t->depth, t->target, t->format, (unsigned long)tex.arrayLength);
             uint32_t format = has_view && (v->setmask & 4) ? v->format : t->format;
             return dummy_texture_ex(want_type, rt_kind(format), image);
         }
@@ -1878,6 +1979,20 @@ static NvnTexture *shader_texture_object(int stage, ShaderTexture *st_) {
     uint32_t tic = h & 0xFFFFF;
     if (!h || !st.tpool || tic >= (uint32_t)st.tpool->count) return NULL;
     return ((NvnTexEntry *)st.tpool->entries)[tic].tex;
+}
+
+// The culling samples the scene depth's mip chain (its depth pyramid) with a min / max reduction sampler at the LOD whose
+// texels cover the object on the game's screen. A scaled allocation's level L texels cover 1 / scale of that, so the 2 x 2
+// footprint misses part of the object and the test stops being conservative: objects culled above 1x. Its explicit LODs go
+// up by ceil(log2 scale) (1.5x, 2x: +1). LARECOMP_HIZ_LOD=0: off.
+static float hiz_lod(const NvnSamplerDesc *sd, float sx, float sy) {
+    static int off = -1;
+    if (off < 0) off = getenv("LARECOMP_HIZ_LOD") && !atoi(getenv("LARECOMP_HIZ_LOD"));
+    if (off || !sd || !sd->reduction || (sx == 1 && sy == 1)) return 0;
+    float b = ceilf(log2f(fmaxf(sx, sy)) - 1e-4f);
+    static float logged = -100;
+    if (b != logged) { logged = b; LOG("[hiz] reduction sampler on a texture scaled %.2fx%.2f: explicit LODs %+g\n", sx, sy, b); }
+    return b;
 }
 
 static bool needs_feedback_snapshot(NvnTexture *t) {
@@ -2066,6 +2181,7 @@ static void bind_textures(int stage, ShaderInfo *si) {
         if (h && st.tpool && tic < (uint32_t)st.tpool->count) {
             NvnTexEntry *e = &((NvnTexEntry *)st.tpool->entries)[tic];
             e_dbg_tex = e->tex;
+            if (e->tex && st_->is_image) renderer_texture_unscale(e->tex, "image-bound");
             if (e->tex) tex = st_->stencil ? stencil_texture(e->tex) : sampled_texture_ex(e->tex, &e->view, e->has_view, st_->type, st_->is_image);
             if (e->tex && i < 64) {
                 renderer_texture_scale(e->tex, &tex_sc[stage][i][0], &tex_sc[stage][i][1]);
@@ -2156,6 +2272,7 @@ static void bind_textures(int stage, ShaderInfo *si) {
         }
         NvnSamplerDesc *sd = h && st.spool && tsc < (uint32_t)st.spool->count ? &((NvnSamplerDesc *)st.spool->entries)[tsc] : NULL;
         if (sd) smp = sampler_for(sd);
+        if (i < 64) tex_lb[stage][i] = hiz_lod(sd, tex_sc[stage][i][0], tex_sc[stage][i][1]);
         if (st_->shadow) tex = shadow_slot_texture(tex, st_);
         if (!tex) tex = dummy_texture_ex(st_->type, st_->scalar_kind, st_->is_image);
         {   // LARECOMP_DUMMY_TEX=<fs addr or fsh>:<slot>,...: bind the neutral dummy texture to these fragment shader inputs (A/B tests)
@@ -2238,7 +2355,7 @@ static void bind_cbufs(int stage, ShaderInfo *si) {
                 e[2] = (uint32_t)st.sbuf[stage][i].size;
             }
             uint64_t size = si->cbuf_size[0] > sizeof drv ? sizeof drv : (si->cbuf_size[0] ? si->cbuf_size[0] : 256);
-            uint64_t off = ring_alloc(drv, size);
+            uint64_t off = ring_snapshot(drv, size);
             if (stage == 0) [enc setVertexBuffer:ring offset:off atIndex:0];
             else [enc setFragmentBuffer:ring offset:off atIndex:0];
             continue;
@@ -2247,7 +2364,7 @@ static void bind_cbufs(int stage, ShaderInfo *si) {
             NvnShaderStage *ss = &st.program->stages[stage];
             uint64_t size = ss->const_size ? ss->const_size : 16;
             if (size < si->cbuf_size[1]) size = si->cbuf_size[1];
-            uint64_t off = ring_alloc((void *)(uintptr_t)(ss->code_addr + ss->const_offset), size);
+            uint64_t off = ring_snapshot((void *)(uintptr_t)(ss->code_addr + ss->const_offset), size);
             if (stage == 0) [enc setVertexBuffer:ring offset:off atIndex:1];
             else [enc setFragmentBuffer:ring offset:off atIndex:1];
             continue;
@@ -2257,7 +2374,7 @@ static void bind_cbufs(int stage, ShaderInfo *si) {
         uint64_t size = si->cbuf_size[k];
         if (!r.addr) {
             static const uint8_t zeros[0x10000];
-            uint64_t off = ring_alloc(zeros, size ? size : 256);
+            uint64_t off = ring_snapshot(zeros, size ? size : 256);
             if (stage == 0) [enc setVertexBuffer:ring offset:off atIndex:k];
             else [enc setFragmentBuffer:ring offset:off atIndex:k];
             continue;
@@ -2265,7 +2382,7 @@ static void bind_cbufs(int stage, ShaderInfo *si) {
         if ((si->cbuf_dynamic & (1u << k)) && r.size) size = r.size > 0x10000 ? 0x10000 : r.size;  // indexed: whole buffer
         if (size > r.size && r.size) size = r.size;
         if (size < 16) size = 16;
-        uint64_t off = ring_alloc((void *)(uintptr_t)r.addr, size);  // snapshot, as later CPU writes must not leak in
+        uint64_t off = ring_snapshot((void *)(uintptr_t)r.addr, size);  // snapshot, as later CPU writes must not leak in
         if (stage == 0) [enc setVertexBuffer:ring offset:off atIndex:k];
         else [enc setFragmentBuffer:ring offset:off atIndex:k];
     }
@@ -2321,6 +2438,52 @@ static CsProg *compute_program(NvnProgram *p) {
     return cp;
 }
 
+// (diagnostics, "trace n" in build/dbgcmd) one line per compute dispatch: what it wrote to its storage buffers and the
+// uniforms it read (FNV-1a over the first 4 MB of each range), and its textures as guest size, "*" if scaled, "i" if bound
+// as an image. Two logs of the same still scene at different internal resolutions then show which dispatch's output
+// changed with the resolution: tools/cs_diff.py.
+static uint64_t fnv_range(uint64_t addr, uint64_t size) {
+    uint64_t h = 1469598103934665603ull;
+    const uint64_t *p = (const uint64_t *)(uintptr_t)addr;
+    if (size > (4u << 20)) size = 4u << 20;
+    for (uint64_t i = 0; i < size / 8; i++) h = (h ^ p[i]) * 1099511628211ull;
+    return h;
+}
+
+static void cs_dump(char kind, int i, uint64_t addr, uint64_t size) {
+    extern uint64_t renderer_present_count(void);
+    if (!addr) return;
+    char path[160];
+    snprintf(path, sizeof path, "build/csdump/f%llu_%llx_%c%d.bin", (unsigned long long)renderer_present_count(),
+             (unsigned long long)st.program->stages[5].code_addr, kind, i);
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    fwrite((const void *)(uintptr_t)addr, 1, size > (1u << 20) ? (1u << 20) : size, f);
+    fclose(f);
+}
+
+static void cs_audit(ShaderInfo *si, uint32_t gx, uint32_t gy, uint32_t gz) {
+    extern uint64_t renderer_present_count(void);
+    renderer_flush();  // the output is read once the dispatch has run
+    char line[1024];
+    int n = snprintf(line, sizeof line, "[cs-out] f=%llu cs=%llx g=%ux%ux%u", (unsigned long long)renderer_present_count(),
+                     (unsigned long long)st.program->stages[5].code_addr, gx, gy, gz);
+    for (int i = 0; i < 16 && n < 900; i++)
+        if (st.sbuf[5][i].addr) n += snprintf(line + n, sizeof line - n, " s%d=%llx", i, (unsigned long long)fnv_range(st.sbuf[5][i].addr, st.sbuf[5][i].size));
+    for (int i = 0; i < 18 && n < 900; i++)
+        if (st.ubuf[5][i].addr) n += snprintf(line + n, sizeof line - n, " u%d=%llx", i, (unsigned long long)fnv_range(st.ubuf[5][i].addr, st.ubuf[5][i].size));
+    for (int i = 0; i < si->ntex && i < 64 && n < 900; i++)
+        if (tex_wh[0][i][0])
+            n += snprintf(line + n, sizeof line - n, " t%d=%ux%u%s%s", i, tex_wh[0][i][0], tex_wh[0][i][1],
+                          (tex_sc[0][i][0] != 1 || tex_sc[0][i][1] != 1) ? "*" : "", si->tex[i].is_image ? "i" : "");
+    LOG("%s\n", line);
+    if (getenv("LARECOMP_CS_DUMP")) {  // the buffers themselves (first 1 MB each) for tools/cs_dump_diff.py
+        mkdir("build/csdump", 0755);
+        for (int i = 0; i < 16; i++) cs_dump('s', i, st.sbuf[5][i].addr, st.sbuf[5][i].size);
+        for (int i = 0; i < 18; i++) cs_dump('u', i, st.ubuf[5][i].addr, st.ubuf[5][i].size);
+    }
+}
+
 static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
     snap_reason = "compute"; snapshots_invalidate(NULL);
     if (!st.program || !gx || !gy || !gz) return;
@@ -2348,12 +2511,12 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
                 uint32_t *e = &drv[(0x310 + 16 * i) / 4];
                 e[0] = (uint32_t)st.sbuf[5][i].addr; e[1] = (uint32_t)(st.sbuf[5][i].addr >> 32); e[2] = (uint32_t)st.sbuf[5][i].size;
             }
-            off = ring_alloc(drv, sizeof drv);
+            off = ring_snapshot(drv, sizeof drv);
         } else if (k == 1) {
             NvnShaderStage *ss = &st.program->stages[5];
             uint64_t size = ss->const_size ? ss->const_size : 16;
             if (size < si->cbuf_size[1]) size = si->cbuf_size[1];
-            off = ring_alloc((void *)(uintptr_t)(ss->code_addr + ss->const_offset), size);
+            off = ring_snapshot((void *)(uintptr_t)(ss->code_addr + ss->const_offset), size);
         } else {
             int idx = k - cbuf_base;
             Range r = (idx >= 0 && idx < 18) ? st.ubuf[5][idx] : (Range){0, 0};
@@ -2362,10 +2525,10 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
                 if ((si->cbuf_dynamic & (1u << k)) && r.size) size = r.size > 0x10000 ? 0x10000 : r.size;
                 if (size > r.size && r.size) size = r.size;
                 if (size < 16) size = 16;
-                off = ring_alloc((void *)(uintptr_t)r.addr, size);
+                off = ring_snapshot((void *)(uintptr_t)r.addr, size);
             } else {
                 static const uint8_t zeros[0x10000];
-                off = ring_alloc(zeros, size);
+                off = ring_snapshot(zeros, size);
             }
         }
         [ce setBuffer:ring offset:off atIndex:k];
@@ -2383,14 +2546,20 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
         id<MTLSamplerState> smp = nil;
         uint32_t tic = h & 0xFFFFF, tsc = (uint32_t)(h >> 20) & 0xFFF;
         tex_sc[0][i][0] = tex_sc[0][i][1] = 1;
+        if (i < 64) tex_wh[0][i][0] = tex_wh[0][i][1] = 0;
         if (h && st.tpool && tic < (uint32_t)st.tpool->count) {
             NvnTexEntry *e = &((NvnTexEntry *)st.tpool->entries)[tic];
+            if (e->tex && st_->is_image) renderer_texture_unscale(e->tex, "image-bound");
             if (e->tex) tex = st_->stencil ? stencil_texture(e->tex) : sampled_texture_ex(e->tex, &e->view, e->has_view, st_->type, st_->is_image);
-            if (e->tex && i < 64) renderer_texture_scale(e->tex, &tex_sc[0][i][0], &tex_sc[0][i][1]);
+            if (e->tex && i < 64) {
+                renderer_texture_scale(e->tex, &tex_sc[0][i][0], &tex_sc[0][i][1]);
+                tex_wh[0][i][0] = e->tex->width; tex_wh[0][i][1] = e->tex->height;
+            }
             if (!st_->is_image) tex = feedback_sample(e, tex);
         }
         NvnSamplerDesc *sd = h && st.spool && tsc < (uint32_t)st.spool->count ? &((NvnSamplerDesc *)st.spool->entries)[tsc] : NULL;
         if (sd) smp = sampler_for(sd);
+        if (i < 64) tex_lb[0][i] = hiz_lod(sd, tex_sc[0][i][0], tex_sc[0][i][1]);
         if (!smp) smp = default_sampler();
         if (st_->shadow) tex = shadow_slot_texture(tex, st_);
         [ce setTexture:tex ? tex : dummy_texture_ex(st_->type, st_->scalar_kind, st_->is_image) atIndex:i];
@@ -2406,7 +2575,7 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
     }
     if (si->uses_rscale) {
         float rs[65][4] = {{1, 1, 0, 0}};
-        for (int i = 0; i < si->ntex && i < 64; i++) { rs[1 + i][0] = tex_sc[0][i][0]; rs[1 + i][1] = tex_sc[0][i][1]; }
+        for (int i = 0; i < si->ntex && i < 64; i++) { rs[1 + i][0] = tex_sc[0][i][0]; rs[1 + i][1] = tex_sc[0][i][1]; rs[1 + i][3] = tex_lb[0][i]; }
         [ce setBytes:rs length:(NSUInteger)(1 + si->ntex) * 16 atIndex:RSCALE_BUFFER_INDEX];
     }
     CST("dispatch");
@@ -2424,6 +2593,7 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
     [ce endEncoding];
     CST("done");
     stat_dispatches++;
+    if (trace_frame()) cs_audit(si, gx, gy, gz);
 }
 
 static MTLPrimitiveType prim_type(uint32_t mode, bool *ok) {
@@ -3281,7 +3451,7 @@ static void draw(CmdRec *r, bool indexed) {
     apply_scissor();
     if (pr->fi->uses_rscale) {  // [0] = render target scale, [1 + i] = scale of texture i
         float rs[66][4] = {{vp_sx, vp_sy, vp_ox, vp_oy}};
-        for (int i = 0; i < pr->fi->ntex && i < 64; i++) { rs[1 + i][0] = tex_sc[1][i][0]; rs[1 + i][1] = tex_sc[1][i][1]; }
+        for (int i = 0; i < pr->fi->ntex && i < 64; i++) { rs[1 + i][0] = tex_sc[1][i][0]; rs[1 + i][1] = tex_sc[1][i][1]; rs[1 + i][3] = tex_lb[1][i]; }
         if (fkey.flip_x) rs[65][0] = (float)st.rt.color[0]->width;  // (mirror mode: the composite's width, guest pixels)
         [enc setFragmentBytes:rs length:(NSUInteger)(fkey.flip_x ? 66 : 1 + pr->fi->ntex) * 16 atIndex:RSCALE_BUFFER_INDEX];
     }
