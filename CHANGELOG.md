@@ -9,6 +9,7 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   it now stays open with a Metal buffer barrier (about 1 ms less GPU time a frame in the tested scenes: 38 to 42 fps at
   1.5x in one test). Developer tab "Keep passes open after skinning" turns it off at once;
   `LARECOMP_XFB_END_BARRIER=0` too.
+- Developer GPU profiling: opt-in, one-frame Metal captures and per-frame pass/submission break histograms.
 
 ## 0.1.1
 
