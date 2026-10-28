@@ -2340,15 +2340,22 @@ static bool forward_table(ForwardFlow *f, const uint64_t *code, size_t end, size
 // stacks, loops and unbounded tables retain the dispatcher. Only compiler-owned c1 is specialized.
 static bool emit_forward_flow(Ctx *c, const uint64_t *code, size_t end,
                               const uint8_t *constants, size_t constants_size, bool annotate) {
-    const char *enabled = getenv("LARECOMP_STRUCTURED_FLOW");
-    if (c->glsl || !enabled || !atoi(enabled) || !constants || !constants_size || end < 2) return false;
+    const char *enabled = getenv("LARECOMP_STRUCTURED_FLOW");  // on unless set to 0
+    if (c->glsl || (enabled && !atoi(enabled)) || !constants || !constants_size || end < 2) return false;
     ForwardFlow *f = calloc(end + 2, sizeof *f);
     if (!f) return false;
     bool ok = false, has_brx = false;
     for (size_t i = 1; i < end; i++) {
         if (!(i % 4)) continue;
         uint64_t w = code[i], op = w & 0xfff0000000000000ull;
-        if (op != 0xe290000000000000ull && op != 0xe2a0000000000000ull && bits(w, 16, 4) == 15) continue;
+        if (op != 0xe290000000000000ull && op != 0xe2a0000000000000ull && bits(w, 16, 4) == 15) {  // (@!PT: never runs)
+            // a flow op that never runs would be emitted as a plain instruction, naming the pc state this path doesn't have
+            if (op == 0xe240000000000000ull || op == 0xe250000000000000ull || (w & 0xfff8000000000000ull) == 0xf0f8000000000000ull ||
+                op == 0xe340000000000000ull || op == 0xe300000000000000ull || op == 0xe2b0000000000000ull ||
+                op == 0xe350000000000000ull || op == 0xe260000000000000ull || op == 0xe270000000000000ull ||
+                op == 0xe320000000000000ull) goto done;
+            continue;
+        }
         if (op == 0xe290000000000000ull) f[i].kind = FLOW_SSY;
         else if (op == 0xe2a0000000000000ull) f[i].kind = FLOW_PBK;
         else if (op == 0xe240000000000000ull) f[i].kind = FLOW_BRA;
@@ -2419,6 +2426,7 @@ static bool emit_forward_flow(Ctx *c, const uint64_t *code, size_t end,
                    pc + 8, R((int)bits(w, 8, 8)), (uint32_t)sbits(w, 20, 24));
                 for (unsigned j = 0; j < f[i].njumps; j++)
                     sp(&c->body, "    case %uu: flow_%u = true; break;\n", f[i].jumps[j] * 8, f[i].jumps[j]);
+                // (no default target: the table is bounded by the checked MIN, so every index lands on a case)
                 sp(&c->body, "    default: break;\n    } }\n");
             } else if (f[i].kind != FLOW_EXIT) sp(&c->body, "    flow_%u = true;\n", f[i].to);
             sp(&c->body, "    flow_live = false;\n");

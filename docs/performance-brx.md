@@ -1,11 +1,11 @@
-# Experimental structured BRX control flow
+# Structured BRX control flow
 
 ## Implementation
 
-The translator normally emits a `switch (pc)` loop for shaders with branches. The experimental
-`LARECOMP_STRUCTURED_FLOW=1` path emits proven acyclic control flow as native conditional blocks and small
+The translator normally emits a `switch (pc)` loop for shaders with branches. The
+structured path (on by default; `LARECOMP_STRUCTURED_FLOW=0` turns it off) emits proven acyclic control flow as native conditional blocks and small
 direct switches. Incoming edge predicates merge before a block executes; accepted shaders no longer need the
-PC loop or SSY/PBK arrays. The option is disabled by default.
+PC loop or SSY/PBK arrays. A flow instruction that never runs (`@!PT`) also keeps the dispatcher.
 
 Computed targets come from compiler-owned c1 tables. The recognizer requires consecutive unsigned immediate
 MIN, shift-left-by-two, 32-bit c1 load and BRX instructions, validates their register chain and predicates,
@@ -43,16 +43,10 @@ metadata is recorded here; game code, shaders, dumps and screenshots remain loca
 - A synthetic 32-lane GPU case covers a bounded computed switch nested in SSY/PBK, conditional SYNC,
   reconvergence before SHFL, exact outputs, and fallback for incomplete tables or backward destinations.
   The activation assertion failed before implementation and passed afterward.
-- Metal API Validation: **86/86 renderer tests passed** with `LARECOMP_STRUCTURED_FLOW=1`.
+- Metal API Validation: **86/86 renderer tests passed** with the path enabled.
 - The runtime built successfully using the existing complete game library.
 - Manual visual/gameplay verification and independent code review are pending. No claim of visual equivalence
   is made yet. Battles, other scenes/Macs and long play sessions have not been tested.
 
-To try the experimental path:
-
-```sh
-LARECOMP_STRUCTURED_FLOW=1 tools/hang_sample.sh
-```
-
-Unset the variable or use `LARECOMP_STRUCTURED_FLOW=0` to compare against the original path. Further performance
+To compare against the original path, run with `LARECOMP_STRUCTURED_FLOW=0`. Further performance
 work starts with one 1.5x off/on pair per actual modification; expand only when there is a useful signal.
