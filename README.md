@@ -48,7 +48,7 @@ You need a Mac with Apple Silicon (macOS 15 or later) and **your own copy of the
 4. On the start screen choose **SET UP GAME FILES** and confirm that you own an original copy. Select your base game
    (**NSP or XCI**), the **v2.0.2 update (NSP)** and your **prod.keys**. The app checks them, applies the update and
    builds the game on your Mac: it takes a while and needs about 25 GB of free space. Nothing is uploaded.
-5. When it is done, press **PLAY**. Your saves and settings are kept in `~/Library/Application Support/com.monzamac.app`, and stay
+5. When it is done, press **PLAY**. Pick which save to use on the screen that follows (or start a new one); your saves and settings are kept in `~/Library/Application Support/com.monzamac.app`, and stay
    there when you update the app.
 
 In the game: **F1** opens the menu (video, audio, controls), **F3** shows the frame rate and the render resolution.

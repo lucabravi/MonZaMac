@@ -16,6 +16,7 @@ static const char *settings_file(void) {
 }
 
 Settings g_settings = {
+    .save_ask = true,
     .aspect = ASPECT_ORIGINAL,
     .fullscreen = false,
     .res_mode = 1,  // 1x: the Switch's 1080p
@@ -130,6 +131,8 @@ void settings_load(void) {
                 if (!strcmp(val, g_language_codes[i])) g_settings.language = i;
         }
         else if (!strcmp(key, "menu_tip_seen")) g_settings.menu_tip_seen = atoi(val) != 0, tip_key = true;
+        else if (!strcmp(key, "save_ask")) g_settings.save_ask = atoi(val) != 0;
+        else if (!strcmp(key, "save_slot")) snprintf(g_settings.save_slot, sizeof g_settings.save_slot, "%s", val);
         else if (!strcmp(key, "aspect_asked")) g_settings.aspect_asked = atoi(val) != 0, aspect_key = true;
         else bind_settings_load(key, val);  // bind_pad_* / bind_key_*: runtime/hle/bindings.c
     }
@@ -185,6 +188,8 @@ void settings_save(void) {
                                                      ? g_settings.language : LANG_AUTO]);
     fprintf(f, "aspect_asked = %d\n", g_settings.aspect_asked);
     fprintf(f, "menu_tip_seen = %d\n", g_settings.menu_tip_seen);
+    fprintf(f, "save_ask = %d\n", g_settings.save_ask);
+    fprintf(f, "save_slot = %s\n", g_settings.save_slot);
     bind_settings_save(f);
     fclose(f);
 }
