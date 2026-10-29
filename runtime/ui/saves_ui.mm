@@ -359,13 +359,10 @@ int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready,
     dl->AddRectFilled(cp, cq, IM_COL32(22, 40, 74, 235), u * 0.4f);
     dl->AddRect(cp, cq, pal::edge, u * 0.4f, 0, 1.5f);
     if (any) {
-        char line[96], sz[24];
+        char line[96];
         when(*cur, line, sizeof line);
         dl->AddText(small_, u * 1.15f, ImVec2(x + u * 0.7f, ty + u * 0.35f), pal::text, cur->name);
         dl->AddText(small_, u * 0.8f, ImVec2(x + u * 0.7f, ty + u * 1.6f), pal::sub, line);
-        size_label(cur->bytes, sz, sizeof sz);
-        ImVec2 zs = small_->CalcTextSizeA(u * 0.85f, FLT_MAX, 0, sz);
-        dl->AddText(small_, u * 0.85f, ImVec2(x + w - u * 0.7f - zs.x, ty + (ch - zs.y) * 0.5f), pal::sub, sz);
     } else {
         dl->AddText(small_, u * 1.0f, ImVec2(x + u * 0.7f, ty + u * 0.45f), pal::text, "No saves yet");
         dl->AddText(small_, u * 0.8f, ImVec2(x + u * 0.7f, ty + u * 1.55f), pal::sub, "Choose NEW GAME to begin.");
