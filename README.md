@@ -25,6 +25,10 @@
 
 ---
 
+<p align="center">
+  <img src="docs/screenshots/start-screen.png" alt="The MonZaMac start screen: the most recent save, and CONTINUE, NEW GAME, SAVES, SETTINGS and QUIT" width="380">
+</p>
+
 A native macOS port of **Pokémon Legends: Z-A** (Nintendo Switch, v2.0.2 + the Mega Dimension DLC) built by **static
 recompilation**: the game's ARM64 code is translated ahead of time into C and compiled for the Mac, and the Switch's
 operating system and GPU (NVN) are reimplemented in the runtime. No emulator runs at play time.
