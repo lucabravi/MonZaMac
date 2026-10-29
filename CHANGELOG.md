@@ -18,8 +18,8 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 - **Hidden files** such as `.DS_Store` in `save/` are no longer counted as progress.
 
 ### Station
-- **Fewer NPC pop-ins at Lumiose station:** the game's appearance budgets for characters are raised there. This
-  mitigates the known issue; it is not a full fix, and the README still lists it.
+- **NPC pop-ins at Lumiose station are fixed:** the game's appearance budgets for characters are raised (64 active
+  instead of 20; `LARECOMP_NPC_CAPACITY_FIX=0` restores the originals).
 
 ### Developer
 - **Uncapped frame rate benchmark** (Developer tab): turns off the frame limit to measure the GPU and CPU on their own.
