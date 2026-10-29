@@ -629,6 +629,9 @@ static void tab_developer(void) {
                "Writes the GPU time of each frame's present window to the log, two lines per frame. For measuring. "
                "LARECOMP_GPU_TIMING_TRACE=1 also writes a line per command buffer (about 140 a frame).");
     opt_section("Experimental");
+    opt_toggle("Uncapped FPS (benchmark)", &g_settings.dev_uncapped_fps, false,
+               "For throughput measurements only. Removes frame pacing and display sync. Gameplay, animations and "
+               "timers may run too fast. Turn off for normal play; this overrides the selected frame rate.");
     opt_toggle("CPU/GPU overlap", &g_settings.gpu_overlap, true,
                "The game waits for each frame's GPU work right after sending it, so the CPU and the GPU take turns. On: the "
                "wait is one frame late, so the CPU prepares the next frame while the GPU draws this one: a higher frame "
@@ -940,6 +943,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         ImGui::Begin("##fps", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
                                         ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing);
         ImGui::Text("%.0f fps", io.Framerate);
+        if (settings_uncapped_fps()) ImGui::TextUnformatted("BENCHMARK: game speed may change");
         if (g_stats.load()) {  // F3: what the 3D image renders at (the game's own size times the output scale)
             extern int g_out_present_interval;
             float sx, sy;

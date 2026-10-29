@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "../kernel.h"
+#include "../settings.h"
 #include "nvn.h"
 
 void renderer_sync(void);
@@ -743,11 +744,12 @@ static void present_pace(int interval) {
     static uint64_t next;
     if (forced == -2) forced = getenv("LARECOMP_PRESENT_INTERVAL") ? atoi(getenv("LARECOMP_PRESENT_INTERVAL")) : -1;
     if (forced >= 0) interval = forced;
+    if (settings_uncapped_fps()) interval = 0;
     static int logged = -12345;
     if (interval != logged) { logged = interval; LOG("[nvn] present interval %d\n", interval); }
     extern int g_out_present_interval;  // (output_scale.c: dynamic resolution's frame budget)
     g_out_present_interval = interval;
-    if (interval <= 0) return;
+    if (interval <= 0) { next = 0; return; }
     if (interval > 4) interval = 1;  // (not a sane interval: the console's default)
     uint64_t period = 16666667ull * (uint64_t)interval, now = plat_now_ns();
     if (next > now && next - now <= period) plat_sleep_until_ns(next);
