@@ -39,8 +39,8 @@ static bool exists(const char *p) {
     return lstat(p, &st) == 0;
 }
 
-// Newest modification time and total size of the regular files under p (links are not followed).
-static void scan(const char *p, long long *newest, unsigned long long *bytes) {
+// Newest modification time of the regular files under p (links are not followed).
+static void scan(const char *p, long long *newest) {
     DIR *d = opendir(p);
     if (!d) return;
     struct dirent *e;
@@ -50,9 +50,8 @@ static void scan(const char *p, long long *newest, unsigned long long *bytes) {
         snprintf(q, sizeof q, "%s/%s", p, e->d_name);
         struct stat st;
         if (lstat(q, &st) != 0) continue;
-        if (S_ISDIR(st.st_mode)) scan(q, newest, bytes);
+        if (S_ISDIR(st.st_mode)) scan(q, newest);
         else if (S_ISREG(st.st_mode)) {
-            *bytes += (unsigned long long)st.st_size;
             if ((long long)st.st_mtime > *newest) *newest = (long long)st.st_mtime;
         }
     }
@@ -64,7 +63,7 @@ static void fill(SaveSlot *s, const char *id) {
     snprintf(s->id, sizeof s->id, "%s", id);
     snprintf(s->name, sizeof s->name, "%s", *id ? id : ORIGINAL_NAME);
     slot_path(id, s->path, sizeof s->path);
-    scan(s->path, &s->played, &s->bytes);
+    scan(s->path, &s->played);
     struct stat st;
     if (stat(s->path, &st) == 0)
 #ifdef __APPLE__
@@ -158,8 +157,7 @@ static bool new_slot_path(const char *name, char *id, char *path, size_t n) {
     if (!clean_name(name, id)) return false;
     if (!strcasecmp(id, ORIGINAL_NAME)) {  // (that name is the original save/'s, while it holds a save)
         long long t = 0;
-        unsigned long long b = 0;
-        scan(DEFAULT_DIR, &t, &b);
+        scan(DEFAULT_DIR, &t);
         if (t) return false;
     }
     snprintf(path, n, ROOT "/%s", id);
