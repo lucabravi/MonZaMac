@@ -69,10 +69,10 @@ static void step_sites(void) {
     if (!memcmp(g_game_build, b202, 8)) g_step60 = 0x7003393e20, g_step30 = 0x7003393e28, g_step_flag = 0x700610b980;
 }
 
+static uint64_t g_dynamic_last;
+static double g_dynamic_smooth; // seconds per frame
 static void dynamic_steps(void) {
     static int ok = -1;
-    static uint64_t last;
-    static double smooth;  // seconds per frame
     static int band = -1;
     if (ok < 0) {
         step_sites();
@@ -81,12 +81,12 @@ static void dynamic_steps(void) {
     }
     if (!ok) return;
     uint64_t now = plat_now_ns();
-    double dt = last ? (now - last) / 1e9 : 0;
-    last = now;
+    double dt = g_dynamic_last ? (now - g_dynamic_last) / 1e9 : 0;
+    g_dynamic_last = now;
     if (dt <= 0) return;
     if (dt > 0.25) dt = 0.25;  // (a stall or a load: not the frame rate)
-    smooth = smooth > 0 ? dt * 0.05 + smooth * 0.95 : dt;
-    int fps = (int)floor(1.0 / smooth);
+    g_dynamic_smooth = g_dynamic_smooth > 0 ? dt * 0.05 + g_dynamic_smooth * 0.95 : dt;
+    int fps = (int)floor(1.0 / g_dynamic_smooth);
     uint64_t period = STEP_NS60;
     if (fps < 58 && !LD8(g_step_flag)) {
         period = fps > 0 ? (uint64_t)(1e9f / (float)fps) : STEP_NS30;
@@ -104,6 +104,14 @@ extern void rt_za_npc_capacity(void);
 int32_t rt_za_frame_cfg(int32_t cfg) {
     rt_za_npc_capacity();
     g_za_frame_hook = true;
+    static bool was_uncapped;
+    bool uncapped = settings_uncapped_fps();
+    if (uncapped != was_uncapped) {
+        g_dynamic_last = 0;
+        g_dynamic_smooth = 0;
+        was_uncapped = uncapped;
+    }
+    if (uncapped) return 0; // benchmark: force the fast frame mode without adapting game time
     const char *e = ENV("LARECOMP_FPS");
     bool on = e ? atoi(e) >= 60 : g_settings.fps60;
     static int logged = -1;
