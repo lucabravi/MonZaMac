@@ -99,7 +99,10 @@ static void dynamic_steps(void) {
     band = now_band;
 }
 
+// Update appearance budgets on the guest frame thread, before its entity jobs run.
+extern void rt_za_npc_capacity(void);
 int32_t rt_za_frame_cfg(int32_t cfg) {
+    rt_za_npc_capacity();
     g_za_frame_hook = true;
     const char *e = ENV("LARECOMP_FPS");
     bool on = e ? atoi(e) >= 60 : g_settings.fps60;
