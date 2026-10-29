@@ -35,6 +35,7 @@ typedef struct {
     bool fps60;  // Pokémon Z-A: its frame clock at 1/60 s per frame (runtime/hle/framepace.c)
     bool developer;      // the Developer tab of the menu is shown (ini "developer = 1", LARECOMP_DEVELOPER, Cmd+Shift+D)
     bool dev_gpu_trace;  // Developer: the GPU time per present window in the log (LARECOMP_GPU_TIMING_TRACE adds a line per command buffer)
+    bool dev_uncapped_fps; // Developer benchmark only: presentation uncapped, gameplay timing may be incorrect
     bool dev_frame_stats;  // Developer: CPU submit time and GPU busy time per frame on the F3 overlay
     bool xfb_barrier;    // on by default (Developer tab): the render pass stays open after GPU skinning (a buffer barrier instead of ending it; LARECOMP_XFB_END_BARRIER=0/1 overrides)
     bool gpu_overlap;    // on by default (Developer tab): the game's frame fence is waited one frame late, so its CPU work on frame N+1 overlaps the GPU's frame N (runtime/nvn/renderer.m)
@@ -60,6 +61,7 @@ extern Settings g_settings;
 
 void settings_load(void);
 void settings_save(void);
+bool settings_uncapped_fps(void); // LARECOMP_UNCAPPED_FPS overrides the Developer toggle
 // The language code to serve the game ("es", "en-US", ...): the setting, or the host locale for LANG_AUTO
 const char *settings_language(void);
 // That code's name for the menu ("Spanish")
