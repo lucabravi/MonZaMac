@@ -21,7 +21,7 @@
   <a href="#building-from-source">Build</a> &middot;
   <a href="CHANGELOG.md">Changelog</a> &middot;
   <a href="https://github.com/lucabravi/MonZaMac/issues">Issues</a> &middot;
-  <a href="https://github.com/Hexveil404/PokeZ-ARecomp">ZA Recomp (PC)</a>
+  <a href="https://github.com/Hexveil404/PokeZ-ARecomp">PC port (ZA Recomp)</a>
 </p>
 
 ---
