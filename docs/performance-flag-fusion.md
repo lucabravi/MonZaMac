@@ -54,3 +54,17 @@ Using the same instrumented runtime source with matching library identities, a s
 This pair shows **+19.7% throughput and -11.7% process CPU work per frame**. It is promising evidence in this particular scene, not a replicated or full-game gain. It supersedes the earlier broad recommendation to infer no useful benefit from the capped runs alone. GPU-window intervals can include scheduling/dependency effects; their reduction is not proof that the GPU's shader workload was optimized. The pass changes CPU code only.
 
 The 1x world screenshot smoke exits at its requested frame before the general benchmark harness's later sample endpoint; the resulting wrapper early-exit message is not a native game crash. Captures, logs and measurement scripts remain private. Keep the P1 PR in draft pending review of this new evidence rather than extrapolating 19.7% to normal play or other hardware.
+
+
+### Repeat: uncapped stationary 1.5x pair
+
+The uncapped setting and interval were checked in each run's log (`present interval 0`, Metal display sync off). Same private save, stationary A-press boot/replay and benchmark settings. A second pair was run once; no more repetitions are planned.
+
+| Pair | Variant | FPS | Total process CPU ms/frame | GPU-window mean ms |
+|---|---|---:|---:|---:|
+| First | Original | 49.73 | 33.05 | 20.07 |
+| First | P1 | 59.54 | 29.17 | 16.82 |
+| Repeat | Original | 60.20 | 28.34 | 16.60 |
+| Repeat | P1 | 58.90 | 29.56 | 16.94 |
+
+The first apparent improvement did not repeat; the second pair was slightly slower with P1, and the original run varied substantially. Therefore no repeatable performance gain is established. GPU clock/thermal state, asynchronous scene work, and whole-process CPU sampling were not isolated. Treat P1 as an experiment, not a proven optimization. Do not extrapolate the first pair's gain.
