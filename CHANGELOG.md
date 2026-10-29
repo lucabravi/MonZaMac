@@ -5,6 +5,9 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+- **Dynamic resolution keeps a higher factor:** it lowered the resolution (to 2160x1134 at "Dynamic 1.5x") where the GPU
+  still held 60 fps, because its limits (14.5 ms to lower, 13 ms predicted to raise) were set for older GPU times. They are
+  now 15.5 and 14.3 ms.
 - **Fix:** a hidden file such as `.DS_Store` in `save/` (Finder makes one when you open the folder) made it count as the most
   recent save, so CONTINUE started an empty game. Hidden files are ignored now.
 - **Structured shader flow (on by default):** a shader whose only computed jumps are bounded forward jump tables now
