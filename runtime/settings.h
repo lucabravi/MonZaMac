@@ -20,6 +20,8 @@ enum { LANG_AUTO = 0, N_LANGUAGES = 12 };
 extern const char *const g_language_codes[N_LANGUAGES];  // what the game is told: "ja", "en-US", "es", ...
 extern const char *const g_language_names[N_LANGUAGES];  // for the menu ("Auto", "Japanese", ..., "Spanish")
 
+enum { MOUSE_CAM_OFF, MOUSE_CAM_RIGHT, MOUSE_CAM_LEFT, MOUSE_CAM_MIDDLE, MOUSE_CAM_ANY, MOUSE_CAM_NONE };
+
 typedef struct {
     int aspect;          // ASPECT_*: unlocked = fill the window (wider/taller views), original = 16:9 with bars
     bool fullscreen;
@@ -48,6 +50,7 @@ typedef struct {
     bool shadows_4k;     // Pokémon Z-A: 4096 shadow map (rt_za_shadows_4k)
     bool dpad_move;      // the d-pad (and arrow keys) move like the stick
     float mouse_speed;   // the mouse's camera speed, 1 = the default (runtime/hle/input.c)
+    int mouse_camera;    // MOUSE_CAM_*: which button turns the camera with the mouse (runtime/hle/input.c)
     int rstick_snap;     // degrees: a right stick this close to an axis is held on it (0 = off; runtime/hle/input.c)
     bool mirror_mode;    // the world mirrored left to right (Gameplay tab): renderers + runtime/hle/input.c
     int language;        // LANG_AUTO or an index into g_language_codes: the game's text language

@@ -654,9 +654,16 @@ static void tab_about(void) {
     toggle("D-pad moves the character", &g_settings.dpad_move);
     hint("The d-pad and the arrow keys move like the left stick.");
     {
+        static const char *const cam[] = {"Off", "Right button", "Left button", "Middle button", "Any button", "No button"};
+        opt_choice("Mouse camera", &g_settings.mouse_camera, cam, 6, MOUSE_CAM_RIGHT,
+                   "Holding the chosen button turns the camera with the mouse. Off: the mouse never turns the camera. "
+                   "No button: the camera follows the mouse all the time, and the cursor is held inside the window "
+                   "(the menus free it).", false);
+    }
+    {
         float pct = roundf(g_settings.mouse_speed * 100);
         if (opt_slider("Mouse camera speed", &pct, 25, 300, 5, 100, "%g%%",
-                   "How fast the right mouse button turns the camera. 100% is the game's own speed."))
+                   "How fast the mouse turns the camera. 100% is the game's own speed."))
             g_settings.mouse_speed = pct / 100.0f;
     }
     {

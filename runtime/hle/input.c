@@ -152,6 +152,30 @@ static void snap_to_axis(int32_t *x, int32_t *y, int deg) {
     else *x = 0;
 }
 
+// Settings > Controls > Mouse camera: which button, held down, lets the mouse turn the camera. "No button" does it all the
+// time, with the cursor held inside the window (input_mouse_update), so it cannot leave the window and spin the camera.
+extern bool menu_input_captured(void);  // runtime/ui/menu.mm
+static bool mouse_camera_on(uint32_t state) {
+    switch (g_settings.mouse_camera) {
+    case MOUSE_CAM_RIGHT: return state & SDL_BUTTON_RMASK;
+    case MOUSE_CAM_LEFT: return state & SDL_BUTTON_LMASK;
+    case MOUSE_CAM_MIDDLE: return state & SDL_BUTTON_MMASK;
+    case MOUSE_CAM_ANY: return state & (SDL_BUTTON_LMASK | SDL_BUTTON_MMASK | SDL_BUTTON_RMASK);
+    case MOUSE_CAM_NONE: return true;
+    default: return false;
+    }
+}
+
+// Main thread, after each batch of events (runtime/nvn/metal.m ui_run): with "No button" the cursor is held in the window
+// while the game has the controls, not while the menu is up.
+void input_mouse_update(SDL_Window *w) {
+    static bool held;
+    bool want = g_settings.mouse_camera == MOUSE_CAM_NONE && !menu_input_captured() && (SDL_GetWindowFlags(w) & SDL_WINDOW_INPUT_FOCUS);
+    if (want == held) return;
+    SDL_SetWindowRelativeMouseMode(w, want);
+    held = want;
+}
+
 // mouse camera: the right stick from how fast the mouse moves with the right button held. Motion is added up between
 // the game's reads of its controller (input_handle_event, in 1/16 px) and turned into a speed (px/s, smoothed over
 // ~30 ms) and that into a deflection: past the stick's dead zone at once (else slow moves do nothing), full at
@@ -205,8 +229,8 @@ void input_handle_event(const SDL_Event *e) {
     case SDL_EVENT_GAMEPAD_AXIS_MOTION: case SDL_EVENT_GAMEPAD_BUTTON_DOWN: case SDL_EVENT_GAMEPAD_BUTTON_UP:
         recompute_pad();
         break;
-    case SDL_EVENT_MOUSE_MOTION:  // right button held: the mouse turns the camera (right stick)
-        if (e->motion.state & SDL_BUTTON_RMASK) {
+    case SDL_EVENT_MOUSE_MOTION:  // the chosen button held (or none): the mouse turns the camera (right stick)
+        if (mouse_camera_on(e->motion.state)) {
             atomic_fetch_add(&mouse_acc_x, (int32_t)lround(e->motion.xrel * 16));
             atomic_fetch_add(&mouse_acc_y, (int32_t)lround(e->motion.yrel * 16));
         }
