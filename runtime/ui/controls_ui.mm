@@ -24,9 +24,9 @@ static void cell(int dev, int slot, int fam, int cap_dev, int cap_slot, int ms_l
     int n = dev == BIND_DEV_PAD ? BIND_PAD_COUNT : BIND_KEY_COUNT, pushed = 0;
     bool dup = false;
     for (int i = 0; i < n; i++) dup |= i != slot && t[i] == t[slot] && t[slot] > (dev == BIND_DEV_PAD ? -1 : 0);
-    if (waiting) { ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.42f, 0.12f, 1)); pushed++; }
+    if (waiting) { ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.12f, 0.42f, 0.62f, 1)); pushed++; }
     else if (dup) { ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.16f, 0.12f, 1)); pushed++; }
-    if (!bind_is_default_slot(dev, slot)) { ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.98f, 0.82f, 0.38f, 1)); pushed++; }
+    if (!bind_is_default_slot(dev, slot)) { ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.47f, 1.0f, 0.78f, 1)); pushed++; }
     if (ImGui::Button(lbl, ImVec2(-FLT_MIN, 0))) {
         if (waiting) bind_capture_cancel();
         else bind_capture_begin(dev, slot);
@@ -72,7 +72,7 @@ extern "C" void controls_bindings_draw(float scale) {
         else if (kind == 4) snprintf(msg, sizeof msg, "Nothing pressed: %s unchanged.", bind_input_name(rslot));
         if (kind == 1 || kind == 2 || kind == 5) settings_save();
     }
-    if (msg[0]) ImGui::TextColored(ImVec4(0.93f, 0.76f, 0.33f, 1), "%s", msg);
+    if (msg[0]) ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "%s", msg);
 
     if (ImGui::BeginTable("##binds", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX)) {
         ImGui::TableSetupColumn("Switch", ImGuiTableColumnFlags_WidthStretch, 1.0f);

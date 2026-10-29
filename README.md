@@ -25,14 +25,20 @@
 
 ---
 
+<p align="center">
+  <img src="docs/screenshots/start-screen.png" alt="The MonZaMac start screen: the most recent save, and CONTINUE, NEW GAME, SAVES, SETTINGS and QUIT" width="380">
+</p>
+
 A native macOS port of **Pokémon Legends: Z-A** (Nintendo Switch, v2.0.2 + the Mega Dimension DLC) built by **static
 recompilation**: the game's ARM64 code is translated ahead of time into C and compiled for the Mac, and the Switch's
 operating system and GPU (NVN) are reimplemented in the runtime. No emulator runs at play time.
 
 - A Metal renderer with internal resolutions from 25% up to 4x (1080p), SMAA and MetalFX upscaling, and a dynamic
   resolution that follows your GPU
+- About **60 fps in the open world on an Apple M5 at 2880x1620** (1.5x), with SMAA and anisotropic filtering on
+  (the maintainer's measurement; other chips and scenes differ)
 - 30 fps, 60 fps, or 60 fps with steady speed; docked or handheld mode
-- Keyboard and controller, the game's own menus and your saves
+- Keyboard and controller, the game's own menus and your saves, with several save slots to pick from
 - A guided setup: point the app at your own game files and it prepares everything on your Mac
 
 > **You need your own copy of the game.** No game files, code, assets or fonts are included in this repository.
@@ -48,8 +54,14 @@ You need a Mac with Apple Silicon (macOS 15 or later) and **your own copy of the
 4. On the start screen choose **SET UP GAME FILES** and confirm that you own an original copy. Select your base game
    (**NSP or XCI**), the **v2.0.2 update (NSP)** and your **prod.keys**. The app checks them, applies the update and
    builds the game on your Mac: it takes a while and needs about 25 GB of free space. Nothing is uploaded.
-5. When it is done, press **PLAY**. Your saves and settings are kept in `~/Library/Application Support/com.monzamac.app`, and stay
-   there when you update the app.
+5. When it is done, press **CONTINUE** (your most recent save) or **NEW GAME**. Your saves and settings are kept in
+   `~/Library/Application Support/com.monzamac.app`, and stay there when you update the app.
+
+**Saves.** The start screen shows the save you played last. **SAVES** lists them all: pick one, start a new one, copy
+(a handy backup before trying something), rename or delete. A save you already had is the first one in the list, called "Main save" until you rename it.
+
+A new install starts with fullscreen, dynamic resolution, 60 fps, SMAA, the original 16:9 picture and sharper textures
+(anisotropic filtering); all of it is in **SETTINGS**, on the start screen too.
 
 In the game: **F1** opens the menu (video, audio, controls), **F3** shows the frame rate and the render resolution.
 Keyboard: WASD move, arrows d-pad, Enter = A, Backspace = B, K = talk, Q / E = L / R; a controller works too.
@@ -63,6 +75,9 @@ source is for developers: see [Building from source](#building-from-source).
 **Playable.** The game runs from the intro through the first part of the story, with battles, menus and saves, and
 the maintainer has played it that far without problems. It is still a work in progress: later areas and other Macs
 have had less testing, so please report what you find.
+
+On an Apple M5 at 2880x1620 (1.5x, SMAA and anisotropic filtering on) the open world runs at about 60 fps, with small dips
+in busy animated scenes.
 
 Looking for the Windows version? It's available at **[PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp)** by
 **Hexveil404**.
@@ -148,10 +163,55 @@ Debug aids: `LARECOMP_*` environment variables (see `runtime/nvn/renderer.m`); `
 
 ## Renderer checks
 
+Shaders whose forward jump tables and reconvergence can be proven are translated to structured flow. It is on by
+default; `LARECOMP_STRUCTURED_FLOW=0` retains the existing dispatcher.
+See [measurements and limitations](docs/performance-brx.md). The focused GPU case is `CASE=structured-brx`.
+
 On macOS, `MTL_DEBUG_LAYER=1 gmake B=build/za202 GEN=generated-202 test-metal-renderer` runs offscreen tests against
 the real Metal backend without loading game files. Use `CASE=views`, `clears`, `draws`, `streams`, `layers`, `aspects`, `samplers`
 or `types` to select a group. Native sampler reduction and LOD-bias cases require macOS 26 and SDK 26; older builds
 report those cases as skipped.
+
+A transform-feedback buffer barrier reuses a render pass after GPU skinning. It is on by
+default; turn it off in the Developer tab (Cmd+Shift+D, "Keep passes open after skinning", applies at once), or launch with
+`LARECOMP_XFB_END_BARRIER=0` (forces the original behavior and overrides the setting; `=1` forces it on). See
+[measurements and limitations](docs/performance-xfb.md). The asset-free regression is `CASE=xfb-barrier`.
+
+### Local GPU profiling
+
+`gpupass 30` in `build/dbgcmd` times each render pass of 30 frames with GPU timestamps (no Xcode, no capture): after the
+last frame the log lists the 25 slowest passes by their ordinal in the frame, with size, attachments and draws
+(`[gpupass] #12 2.31 ms 2880x1620 colors=3 depth=1 draws=412`). The spans of neighbouring passes overlap on the GPU, so
+each pass is charged the time between the previous pass's end and its own, so they add up to the frame's GPU span. It waits for the GPU at each frame end: run it on its own,
+not together with a benchmark.
+
+In a running development build, write `gpuprofile 30` to `build/dbgcmd` to collect 30 complete presented frames.
+The `[gpu-profile]` lines count guest draws, clear requests, compute dispatches, feedback copies, and the reasons
+actual render encoders and command buffers ended. Empty close/submit requests do not count. This is off until
+requested; it changes no render state and does not wait for the GPU. See [GPU measurements](docs/performance-gpu.md)
+for scope, results and limitations.
+
+To capture one complete frame, launch with Metal capture support, then request the capture from another terminal:
+
+```sh
+MTL_CAPTURE_ENABLED=1 tools/hang_sample.sh
+printf 'gpucapture\n' > build/dbgcmd
+```
+
+The command arms at a present boundary and captures the following frame, including uploads, post-processing and
+presentation. A `[gpucapture] completed` line gives the unique `.gputrace` path under `build/gputrace/` in the runtime
+data directory. Capture drains the queue at its boundaries, so capture-frame FPS is not a benchmark. Renderer
+reset cancels a pending or owned capture; another tool's active capture is left alone.
+
+Keep `.gputrace` documents local: they contain game buffers, textures and shaders, and can occupy tens of gigabytes.
+Do not commit or upload them, or derived shader sources. Report numeric measurements and descriptions instead.
+Xcode replay and **Profile after replay** can consume much more memory than the trace's disk size. Full-game
+counter profiling exceeded the available memory on the test Mac; prefer the lightweight histogram and HUD first.
+If inspecting a capture, supervise it and use an external process deadline; the one-frame command limits recorded
+frames, not Apple's capture finalization or Xcode analysis time.
+For live HUD measurements, use a separate launch with `MTL_HUD_ENABLED=1` and, optionally,
+`MTL_HUD_ENCODER_TIMING_ENABLED=1`; use a HUD-free process for capture. A combined HUD/capture run failed inside
+Apple's capture writer; a later HUD-free capture in a different scene completed, so the cause is not established.
 
 For a running development build, `trace 2` in `build/dbgcmd` logs draw and compute metadata for two presents
 without dumping textures. The window is capped at 120 presents; draw records include the frame and indirect-buffer offset.

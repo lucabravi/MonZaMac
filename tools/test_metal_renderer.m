@@ -472,7 +472,7 @@ static void view_chain_cleanup(void) {
 }
 
 static void bind_targets(NvnTexture *color, NvnTexture *depth, NvnTexture *second) {
-    end_pass();
+    end_pass("attachment");
     memset(&st.rt, 0, sizeof st.rt);
     st.rt.ncolor = second ? 2 : color ? 1 : 0;
     st.rt.color[0] = color; st.rt.color[1] = second; st.rt.depth = depth; st.rt_dirty = true;
@@ -521,6 +521,106 @@ static void prepare_draw(void) {
 static void fullscreen_draw(uint32_t instances) {
     CmdRec r = {.op = CMD_DRAW_ARRAYS, .size = sizeof(CmdRec), .x = {4, 0, 3, 0, instances}};
     draw(&r, false);
+}
+
+static void gpu_profile_boundaries(void) {
+    NvnTexture first = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    NvnTexture second = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    CHECK(!g_profile_frames && !g_capture_pending && !g_capture_active, "profiling is off by default");
+    CHECK(!gpu_profile_request(0), "zero frames cannot arm a profile");
+    mkdir("build", 0755);
+    FILE *command = fopen("build/dbgcmd", "w");
+    CHECK(command != NULL, "live profiler command file");
+    fputs("gpuprofile 2\n", command); fclose(command);
+    for (unsigned i = 0; i < 16; i++) debug_live_controls();
+    CHECK(g_profile_pending_frames == 2 && access("build/dbgcmd", F_OK), "live command arms and consumes a profile request");
+    renderer_profile_pass_end("attachment");
+    CHECK(!g_profile_frames, "a request must not include the partial current frame");
+    renderer_debug_frame_boundary(100);
+    CHECK(g_profile_frames == 2, "profiling starts at the next frame boundary");
+    CHECK(!gpu_profile_request(1), "an in-progress profile cannot be replaced");
+    bind_targets(&first, NULL, NULL); prepare_draw(); fullscreen_draw(1);
+    bind_targets(&second, NULL, NULL); prepare_draw(); fullscreen_draw(1);
+    renderer_submit_reason("guest-submit");
+    renderer_submit_reason("guest-submit");  // no pending command buffer
+    CHECK(g_profile.pass_end[gpu_profile_reason("attachment")] == 1, "only an actual attachment break is counted");
+    CHECK(g_profile.pass_end[gpu_profile_reason("guest-submit")] == 1, "submission closes the second pass");
+    CHECK(g_profile.cb_end[gpu_profile_reason("guest-submit")] == 1, "empty submissions are not counted");
+    CHECK(g_profile.draws == 2, "count the encoded guest draws");
+    renderer_debug_frame_boundary(101);
+    CHECK(g_profile_frames == 1 && !g_profile.draws, "each completed frame has separate counters");
+    bind_targets(&second, NULL, NULL); prepare_draw(); fullscreen_draw(1);
+    TexRefRec source = {.tex = (uint64_t)&second};
+    copy_texture_to_buffer(&source, g_gwin_base + 1024);
+    CHECK(g_profile.pass_end[gpu_profile_reason("readback")] == 1, "CPU texture read closes the render pass");
+    CHECK(g_profile.cb_end[gpu_profile_reason("cpu-read")] == 1, "CPU read records its actual flush cause");
+    renderer_debug_frame_boundary(102);
+    CHECK(!g_profile_frames, "profiling ends after exactly the requested frames");
+    renderer_profile_pass_end("attachment");
+    CHECK(!g_profile.pass_end[gpu_profile_reason("attachment")], "disabled profiling stops counting");
+    id<MTLBuffer> pixels = read_texture(renderer_texture(&second, nil, true), 0, 0, 4);
+    for (unsigned y = 0; y < 4; y++) for (unsigned x = 0; x < 4; x++) {
+        const uint8_t *p = (const uint8_t *)pixels.contents + y * 256 + x * 4;
+        CHECK(p[0] == 0 && p[1] == 255 && p[2] == 0 && p[3] == 255, "profiling preserves rendered pixels");
+    }
+    CHECK(gpu_profile_request(1), "a later profile can be armed");
+    renderer_reset();
+    renderer_debug_frame_boundary(103);
+    CHECK(!g_profile_frames && !g_profile_pending_frames, "reboot cancels a pending profile");
+    destroy_texture(&first); destroy_texture(&second);
+}
+
+static void gpu_capture_boundaries(void) {
+    CHECK(!g_capture_active && !g_capture_pending, "capture starts disabled");
+    CHECK(gpu_capture_request(), "arm a capture");
+    CHECK(!gpu_capture_request(), "a second capture request cannot replace the first");
+    CHECK(!g_capture_active, "requesting mid-frame does not start the capture");
+    renderer_debug_frame_boundary(200);
+    CHECK(!g_capture_pending, "the boundary consumes the capture request even on failure");
+    const char *capture_enabled = getenv("MTL_CAPTURE_ENABLED");
+    if (!capture_enabled || !atoi(capture_enabled)) {
+        CHECK(!g_capture_active, "capture fails safely without launch-time Metal capture support");
+        CHECK(access("build/gputrace", F_OK) != 0, "unsupported capture creates no output directory");
+        renderer_reset();
+        return;
+    }
+    CHECK(g_capture_active && [MTLCaptureManager sharedCaptureManager].isCapturing,
+          "capture is active for the next complete frame");
+    NSURL *first_path = g_capture_url;
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    bind_targets(&color, NULL, NULL); prepare_draw(); fullscreen_draw(1); renderer_submit();
+    renderer_debug_frame_boundary(201);
+    CHECK(!g_capture_active && ![MTLCaptureManager sharedCaptureManager].isCapturing, "capture stops after one frame");
+    CHECK([[NSFileManager defaultManager] fileExistsAtPath:first_path.path], "one-frame GPU trace was written");
+    CHECK(gpu_capture_request(), "a later capture can be armed");
+    renderer_debug_frame_boundary(202);
+    CHECK(![first_path isEqual:g_capture_url], "captures never overwrite an existing file");
+    renderer_reset();
+    CHECK(!g_capture_active && !g_capture_pending && ![MTLCaptureManager sharedCaptureManager].isCapturing,
+          "reset stops only the capture owned by the profiler");
+
+    NSFileManager *files = [NSFileManager defaultManager];
+    CHECK([files moveItemAtPath:@"build/gputrace" toPath:@"build/saved-traces" error:nil], "temporarily block output directory");
+    FILE *blocker = fopen("build/gputrace", "w"); CHECK(blocker != NULL, "capture directory failure fixture"); fclose(blocker);
+    CHECK(gpu_capture_request(), "arm capture with an invalid output directory");
+    renderer_debug_frame_boundary(204);
+    CHECK(!g_capture_active && !g_capture_pending, "directory failure leaves no capture in flight");
+    remove("build/gputrace");
+    CHECK([files moveItemAtPath:@"build/saved-traces" toPath:@"build/gputrace" error:nil], "restore fixture traces");
+    renderer_reset();
+
+    MTLCaptureManager *manager = [MTLCaptureManager sharedCaptureManager];
+    MTLCaptureDescriptor *external = [MTLCaptureDescriptor new];
+    external.captureObject = dev; external.destination = MTLCaptureDestinationGPUTraceDocument;
+    external.outputURL = [NSURL fileURLWithPath:@"build/gputrace/external.gputrace"];
+    CHECK([manager startCaptureWithDescriptor:external error:nil], "external capture fixture starts");
+    gpu_capture_drain();
+    CHECK(gpu_capture_request(), "request while another tool owns the capture");
+    renderer_debug_frame_boundary(205);
+    renderer_reset();
+    CHECK(manager.isCapturing && !g_capture_active, "request and reset must leave another tool's capture untouched");
+    [manager stopCapture];
+    destroy_texture(&color);
 }
 
 static void expect_rgba_slice(NvnTexture *t, unsigned slice, uint8_t red, uint8_t green, uint8_t blue) {
@@ -860,6 +960,39 @@ static void check_xfb_instances(unsigned stream) {
 static void zero_xfb_instances(void) { check_xfb_instances(0); }
 static void xfb_stream_four(void) { check_xfb_instances(4); }
 
+static void xfb_vertex_reuse(void) {
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    bind_targets(&color, NULL, NULL); prepare_draw();
+    static uint8_t control[0x800];
+    *(uint32_t *)(control + 0x4dc) = 4;
+    *(uint16_t *)(control + 0x6dc) = 16;
+    st.program->stages[0].control = control;
+    st.program->stage_mask = 1;
+    g_xfb_on = g_raster_discard = true;
+    g_xfb_addr[0] = g_gwin_base + 1024; g_xfb_size[0] = 48;
+    memset((uint8_t *)g_guest_buffer.contents + 1024, 0, 48);
+    uint64_t passes = stat_passes;
+    fullscreen_draw(1);
+    uint64_t commands[32] = {0};
+    CmdRec *end = (CmdRec *)commands;
+    end->op = CMD_END_XFB; end->size = sizeof *end;
+    ((CmdRec *)((uint8_t *)end + end->size))->op = CMD_END;
+    exec_list((uint64_t)commands, 0);
+    st.program->stage_mask = 3; st.program->stages[0].control = NULL;
+    g_raster_discard = false;
+    st.vbuf[0] = (Range){.addr = g_gwin_base + 1024, .size = 48};
+    // Consume GPU-produced positions without a CPU wait or intervening submission.
+    fullscreen_draw(1);
+    const char *option = getenv("LARECOMP_XFB_END_BARRIER");
+    bool merged = false;
+    if (@available(macOS 13.0, *)) merged = option ? atoi(option) != 0 : g_settings.xfb_barrier;
+    CHECK(stat_passes - passes == (merged ? 1 : 2), "XFB barrier reuses the pass when on (the setting's default); the original boundary when off");
+    expect_rgba(&color, 0, 255, 0);
+    g_xfb_on = g_xfb_dirty = false;
+    memset(g_xfb_addr, 0, sizeof g_xfb_addr); memset(g_xfb_size, 0, sizeof g_xfb_size);
+    destroy_texture(&color);
+}
+
 static void vertex_stream_fifteen(void) {
     NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
     bind_targets(&color, NULL, NULL); prepare_draw();
@@ -936,7 +1069,7 @@ static void gpu_indirect_instances(bool indexed) {
         args[0] = 3; args[1] = !visible; args[2] = args[3] = args[4] = 0;
         uint32_t count = (uint32_t)visible;
         id<MTLBuffer> update = [dev newBufferWithBytes:&count length:sizeof count options:MTLResourceStorageModeShared];
-        end_pass();
+        end_pass("other");
         id<MTLBlitCommandEncoder> bl = [cb() blitCommandEncoder];
         [bl copyFromBuffer:update sourceOffset:0 toBuffer:g_guest_buffer destinationOffset:2052 size:4];
         [bl endEncoding];
@@ -1336,7 +1469,7 @@ static void feedback_mip_chain(bool depth) {
             unsigned lod = level - 1;
             [enc setFragmentBytes:&lod length:sizeof lod atIndex:0];
             [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
-            end_pass(); snapshots_invalidate(&texture);
+            end_pass("other"); snapshots_invalidate(&texture);
         }
         for (unsigned level = 1; level < 4; level++) {
             id<MTLBuffer> out = read_texture(renderer_texture(&texture, nil, true), 0, level, 4);
@@ -1495,7 +1628,7 @@ static void shadow_fallback(void) {
         }
         [init commit];
         for (unsigned input = 0; input < 3; input++) for (unsigned face = 0; face < cases[i].faces; face++) {
-            end_pass(); (void)cb(); // fallback initialization must precede this already-created, uncommitted buffer
+            end_pass("other"); (void)cb(); // fallback initialization must precede this already-created, uncommitted buffer
             id<MTLTexture> texture = shadow_slot_texture(input == 0 ? nil : input == 1 ? color : valid, &shape);
             id<MTLBuffer> result = [dev newBufferWithLength:4 options:MTLResourceStorageModeShared];
             *(float *)result.contents = -1;
@@ -1606,6 +1739,71 @@ static void audit_shuffle(void) {
         }
     }
     CHECK(!bad,"shuffle register amounts and UP clamp must preserve the hardware value and validity predicate");
+}
+
+static void structured_brx(void) {
+    // A bounded c1 switch nested inside reconvergence, followed by a cross-lane read.
+    static uint64_t code[8320]; static NvnProgram program; static uint8_t control[0x754];
+#define FPC(n) ((unsigned)((n) / 3 * 4 + (n) % 3 + 1) * 8)
+    uint64_t ops[] = {
+        0xf0c8000000070000ull,
+        0xe290000000000000ull | ((uint64_t)(FPC(20) - FPC(1) - 8) << 20),
+        0xe2a0000000000000ull | ((uint64_t)(FPC(15) - FPC(2) - 8) << 20),
+        0x3820000000000000ull | (7ull << 39) | (3ull << 20) | (7ull << 16) | 2,
+        0x3848000000000000ull | (2ull << 20) | (7ull << 16) | (2ull << 8) | 2,
+        0xef90000000000000ull | (4ull << 48) | (1ull << 36) | (7ull << 16) | (2ull << 8) | 3,
+        0xe25000000007000full | (3ull << 8),
+        0x010000000007f005ull | (10ull << 20), 0xe34000000007000full,
+        0x010000000007f005ull | (20ull << 20), 0xe34000000007000full,
+        0x010000000007f005ull | (30ull << 20), 0xe34000000007000full,
+        0x010000000007f005ull | (40ull << 20), 0xe34000000007000full,
+        0x010000000007f006ull | (30ull << 20),
+        0x5b6d038000070507ull | (6ull << 20),
+        0xf0f800000000000full,
+        0x1c00000000170505ull,
+        0xf0f800000007000full,
+        0xef10000000000000ull | (3ull << 30) | (1ull << 29) | (1ull << 28) | (7171ull << 34) |
+            (1ull << 20) | (7ull << 16) | (5ull << 8) | 8,
+        (0x1full << 56) | (4ull << 20) | (7ull << 16) | 10,
+        0x010000000007f014ull | ((uint64_t)(uint32_t)(g_gwin_base + 512) << 20),
+        0x010000000007f015ull | ((g_gwin_base >> 32) << 20),
+        (0x5cc0ull << 48) | (255ull << 39) | (10ull << 20) | (7ull << 16) | (20ull << 8) | 20,
+        0xeed8000000000000ull | (4ull << 48) | (1ull << 45) | (7ull << 16) | (20ull << 8) | 8,
+        // These flow ops never execute, including BRX with no bounded-table producer.
+        0xe2400000000f000full, 0xe2500000000fff0full, 0xf0f80000000f000full,
+        0xe3400000000f000full, 0xe3000000000f000full, 0xe3500000000f000full,
+    };
+    compute_fixture(code, &program, ops, sizeof ops / sizeof *ops);
+    program.stages[5].const_offset = 512; program.stages[5].const_size = 16;
+    uint32_t *table = (uint32_t *)((uint8_t *)code + 512);
+    for (unsigned i = 0; i < 4; i++) table[i] = FPC(7 + 2 * i) - FPC(6) - 8;
+    table[1] -= 8;  // a target on the scheduling word normalizes to the next instruction
+    *(uint32_t *)(control + 0x748) = 32;
+    program.stages[5].control = control; st.program = &program;
+    uint32_t *out = (uint32_t *)((uint8_t *)g_guest_buffer.contents + 512);
+    for (unsigned i = 0; i < 32; i++) out[i] = 0xdeadbeef;
+    dispatch_compute(1, 1, 1); check_gpu();
+    const uint32_t values[] = {11, 21, 30, 40};
+    for (unsigned i = 0; i < 32; i++) CHECK(out[i] == values[MIN(i ^ 1, 3u)], "bounded BRX and nested SYNC/BRK reconverge before SHFL");
+    const char *enabled = getenv("LARECOMP_STRUCTURED_FLOW");
+    CHECK(compute_program(&program)->si->structured_flow == !(enabled && !atoi(enabled)), "the bounded forward switch uses the structured path unless it is turned off");
+    ShaderInfo *fallback = maxwell_translate_with_constants((uint8_t *)code, 512, STAGE_COMPUTE, NULL, (uint8_t *)table, 4);
+    CHECK(fallback->msl && !fallback->structured_flow, "an incomplete constant table retains the dispatcher");
+    maxwell_free(fallback);
+    uint32_t saved = table[0]; table[0] = FPC(0) - FPC(6) - 8;
+    fallback = maxwell_translate_with_constants((uint8_t *)code, 512, STAGE_COMPUTE, NULL, (uint8_t *)table, 16);
+    CHECK(fallback->msl && !fallback->structured_flow, "a backward computed edge retains the dispatcher");
+    maxwell_free(fallback); table[0] = saved;
+    uint64_t saved_op = code[FPC(26) / 8];
+    const uint64_t unpredicated[] = {0xe2b00000000f0000ull, 0xe2700000000f0000ull};
+    for (unsigned i = 0; i < 2; i++) {
+        code[FPC(26) / 8] = unpredicated[i];
+        fallback = maxwell_translate_with_constants((uint8_t *)code, 512, STAGE_COMPUTE, NULL, (uint8_t *)table, 16);
+        CHECK(!fallback->structured_flow, "PCNT/PRET remain unsupported regardless of their unused predicate bits");
+        maxwell_free(fallback);
+    }
+    code[FPC(26) / 8] = saved_op;
+#undef FPC
 }
 
 static void break_reconvergence(void) {
@@ -1894,9 +2092,12 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"largest-textures", "diagnostics", metal_test_texture_dump},
     {"gpu-interval-union", "gpu-time", gpu_interval_union},
     {"gpu-timing-state", "gpu-time", gpu_timing_state_machine},
+    {"gpu-profile-boundaries", "profiling", gpu_profile_boundaries},
+    {"gpu-capture-boundaries", "profiling", gpu_capture_boundaries},
     {"smoke", "smoke", smoke},
     {"live-shader-pipeline", "live", live_shader_pipeline},
     {"break-reconvergence", "flow", break_reconvergence},
+    {"structured-brx", "flow", structured_brx},
     {"compute-image-store", "images", compute_image_store},
     {"compute-image-feedback", "images", compute_image_feedback},
     {"compute-image-ownership", "images", compute_image_ownership},
@@ -1950,6 +2151,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"zero-indexed-instances", "draws", zero_indexed_instances},
     {"zero-xfb-instances", "draws", zero_xfb_instances},
     {"xfb-stream-four", "streams", xfb_stream_four},
+    {"xfb-vertex-reuse", "xfb-barrier", xfb_vertex_reuse},
     {"vertex-stream-fifteen", "streams", vertex_stream_fifteen},
     {"vertex-stream-layout-cache", "streams", vertex_stream_layout_cache},
     {"gpu-indirect-arrays", "draws", gpu_indirect_arrays},
