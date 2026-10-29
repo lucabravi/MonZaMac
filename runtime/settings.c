@@ -107,6 +107,7 @@ void settings_load(void) {
         else if (!strcmp(key, "game_dynamic_res")) g_settings.game_drs = atoi(val) != 0;
         else if (!strcmp(key, "developer")) g_settings.developer = atoi(val) != 0;
         else if (!strcmp(key, "dev_gpu_trace")) g_settings.dev_gpu_trace = atoi(val) != 0;
+        else if (!strcmp(key, "dev_uncapped_fps")) g_settings.dev_uncapped_fps = atoi(val) != 0;
         else if (!strcmp(key, "dev_frame_stats")) g_settings.dev_frame_stats = atoi(val) != 0;
         else if (!strcmp(key, "depth_of_field")) g_settings.dof = atoi(val) != 0;
         else if (!strcmp(key, "game_fxaa")) g_settings.fxaa = atoi(val) != 0;
@@ -164,6 +165,7 @@ void settings_save(void) {
     fprintf(f, "game_dynamic_res = %d\n", g_settings.game_drs);
     fprintf(f, "developer = %d\n", g_settings.developer);
     fprintf(f, "dev_gpu_trace = %d\n", g_settings.dev_gpu_trace);
+    fprintf(f, "dev_uncapped_fps = %d\n", g_settings.dev_uncapped_fps);
     fprintf(f, "dev_frame_stats = %d\n", g_settings.dev_frame_stats);
     fprintf(f, "depth_of_field = %d\n", g_settings.dof);
     fprintf(f, "game_fxaa = %d\n", g_settings.fxaa);
@@ -192,4 +194,10 @@ void settings_save(void) {
     fprintf(f, "save_slot = %s\n", g_settings.save_slot);
     bind_settings_save(f);
     fclose(f);
+}
+
+// Deliberately leaves the game's time step alone: this mode measures throughput, not game speed.
+bool settings_uncapped_fps(void) {
+    const char *e = ENV("LARECOMP_UNCAPPED_FPS");
+    return e ? atoi(e) != 0 : g_settings.dev_uncapped_fps;
 }

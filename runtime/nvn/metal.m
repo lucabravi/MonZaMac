@@ -1029,6 +1029,14 @@ void backend_represent(void) {
 
 double g_stat_cpu_ms, g_stat_gpu_ms;  // smoothed per presented frame (Developer: F3 in ui/menu.mm)
 void backend_present(NvnTexture *t) {
+    static bool was_uncapped, saved_display_sync;
+    bool uncapped = settings_uncapped_fps();
+    if (uncapped != was_uncapped) {
+        if (uncapped) saved_display_sync = layer.displaySyncEnabled;
+        layer.displaySyncEnabled = uncapped ? NO : saved_display_sync;
+        was_uncapped = uncapped;
+        LOG("[metal] display sync %s (Developer benchmark)\n", layer.displaySyncEnabled ? "on" : "off");
+    }
     g_last_presented = t;
     {   // (diagnostics) which guest texture the window shows: the end of the post chain
         extern bool g_debug_frame;

@@ -164,6 +164,11 @@ The change keeps the game's distance and priority rules; higher population budge
 
 Debug aids: `LARECOMP_*` environment variables (see `runtime/nvn/renderer.m`); `touch build/dumpframe` captures a frame.
 
+Developer → Experimental → **Uncapped FPS (benchmark)** removes presentation pacing and Metal display sync.
+It is off by default and overrides the normal frame-rate selection while enabled. The FPS overlay marks benchmark
+mode because gameplay, animations and timers can run too fast. Turn it off for normal play. For scripted runs,
+`LARECOMP_UNCAPPED_FPS=1` forces it on and `=0` forces it off; keep resolution/settings fixed when comparing builds.
+
 ## Renderer checks
 
 Shaders whose forward jump tables and reconvergence can be proven are translated to structured flow. It is on by
