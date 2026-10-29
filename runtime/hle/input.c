@@ -143,6 +143,15 @@ int input_pad_family(void) {
     return env >= 0 ? env : pad_family;
 }
 
+// Right stick snap (Controls > Right stick snap): a direction within `deg` degrees of an axis is held on that axis.
+static void snap_to_axis(int32_t *x, int32_t *y, int deg) {
+    if (deg <= 0 || (!*x && !*y)) return;
+    double a = fmod(fabs(atan2((double)*y, (double)*x) * 180.0 / M_PI), 90.0);  // (0 on an axis, 45 on a diagonal)
+    if (fmin(a, 90.0 - a) >= deg) return;
+    if (fabs((double)*x) >= fabs((double)*y)) *y = 0;  // near the horizontal axis: drop the vertical part
+    else *x = 0;
+}
+
 // mouse camera: right stick deflection from the last motion with the right button held (input_handle_event), and its time
 static _Atomic int32_t mouse_rx, mouse_ry;
 static _Atomic uint64_t mouse_t;
@@ -177,7 +186,7 @@ void input_handle_event(const SDL_Event *e) {
         if (e->motion.state & SDL_BUTTON_RMASK) {
             static double gain = -1;
             if (gain < 0) gain = getenv("LARECOMP_MOUSE_GAIN") ? atof(getenv("LARECOMP_MOUSE_GAIN")) : 2500;
-            double x = e->motion.xrel * gain, y = -e->motion.yrel * gain;
+            double x = e->motion.xrel * gain * g_settings.mouse_speed, y = -e->motion.yrel * gain * g_settings.mouse_speed;
             mouse_rx = (int32_t)(x > 32767 ? 32767 : x < -32767 ? -32767 : x);
             mouse_ry = (int32_t)(y > 32767 ? 32767 : y < -32767 ? -32767 : y);
             mouse_t = SDL_GetTicksNS();
@@ -417,6 +426,7 @@ static void fill_state(Cpu *c) {
     bool mouse = SDL_GetTicksNS() - mouse_t < 80000000ull;  // (the last mouse motion's deflection, for 80 ms)
     int32_t mrx = mouse ? mouse_rx : 0, mry = mouse ? mouse_ry : 0;
     int32_t rx = clamp_axis((menu ? 0 : key_rx + pad_rx + mrx) + script_rx), ry = clamp_axis((menu ? 0 : key_ry + pad_ry + mry) + script_ry);
+    snap_to_axis(&rx, &ry, g_settings.rstick_snap);
     extern bool mirror_input(void);  // mirror mode, the world on screen (runtime/hle/mirror.c): left and right swap
     bool mirrored = !menu && mirror_input();
     if (mirrored) {

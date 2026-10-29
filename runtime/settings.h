@@ -47,6 +47,8 @@ typedef struct {
     bool lod;            // Pokémon Z-A: 8x anisotropic filtering and LOD bias -1.0 (the bias needs macOS 26) (rt_za_lod)
     bool shadows_4k;     // Pokémon Z-A: 4096 shadow map (rt_za_shadows_4k)
     bool dpad_move;      // the d-pad (and arrow keys) move like the stick
+    float mouse_speed;   // the mouse's camera speed, 1 = the default (runtime/hle/input.c)
+    int rstick_snap;     // degrees: a right stick this close to an axis is held on it (0 = off; runtime/hle/input.c)
     bool mirror_mode;    // the world mirrored left to right (Gameplay tab): renderers + runtime/hle/input.c
     int language;        // LANG_AUTO or an index into g_language_codes: the game's text language
     int prompts;         // PROMPTS_*: button glyphs (auto = follow the controller SDL reports): runtime/nvn/texpatch.c

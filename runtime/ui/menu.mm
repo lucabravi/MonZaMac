@@ -653,6 +653,18 @@ static void tab_about(void) {
     header("Movement");
     toggle("D-pad moves the character", &g_settings.dpad_move);
     hint("The d-pad and the arrow keys move like the left stick.");
+    {
+        float pct = roundf(g_settings.mouse_speed * 100);
+        if (opt_slider("Mouse camera speed", &pct, 25, 300, 5, 100, "%g%%",
+                   "How fast the right mouse button turns the camera. 100% is the game's own speed."))
+            g_settings.mouse_speed = pct / 100.0f;
+    }
+    {
+        float snap = (float)g_settings.rstick_snap;
+        if (opt_slider("Right stick snap", &snap, 0, 20, 1, 0, "%g degrees",
+                   "A right stick (or mouse camera) pointed within this many degrees of up, down, left or right is held exactly on that direction. 0: off."))
+            g_settings.rstick_snap = (int)roundf(snap);
+    }
     ImGui::Spacing();
     header("Button prompts");
     {
