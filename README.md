@@ -32,7 +32,7 @@ operating system and GPU (NVN) are reimplemented in the runtime. No emulator run
 - A Metal renderer with internal resolutions from 25% up to 4x (1080p), SMAA and MetalFX upscaling, and a dynamic
   resolution that follows your GPU
 - 30 fps, 60 fps, or 60 fps with steady speed; docked or handheld mode
-- Keyboard and controller, the game's own menus and your saves
+- Keyboard and controller, the game's own menus and your saves, with several save slots to pick from
 - A guided setup: point the app at your own game files and it prepares everything on your Mac
 
 > **You need your own copy of the game.** No game files, code, assets or fonts are included in this repository.
@@ -48,8 +48,11 @@ You need a Mac with Apple Silicon (macOS 15 or later) and **your own copy of the
 4. On the start screen choose **SET UP GAME FILES** and confirm that you own an original copy. Select your base game
    (**NSP or XCI**), the **v2.0.2 update (NSP)** and your **prod.keys**. The app checks them, applies the update and
    builds the game on your Mac: it takes a while and needs about 25 GB of free space. Nothing is uploaded.
-5. When it is done, press **PLAY**. Pick which save to use on the screen that follows (or start a new one); your saves and settings are kept in `~/Library/Application Support/com.monzamac.app`, and stay
-   there when you update the app.
+5. When it is done, press **CONTINUE** (your most recent save) or **NEW GAME**. Your saves and settings are kept in
+   `~/Library/Application Support/com.monzamac.app`, and stay there when you update the app.
+
+**Saves.** The start screen shows the save you played last. **SAVES** lists them all: pick one, start a new one, copy
+(a handy backup before trying something), rename or delete. A save you already had is the first one in the list, called "Main save" until you rename it.
 
 In the game: **F1** opens the menu (video, audio, controls), **F3** shows the frame rate and the render resolution.
 Keyboard: WASD move, arrows d-pad, Enter = A, Backspace = B, K = talk, Q / E = L / R; a controller works too.
