@@ -45,7 +45,7 @@ static void scan(const char *p, long long *newest, unsigned long long *bytes) {
     if (!d) return;
     struct dirent *e;
     while ((e = readdir(d))) {
-        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        if (e->d_name[0] == '.') continue;  // (.DS_Store and the like are not progress: Finder adds them just by looking)
         char q[1024];
         snprintf(q, sizeof q, "%s/%s", p, e->d_name);
         struct stat st;
