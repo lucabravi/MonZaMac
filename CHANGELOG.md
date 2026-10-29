@@ -5,6 +5,8 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+- **Fix:** a hidden file such as `.DS_Store` in `save/` (Finder makes one when you open the folder) made it count as the most
+  recent save, so CONTINUE started an empty game. Hidden files are ignored now.
 - **Structured shader flow (on by default):** a shader whose only computed jumps are bounded forward jump tables now
   runs as plain conditionals and small switches instead of a `switch (pc)` loop (about 20% less measured GPU time for
   the whole frame in one test, 48 to 60 fps at 1.5x). Anything it cannot prove falls back to the old output.
