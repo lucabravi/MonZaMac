@@ -79,3 +79,16 @@ The same uncapped stationary station A/B was run at 1x; both logs confirmed pres
 | P1 | 86.41 | 11.57 | 29.37 | 11.28 | 0 |
 
 This repeat also shows no gameplay gain. Together, the original/P1 pairs at uncapped1x and1.5x disagree in direction. KeepP1 experimental/draft; current in-game measurements do not justify calling it an optimization.
+
+### Requested 1x and 1.5x uncapped comparison
+
+A final matched matrix used original/P1 generated libraries at both resolutions. Every log confirms interval0 and display sync off; same game save, stationary station setup, and frame window. Process CPU is total across threads; GPU time is mean valid per-present window.
+
+| Scale | Variant | FPS | CPU ms/frame | GPU ms | compile skips |
+|---|---|---:|---:|---:|---:|
+| 1x | Original | 88.68 | 28.32 | 11.12 | 0 |
+| 1x | P1 | 88.21 | 28.80 | 11.16 | 0 |
+| 1.5x | Original | 60.59 | 28.21 | 16.52 | 0 |
+| 1.5x | P1 | 59.80 | 29.27 | 16.72 | 0 |
+
+These results show no P1 speedup at either resolution. This matrix and the earlier uncapped pairs disagree, underscoring run-to-run variability. Stop performance testing here as requested; keep P1 draft and do not describe it as a proven optimization.
