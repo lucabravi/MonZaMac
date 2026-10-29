@@ -36,3 +36,21 @@ No compilation-skipped draws were recorded in any sample. At 1.5x the largest ga
 Explicit `subs/adds/logic` flag-helper sites in generated C decrease from 706,930 to 504,187 (202,743 fewer). The local game library decreases from 257,706,416 to 247,747,504 bytes: about 9.50 MiB / 3.86%. These are code-size measurements, not frame-time improvements.
 
 `flagfuse.py` is included in `GAMELIB_SRCS`, so changes invalidate installed game libraries as intended. Shipping this generator change requires rebuilding the user's generated game library; it is not a runtime-only update. Game files, generated code, binaries, logs and captures remain private and are not included in the PR.
+
+## Follow-up: uncapped stationary station world
+
+The Developer uncapped-FPS runtime removes presentation pacing and Metal display sync, leaves the VI timer unchanged, and intentionally does not preserve simulation speed. A separate **world** smoke capture at 1x confirms 85–87 fps, so this is not merely a high title-screen frame rate.
+
+Using the same instrumented runtime source with matching library identities, a single original/P1 pair at 1.5x measured a stationary starting-station scene. This differs from the earlier walking route; compare within this pair, not against the capped table above. A later A press avoids the faster startup outrunning the old input script. The world was visually verified at frame 750, before measurement at approximately frames 800–1350. Initial title-screen samples are discarded and are not used below.
+
+| Uncapped stationary world, 1.5x | Original | P1 |
+|---|---:|---:|
+| FPS over sample | 49.73 | 59.54 |
+| Wall ms/frame | 20.11 | 16.79 |
+| Total process CPU ms/frame | 33.05 | 29.17 |
+| Mean GPU-window busy ms | 20.07 | 16.82 |
+| Compile-skipped draws | 0 | 0 |
+
+This pair shows **+19.7% throughput and -11.7% process CPU work per frame**. It is promising evidence in this particular scene, not a replicated or full-game gain. It supersedes the earlier broad recommendation to infer no useful benefit from the capped runs alone. GPU-window intervals can include scheduling/dependency effects; their reduction is not proof that the GPU's shader workload was optimized. The pass changes CPU code only.
+
+The 1x world screenshot smoke exits at its requested frame before the general benchmark harness's later sample endpoint; the resulting wrapper early-exit message is not a native game crash. Captures, logs and measurement scripts remain private. Keep the P1 PR in draft pending review of this new evidence rather than extrapolating 19.7% to normal play or other hardware.
