@@ -17,7 +17,6 @@ typedef struct {
     char path[64];               // relative to the data root
     long long played;            // last write in it (unix seconds); 0 = nothing saved yet
     long long born;              // when the folder was made (the order of the list)
-    unsigned long long bytes;
 } SaveSlot;
 
 // The slots in a fixed order: the original `save/` first (as "Main save" until renamed, only when it holds something), then the others as
