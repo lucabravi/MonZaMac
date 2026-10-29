@@ -47,8 +47,8 @@ uint32_t rt_frame_steps(uint32_t interval) {
 }
 
 // Pokémon Z-A's frame mode (tools/patches.py ZA_BUILDS): its configured vsyncs per frame - 1 (1: 30 fps). With
-// the fps60 setting (or LARECOMP_FPS=60) 0: it presents every vsync and steps its world 1/60 s a frame; slower frames
-// still get the vsyncs that really passed (the game's own dynamic step), so the speed holds. LARECOMP_FPS=30: as is.
+// the fps60 setting (or LARECOMP_FPS=60) 0: it presents every vsync and adapts its world step to the real frame
+// time down to 30 fps. LARECOMP_FPS=30: as is. The retired LARECOMP_FPS_STEADY override is ignored.
 #include "../settings.h"
 bool g_za_frame_hook;  // (the game is Pokémon Z-A: exec.c leaves its GPU timing counters alone)
 
@@ -77,7 +77,7 @@ static void dynamic_steps(void) {
     if (ok < 0) {
         step_sites();
         ok = g_step60 && LD64(g_step60) == STEP_NS60 && LD64(g_step30) == STEP_NS30;
-        if (!ok) LOG("[pace] steady 60: the game's frame periods are not where expected: off\n");
+        if (!ok) LOG("[pace] 60 fps: the game's frame periods are not where expected: off\n");
     }
     if (!ok) return;
     uint64_t now = plat_now_ns();
@@ -95,7 +95,7 @@ static void dynamic_steps(void) {
     ST64(g_step60, period);
     int now_band = period == STEP_NS60 ? 0 : period == STEP_NS30 ? 2 : 1;
     static int nlog;
-    if (band != now_band && nlog++ < 30) LOG("[pace] steady 60: step %.1f ms (%d fps)\n", period / 1e6, fps);
+    if (band != now_band && nlog++ < 30) LOG("[pace] 60 fps: step %.1f ms (%d fps)\n", period / 1e6, fps);
     band = now_band;
 }
 
@@ -108,9 +108,6 @@ int32_t rt_za_frame_cfg(int32_t cfg) {
     bool on = e ? atoi(e) >= 60 : g_settings.fps60;
     static int logged = -1;
     if (logged != (int)on) { logged = on; LOG("[pace] game frame mode %d -> %d (%s)\n", cfg, on ? 0 : cfg, on ? "60 fps" : "as is"); }
-    if (on && (ENV("LARECOMP_FPS_STEADY") ? atoi(ENV("LARECOMP_FPS_STEADY")) : g_settings.fps60_steady)) {
-        dynamic_steps();
-        return 0;  // (its 60 mode)
-    }
+    if (on) dynamic_steps();
     return on ? 0 : cfg;
 }
