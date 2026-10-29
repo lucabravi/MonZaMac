@@ -88,8 +88,7 @@ Working:
 - Audio, the game's menus, saves
 - Controller and keyboard input
 
-Known issues:
-- NPC pop-in at Lumiose station is mitigated on game v2.0.2 by raising its appearance budgets. Other scenes still need validation.
+**Known issues:** No evident issues are currently known from the maintainer’s testing.
 
 Bugs and questions: [GitHub issues](https://github.com/lucabravi/MonZaMac/issues), see [CONTRIBUTING.md](CONTRIBUTING.md).
 
