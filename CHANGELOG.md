@@ -5,6 +5,9 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+- **Dynamic resolution, again:** the GPU time it reads tops out at the frame period (a GPU busy all the time that still
+  makes 60 fps reads about 16 ms), so it stayed at 85% where 100% held 60 fps. It now lowers when frames are missed and
+  raises while the busy time is under 16.3 ms.
 - **Dynamic resolution keeps a higher factor:** it lowered the resolution (to 2160x1134 at "Dynamic 1.5x") where the GPU
   still held 60 fps, because its limits (14.5 ms to lower, 13 ms predicted to raise) were set for older GPU times. They are
   now 15.5 and 14.3 ms.
