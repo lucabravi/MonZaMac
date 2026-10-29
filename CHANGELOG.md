@@ -5,41 +5,52 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+## 0.1.2
+
+About 60 fps in the open world on an Apple M5 at 2880x1620 (1.5x), up from about 41 on the same Mac and scene, and a new
+start screen with save slots.
+
+### Performance
+- **Structured shader flow (on by default):** a shader whose only computed jumps are bounded forward jump tables now
+  runs as plain conditionals and small switches instead of a `switch (pc)` loop (about 20% less measured GPU time for
+  the whole frame in one test, 48 to 60 fps at 1.5x). Anything it cannot prove falls back to the old output.
+  `LARECOMP_STRUCTURED_FLOW=0` turns it off.
+- **Faster shaders with jump tables (on by default):** a fragment shader with a computed jump (BRX) got a label on every
+  instruction, which stopped the Metal compiler from optimising it (the lighting pass went from 11.6 to 6.2 ms; 41 to 54
+  fps at 1.5x in one test). Now only the starts of code blocks are labels. `LARECOMP_BRX_ALL_LABELS=1` restores the old
+  output.
+- **Fewer render passes after GPU skinning (on by default):** the pass used to end after each transform-feedback stage;
+  it now stays open with a Metal buffer barrier (about 1 ms less GPU time a frame in the tested scenes: 38 to 42 fps at
+  1.5x in one test). Developer tab "Keep passes open after skinning" turns it off at once;
+  `LARECOMP_XFB_END_BARRIER=0` too.
+- **Clears as load actions:** a clear the game issues at the start of a pass now clears the attachment as the pass
+  begins instead of loading it and drawing over it (less GPU bandwidth; `LARECOMP_CLEAR_DRAWS=1` goes back).
+- **Dynamic resolution follows the GPU better:** it settled at 70% and then 85% where 100% held 60 fps. The GPU time it
+  reads tops out at the frame period (a GPU busy all the time that still makes 60 fps reads about 16 ms), so it now lowers
+  when frames are missed and raises while the busy time is under 16.3 ms.
+
+### Start screen and saves
+- **New start screen, with save slots:** the logo and name on top, a card with the most recent save, and CONTINUE / NEW
+  GAME / SAVES / SETTINGS / QUIT under it, as in the Pokémon games. CONTINUE starts the most recent save; NEW GAME asks
+  for a name and starts a fresh one; SAVES lists them all, in the order they were made, to pick one, copy, rename or
+  delete. Your existing save is the first slot ("Main save", you can rename it), untouched; extra saves live in `saves/`
+  next to `save/`. The app opens on it (`--play` skips it and plays the most recent save).
+- **No more aspect ratio question on the first PLAY:** the saved aspect ratio is used (authentic 16:9 until you change it
+  in Settings).
+- **New look for the menus:** deep blue panels with a cyan accent instead of green and gold (start screen, Settings,
+  in-game menu); the Settings window is smaller, with smaller type and the version in its header.
+- **Fix:** a hidden file such as `.DS_Store` in `save/` (Finder makes one when you open the folder) made it count as the
+  most recent save, so CONTINUE started an empty game. Hidden files are ignored now.
+
+### Settings
 - **Defaults for new players:** fullscreen, dynamic resolution, 60 fps, SMAA, authentic 16:9 and sharper textures
   (anisotropic filtering) are on from the first start. An existing `larecomp.ini` keeps its own settings.
 - **Settings before the game starts:** the Video tab of the start screen's Settings now shows the game's own options
   (game mode, frame rate, FXAA, depth of field, bloom, wider view, sharper textures, 4K shadows, game dynamic
   resolution), which only appeared once the game was running.
-- **Dynamic resolution, again:** the GPU time it reads tops out at the frame period (a GPU busy all the time that still
-  makes 60 fps reads about 16 ms), so it stayed at 85% where 100% held 60 fps. It now lowers when frames are missed and
-  raises while the busy time is under 16.3 ms.
-- **Dynamic resolution keeps a higher factor:** it lowered the resolution (to 2160x1134 at "Dynamic 1.5x") where the GPU
-  still held 60 fps, because its limits (14.5 ms to lower, 13 ms predicted to raise) were set for older GPU times. They are
-  now 15.5 and 14.3 ms.
-- **Fix:** a hidden file such as `.DS_Store` in `save/` (Finder makes one when you open the folder) made it count as the most
-  recent save, so CONTINUE started an empty game. Hidden files are ignored now.
-- **Structured shader flow (on by default):** a shader whose only computed jumps are bounded forward jump tables now
-  runs as plain conditionals and small switches instead of a `switch (pc)` loop (about 20% less measured GPU time for
-  the whole frame in one test, 48 to 60 fps at 1.5x). Anything it cannot prove falls back to the old output.
-  `LARECOMP_STRUCTURED_FLOW=0` turns it off.
 
-- **New start screen, with save slots:** the logo and name on top, a card with the most recent save, and CONTINUE / NEW
-  GAME / SAVES / SETTINGS / QUIT under it, as in the Pokémon games. CONTINUE starts the most recent save; NEW GAME asks
-  for a name and starts a fresh one; SAVES lists them all to pick one, copy, rename or delete. Your existing save is the
-  first slot ("Main save", you can rename it), untouched; extra saves live in `saves/` next to `save/`. The app opens on it
-  (`--play` skips it and plays the most recent save).
-- **New look for the menus:** deep blue panels with a cyan accent instead of green and gold (start screen, Settings, in-game
-  menu).
+### Tools
 - `gpupass N` (in `build/dbgcmd`): GPU time of each render pass over N frames, no Xcode needed (developer tool).
-- **Clears as load actions:** a clear the game issues at the start of a pass now clears the attachment as the pass
-  begins instead of loading it and drawing over it (less GPU bandwidth; `LARECOMP_CLEAR_DRAWS=1` goes back).
-- **Fewer render passes after GPU skinning (on by default):** the pass used to end after each transform-feedback stage;
-  it now stays open with a Metal buffer barrier (about 1 ms less GPU time a frame in the tested scenes: 38 to 42 fps at
-  1.5x in one test). Developer tab "Keep passes open after skinning" turns it off at once;
-  `LARECOMP_XFB_END_BARRIER=0` too.
-- **Faster shaders with jump tables (on by default):** a fragment shader with a computed jump (BRX) got a label on every
-  instruction, which stopped the Metal compiler from optimising it; now only the starts of code blocks are labels.
-  `LARECOMP_BRX_ALL_LABELS=1` restores the old output.
 - Developer GPU profiling: opt-in, one-frame Metal captures and per-frame pass/submission break histograms.
 
 ## 0.1.1
