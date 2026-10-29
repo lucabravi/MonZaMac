@@ -68,3 +68,14 @@ The uncapped setting and interval were checked in each run's log (`present inter
 | Repeat | P1 | 58.90 | 29.56 | 16.94 |
 
 The first apparent improvement did not repeat; the second pair was slightly slower with P1, and the original run varied substantially. Therefore no repeatable performance gain is established. GPU clock/thermal state, asynchronous scene work, and whole-process CPU sampling were not isolated. Treat P1 as an experiment, not a proven optimization. Do not extrapolate the first pair's gain.
+
+### Uncapped 1x repeat
+
+The same uncapped stationary station A/B was run at 1x; both logs confirmed present interval0 and Metal display sync off.
+
+| Variant | FPS | Wall ms/frame | Total process CPU ms/frame | GPU-window mean ms | Compile-skipped draws |
+|---|---:|---:|---:|---:|---:|
+| Original | 87.40 | 11.44 | 28.43 | 11.15 | 0 |
+| P1 | 86.41 | 11.57 | 29.37 | 11.28 | 0 |
+
+This repeat also shows no gameplay gain. Together, the original/P1 pairs at uncapped1x and1.5x disagree in direction. KeepP1 experimental/draft; current in-game measurements do not justify calling it an optimization.
