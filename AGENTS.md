@@ -12,6 +12,8 @@ are reimplemented in `runtime/`. Read `README.md` for status and `CONTRIBUTING.m
 - Never print key material (derived keys, `prod.keys` contents) into logs, issues or PRs. `nstool --showkeys` prints
   derived keys: don't run it where output is shared.
 - Don't put personal paths or information in code, comments or commit messages.
+- Never put links to conversations or discussions (claude.ai, session or project links, `Claude-Session` lines, any
+  `Co-Authored-By` line naming Claude) in commit messages, pull request titles or bodies, comments or code.
 
 ## Setup (macOS, Apple Silicon)
 
