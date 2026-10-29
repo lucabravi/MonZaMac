@@ -42,6 +42,13 @@ start screen with save slots.
 - **Fix:** a hidden file such as `.DS_Store` in `save/` (Finder makes one when you open the folder) made it count as the
   most recent save, so CONTINUE started an empty game. Hidden files are ignored now.
 
+### Settings
+- **Defaults for new players:** fullscreen, dynamic resolution, 60 fps, SMAA, authentic 16:9 and sharper textures
+  (anisotropic filtering) are on from the first start. An existing `larecomp.ini` keeps its own settings.
+- **Settings before the game starts:** the Video tab of the start screen's Settings now shows the game's own options
+  (game mode, frame rate, FXAA, depth of field, bloom, wider view, sharper textures, 4K shadows, game dynamic
+  resolution), which only appeared once the game was running.
+
 ### Tools
 - `gpupass N` (in `build/dbgcmd`): GPU time of each render pass over N frames, no Xcode needed (developer tool).
 - Developer GPU profiling: opt-in, one-frame Metal captures and per-frame pass/submission break histograms.

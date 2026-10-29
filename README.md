@@ -25,6 +25,10 @@
 
 ---
 
+<p align="center">
+  <img src="docs/screenshots/start-screen.png" alt="The MonZaMac start screen: the most recent save, and CONTINUE, NEW GAME, SAVES, SETTINGS and QUIT" width="380">
+</p>
+
 A native macOS port of **Pokémon Legends: Z-A** (Nintendo Switch, v2.0.2 + the Mega Dimension DLC) built by **static
 recompilation**: the game's ARM64 code is translated ahead of time into C and compiled for the Mac, and the Switch's
 operating system and GPU (NVN) are reimplemented in the runtime. No emulator runs at play time.
@@ -55,6 +59,9 @@ You need a Mac with Apple Silicon (macOS 15 or later) and **your own copy of the
 
 **Saves.** The start screen shows the save you played last. **SAVES** lists them all: pick one, start a new one, copy
 (a handy backup before trying something), rename or delete. A save you already had is the first one in the list, called "Main save" until you rename it.
+
+A new install starts with fullscreen, dynamic resolution, 60 fps, SMAA, the original 16:9 picture and sharper textures
+(anisotropic filtering); all of it is in **SETTINGS**, on the start screen too.
 
 In the game: **F1** opens the menu (video, audio, controls), **F3** shows the frame rate and the render resolution.
 Keyboard: WASD move, arrows d-pad, Enter = A, Backspace = B, K = talk, Q / E = L / R; a controller works too.
