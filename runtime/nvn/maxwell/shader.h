@@ -92,6 +92,7 @@ typedef struct {
     bool uses_xfb;          // (MSL vertex) writes transform feedback: per-draw buffer table at XFB_BUFFER_INDEX
     uint32_t local_mem;     // bytes of local memory
     uint32_t num_insts;
+    bool structured_flow;  // forward control flow, without the PC dispatcher (diagnostic)
     char error[256];        // set when translation fails
 } ShaderInfo;
 
@@ -121,6 +122,9 @@ extern const uint8_t *maxwell_dbg_vs;
 
 // code: shader binary (with the 0x50-byte SPH header for graphics stages)
 ShaderInfo *maxwell_translate(const uint8_t *code, size_t max_size, int stage, const ShaderKey *key);
+// Compiler-owned c1 data, stored with the program, permits bounded jump-table analysis.
+ShaderInfo *maxwell_translate_with_constants(const uint8_t *code, size_t max_size, int stage, const ShaderKey *key,
+                                           const uint8_t *constants, size_t constants_size);
 // A fragment stage that writes nothing: programs with only a vertex shader (depth-only passes: shadow maps, prepass)
 ShaderInfo *maxwell_empty_fragment(void);
 void maxwell_free(ShaderInfo *s);

@@ -30,6 +30,8 @@ bool saves_rename(const char *id, const char *name, char *id_out);  // (the orig
 bool saves_delete(const char *id);                    // removes the slot's folder (the original: empties it)
 // The game uses this slot's data from now on (g_save_dir). Unknown id: the original.
 void saves_select(const char *id);
+// The save with the most recent write (as the start screen's CONTINUE); none has progress: the original `save/`.
+void saves_select_latest(void);
 
 #ifdef __cplusplus
 }
