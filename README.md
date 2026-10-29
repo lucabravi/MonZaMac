@@ -31,6 +31,8 @@ operating system and GPU (NVN) are reimplemented in the runtime. No emulator run
 
 - A Metal renderer with internal resolutions from 25% up to 4x (1080p), SMAA and MetalFX upscaling, and a dynamic
   resolution that follows your GPU
+- About **60 fps in the open world on an Apple M5 at 2880x1620** (1.5x), with SMAA and anisotropic filtering on
+  (the maintainer's measurement; other chips and scenes differ)
 - 30 fps, 60 fps, or 60 fps with steady speed; docked or handheld mode
 - Keyboard and controller, the game's own menus and your saves, with several save slots to pick from
 - A guided setup: point the app at your own game files and it prepares everything on your Mac
@@ -66,6 +68,9 @@ source is for developers: see [Building from source](#building-from-source).
 **Playable.** The game runs from the intro through the first part of the story, with battles, menus and saves, and
 the maintainer has played it that far without problems. It is still a work in progress: later areas and other Macs
 have had less testing, so please report what you find.
+
+On an Apple M5 at 2880x1620 (1.5x, SMAA and anisotropic filtering on) the open world runs at about 60 fps, with small dips
+in busy animated scenes.
 
 Looking for the Windows version? It's available at **[PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp)** by
 **Hexveil404**.
