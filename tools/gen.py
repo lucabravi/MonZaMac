@@ -5,6 +5,7 @@ Usage: gen.py <name> <nso> <base> <outdir> [--hle hle_symbols.txt] [--chunk N] [
 --simd: FP/SIMD/CRC32 as AArch64 inline asm (default on arm64 hosts) or portable C (default elsewhere).
 """
 import argparse
+import flagfuse
 import bisect
 import os
 import platform
@@ -38,8 +39,9 @@ def sanitize(sym):
 
 
 class Module:
-    def __init__(self, name, path, base, simd='asm'):
+    def __init__(self, name, path, base, simd='asm', flag_fusion=True):
         self.name = name
+        self.flag_fusion = flag_fusion
         self.nso = Nso(path)
         self.base = base
         n = self.nso
@@ -430,12 +432,28 @@ class Module:
         all_labels = bool(tables)
         if all_labels:
             labels = set(range(entry, end, 4))
+        # Only fuse when every entry and flag use is visible; patches can hide either.
+        fuse = {}
+        if self.flag_fusion and not (all_labels or any(a in PATCHES for a in range(entry, end, 4))):
+            insns = {a: self.lift(a) for a in range(entry, end, 4)}
+            fuse = flagfuse.plan(insns, entry, end, labels, tables)
+            self.stats['flag_fused'] += sum(insns[a].kind == 'op' for a in fuse)
         last = None
         for a in range(entry, end, 4):
             ins = self.lift(a)
             if a in labels:
                 flush()
                 out.append(f'L_{a:x}:;')
+            if a in fuse:
+                flush()
+                replacement = fuse[a]
+                if replacement:
+                    if '{JUMP}' in replacement:
+                        target = ins.target if ins.kind == 'bcond' else self.lift(a + 4).target
+                        replacement = replacement.replace('{JUMP}', jump(target))
+                    out.append('    ' + replacement)
+                last = 'bcond' if ins.kind == 'bcond' or '{JUMP}' in fuse[a] else 'op'
+                continue
             if a in PATCHES:  # hand-written replacement for one instruction (tools/patches.py)
                 flush()
                 out.append('    ' + PATCHES[a](self, a))
@@ -526,12 +544,13 @@ def main():
     ap.add_argument('--chunk-bytes', type=int, default=1500000)  # and about this much C (even compile times)
     ap.add_argument('--big-fn', type=int, default=100000)  # bytes of C from which a function gets its own file
     ap.add_argument('--limit', type=int, default=0)
+    ap.add_argument('--no-flag-fusion', action='store_true', help='retain explicit NZCV operations (diagnostic)')
     ap.add_argument('--simd', choices=('asm', 'c'),
                     default='asm' if platform.machine().lower() in ('arm64', 'aarch64') else 'c')
     args = ap.parse_args()
 
     t0 = time.time()
-    m = Module(args.name, args.nso, args.base, args.simd)
+    m = Module(args.name, args.nso, args.base, args.simd, not args.no_flag_fusion)
     # The patch sites (patches.py) are Pokémon Legends Z-A's: another game or build is lifted as it is
     main_nso = os.path.join(os.path.dirname(args.nso), 'main')
     build = Nso(main_nso).build_id[:16]
