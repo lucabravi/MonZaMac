@@ -5,6 +5,26 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+## 0.1.3
+
+### Performance
+- **Frame rate: one 60 fps choice.** Settings > Video has 30 fps and 60 fps; the old "steady speed" option is retired
+  (a saved `fps60_steady` is ignored). `dynamic 60 fps` now keeps the world at a steady speed on its own.
+- **Guest compare and branch fusion:** a conservative fusion of compare and branch instructions in the generated code
+  (`tools/flagfuse.py`, with its tests). Behaviour is unchanged; the gain is in the frame time, measured on one Mac.
+
+### Start screen and saves
+- **The save card and the SAVES list show no file size:** name and last-modified date tell saves apart.
+- **Hidden files** such as `.DS_Store` in `save/` are no longer counted as progress.
+
+### Station
+- **Fewer NPC pop-ins at Lumiose station:** the game's appearance budgets for characters are raised there. This
+  mitigates the known issue; it is not a full fix, and the README still lists it.
+
+### Developer
+- **Uncapped frame rate benchmark** (Developer tab): turns off the frame limit to measure the GPU and CPU on their own.
+  Off by default.
+
 ## 0.1.2
 
 About 60 fps in the open world on an Apple M5 at 2880x1620 (1.5x), up from about 41 on the same Mac and scene, and a new
