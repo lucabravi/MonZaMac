@@ -85,3 +85,26 @@ bool rt_za_shadows_4k(void) {
     static int logged = -1;
     return on("4K shadows", ENV("LARECOMP_SHADOWS_4K"), g_settings.shadows_4k, &logged);
 }
+
+// Z-A 2.0.2 budgets 20 active NPCs and 25 selection candidates. Raising both to 64 removed
+// repeated TempExit churn in the tested station walk. This preserves the game's scoring,
+// distance checks and exit lifecycle; it does not correct the underlying priority policy.
+void rt_za_npc_capacity(void) {
+    extern uint8_t g_game_build[8];
+    static const uint8_t b202[8] = {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a};
+    const char *e = ENV("LARECOMP_NPC_CAPACITY_FIX");
+    if ((e && !atoi(e)) || memcmp(g_game_build, b202, sizeof b202)) return;
+
+    const uint64_t logical_addr = 0x700610b878ull;
+    uint32_t logical = LD32(logical_addr);
+    if (logical != 20 && logical != 64) return; // Not initialized, or an unexpected configuration.
+    uint64_t selector = LD64(0x700610b858ull);
+    if (selector < ALIAS_BASE || selector > GUEST_HI - 0x318 || (selector & 7)) return;
+    uint32_t selection = LD32(selector + 0x310);
+    if ((selection != 25 && selection != 64) || (logical == 64 && selection == 64)) return;
+
+    // These are 32-bit fields: the adjacent float and flag must remain unchanged.
+    ST32(logical_addr, 64);
+    ST32(selector + 0x310, 64);
+    LOG("[za] NPC appearance budgets %u/%u -> 64/64\n", logical, selection);
+}
