@@ -17,8 +17,11 @@ static const char *settings_file(void) {
 
 Settings g_settings = {
     .aspect = ASPECT_ORIGINAL,
-    .fullscreen = false,
-    .res_mode = 1,  // 1x: the Switch's 1080p
+    // the defaults of a new player (an existing larecomp.ini keeps its own): fullscreen, dynamic resolution, 60 fps, SMAA,
+    // authentic 16:9, sharper textures (anisotropic filtering)
+    .fullscreen = true,
+    .res_mode = RES_DYNAMIC,
+    .fps60 = true,
     .antialias = AA_SMAA,
     .volume = 1.0f,
     .reverb = true,
