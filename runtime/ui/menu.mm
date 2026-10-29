@@ -448,6 +448,13 @@ extern "C" void renderer_get_scale(float *sx, float *sy);
 extern "C" const char *rt_version_label(void);  // launcher.mm: "0.1.1"
 extern "C" int input_pad_family(void);  // runtime/hle/input.c
 
+extern "C" int g_start_screen;  // runtime/ui/launcher.mm
+// The Z-A-only rows: while the game runs, and on the start screen (this app plays nothing else: they were missing there)
+static bool za_rows(void) {
+    extern bool g_za_frame_hook;
+    return g_za_frame_hook || g_start_screen;
+}
+
 static void tab_display(void) {
     float scale = ImGui::GetFontSize() / 34;
     opt_begin("##video", scale);
@@ -463,8 +470,7 @@ static void tab_display(void) {
     }
     opt_toggle("Show FPS", &g_settings.show_fps, false, "Shows the frame rate in the top right corner. F3 does it for this run only, adding the render resolution.");
     {   // Pokémon Z-A's game mode (runtime/services/am.c): the mode the game is told it runs in
-        extern bool g_za_frame_hook;
-        if (g_za_frame_hook) {
+        if (za_rows()) {
             int gm = g_settings.handheld ? 1 : 0;
             static const char *modes[] = {"Docked (1080p)", "Handheld (720p)"};
             if (opt_choice("Game mode", &gm, modes, 2, 0,
@@ -475,8 +481,7 @@ static void tab_display(void) {
         }
     }
     {   // Pokémon Z-A's frame mode (runtime/hle/framepace.c rt_za_frame_cfg): applies from the next frame
-        extern bool g_za_frame_hook;
-        if (g_za_frame_hook) {
+        if (za_rows()) {
             int fr = g_settings.fps60 ? (g_settings.fps60_steady ? 2 : 1) : 0;
             static const char *rates[] = {"30 fps (Switch)", "60 fps", "60 fps, steady speed"};
             if (opt_choice("Frame rate", &fr, rates, 3, 0,
@@ -539,8 +544,7 @@ static void tab_display(void) {
                "stutter, but nothing is missing from the picture. Off: it compiles in the background and the objects that "
                "need it are left out of the picture until it is ready (the pipelines saved from earlier runs are quick).");
     {   // Pokémon Z-A's own effects (runtime/hle/za_mods.c): the same patch build as the frame mode
-        extern bool g_za_frame_hook;
-        if (g_za_frame_hook) {
+        if (za_rows()) {
             opt_toggle("Game FXAA", &g_settings.fxaa, true,
                        "The game's own anti-aliasing, a light blur over the whole image. Off: sharper, with more jagged "
                        "edges (SMAA above can smooth them instead).");
