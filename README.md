@@ -89,7 +89,7 @@ Working:
 - Controller and keyboard input
 
 Known issues:
-- Characters (NPCs) can pop in and out while walking, mostly at Lumiose station.
+- NPC pop-in at Lumiose station is mitigated on game v2.0.2 by raising its appearance budgets. Other scenes still need validation.
 
 Bugs and questions: [GitHub issues](https://github.com/lucabravi/MonZaMac/issues), see [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -158,6 +158,10 @@ and refuses to overwrite an existing `extracted/`. Already have the files extrac
 - `runtime/nvn/` - the NVN-to-Metal backend: `maxwell/translate.c` (Maxwell shader to MSL), `renderer.m` (command
   executor), `metal.m` (window and presentation)
 - `tools/` - the recompiler (`gen.py`, `lifter.py`) and game-specific tooling (`tools/za/`)
+
+Z-A v2.0.2 uses larger NPC appearance budgets (64 active / 64 selection candidates) to reduce characters disappearing
+while walking through crowded areas. Launch with `LARECOMP_NPC_CAPACITY_FIX=0` to retain the original 20/25 budgets.
+The change keeps the game's distance and priority rules; higher population budgets can increase CPU/GPU and memory use.
 
 Debug aids: `LARECOMP_*` environment variables (see `runtime/nvn/renderer.m`); `touch build/dumpframe` captures a frame.
 
