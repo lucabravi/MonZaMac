@@ -60,7 +60,7 @@ static void dyn_update(double now, double gpu_ms) {
     }
     // Slow frames count only when the GPU is a real part of them: a frame that is long on the CPU side (under 9 ms of
     // GPU) is not helped by a lower resolution, and lowering it anyway left the picture soft for nothing.
-    bool slow = avg_gpu >= 0 ? avg_gpu > 14.5 * iv || (avg_dt > 17.4 * iv && avg_gpu > 9.0 * iv) : avg_dt > 17.4 * iv;
+    bool slow = avg_gpu >= 0 ? avg_gpu > 15.5 * iv || (avg_dt > 17.4 * iv && avg_gpu > 9.0 * iv) : avg_dt > 17.4 * iv;
     if (slow) {
         g_dyn = fmax(0.5, g_dyn - (avg_dt > 22 * iv ? 0.1 : 0.05));
         g_dyn_good = 0;
@@ -71,9 +71,11 @@ static void dyn_update(double now, double gpu_ms) {
         if (now - g_dyn_last_slow > 10.0) g_dyn_probe_wait = DYN_PROBE_MIN;  // (10 s without a slow frame: no backoff)
         // with GPU timing: raise when there is clear headroom; without (Vulkan): probe upwards now and then
         // raise when the next step (pixels grow with the square of the factor) is predicted to stay under the limit:
-        // a fixed 10.5 ms bar left the factor low where a higher one would have held (stuck at its floor with 11 ms of GPU)
+        // a fixed 10.5 ms bar left the factor low where a higher one would have held (stuck at its floor with 11 ms of GPU).
+        // The bars (15.5 slow, 14.3 raise, a 16.7 ms frame) follow the GPU time now measured: about 14.5 ms at 1.5x on an M5 holds
+        // 60 fps, and the old 14.5 / 13.0 pair kept the factor at 0.7 with 11.7 ms, the share of the frame that resolution doesn't change
         double up = (g_dyn + 0.05) / g_dyn;
-        bool room = avg_gpu >= 0 ? avg_gpu * up * up < 13.0 * iv && g_dyn_good >= 4 : now >= g_dyn_probe_at && g_dyn_good >= 2;
+        bool room = avg_gpu >= 0 ? avg_gpu * up * up < 14.3 * iv && g_dyn_good >= 4 : now >= g_dyn_probe_at && g_dyn_good >= 2;
         // (two steps at once while nothing was slow for a while and the factor is far from the top: a climb of 20 s becomes 10)
         if (room) { g_dyn = fmin(1.0, g_dyn + (now - g_dyn_last_slow > 6.0 && g_dyn < 0.85 ? 0.10 : 0.05)); g_dyn_good = 0; g_dyn_last_raise = now; g_dyn_probe_at = now + g_dyn_probe_wait; }
     }
