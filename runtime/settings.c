@@ -99,7 +99,7 @@ void settings_load(void) {
         else if (!strcmp(key, "movie_audio")) g_settings.movie_audio = atoi(val) != 0;
         else if (!strcmp(key, "show_fps")) g_settings.show_fps = atoi(val) != 0;
         else if (!strcmp(key, "fps60")) g_settings.fps60 = atoi(val) != 0;
-        else if (!strcmp(key, "fps60_steady")) g_settings.fps60_steady = atoi(val) != 0;
+        else if (!strcmp(key, "fps60_steady")) {}  // retired: fps60 alone selects the dynamic 60 fps mode
         else if (!strcmp(key, "game_mode")) g_settings.handheld = !strcmp(val, "handheld");
         else if (!strcmp(key, "wait_for_shaders")) g_settings.wait_shaders = atoi(val) != 0;
         else if (!strcmp(key, "gpu_overlap")) g_settings.gpu_overlap = atoi(val) != 0;
@@ -156,7 +156,6 @@ void settings_save(void) {
     fprintf(f, "movie_audio = %d\n", g_settings.movie_audio);
     fprintf(f, "show_fps = %d\n", g_settings.show_fps);
     fprintf(f, "fps60 = %d\n", g_settings.fps60);
-    fprintf(f, "fps60_steady = %d\n", g_settings.fps60_steady);
     fprintf(f, "game_mode = %s\n", g_settings.handheld ? "handheld" : "docked");
     fprintf(f, "wait_for_shaders = %d\n", g_settings.wait_shaders);
     fprintf(f, "gpu_overlap = %d\n", g_settings.gpu_overlap);
