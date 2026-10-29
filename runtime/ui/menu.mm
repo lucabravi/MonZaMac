@@ -482,14 +482,12 @@ static void tab_display(void) {
     }
     {   // Pokémon Z-A's frame mode (runtime/hle/framepace.c rt_za_frame_cfg): applies from the next frame
         if (za_rows()) {
-            int fr = g_settings.fps60 ? (g_settings.fps60_steady ? 2 : 1) : 0;
-            static const char *rates[] = {"30 fps (Switch)", "60 fps", "60 fps, steady speed"};
-            if (opt_choice("Frame rate", &fr, rates, 3, 0,
-                           "30 fps: as on the Switch. 60 fps: the game presents every vsync and steps its world 1/60 s "
-                           "a frame - smoother, but it slows down whenever a frame takes longer than that. 60 fps, steady "
-                           "speed: the world steps by the time each frame really took, so the speed holds when a frame "
-                           "takes longer than 1/60 s (down to 30 fps). Needs a faster CPU."))
-                g_settings.fps60 = fr >= 1, g_settings.fps60_steady = fr == 2;
+            int fr = g_settings.fps60 ? 1 : 0;
+            static const char *rates[] = {"30 fps (Switch)", "60 fps"};
+            if (opt_choice("Frame rate", &fr, rates, 2, 0,
+                           "30 fps: as on the Switch. 60 fps: smoother motion, with the world step adapting to the "
+                           "time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU."))
+                g_settings.fps60 = fr == 1;
         }
     }
 
@@ -631,6 +629,9 @@ static void tab_developer(void) {
                "Writes the GPU time of each frame's present window to the log, two lines per frame. For measuring. "
                "LARECOMP_GPU_TIMING_TRACE=1 also writes a line per command buffer (about 140 a frame).");
     opt_section("Experimental");
+    opt_toggle("Uncapped FPS (benchmark)", &g_settings.dev_uncapped_fps, false,
+               "For throughput measurements only. Removes frame pacing and display sync. Gameplay, animations and "
+               "timers may run too fast. Turn off for normal play; this overrides the selected frame rate.");
     opt_toggle("CPU/GPU overlap", &g_settings.gpu_overlap, true,
                "The game waits for each frame's GPU work right after sending it, so the CPU and the GPU take turns. On: the "
                "wait is one frame late, so the CPU prepares the next frame while the GPU draws this one: a higher frame "
@@ -942,6 +943,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         ImGui::Begin("##fps", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
                                         ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing);
         ImGui::Text("%.0f fps", io.Framerate);
+        if (settings_uncapped_fps()) ImGui::TextUnformatted("BENCHMARK: game speed may change");
         if (g_stats.load()) {  // F3: what the 3D image renders at (the game's own size times the output scale)
             extern int g_out_present_interval;
             float sx, sy;

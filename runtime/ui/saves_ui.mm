@@ -61,11 +61,6 @@ static void when(const SaveSlot &s, char *out, size_t n) {
     else snprintf(out, n, "Last played  %s  \xc2\xb7  %ld days ago", date, d);
 }
 
-static void size_label(unsigned long long b, char *out, size_t n) {
-    if (b >= 1024ull * 1024) snprintf(out, n, "%.1f MB", (double)b / (1024 * 1024));
-    else snprintf(out, n, "%llu KB", (b + 1023) / 1024);
-}
-
 static bool bar_button(const char *label, float w, float h, ImFont *font, bool danger = false) {
     ImGui::PushFont(font);
     ImGui::PushStyleColor(ImGuiCol_Button, ImGui::ColorConvertU32ToFloat4(pal::card));
@@ -218,17 +213,13 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_) {
         cl->AddText(body, u * 1.1f, ImVec2(bc.x - ns.x * 0.5f, bc.y - ns.y * 0.5f),
                     hot ? IM_COL32(4, 12, 28, 255) : pal::text, num);
         float tx = p.x + pad + bd + u * 0.8f;
-        char line[96], sz[24];
+        char line[96];
         when(s, line, sizeof line);
         float nh = u * 1.3f;
         float ty = p.y + (card_h - nh - u * 0.95f) * 0.5f;
         cl->AddText(body, nh, ImVec2(tx, ty), pal::text, s.name);
         cl->AddText(small_, u * 0.85f, ImVec2(tx, ty + nh + u * 0.1f), pal::sub, line);
-        if (s.played) {  // right side: how big the save is
-            size_label(s.bytes, sz, sizeof sz);
-            ImVec2 zs = small_->CalcTextSizeA(small_->FontSize, FLT_MAX, 0, sz);
-            cl->AddText(small_, small_->FontSize, ImVec2(q.x - pad - zs.x, bc.y - zs.y * 0.5f), pal::sub, sz);
-        } else {
+        if (!s.played) {  // (a slot with no progress: the NEW GAME badge, on the right)
             const char *nw = "NEW GAME";
             ImVec2 zs = small_->CalcTextSizeA(small_->FontSize, FLT_MAX, 0, nw);
             ImVec2 a(q.x - pad - zs.x - 24 * sc, bc.y - zs.y * 0.5f - 8 * sc), b(q.x - pad, bc.y + zs.y * 0.5f + 8 * sc);
@@ -359,13 +350,10 @@ int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready,
     dl->AddRectFilled(cp, cq, IM_COL32(22, 40, 74, 235), u * 0.4f);
     dl->AddRect(cp, cq, pal::edge, u * 0.4f, 0, 1.5f);
     if (any) {
-        char line[96], sz[24];
+        char line[96];
         when(*cur, line, sizeof line);
         dl->AddText(small_, u * 1.15f, ImVec2(x + u * 0.7f, ty + u * 0.35f), pal::text, cur->name);
         dl->AddText(small_, u * 0.8f, ImVec2(x + u * 0.7f, ty + u * 1.6f), pal::sub, line);
-        size_label(cur->bytes, sz, sizeof sz);
-        ImVec2 zs = small_->CalcTextSizeA(u * 0.85f, FLT_MAX, 0, sz);
-        dl->AddText(small_, u * 0.85f, ImVec2(x + w - u * 0.7f - zs.x, ty + (ch - zs.y) * 0.5f), pal::sub, sz);
     } else {
         dl->AddText(small_, u * 1.0f, ImVec2(x + u * 0.7f, ty + u * 0.45f), pal::text, "No saves yet");
         dl->AddText(small_, u * 0.8f, ImVec2(x + u * 0.7f, ty + u * 1.55f), pal::sub, "Choose NEW GAME to begin.");

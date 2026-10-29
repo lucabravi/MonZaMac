@@ -47,8 +47,8 @@ uint32_t rt_frame_steps(uint32_t interval) {
 }
 
 // Pokémon Z-A's frame mode (tools/patches.py ZA_BUILDS): its configured vsyncs per frame - 1 (1: 30 fps). With
-// the fps60 setting (or LARECOMP_FPS=60) 0: it presents every vsync and steps its world 1/60 s a frame; slower frames
-// still get the vsyncs that really passed (the game's own dynamic step), so the speed holds. LARECOMP_FPS=30: as is.
+// the fps60 setting (or LARECOMP_FPS=60) 0: it presents every vsync and adapts its world step to the real frame
+// time down to 30 fps. LARECOMP_FPS=30: as is. The retired LARECOMP_FPS_STEADY override is ignored.
 #include "../settings.h"
 bool g_za_frame_hook;  // (the game is Pokémon Z-A: exec.c leaves its GPU timing counters alone)
 
@@ -69,24 +69,24 @@ static void step_sites(void) {
     if (!memcmp(g_game_build, b202, 8)) g_step60 = 0x7003393e20, g_step30 = 0x7003393e28, g_step_flag = 0x700610b980;
 }
 
+static uint64_t g_dynamic_last;
+static double g_dynamic_smooth; // seconds per frame
 static void dynamic_steps(void) {
     static int ok = -1;
-    static uint64_t last;
-    static double smooth;  // seconds per frame
     static int band = -1;
     if (ok < 0) {
         step_sites();
         ok = g_step60 && LD64(g_step60) == STEP_NS60 && LD64(g_step30) == STEP_NS30;
-        if (!ok) LOG("[pace] steady 60: the game's frame periods are not where expected: off\n");
+        if (!ok) LOG("[pace] 60 fps: the game's frame periods are not where expected: off\n");
     }
     if (!ok) return;
     uint64_t now = plat_now_ns();
-    double dt = last ? (now - last) / 1e9 : 0;
-    last = now;
+    double dt = g_dynamic_last ? (now - g_dynamic_last) / 1e9 : 0;
+    g_dynamic_last = now;
     if (dt <= 0) return;
     if (dt > 0.25) dt = 0.25;  // (a stall or a load: not the frame rate)
-    smooth = smooth > 0 ? dt * 0.05 + smooth * 0.95 : dt;
-    int fps = (int)floor(1.0 / smooth);
+    g_dynamic_smooth = g_dynamic_smooth > 0 ? dt * 0.05 + g_dynamic_smooth * 0.95 : dt;
+    int fps = (int)floor(1.0 / g_dynamic_smooth);
     uint64_t period = STEP_NS60;
     if (fps < 58 && !LD8(g_step_flag)) {
         period = fps > 0 ? (uint64_t)(1e9f / (float)fps) : STEP_NS30;
@@ -95,19 +95,27 @@ static void dynamic_steps(void) {
     ST64(g_step60, period);
     int now_band = period == STEP_NS60 ? 0 : period == STEP_NS30 ? 2 : 1;
     static int nlog;
-    if (band != now_band && nlog++ < 30) LOG("[pace] steady 60: step %.1f ms (%d fps)\n", period / 1e6, fps);
+    if (band != now_band && nlog++ < 30) LOG("[pace] 60 fps: step %.1f ms (%d fps)\n", period / 1e6, fps);
     band = now_band;
 }
 
+// Update appearance budgets on the guest frame thread, before its entity jobs run.
+extern void rt_za_npc_capacity(void);
 int32_t rt_za_frame_cfg(int32_t cfg) {
+    rt_za_npc_capacity();
     g_za_frame_hook = true;
+    static bool was_uncapped;
+    bool uncapped = settings_uncapped_fps();
+    if (uncapped != was_uncapped) {
+        g_dynamic_last = 0;
+        g_dynamic_smooth = 0;
+        was_uncapped = uncapped;
+    }
+    if (uncapped) return 0; // benchmark: force the fast frame mode without adapting game time
     const char *e = ENV("LARECOMP_FPS");
     bool on = e ? atoi(e) >= 60 : g_settings.fps60;
     static int logged = -1;
     if (logged != (int)on) { logged = on; LOG("[pace] game frame mode %d -> %d (%s)\n", cfg, on ? 0 : cfg, on ? "60 fps" : "as is"); }
-    if (on && (ENV("LARECOMP_FPS_STEADY") ? atoi(ENV("LARECOMP_FPS_STEADY")) : g_settings.fps60_steady)) {
-        dynamic_steps();
-        return 0;  // (its 60 mode)
-    }
+    if (on) dynamic_steps();
     return on ? 0 : cfg;
 }
