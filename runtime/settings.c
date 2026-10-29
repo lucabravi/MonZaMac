@@ -17,8 +17,11 @@ static const char *settings_file(void) {
 
 Settings g_settings = {
     .aspect = ASPECT_ORIGINAL,
-    .fullscreen = false,
-    .res_mode = 1,  // 1x: the Switch's 1080p
+    // the defaults of a new player (an existing larecomp.ini keeps its own): fullscreen, dynamic resolution, 60 fps, SMAA,
+    // authentic 16:9, sharper textures (anisotropic filtering)
+    .fullscreen = true,
+    .res_mode = RES_DYNAMIC,
+    .fps60 = true,
     .antialias = AA_SMAA,
     .volume = 1.0f,
     .reverb = true,
@@ -30,6 +33,7 @@ Settings g_settings = {
     .fov = false,        // (changes the framing: off by default)
     .lod = true,
     .gpu_overlap = true,
+    .xfb_barrier = true,
     .shadows_4k = false, // (more GPU memory and work: off by default)
     .upscaler = UPSCALE_SHARP,  // (MetalFX on macOS, AMD FSR 1 on Windows)
 };
@@ -99,6 +103,7 @@ void settings_load(void) {
         else if (!strcmp(key, "game_mode")) g_settings.handheld = !strcmp(val, "handheld");
         else if (!strcmp(key, "wait_for_shaders")) g_settings.wait_shaders = atoi(val) != 0;
         else if (!strcmp(key, "gpu_overlap")) g_settings.gpu_overlap = atoi(val) != 0;
+        else if (!strcmp(key, "xfb_barrier")) g_settings.xfb_barrier = atoi(val) != 0;
         else if (!strcmp(key, "game_dynamic_res")) g_settings.game_drs = atoi(val) != 0;
         else if (!strcmp(key, "developer")) g_settings.developer = atoi(val) != 0;
         else if (!strcmp(key, "dev_gpu_trace")) g_settings.dev_gpu_trace = atoi(val) != 0;
@@ -128,6 +133,7 @@ void settings_load(void) {
                 if (!strcmp(val, g_language_codes[i])) g_settings.language = i;
         }
         else if (!strcmp(key, "menu_tip_seen")) g_settings.menu_tip_seen = atoi(val) != 0, tip_key = true;
+        else if (!strcmp(key, "save_slot")) snprintf(g_settings.save_slot, sizeof g_settings.save_slot, "%s", val);
         else if (!strcmp(key, "aspect_asked")) g_settings.aspect_asked = atoi(val) != 0, aspect_key = true;
         else bind_settings_load(key, val);  // bind_pad_* / bind_key_*: runtime/hle/bindings.c
     }
@@ -154,6 +160,7 @@ void settings_save(void) {
     fprintf(f, "game_mode = %s\n", g_settings.handheld ? "handheld" : "docked");
     fprintf(f, "wait_for_shaders = %d\n", g_settings.wait_shaders);
     fprintf(f, "gpu_overlap = %d\n", g_settings.gpu_overlap);
+    fprintf(f, "xfb_barrier = %d\n", g_settings.xfb_barrier);
     fprintf(f, "game_dynamic_res = %d\n", g_settings.game_drs);
     fprintf(f, "developer = %d\n", g_settings.developer);
     fprintf(f, "dev_gpu_trace = %d\n", g_settings.dev_gpu_trace);
@@ -182,6 +189,7 @@ void settings_save(void) {
                                                      ? g_settings.language : LANG_AUTO]);
     fprintf(f, "aspect_asked = %d\n", g_settings.aspect_asked);
     fprintf(f, "menu_tip_seen = %d\n", g_settings.menu_tip_seen);
+    fprintf(f, "save_slot = %s\n", g_settings.save_slot);
     bind_settings_save(f);
     fclose(f);
 }

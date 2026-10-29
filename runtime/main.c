@@ -8,6 +8,7 @@
 #include "gamelib.h"
 #include "paths.h"
 #include "settings.h"
+#include "saves.h"
 #include "hle.h"
 #include "kernel.h"
 
@@ -167,6 +168,7 @@ static void boot(const char *root) {
 
 uint8_t g_game_build[8];  // the exefs/main build ID read at start (all zero when unreadable)
 
+extern int g_saves_first;  // runtime/ui/launcher.mm: the start screen opens on the save picker
 int main(int argc, char **argv) {
     plat_init();
 #ifdef _WIN32
@@ -177,12 +179,15 @@ int main(int argc, char **argv) {
     const char *root = "extracted";  // (in the data root)
     bool skip_launcher = getenv("LARECOMP_NO_LAUNCHER") || getenv("LARECOMP_INPUT");  // tests boot straight in
     static char arg_root[1024];
+    bool play_flag = false;
     for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--play")) skip_launcher = true;
+        if (!strcmp(argv[i], "--play")) skip_launcher = play_flag = true;
         else if (argv[i][0] != '-' && !realpath(argv[i], arg_root)) root = argv[i];  // (relative to where we started)
         else if (argv[i][0] != '-') root = arg_root;
     }
+    const bool explicit_skip = skip_launcher;  // (--play, tests: no save picker either)
     rt_paths_init();  // the data root becomes the working directory (runtime/paths.h)
+    if (play_flag) saves_select_latest();  // --play skips the start screen: the most recent save, as its CONTINUE
     {   // Pokémon Legends Z-A (exefs/main build 7222e13ecf6adb32: 1.0.0, 8a1c86c437394b69: 2.0.0, b1f12fd919eae86a: 2.0.2): the start screen would ask for
         // game files it doesn't use - straight into the game, as with --play. Started without a log redirect (a
         // double click): the log goes to logs/play.log (the previous one: logs/play-anterior.log).
@@ -196,6 +201,7 @@ int main(int argc, char **argv) {
         if (f) { fseek(f, 0x40, SEEK_SET); if (fread(id, 1, 8, f) != 8) memset(id, 0, 8); fclose(f); }
         if (!memcmp(id, za_build[0], 8) || !memcmp(id, za_build[1], 8) || !memcmp(id, za_build[2], 8)) {
             skip_launcher = true;
+            g_saves_first = !explicit_skip;  // (the start screen opens, with its CONTINUE: runtime/ui/saves_ui.mm)
 #ifdef _WIN32
             extern int rt_stderr_is_console(void);
             if (rt_stderr_is_console()) {
@@ -207,7 +213,7 @@ int main(int argc, char **argv) {
 #endif
         }
     }
-    for (bool title = !skip_launcher;;) {
+    for (bool title = !skip_launcher || g_saves_first;;) {
         if (title) {  // start screen (runtime/ui/launcher.mm): game files setup, seed choice, settings
             extern void launcher_run(const char *root);
             launcher_run(root);
