@@ -697,21 +697,25 @@ def emit_asm_batch(batch):
     """Emit one inline-asm block for a run of FP/SIMD instructions."""
     vregs = set()
     gmap = {}
-    flags = False
+    flags = any(a.flags for a in batch)
+    # NZCV is loaded/stored through x16 around the whole batch, including when
+    # the first flag user appears after GPR operands have already been assigned.
+    scratch = [s for s in SCRATCH if s != 16] if flags else SCRATCH
     consts = []
     words = []
     for a in batch:
         vregs |= a.vregs
-        flags |= a.flags
         w = a.word
         for pos, g in a.gprs:
             if g not in gmap:
-                if len(gmap) + len(consts) >= len(SCRATCH):
+                if len(gmap) + len(consts) >= len(scratch):
                     raise Unsupported('scratch exhausted')
-                gmap[g] = SCRATCH[len(gmap) + len(consts)]
+                gmap[g] = scratch[len(gmap) + len(consts)]
             w = (w & ~(31 << pos)) | (gmap[g] << pos)
         for pos, val in a.consts:
-            s = SCRATCH[len(gmap) + len(consts)]
+            if len(gmap) + len(consts) >= len(scratch):
+                raise Unsupported('scratch exhausted')
+            s = scratch[len(gmap) + len(consts)]
             consts.append((s, val))
             w = (w & ~(31 << pos)) | (s << pos)
         words.append(w)
