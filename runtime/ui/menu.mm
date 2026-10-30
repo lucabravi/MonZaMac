@@ -678,7 +678,7 @@ static void tab_about(void) {
     {
         float pct = roundf(g_settings.mouse_speed * 100);
         if (opt_slider("Mouse camera speed", &pct, 25, 300, 5, 100, "%g%%",
-                   "How fast the mouse and the trackpad turn the camera. 100% is the game's own speed."))
+                   "How fast the mouse and the trackpad turn the camera. 100% is the default."))
             g_settings.mouse_speed = pct / 100.0f;
     }
     ImGui::Spacing();

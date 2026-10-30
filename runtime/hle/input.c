@@ -166,11 +166,12 @@ static bool mouse_camera_on(uint32_t state) {
     }
 }
 
-// Main thread, after each batch of events (runtime/nvn/metal.m ui_run): with "No button" the cursor is held in the window
-// while the game has the controls, not while the menu is up.
+// Main thread, after each batch of events (runtime/nvn/metal.m ui_run): while the game has the controls the mouse is in
+// relative mode: the cursor is hidden (nothing in the game is clicked) and held in place, so the camera never stops at
+// the window's edge; the menu and the name entry get the cursor back.
 void input_mouse_update(SDL_Window *w) {
     static bool held;
-    bool want = g_settings.mouse_camera == MOUSE_CAM_ALWAYS && !menu_input_captured() && (SDL_GetWindowFlags(w) & SDL_WINDOW_INPUT_FOCUS);
+    bool want = !menu_input_captured() && (SDL_GetWindowFlags(w) & SDL_WINDOW_INPUT_FOCUS);
     if (want == held) return;
     SDL_SetWindowRelativeMouseMode(w, want);
     held = want;
@@ -184,7 +185,8 @@ void input_mouse_update(SDL_Window *w) {
 static _Atomic int32_t mouse_acc_x, mouse_acc_y;
 #define MOUSE_FULL 1200.0  // px/s for full tilt at speed 1
 #define MOUSE_FLOOR 0.2    // the stick's dead zone
-#define TRACKPAD_PX 24.0   // px per wheel unit of a two-finger drag (the trackpad was half as fast as the mouse at the same speed)
+#define MOUSE_PX 3.0       // the mouse's base sensitivity: counts a motion of 1 px as 3 (three times the first version's)
+#define TRACKPAD_PX 72.0   // px per wheel unit of a two-finger drag (felt right at the 300% speed with 24: 100% now has that feel)
 static void mouse_stick(int32_t *rx, int32_t *ry) {
     static uint64_t last;
     static double vx, vy;
@@ -240,8 +242,8 @@ void input_handle_event(const SDL_Event *e) {
         break;
     case SDL_EVENT_MOUSE_MOTION:  // the chosen button held (or none): the mouse turns the camera (right stick)
         if (mouse_camera_on(e->motion.state)) {
-            atomic_fetch_add(&mouse_acc_x, (int32_t)lround((g_settings.invert_mouse_x ? -1 : 1) * e->motion.xrel * 16));
-            atomic_fetch_add(&mouse_acc_y, (int32_t)lround((g_settings.invert_mouse_y ? -1 : 1) * e->motion.yrel * 16));
+            atomic_fetch_add(&mouse_acc_x, (int32_t)lround((g_settings.invert_mouse_x ? -1 : 1) * e->motion.xrel * MOUSE_PX * 16));
+            atomic_fetch_add(&mouse_acc_y, (int32_t)lround((g_settings.invert_mouse_y ? -1 : 1) * e->motion.yrel * MOUSE_PX * 16));
         }
         break;
     }
