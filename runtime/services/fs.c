@@ -671,8 +671,13 @@ static void file(Service *s, IpcReq *req, IpcResp *resp) {
     case 0: {  // Read(option, offset, size) -> B
         int64_t off = IN(int64_t, 8), size = IN(int64_t, 16);
         IpcBuf *b = out_buf(req, 0);
+        if (!b || off < 0 || size < 0 || size > INT64_MAX - off) {
+            resp->result = MAKE_RESULT(2, 6001); break;
+        }
         if ((uint64_t)size > b->size) size = (int64_t)b->size;
-        ssize_t n = pread(f->fd, (void *)(uintptr_t)b->addr, (size_t)size, off);
+        ssize_t n;
+        do { n = pread(f->fd, (void *)(uintptr_t)b->addr, (size_t)size, off); } while (n < 0 && errno == EINTR);
+        if (n < 0) resp->result = errno_result();
         if (strstr(f->path, "savedata")) {
             LOG("[save] read %s off %lld size %lld -> guest %llx\n", f->path, (long long)off, (long long)size, (unsigned long long)b->addr);
         }
@@ -683,16 +688,33 @@ static void file(Service *s, IpcReq *req, IpcResp *resp) {
     case 1: {  // Write(option, offset, size) <- A
         int64_t off = IN(int64_t, 8), size = IN(int64_t, 16);
         IpcBuf *a = in_buf(req, 0);
+        if (!a || off < 0 || size < 0 || size > INT64_MAX - off || (uint64_t)size > a->size) {
+            resp->result = MAKE_RESULT(2, 6001); break;
+        }
         if (strstr(f->path, "savedata"))
             LOG("[save] write %s off %lld size %lld <- guest %llx\n", f->path, (long long)off, (long long)size, (unsigned long long)a->addr);
-        if (pwrite(f->fd, (void *)(uintptr_t)a->addr, (size_t)size, off) < 0) resp->result = errno_result();
+        // A successful short write is not a complete save. Continue at its end, and never hide a later failure.
+        for (int64_t done = 0; done < size;) {
+            ssize_t n = pwrite(f->fd, (void *)(uintptr_t)(a->addr + done), (size_t)(size - done), off + done);
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) {
+                if (!n) errno = EIO;
+                resp->result = errno_result(); break;
+            }
+            done += n;
+        }
         break;
     }
-    case 2: fsync(f->fd); break;
+    case 2: {
+        int r;
+        do { r = fsync(f->fd); } while (r < 0 && errno == EINTR);
+        if (r < 0) resp->result = errno_result();
+        break;
+    }
     case 3: if (ftruncate(f->fd, IN(int64_t, 0))) resp->result = errno_result(); break;
     case 4: {
         struct stat sb;
-        fstat(f->fd, &sb);
+        if (fstat(f->fd, &sb)) { resp->result = errno_result(); break; }
         OUT(int64_t, 0) = sb.st_size;
         resp_size(resp, 8);
         break;

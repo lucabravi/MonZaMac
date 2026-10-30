@@ -25,7 +25,7 @@ typedef struct Service Service;
 
 typedef struct IpcResp {
     uint32_t result;
-    uint8_t data[0x200];
+    uint8_t data[0x200] __attribute__((aligned(8)));  // OUT(uint64_t, ...) writes naturally aligned CMIF fields
     uint32_t data_size;
     uint32_t copy_handles[8], move_handles[8];
     int ncopy, nmove;
