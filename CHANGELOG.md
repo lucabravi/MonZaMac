@@ -5,6 +5,13 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+### Start screen and saves
+- **The save card shows the trainer's data:** name, trainer ID, play time, money and the team, read from the save
+  itself (read only), laid out in two columns. The SAVES list shows the same for every save.
+- **Each save can open its team:** a button on the right of the card (or Y / I) lists every Pokémon with its ball
+  (gold for a shiny), name and level. Names in another script use a macOS system font when the launcher starts; the
+  Pokédex number stands in for a character that font lacks.
+
 ## 0.1.3
 
 ### Performance

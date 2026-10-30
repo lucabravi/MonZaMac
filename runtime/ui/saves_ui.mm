@@ -7,7 +7,9 @@
 #include <string.h>
 #include <time.h>
 #include "imgui.h"
+#include "imgui_internal.h"  // ImTextCharFromUtf8
 #include "osk.h"
+#include "../save_info.h"
 #include "../saves.h"
 extern "C" {
 #include "../settings.h"
@@ -20,9 +22,11 @@ static const ImU32 card = IM_COL32(16, 28, 52, 215), card_hot = IM_COL32(26, 52,
 static const ImU32 edge = IM_COL32(120, 160, 220, 60), accent = IM_COL32(72, 214, 255, 255);
 static const ImU32 accent2 = IM_COL32(120, 255, 200, 255), text = IM_COL32(244, 248, 255, 255);
 static const ImU32 sub = IM_COL32(150, 172, 210, 255), warn = IM_COL32(255, 120, 120, 255);
+static const ImU32 gold = IM_COL32(244, 194, 72, 255);
 }
 
 enum Ask { NONE, NEW, COPY, RENAME, DELETE };
+static int g_open = -1;  // the save showing its whole team (its expand button, or Y / I on the selected one)
 static SaveSlot g_slots[SAVE_SLOTS_MAX];
 static int g_n, g_sel, g_focus = -1, g_ask = NONE;
 static char g_name[SAVE_NAME_MAX * 4 + 1], g_err[96], g_created[SAVE_NAME_MAX + 1];
@@ -50,15 +54,113 @@ static const SaveSlot *latest(void) {
     return l;
 }
 
-static void when(const SaveSlot &s, char *out, size_t n) {
+static void when(const SaveSlot &s, char *out, size_t n, bool prefix = true) {
     if (!s.played) { snprintf(out, n, "No progress yet"); return; }
     time_t t = (time_t)s.played;
     char date[48];
     strftime(date, sizeof date, "%d %b %Y, %H:%M", localtime(&t));
     long d = (long)(difftime(time(NULL), t) / 86400);
-    if (d <= 0) snprintf(out, n, "Last played  %s  \xc2\xb7  today", date);
-    else if (d == 1) snprintf(out, n, "Last played  %s  \xc2\xb7  yesterday", date);
-    else snprintf(out, n, "Last played  %s  \xc2\xb7  %ld days ago", date, d);
+    const char *head = prefix ? "Last played  " : "";
+    if (d <= 0) snprintf(out, n, "%s%s  \xc2\xb7  today", head, date);
+    else if (d == 1) snprintf(out, n, "%s%s  \xc2\xb7  yesterday", head, date);
+    else snprintf(out, n, "%s%s  \xc2\xb7  %ld days ago", head, date, d);
+}
+
+// ------------------------------------------------------------------ the save's own data (runtime/save_info.c)
+// Play time as the games show it: hours:minutes
+static void fmt_played(double sec, char *out, size_t n) {
+    unsigned t = sec > 0 ? (unsigned)sec : 0;
+    snprintf(out, n, "%u:%02u", t / 3600, t / 60 % 60);
+}
+
+// 10000 -> "10 000" (a thin grouping works in every language the launcher has)
+static void fmt_money(unsigned v, char *out, size_t n) {
+    char d[16];
+    int k = snprintf(d, sizeof d, "%u", v), w = 0;
+    for (int i = 0; i < k && w + 2 < (int)n; i++) {
+        if (i && (k - i) % 3 == 0) out[w++] = ' ';
+        out[w++] = d[i];
+    }
+    out[w] = 0;
+}
+
+// A Poké Ball from shapes (the game's artwork isn't shipped): red, gold for a shiny, a dim outline for an empty slot
+static void ball(ImDrawList *dl, ImVec2 c, float r, bool filled, bool shiny) {
+    if (!filled) {
+        dl->AddCircle(c, r, IM_COL32(150, 172, 210, 70), 24, fmaxf(1.0f, r * 0.16f));
+        return;
+    }
+    ImU32 top = shiny ? pal::gold : IM_COL32(226, 64, 76, 255), bottom = IM_COL32(242, 246, 255, 255);
+    dl->AddCircleFilled(c, r, bottom, 28);
+    dl->PathArcTo(c, r, 3.14159265f, 6.28318531f, 20);  // (the top half: y grows down)
+    dl->PathFillConvex(top);
+    dl->AddRectFilled(ImVec2(c.x - r, c.y - r * 0.10f), ImVec2(c.x + r, c.y + r * 0.10f), IM_COL32(24, 30, 48, 255));
+    dl->AddCircleFilled(c, r * 0.30f, IM_COL32(24, 30, 48, 255), 16);
+    dl->AddCircleFilled(c, r * 0.19f, bottom, 16);
+    if (shiny) {  // a little star at its shoulder
+        ImVec2 p[8];
+        ImVec2 s(c.x + r * 0.78f, c.y - r * 0.78f);
+        for (int i = 0; i < 8; i++) {
+            float a = i * 0.78539816f, rr = (i & 1) ? r * 0.14f : r * 0.38f;
+            p[i] = ImVec2(s.x + cosf(a) * rr, s.y + sinf(a) * rr);
+        }
+        dl->AddConvexPolyFilled(p, 8, IM_COL32(255, 238, 160, 255));
+    }
+}
+
+// The party as a row of balls with each level under it (the games show their sprites, which aren't shipped)
+static void team_row(ImDrawList *dl, ImFont *small_, ImVec2 at, float u, const SaveInfo *si) {
+    if (!si->party_n) {
+        dl->AddText(small_, u * 0.8f, ImVec2(at.x, at.y - u * 0.4f), pal::sub, "No Pokémon yet");
+        return;
+    }
+    float r = u * 0.40f, step = u * 1.9f;
+    for (int i = 0; i < SAVE_PARTY_MAX; i++) {
+        bool on = i < si->party_n;
+        ImVec2 c(at.x + r + step * i, at.y);
+        ball(dl, c, r, on, on && si->party[i].shiny);
+        if (!on) continue;
+        char lv[8];
+        snprintf(lv, sizeof lv, "%u", si->party[i].level);
+        float w = small_->CalcTextSizeA(u * 0.55f, FLT_MAX, 0, lv).x;
+        dl->AddText(small_, u * 0.55f, ImVec2(c.x - w * 0.5f, c.y + r + u * 0.10f), pal::sub, lv);
+    }
+}
+
+// A gold coin and an amount, the way the games draw money
+static void money_row(ImDrawList *dl, ImFont *small_, ImVec2 at, float u, unsigned money, bool right = false) {
+    float r = u * 0.28f;
+    char mo[24];
+    fmt_money(money, mo, sizeof mo);
+    if (right) at.x -= r * 2 + u * 0.35f + small_->CalcTextSizeA(u * 0.8f, FLT_MAX, 0, mo).x;  // (at: the right edge)
+    ImVec2 c(at.x + r, at.y + u * 0.40f);
+    dl->AddCircleFilled(c, r, pal::gold, 20);
+    dl->AddCircle(c, r * 0.66f, IM_COL32(140, 96, 20, 255), 20, fmaxf(1.0f, u * 0.045f));
+    dl->AddText(small_, u * 0.8f, ImVec2(c.x + r + u * 0.35f, at.y), pal::text, mo);
+}
+
+// The launcher's font covers Latin only: a name in another script (a save from a game in another language) shows the
+// Pokédex number instead of "???"
+static const char *mon_label(ImFont *font, const SaveMon &m, char *buf, size_t n) {
+    for (const char *c = m.name; *c;) {
+        unsigned cp;
+        c += ImTextCharFromUtf8(&cp, c, NULL);
+        if (cp >= 0x80 && !font->FindGlyphNoFallback((ImWchar)cp)) return snprintf(buf, n, "#%u", m.species), buf;
+    }
+    return m.name;
+}
+
+// Every character the saves' names use, for the launcher to load from a system font before it builds its atlas
+// (a save from a game in another language: runtime/ui/launcher.mm)
+void saves_name_glyphs(ImFontGlyphRangesBuilder *b) {
+    reload();
+    for (int i = 0; i < g_n; i++) {
+        b->AddText(g_slots[i].name);
+        const SaveInfo *si = save_info(g_slots[i].path);
+        if (!si) continue;
+        b->AddText(si->trainer);
+        for (int k = 0; k < si->party_n; k++) b->AddText(si->party[k].name);
+    }
 }
 
 static bool bar_button(const char *label, float w, float h, ImFont *font, bool danger = false) {
@@ -159,7 +261,8 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_) {
     ImDrawList *dl = ImGui::GetWindowDrawList();
     dl->AddRectFilledMultiColor(wp, ImVec2(wp.x + ds.x, wp.y + ds.y), IM_COL32(3, 8, 24, 215), IM_COL32(3, 8, 24, 150),
                                 IM_COL32(3, 8, 24, 235), IM_COL32(3, 8, 24, 235));
-    float x0 = wp.x + 120 * sc, w = fminf(ds.x - 240 * sc, 1180 * sc);
+    // the column is centered, as the home screen's; wide enough for the buttons under it (about 27 units of the font)
+    float w = fminf(ds.x - 240 * sc, fmaxf(1180 * sc, small_->FontSize * 27.5f)), x0 = wp.x + (ds.x - w) * 0.5f;
 
     ImGui::SetCursorScreenPos(ImVec2(x0, wp.y + 70 * sc));
     ImGui::PushFont(body);
@@ -173,8 +276,13 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_) {
 
     // (sizes follow the font: the start screen's fonts are big)
     float u = small_->FontSize;
+    if (g_n) {
+        const char *hint = g_open == g_sel ? "Y / I   hide the team" : "Y / I   show the team";
+        dl->AddText(small_, u * 0.8f, ImVec2(x0 + w - small_->CalcTextSizeA(u * 0.8f, FLT_MAX, 0, hint).x, wp.y + 70 * sc + th - u * 0.7f),
+                    pal::sub, hint);
+    }
     float top = 70 * sc + th + 36 * sc, bar_h = u * 1.9f, foot = u * 5.0f;
-    float card_h = u * 2.9f, gap = u * 0.4f;
+    float card_h = u * 3.9f, gap = u * 0.4f;
     ImGui::SetCursorScreenPos(ImVec2(x0, wp.y + top));
     ImGui::BeginChild("##savelist", ImVec2(w, ds.y - top - foot), 0, ImGuiWindowFlags_NavFlattened);
     ImDrawList *cl = ImGui::GetWindowDrawList();
@@ -188,22 +296,46 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_) {
         const SaveSlot &s = g_slots[i];
         ImVec2 p = ImGui::GetCursorScreenPos();
         float cw = ImGui::GetContentRegionAvail().x - 6 * sc;
+        const SaveInfo *si = save_info(s.path);
+        const float rp = u * 1.4f, team_h = u * 0.5f + rp * 3;  // (the team: 2 columns of 3 rows under the card)
+        bool has_team = si && si->party_n;
+        bool open = g_open == i && has_team;
+        float hh = open ? card_h + team_h : card_h, bw = u * 2.4f;  // (bw: the expand button's column, there on every card: the right edges line up)
         ImGui::PushID(i);
         if (g_focus == i) ImGui::SetKeyboardFocusHere(), g_focus = -1;
         ImGui::PushStyleColor(ImGuiCol_NavCursor, ImVec4(0, 0, 0, 0));
-        bool clicked = ImGui::InvisibleButton("##card", ImVec2(cw, card_h), ImGuiButtonFlags_EnableNav);
+        bool clicked = ImGui::InvisibleButton("##card", ImVec2(cw - bw, hh), ImGuiButtonFlags_EnableNav);
         ImGui::PopStyleColor();
         bool hot = ImGui::IsItemFocused() || ImGui::IsItemHovered();
         if (ImGui::IsItemFocused()) {
             g_sel = i;
             ImGui::SetScrollHereY(0.5f);
         } else if (ImGui::IsItemHovered() && ImGui::GetIO().MouseDelta.x + ImGui::GetIO().MouseDelta.y != 0) g_sel = i;
+        bool more_hot = false;
+        if (has_team) {  // the expand button: the card's right column, reached with Right from the card
+            ImGui::SetCursorScreenPos(ImVec2(p.x + cw - bw, p.y));
+            ImGui::PushStyleColor(ImGuiCol_NavCursor, ImVec4(0, 0, 0, 0));
+            if (ImGui::InvisibleButton("##team", ImVec2(bw, card_h), ImGuiButtonFlags_EnableNav)) g_open = open ? -1 : i;
+            ImGui::PopStyleColor();
+            more_hot = ImGui::IsItemFocused() || ImGui::IsItemHovered();
+            if (ImGui::IsItemFocused()) g_sel = i, ImGui::SetScrollHereY(0.5f);
+            ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + hh + ImGui::GetStyle().ItemSpacing.y));
+        }
         ImGui::PopID();
         float r = u * 0.5f;
-        ImVec2 q(p.x + cw, p.y + card_h);
-        if (hot) cl->AddRectFilled(ImVec2(p.x - 4 * sc, p.y - 4 * sc), ImVec2(q.x + 4 * sc, q.y + 4 * sc), IM_COL32(72, 214, 255, 38), r + 4 * sc);
-        cl->AddRectFilled(p, q, hot ? pal::card_hot : pal::card, r);
-        cl->AddRect(p, q, hot ? pal::accent : pal::edge, r, 0, hot ? 3 * sc : 1.5f * sc);
+        ImVec2 qf(p.x + cw, p.y + hh), q(qf.x - bw, qf.y);  // (qf: the card; q: where its text may reach)
+        hot = hot || more_hot;
+        if (hot) cl->AddRectFilled(ImVec2(p.x - 4 * sc, p.y - 4 * sc), ImVec2(qf.x + 4 * sc, qf.y + 4 * sc), IM_COL32(72, 214, 255, 38), r + 4 * sc);
+        cl->AddRectFilled(p, qf, hot ? pal::card_hot : pal::card, r);
+        cl->AddRect(p, qf, hot ? pal::accent : pal::edge, r, 0, hot ? 3 * sc : 1.5f * sc);
+        {  // the button: a divider and a triangle (right: closed, down: open); dim, and not a stop for the focus, with no team
+            float bx = qf.x - bw, cx = bx + bw * 0.5f, cy = p.y + card_h * 0.5f, t = u * 0.4f;
+            if (more_hot) cl->AddRectFilled(ImVec2(bx, p.y + 2), ImVec2(qf.x - 2, p.y + card_h - 2), IM_COL32(72, 214, 255, 40), r);
+            cl->AddLine(ImVec2(bx, p.y + card_h * 0.2f), ImVec2(bx, p.y + card_h * 0.8f), has_team ? pal::edge : IM_COL32(120, 160, 220, 25), 1.5f);
+            ImU32 col = more_hot ? pal::accent : has_team ? pal::sub : IM_COL32(120, 135, 165, 70);
+            if (open) cl->AddTriangleFilled(ImVec2(cx - t, cy - t * 0.5f), ImVec2(cx + t, cy - t * 0.5f), ImVec2(cx, cy + t * 0.6f), col);
+            else cl->AddTriangleFilled(ImVec2(cx - t * 0.5f, cy - t), ImVec2(cx - t * 0.5f, cy + t), ImVec2(cx + t * 0.6f, cy), col);
+        }
         float pad = u * 0.8f, bd = u * 1.7f;
         ImVec2 bc(p.x + pad + bd * 0.5f, p.y + card_h * 0.5f);  // the slot's number
         cl->AddCircleFilled(bc, bd * 0.5f, hot ? pal::accent : IM_COL32(44, 70, 118, 255), 32);
@@ -212,13 +344,58 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_) {
         ImVec2 ns = body->CalcTextSizeA(u * 1.1f, FLT_MAX, 0, num);
         cl->AddText(body, u * 1.1f, ImVec2(bc.x - ns.x * 0.5f, bc.y - ns.y * 0.5f),
                     hot ? IM_COL32(4, 12, 28, 255) : pal::text, num);
+        bool named = si && si->trainer[0];
         float tx = p.x + pad + bd + u * 0.8f;
+        float nh = u * 1.25f;                           // the trainer
+        float sh = u * 0.85f, ph = si ? u * 0.85f : 0;  // last played / play time and money
+        float block = nh + u * 0.12f + sh + (si ? u * 0.12f + ph : 0);
+        float ty = p.y + (card_h - block) * 0.5f;
+        const char *title = named ? si->trainer : s.name;
+        cl->AddText(body, nh, ImVec2(tx, ty), pal::text, title);
+        if (si) {  // (the team on the title's right; the games show their sprites, the launcher ships none)
+            if (si->party_n) {
+                float rr = u * 0.30f, st = u * 0.95f, tw = st * (SAVE_PARTY_MAX - 1) + rr * 2;
+                for (int k = 0; k < SAVE_PARTY_MAX; k++)
+                    ball(cl, ImVec2(q.x - pad - tw + rr + st * k, ty + nh * 0.5f), rr, k < si->party_n,
+                         k < si->party_n && si->party[k].shiny);
+            } else {
+                const char *none = "No Pokémon yet";
+                ImVec2 ws = small_->CalcTextSizeA(u * 0.8f, FLT_MAX, 0, none);
+                cl->AddText(small_, u * 0.8f, ImVec2(q.x - pad - ws.x, ty + (nh - u * 0.8f) * 0.5f), pal::sub, none);
+            }
+        }
         char line[96];
         when(s, line, sizeof line);
-        float nh = u * 1.3f;
-        float ty = p.y + (card_h - nh - u * 0.95f) * 0.5f;
-        cl->AddText(body, nh, ImVec2(tx, ty), pal::text, s.name);
-        cl->AddText(small_, u * 0.85f, ImVec2(tx, ty + nh + u * 0.1f), pal::sub, line);
+        float ly = ty + nh + u * 0.12f;
+        cl->AddText(small_, sh, ImVec2(tx, ly), pal::sub, line);
+        float py = ly + sh + u * 0.12f;
+        if (named && strcmp(s.name, si->trainer)) {  // (the slot's own name, right of the date)
+            ImVec2 ws = small_->CalcTextSizeA(sh, FLT_MAX, 0, s.name);
+            cl->AddText(small_, sh, ImVec2(q.x - pad - ws.x, ly), pal::sub, s.name);
+        }
+        if (si) {
+            char pl[16], pline[32];
+            fmt_played(si->played, pl, sizeof pl);
+            snprintf(pline, sizeof pline, "PLAY  %s", pl);
+            cl->AddText(small_, ph, ImVec2(tx, py), pal::sub, pline);
+            money_row(cl, small_, ImVec2(q.x - pad, py), u, si->money, true);
+        }
+        if (open) {  // the whole team: its ball, name and level, two to a row
+            float y0 = p.y + card_h, colw = (q.x - pad - tx) * 0.5f, r0 = u * 0.4f;
+            cl->AddLine(ImVec2(tx, y0 - u * 0.1f), ImVec2(q.x - pad, y0 - u * 0.1f), pal::edge, 1.5f);
+            for (int k = 0; k < si->party_n; k++) {
+                const SaveMon &m = si->party[k];
+                float cx = tx + (k % 2) * colw, cy = y0 + u * 0.2f + rp * (k / 2) + rp * 0.5f;
+                ball(cl, ImVec2(cx + r0, cy), r0, true, m.shiny);
+                char lv[16], nm[16];
+                snprintf(lv, sizeof lv, "Lv. %u", m.level);
+                float lw = small_->CalcTextSizeA(u * 0.8f, FLT_MAX, 0, lv).x, nx = cx + r0 * 2 + u * 0.5f, cr = cx + colw - u * 0.6f;
+                cl->PushClipRect(ImVec2(nx, cy - rp * 0.5f), ImVec2(cr - lw - u * 0.3f, cy + rp * 0.5f), true);
+                cl->AddText(small_, u * 0.9f, ImVec2(nx, cy - u * 0.45f), m.egg ? pal::sub : pal::text, m.egg ? "Egg" : mon_label(small_, m, nm, sizeof nm));
+                cl->PopClipRect();
+                cl->AddText(small_, u * 0.8f, ImVec2(cr - lw, cy - u * 0.4f), pal::sub, lv);
+            }
+        }
         if (!s.played) {  // (a slot with no progress: the NEW GAME badge, on the right)
             const char *nw = "NEW GAME";
             ImVec2 zs = small_->CalcTextSizeA(small_->FontSize, FLT_MAX, 0, nw);
@@ -262,6 +439,8 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_) {
 
     if (g_ask != NONE || ImGui::IsPopupOpen("##saveask")) dialogs(sc, body, small_);
     bool popup = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
+    if (!popup && !ui_text_busy() && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceUp, false) || ImGui::IsKeyPressed(ImGuiKey_I, false)))
+        g_open = g_open == g_sel ? -1 : g_sel;
     if (!result && !popup && !ui_text_busy() &&
         (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)))
         result = -1;
@@ -320,8 +499,9 @@ int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready,
     ImDrawList *dl = ImGui::GetWindowDrawList();
     // one unit u: the small font's size, shrunk when the window is short (the whole column then fits)
     int n = show_setup ? 6 : 5;
-    float u = small_->FontSize, rows = 3.9f + 3.2f + n * 1.75f + 0.2f;
-    const float foot = 3.0f;  // (room for the two lines under the panel, in units)
+    const float card_u = 5.3f;  // the save card's height (room for the trainer's data)
+    float u = small_->FontSize, rows = 3.9f + card_u + 0.55f + n * 1.75f + 0.2f;
+    const float foot = 4.4f;  // (the panel's padding, the gap and the two lines under it, in units)
     u *= fminf(1.0f, ds.y * 0.94f / ((rows + foot) * u));
     float w = fminf(ds.x * 0.92f, u * 17.0f), x = wp.x + (ds.x - w) * 0.5f, y = wp.y + (ds.y - (rows + foot) * u) * 0.5f + u * 0.7f;
     g_foot[0] = x, g_foot[1] = y + rows * u + u * 1.5f, g_foot[2] = w, g_foot[3] = u;
@@ -341,19 +521,44 @@ int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready,
     dl->AddRectFilledMultiColor(ImVec2(x, ty - u * 0.35f), ImVec2(x + w, ty - u * 0.28f), pal::accent, IM_COL32(72, 214, 255, 0),
                                 IM_COL32(72, 214, 255, 0), pal::accent);
 
-    // the save last played
+    // the save last played: the trainer's card (name, play time, money, team), as the games' title screens show it
     const SaveSlot *cur = latest();  // CONTINUE plays this one
     bool any = cur != NULL;
     if (!cur) cur = &g_none;
-    float ch = u * 2.7f;
+    const SaveInfo *si = any ? save_info(cur->path) : NULL;
+    float ch = u * card_u;
     ImVec2 cp(x, ty), cq(x + w, ty + ch);
     dl->AddRectFilled(cp, cq, IM_COL32(22, 40, 74, 235), u * 0.4f);
     dl->AddRect(cp, cq, pal::edge, u * 0.4f, 0, 1.5f);
     if (any) {
+        float ar = u * 0.78f, acx = x + u * 0.8f + ar, acy = ty + u * 1.62f;
+        ball(dl, ImVec2(acx, acy), ar, true, false);  // the card's ball
+        float tx = acx + ar + u * 0.75f;
+        const char *title = si && si->trainer[0] ? si->trainer : cur->name;
+        dl->AddText(small_, u * 1.2f, ImVec2(tx, ty + u * 0.38f), pal::text, title);
+        // two columns: what's written on the left, the values on the right edge, rows on one pitch
+        float rx = cq.x - u * 0.8f, y1 = ty + u * 0.5f, y2 = ty + u * 1.85f, y3 = ty + u * 2.8f;
+        auto right_text = [&](float yy, float fs, const char *t) {
+            dl->AddText(small_, fs, ImVec2(rx - small_->CalcTextSizeA(fs, FLT_MAX, 0, t).x, yy), pal::sub, t);
+        };
+        if (si) {  // (the trainer's ID, as on the games' trainer cards)
+            char idb[16];
+            snprintf(idb, sizeof idb, "ID %06u", si->id);
+            right_text(y1 + u * 0.2f, u * 0.75f, idb);
+        }
+        if (si && si->trainer[0] && strcmp(cur->name, si->trainer))  // (the slot's own name, when it differs)
+            right_text(y2, u * 0.78f, cur->name);
         char line[96];
-        when(*cur, line, sizeof line);
-        dl->AddText(small_, u * 1.15f, ImVec2(x + u * 0.7f, ty + u * 0.35f), pal::text, cur->name);
-        dl->AddText(small_, u * 0.8f, ImVec2(x + u * 0.7f, ty + u * 1.6f), pal::sub, line);
+        when(*cur, line, sizeof line, false);
+        dl->AddText(small_, u * 0.78f, ImVec2(tx, y2), pal::sub, line);
+        if (si) {
+            char pl[16], pline[32];
+            fmt_played(si->played, pl, sizeof pl);
+            snprintf(pline, sizeof pline, "PLAY  %s", pl);
+            dl->AddText(small_, u * 0.8f, ImVec2(tx, y3), pal::sub, pline);
+            money_row(dl, small_, ImVec2(rx, y3), u, si->money, true);
+            team_row(dl, small_, ImVec2(tx, ty + u * 4.2f), u, si);
+        }
     } else {
         dl->AddText(small_, u * 1.0f, ImVec2(x + u * 0.7f, ty + u * 0.45f), pal::text, "No saves yet");
         dl->AddText(small_, u * 0.8f, ImVec2(x + u * 0.7f, ty + u * 1.55f), pal::sub, "Choose NEW GAME to begin.");
