@@ -5,6 +5,12 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+### Rendering
+- **Shadow resolution and shadow sharpness** (Settings > Rendering): the sun's shadow maps can be drawn 2x, 3x or 4x
+  bigger (from the next start), and the filter 2x to 4x narrower (at once, up to the resolution): smooth, crisp shadow
+  edges. They replace "4K shadows", which is gone from the menu: a `game_shadows_4k = 1` in `larecomp.ini` becomes 4x for
+  both. Off ("Game's") by default.
+
 ### Start screen and saves
 - **The save card shows the trainer's data:** name, trainer ID, play time, money and the team, read from the save
   itself (read only), laid out in two columns. The SAVES list shows the same for every save.
