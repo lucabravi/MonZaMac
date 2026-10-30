@@ -19,6 +19,7 @@ git show "$REF:runtime/nvn/maxwell/translate.c" > "$OUT/old/translate.c"
 git show "$REF:runtime/nvn/maxwell/shader.h" > "$OUT/old/shader.h"
 CC=${CC:-clang}
 RENAME="-Dmaxwell_translate=old_maxwell_translate -Dmaxwell_free=old_maxwell_free
+ -Dmaxwell_translate_with_constants=old_maxwell_translate_with_constants
  -Dmaxwell_disassemble=old_maxwell_disassemble -Dmaxwell_gmem_base=old_maxwell_gmem_base
  -Dmaxwell_gmem_size=old_maxwell_gmem_size -Dmaxwell_dbg_code=old_maxwell_dbg_code -Dmaxwell_dbg_pc=old_maxwell_dbg_pc
  -Dmaxwell_dbg_reg=old_maxwell_dbg_reg -Dmaxwell_dbg_vs=old_maxwell_dbg_vs -Dmaxwell_empty_fragment=old_maxwell_empty_fragment"

@@ -2817,17 +2817,29 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
     c->stage = stage;
     c->ipa_mode = -1;
     c->glsl = key && key->glsl;
-    const uint8_t *sph = blob + 0x30;
-    const uint8_t *code = blob + 0x80;
+    if (!blob || max_size < sizeof(uint32_t)) {
+        fail(c, "truncated shader header"); free(c); return info;
+    }
+    size_t code_offset = 0x80;
     // compute programs have no SPH: code starts at the blob, or (newer SDKs, e.g. Pokémon Z-A's 19) after a 0x100-byte
     // header whose first word is 0x12345679
-    if (stage == STAGE_COMPUTE) code = *(const uint32_t *)blob == 0x12345679 ? blob + 0x100 : blob;
+    if (stage == STAGE_COMPUTE) {
+        uint32_t magic;
+        memcpy(&magic, blob, sizeof magic);
+        code_offset = magic == 0x12345679 ? 0x100 : 0;
+    }
+    // Include a scheduling word and at least one instruction. Check before forming header pointers or subtracting.
+    if (max_size < code_offset || max_size - code_offset < 16) {
+        fail(c, "truncated shader program"); free(c); return info;
+    }
+    const uint8_t *code = blob + code_offset;
     if (stage == STAGE_FRAGMENT) {
+        const uint8_t *sph = blob + 0x30;
         c->omap_target = *(const uint32_t *)(sph + 0x48);
         c->omap_depth = (*(const uint32_t *)(sph + 0x4C) >> 1) & 1;
     }
     // find the end: the last EXIT followed by self-branch padding, or max_size
-    size_t n = (max_size - (code - blob)) / 8;
+    size_t n = (max_size - code_offset) / 8;
     if (n > 65536) n = 65536;
     size_t end = 0;
     for (size_t i = 0; i < n; i++) {
