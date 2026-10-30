@@ -39,7 +39,7 @@ typedef struct Module {
     uint64_t base, size;
     uint64_t text_off, text_size, ro_off, ro_size, data_off, data_size;
     uint64_t dynamic, init, fini, init_array, init_array_sz, fini_array, fini_array_sz;
-    uint64_t symtab, strtab, nsyms;
+    uint64_t symtab, strtab, nsyms, strtab_size;
 } Module;
 
 extern Module g_modules[4];
