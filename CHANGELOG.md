@@ -12,6 +12,13 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   (gold for a shiny), name and level. Names in another script use a macOS system font when the launcher starts; the
   Pokédex number stands in for a character that font lacks.
 
+### Controls
+- **Mouse settings** (Settings > Controls, a Mouse section): the camera turns with the mouse while a button is held (right,
+  left, middle or any), always, or not at all; a two-finger trackpad drag turns it too; each axis can be
+  inverted; the speed is adjustable (100% is the default, a higher base than before). In the game the cursor is hidden
+  and held in place, so the camera never stops at the window's edge; the menu gives it back. The right stick snap
+  (0 = off) sits with the d-pad.
+
 ## 0.1.3
 
 ### Performance
