@@ -156,13 +156,13 @@ static void snap_to_axis(int32_t *x, int32_t *y, int deg) {
 // time, with the cursor held inside the window (input_mouse_update), so it cannot leave the window and spin the camera.
 extern bool menu_input_captured(void);  // runtime/ui/menu.mm
 static bool mouse_camera_on(uint32_t state) {
-    switch (g_settings.mouse_camera) {
-    case MOUSE_CAM_RIGHT: return state & SDL_BUTTON_RMASK;
-    case MOUSE_CAM_LEFT: return state & SDL_BUTTON_LMASK;
-    case MOUSE_CAM_MIDDLE: return state & SDL_BUTTON_MMASK;
-    case MOUSE_CAM_ANY: return state & (SDL_BUTTON_LMASK | SDL_BUTTON_MMASK | SDL_BUTTON_RMASK);
-    case MOUSE_CAM_NONE: return true;
-    default: return false;  // (trackpad: its own event, below)
+    if (g_settings.mouse_camera == MOUSE_CAM_ALWAYS) return true;
+    if (g_settings.mouse_camera != MOUSE_CAM_HOLD) return false;
+    switch (g_settings.mouse_camera_button) {
+    case MOUSE_BTN_LEFT: return state & SDL_BUTTON_LMASK;
+    case MOUSE_BTN_MIDDLE: return state & SDL_BUTTON_MMASK;
+    case MOUSE_BTN_ANY: return state & (SDL_BUTTON_LMASK | SDL_BUTTON_MMASK | SDL_BUTTON_RMASK);
+    default: return state & SDL_BUTTON_RMASK;
     }
 }
 
@@ -170,7 +170,7 @@ static bool mouse_camera_on(uint32_t state) {
 // while the game has the controls, not while the menu is up.
 void input_mouse_update(SDL_Window *w) {
     static bool held;
-    bool want = g_settings.mouse_camera == MOUSE_CAM_NONE && !menu_input_captured() && (SDL_GetWindowFlags(w) & SDL_WINDOW_INPUT_FOCUS);
+    bool want = g_settings.mouse_camera == MOUSE_CAM_ALWAYS && !menu_input_captured() && (SDL_GetWindowFlags(w) & SDL_WINDOW_INPUT_FOCUS);
     if (want == held) return;
     SDL_SetWindowRelativeMouseMode(w, want);
     held = want;
@@ -231,16 +231,17 @@ void input_handle_event(const SDL_Event *e) {
         recompute_pad();
         break;
     case SDL_EVENT_MOUSE_WHEEL:  // Mouse camera "Trackpad": two fingers on the trackpad turn the camera (the mouse wheel too)
-        if (g_settings.mouse_camera == MOUSE_CAM_TRACKPAD) {
+        if (g_settings.trackpad_camera) {
             // (wheel units to pixels: a two-finger drag is a few units a frame; the speed setting scales it as the mouse's)
-            atomic_fetch_add(&mouse_acc_x, (int32_t)lround(e->wheel.x * TRACKPAD_PX * 16));
-            atomic_fetch_add(&mouse_acc_y, (int32_t)lround(-e->wheel.y * TRACKPAD_PX * 16));
+            double sx = g_settings.invert_mouse_x ? -1 : 1, sy = g_settings.invert_mouse_y ? 1 : -1;
+            atomic_fetch_add(&mouse_acc_x, (int32_t)lround(sx * e->wheel.x * TRACKPAD_PX * 16));
+            atomic_fetch_add(&mouse_acc_y, (int32_t)lround(sy * e->wheel.y * TRACKPAD_PX * 16));
         }
         break;
     case SDL_EVENT_MOUSE_MOTION:  // the chosen button held (or none): the mouse turns the camera (right stick)
         if (mouse_camera_on(e->motion.state)) {
-            atomic_fetch_add(&mouse_acc_x, (int32_t)lround(e->motion.xrel * 16));
-            atomic_fetch_add(&mouse_acc_y, (int32_t)lround(e->motion.yrel * 16));
+            atomic_fetch_add(&mouse_acc_x, (int32_t)lround((g_settings.invert_mouse_x ? -1 : 1) * e->motion.xrel * 16));
+            atomic_fetch_add(&mouse_acc_y, (int32_t)lround((g_settings.invert_mouse_y ? -1 : 1) * e->motion.yrel * 16));
         }
         break;
     }

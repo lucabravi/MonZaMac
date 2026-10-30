@@ -654,23 +654,32 @@ static void tab_about(void) {
     toggle("D-pad moves the character", &g_settings.dpad_move);
     hint("The d-pad and the arrow keys move like the left stick.");
     {
-        static const char *const cam[] = {"Off", "Right button", "Left button", "Middle button", "Any button", "Two-finger drag (trackpad)", "No button"};
-        opt_choice("Mouse camera", &g_settings.mouse_camera, cam, 7, MOUSE_CAM_RIGHT,
-                   "Holding the chosen button turns the camera with the mouse. Off: the mouse never turns the camera. "
-                   "No button: the camera follows the mouse all the time, and the cursor is held inside the window "
-                   "(the menus free it). Two-finger drag: the trackpad's scroll turns the camera, as the mouse does.", false);
-    }
-    {
-        float pct = roundf(g_settings.mouse_speed * 100);
-        if (opt_slider("Mouse camera speed", &pct, 25, 300, 5, 100, "%g%%",
-                   "How fast the mouse turns the camera. 100% is the game's own speed."))
-            g_settings.mouse_speed = pct / 100.0f;
-    }
-    {
         float snap = (float)g_settings.rstick_snap;
         if (opt_slider("Right stick snap", &snap, 0, 20, 1, 0, "%g degrees",
                    "A right stick (or mouse camera) pointed within this many degrees of up, down, left or right is held exactly on that direction. 0: off."))
             g_settings.rstick_snap = (int)roundf(snap);
+    }
+    ImGui::Spacing();
+    header("Mouse");
+    {
+        static const char *const cam[] = {"Off", "While holding a button", "Always (cursor held in the window)"};
+        choice("Camera", &g_settings.mouse_camera, cam, 3);
+        hint("While holding a button: the mouse turns the camera while the chosen button is held. Always: the camera "
+             "follows the mouse all the time, and the cursor is held inside the window (the menus free it).");
+    }
+    if (g_settings.mouse_camera == MOUSE_CAM_HOLD) {
+        static const char *const btn[] = {"Right button", "Left button", "Middle button", "Any button"};
+        choice("Button to hold", &g_settings.mouse_camera_button, btn, 4);
+    }
+    toggle("Two-finger drag on the trackpad", &g_settings.trackpad_camera);
+    hint("The trackpad's two-finger scroll turns the camera, as the mouse does.");
+    toggle("Invert horizontal", &g_settings.invert_mouse_x);
+    toggle("Invert vertical", &g_settings.invert_mouse_y);
+    {
+        float pct = roundf(g_settings.mouse_speed * 100);
+        if (opt_slider("Mouse camera speed", &pct, 25, 300, 5, 100, "%g%%",
+                   "How fast the mouse and the trackpad turn the camera. 100% is the game's own speed."))
+            g_settings.mouse_speed = pct / 100.0f;
     }
     ImGui::Spacing();
     header("Button prompts");

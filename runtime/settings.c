@@ -21,7 +21,8 @@ Settings g_settings = {
     // authentic 16:9, sharper textures (anisotropic filtering)
     .fullscreen = true,
     .mouse_speed = 1.0f,
-    .mouse_camera = MOUSE_CAM_RIGHT,
+    .mouse_camera = MOUSE_CAM_HOLD,
+    .mouse_camera_button = MOUSE_BTN_RIGHT,
     .res_mode = RES_DYNAMIC,
     .fps60 = true,
     .antialias = AA_SMAA,
@@ -129,10 +130,21 @@ void settings_load(void) {
         else if (!strcmp(key, "dpad_move")) g_settings.dpad_move = atoi(val) != 0;
         else if (!strcmp(key, "mouse_speed")) g_settings.mouse_speed = (float)atof(val);
         else if (!strcmp(key, "rstick_snap")) g_settings.rstick_snap = atoi(val);
-        else if (!strcmp(key, "mouse_camera")) {
-            static const char *const names[] = {"off", "right", "left", "middle", "any", "trackpad", "none"};
-            for (int i = 0; i < 7; i++) if (!strcmp(val, names[i])) g_settings.mouse_camera = i;
+        else if (!strcmp(key, "mouse_camera")) {  // (the old single list: right / left / middle / any / none / trackpad still read)
+            static const char *const old[] = {"right", "left", "middle", "any"};
+            if (!strcmp(val, "off")) g_settings.mouse_camera = MOUSE_CAM_OFF;
+            else if (!strcmp(val, "hold")) g_settings.mouse_camera = MOUSE_CAM_HOLD;
+            else if (!strcmp(val, "always") || !strcmp(val, "none")) g_settings.mouse_camera = MOUSE_CAM_ALWAYS;
+            else if (!strcmp(val, "trackpad")) { g_settings.mouse_camera = MOUSE_CAM_OFF; g_settings.trackpad_camera = true; }
+            else for (int i = 0; i < 4; i++) if (!strcmp(val, old[i])) g_settings.mouse_camera = MOUSE_CAM_HOLD, g_settings.mouse_camera_button = i;
         }
+        else if (!strcmp(key, "mouse_camera_button")) {
+            static const char *const names[] = {"right", "left", "middle", "any"};
+            for (int i = 0; i < 4; i++) if (!strcmp(val, names[i])) g_settings.mouse_camera_button = i;
+        }
+        else if (!strcmp(key, "trackpad_camera")) g_settings.trackpad_camera = atoi(val) != 0;
+        else if (!strcmp(key, "invert_mouse_x")) g_settings.invert_mouse_x = atoi(val) != 0;
+        else if (!strcmp(key, "invert_mouse_y")) g_settings.invert_mouse_y = atoi(val) != 0;
         else if (!strcmp(key, "mirror_mode")) g_settings.mirror_mode = atoi(val) != 0;
         else if (!strcmp(key, "prompts")) g_settings.prompts = !strcmp(val, "nintendo") ? PROMPTS_NINTENDO : !strcmp(val, "xbox") ?
                                                               PROMPTS_XBOX : !strcmp(val, "playstation") ? PROMPTS_PLAYSTATION : !strcmp(val, "keyboard") ? PROMPTS_KEYBOARD : PROMPTS_AUTO;
@@ -193,8 +205,11 @@ void settings_save(void) {
     fprintf(f, "dpad_move = %d\n", g_settings.dpad_move);
     fprintf(f, "mouse_speed = %g\n", g_settings.mouse_speed);
     fprintf(f, "rstick_snap = %d\n", g_settings.rstick_snap);
-    static const char *const mouse_cam[] = {"off", "right", "left", "middle", "any", "trackpad", "none"};
-    fprintf(f, "mouse_camera = %s\n", mouse_cam[g_settings.mouse_camera >= 0 && g_settings.mouse_camera <= 6 ? g_settings.mouse_camera : 1]);
+    static const char *const mouse_cam[] = {"off", "hold", "always"}, *const mouse_btn[] = {"right", "left", "middle", "any"};
+    fprintf(f, "mouse_camera = %s\nmouse_camera_button = %s\ntrackpad_camera = %d\ninvert_mouse_x = %d\ninvert_mouse_y = %d\n",
+            mouse_cam[g_settings.mouse_camera >= 0 && g_settings.mouse_camera <= 2 ? g_settings.mouse_camera : 1],
+            mouse_btn[g_settings.mouse_camera_button >= 0 && g_settings.mouse_camera_button <= 3 ? g_settings.mouse_camera_button : 0],
+            g_settings.trackpad_camera, g_settings.invert_mouse_x, g_settings.invert_mouse_y);
     static const char *const prompts[] = {"auto", "nintendo", "xbox", "playstation", "keyboard"};
     fprintf(f, "prompts = %s\n", prompts[g_settings.prompts <= 4 ? g_settings.prompts : 0]);
     fprintf(f, "mirror_mode = %d\n", g_settings.mirror_mode);
