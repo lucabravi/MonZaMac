@@ -654,11 +654,11 @@ static void tab_about(void) {
     toggle("D-pad moves the character", &g_settings.dpad_move);
     hint("The d-pad and the arrow keys move like the left stick.");
     {
-        static const char *const cam[] = {"Off", "Right button", "Left button", "Middle button", "Any button", "No button"};
-        opt_choice("Mouse camera", &g_settings.mouse_camera, cam, 6, MOUSE_CAM_RIGHT,
+        static const char *const cam[] = {"Off", "Right button", "Left button", "Middle button", "Any button", "No button", "Two-finger drag (trackpad)"};
+        opt_choice("Mouse camera", &g_settings.mouse_camera, cam, 7, MOUSE_CAM_RIGHT,
                    "Holding the chosen button turns the camera with the mouse. Off: the mouse never turns the camera. "
                    "No button: the camera follows the mouse all the time, and the cursor is held inside the window "
-                   "(the menus free it).", false);
+                   "(the menus free it). Two-finger drag: the trackpad's scroll turns the camera, as the mouse does.", false);
     }
     {
         float pct = roundf(g_settings.mouse_speed * 100);

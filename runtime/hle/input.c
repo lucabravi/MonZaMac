@@ -162,7 +162,7 @@ static bool mouse_camera_on(uint32_t state) {
     case MOUSE_CAM_MIDDLE: return state & SDL_BUTTON_MMASK;
     case MOUSE_CAM_ANY: return state & (SDL_BUTTON_LMASK | SDL_BUTTON_MMASK | SDL_BUTTON_RMASK);
     case MOUSE_CAM_NONE: return true;
-    default: return false;
+    default: return false;  // (trackpad: its own event, below)
     }
 }
 
@@ -184,6 +184,7 @@ void input_mouse_update(SDL_Window *w) {
 static _Atomic int32_t mouse_acc_x, mouse_acc_y;
 #define MOUSE_FULL 1200.0  // px/s for full tilt at speed 1
 #define MOUSE_FLOOR 0.2    // the stick's dead zone
+#define TRACKPAD_PX 12.0   // px per wheel unit of a two-finger drag
 static void mouse_stick(int32_t *rx, int32_t *ry) {
     static uint64_t last;
     static double vx, vy;
@@ -228,6 +229,13 @@ void input_handle_event(const SDL_Event *e) {
         break;
     case SDL_EVENT_GAMEPAD_AXIS_MOTION: case SDL_EVENT_GAMEPAD_BUTTON_DOWN: case SDL_EVENT_GAMEPAD_BUTTON_UP:
         recompute_pad();
+        break;
+    case SDL_EVENT_MOUSE_WHEEL:  // Mouse camera "Trackpad": two fingers on the trackpad turn the camera (the mouse wheel too)
+        if (g_settings.mouse_camera == MOUSE_CAM_TRACKPAD) {
+            // (wheel units to pixels: a two-finger drag is a few units a frame; the speed setting scales it as the mouse's)
+            atomic_fetch_add(&mouse_acc_x, (int32_t)lround(e->wheel.x * TRACKPAD_PX * 16));
+            atomic_fetch_add(&mouse_acc_y, (int32_t)lround(-e->wheel.y * TRACKPAD_PX * 16));
+        }
         break;
     case SDL_EVENT_MOUSE_MOTION:  // the chosen button held (or none): the mouse turns the camera (right stick)
         if (mouse_camera_on(e->motion.state)) {
