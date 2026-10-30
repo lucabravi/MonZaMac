@@ -1136,6 +1136,12 @@ void backend_present(NvnTexture *t) {
             g_stat_cpu_ms = g_stat_cpu_ms * 0.9 + (double)(sn - submit_prev) / 1e6 * 0.1;
             submit_prev = sn;
             if (gpu_ms >= 0) g_stat_gpu_ms = g_stat_gpu_ms * 0.9 + gpu_ms * 0.1;
+            // LARECOMP_PERF_LOG=<n>: the same two smoothed times the F3 overlay shows, as a log line every n presented frames
+            // (tools/perf_scene.py averages them over a window of a scripted run)
+            static int perf_every = -1;
+            if (perf_every < 0) perf_every = getenv("LARECOMP_PERF_LOG") ? atoi(getenv("LARECOMP_PERF_LOG")) : 0;
+            if (perf_every > 0 && frame % (uint64_t)perf_every == 0)
+                LOG("[perf] frame %llu cpu %.3f gpu %.3f\n", (unsigned long long)frame, g_stat_cpu_ms, g_stat_gpu_ms);
         }
         OutScale os;
         output_scale(dw, dh, present_unlocked(), gpu_sample_time, gpu_ms, &os);
