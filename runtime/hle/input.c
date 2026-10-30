@@ -184,7 +184,7 @@ void input_mouse_update(SDL_Window *w) {
 static _Atomic int32_t mouse_acc_x, mouse_acc_y;
 #define MOUSE_FULL 1200.0  // px/s for full tilt at speed 1
 #define MOUSE_FLOOR 0.2    // the stick's dead zone
-#define TRACKPAD_PX 12.0   // px per wheel unit of a two-finger drag
+#define TRACKPAD_PX 24.0   // px per wheel unit of a two-finger drag (the trackpad was half as fast as the mouse at the same speed)
 static void mouse_stick(int32_t *rx, int32_t *ry) {
     static uint64_t last;
     static double vx, vy;
