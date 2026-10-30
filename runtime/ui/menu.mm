@@ -673,8 +673,8 @@ static void tab_about(void) {
     }
     toggle("Two-finger drag on the trackpad", &g_settings.trackpad_camera);
     hint("The trackpad's two-finger scroll turns the camera, as the mouse does.");
-    toggle("Invert horizontal", &g_settings.invert_mouse_x);
-    toggle("Invert vertical", &g_settings.invert_mouse_y);
+    ImGui::Checkbox("Invert horizontal", &g_settings.invert_mouse_x);
+    ImGui::Checkbox("Invert vertical", &g_settings.invert_mouse_y);
     {
         float pct = roundf(g_settings.mouse_speed * 100);
         if (opt_slider("Mouse camera speed", &pct, 25, 300, 5, 100, "%g%%",
