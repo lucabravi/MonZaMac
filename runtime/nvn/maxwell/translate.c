@@ -1391,7 +1391,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         char rb[16];
         const char *dyn = a == RZ ? NULL : reg(c, a, rb);
         // LDC.64 R4, c[i][R4 + x]: the address register is also a destination. Read it once before the writes, or
-        // the second word comes from c[i][<first word> + x + 4] (as LASRecomp 2332e74, from letsgo-recomp)
+        // the second word comes from c[i][<first word> + x + 4]
         bool overlap = dyn && n > 1 && a >= d && a < d + n;
         if (overlap) { sp(&c->body, "    { uint ldc_addr = %s;\n", dyn); dyn = "ldc_addr"; }
         for (int i = 0; i < n; i++) {
