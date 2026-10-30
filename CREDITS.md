@@ -84,5 +84,6 @@ code only - it grants nothing for Nintendo's game, which you must supply yoursel
 | SDL 3 | 3.4.18 | zlib | https://github.com/libsdl-org/SDL/releases/tag/release-3.4.18 |
 | Baloo 2 font (SemiBold) | 1.640 | SIL OFL 1.1 | https://github.com/EkType/Baloo2 |
 | SMAA (shader and lookup textures, built in) | 2013 (repository master) | MIT | https://github.com/iryoku/smaa |
+| PKHeX (save format only: the file pad, block layout and Pokémon record shuffle that `runtime/save_info.c` reads; no code) | n/a | format reference only (its license: see the project) | https://github.com/kwsch/PKHeX |
 
 The build script that fetches and builds these (with checksums) is `tools/build_deps_macos.sh`.
