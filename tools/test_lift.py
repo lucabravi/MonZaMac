@@ -193,6 +193,9 @@ def main():
             cases.append((k, pc, x, sp, nzcv, v))
             expect.append(res)
 
+    if not cases:
+        print('no executable test cases')
+        return 1
     with open(os.path.join(work, 'cases.bin'), 'wb') as f:
         for k, pc, x, sp, nzcv, v in cases:
             f.write(struct.pack('<QQ', k, pc))
@@ -204,12 +207,17 @@ def main():
                           hex(base)], capture_output=True)
     if out.returncode:
         print('harness failed', out.returncode, out.stderr.decode()[-2000:])
-    lines = out.stdout.decode().split('\n')
+        return 1
+    lines = out.stdout.decode().splitlines()
+    if len(lines) != len(cases):
+        print(f'harness returned {len(lines)} records, expected {len(cases)}')
+        return 1
     fails = {}
     for (k, pc, x, sp, nzcv, v), (ex, esp, enz, ev, epc, eh), line in zip(cases, expect, lines):
         parts = line.split()
-        if len(parts) < 37:
-            continue
+        if len(parts) != 67:
+            print(f'malformed harness record for case {k}: {len(parts)} fields, expected 67')
+            return 1
         hx_, hsp, hnz, hpc = [int(p, 16) for p in parts[:31]], int(parts[31], 16), int(parts[32], 16), int(parts[33], 16)
         hh = parts[34]
         hv = [int(p, 16) for p in parts[35:67]]
@@ -231,14 +239,15 @@ def main():
         if diffs:
             w = picks[k][0]
             fails.setdefault(w, (pc, diffs[:4]))
-    print(f'tested {len(picks)} encodings, {len(cases)} cases, {len(lines) - 1} ran, failing encodings: {len(fails)}')
+    print(f'tested {len(picks)} encodings, {len(cases)} cases, {len(lines)} ran, failing encodings: {len(fails)}')
     print('unsupported:', unsupported)
     import capstone
     md = capstone.Cs(capstone.CS_ARCH_ARM64, capstone.CS_MODE_ARM)
     for w, (pc, d) in list(fails.items())[:40]:
         dis = next(md.disasm(struct.pack('<I', w), pc), None)
         print(f'  {w:08x} {dis.mnemonic + " " + dis.op_str if dis else "?":40} {"; ".join(d)}')
+    return 1 if fails else 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

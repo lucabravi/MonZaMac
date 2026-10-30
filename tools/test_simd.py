@@ -406,6 +406,9 @@ def main():
             cases.append((k, fpcr, x, sp, nzcv, v, st))
             expect.append(res + (mh,))
     print(f'unicorn: {len(cases)} cases ({time.time() - t2:.0f}s)')
+    if not cases:
+        print('no executable test cases')
+        return 1
     with open(os.path.join(work, 'cases.bin'), 'wb') as f:
         for k, fpcr, x, sp, nzcv, v, st in cases:
             f.write(struct.pack(IN_FMT, k, fpcr, *(x + [0]), sp, nzcv))
@@ -418,14 +421,17 @@ def main():
                        capture_output=True)
     if p.returncode:
         print('harness failed', p.returncode, p.stderr.decode()[-2000:])
-    data = open(outp, 'rb').read()
+        return 1
+    with open(outp, 'rb') as f:
+        data = f.read()
+    if len(data) != len(cases) * OUT_SIZE:
+        print(f'harness returned {len(data)} bytes, expected {len(cases) * OUT_SIZE} for {len(cases)} records')
+        return 1
     print(f'harness: {len(data) // OUT_SIZE} cases ({time.time() - t3:.0f}s)')
     fails = {}
     nfail = 0
     for i, ((k, fpcr, x, sp, nzcv, v, st), (ex, esp, enz, ev, emh)) in enumerate(zip(cases, expect)):
         rec = data[i * OUT_SIZE:(i + 1) * OUT_SIZE]
-        if len(rec) < OUT_SIZE:
-            break
         hx_ = struct.unpack_from('<31Q', rec, 0)
         hsp, hnz, hmh = struct.unpack_from('<QQQ', rec, 248)
         hv = [int.from_bytes(rec[272 + 16 * j:288 + 16 * j], 'little') for j in range(32)]
