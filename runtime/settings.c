@@ -92,7 +92,7 @@ void settings_load(void) {
     FILE *f = fopen(SETTINGS_FILE, "r");
     if (!f) return;
     char line[256];
-    bool tip_key = false, aspect_key = false;
+    bool tip_key = false, aspect_key = false, shadow_key = false, shadows_4k_old = false;
     while (fgets(line, sizeof line, f)) {
         char key[64];
         char val[128];
@@ -119,9 +119,9 @@ void settings_load(void) {
         else if (!strcmp(key, "bloom")) g_settings.bloom = atoi(val) != 0;
         else if (!strcmp(key, "game_fov")) g_settings.fov = atoi(val) != 0;
         else if (!strcmp(key, "game_lod")) g_settings.lod = atoi(val) != 0;
-        else if (!strcmp(key, "game_shadows_4k")) g_settings.shadows_4k = atoi(val) != 0;
-        else if (!strcmp(key, "shadow_resolution")) { int v = atoi(val); g_settings.shadow_res = v < 1 ? 1 : v > 4 ? 4 : v; }
-        else if (!strcmp(key, "shadow_sharpness")) { int v = atoi(val); g_settings.shadow_sharp = v < 1 ? 1 : v > 4 ? 4 : v; }
+        else if (!strcmp(key, "game_shadows_4k")) shadows_4k_old = atoi(val) != 0;  // (the option is gone: see below)
+        else if (!strcmp(key, "shadow_resolution")) { int v = atoi(val); g_settings.shadow_res = v < 1 ? 1 : v > 4 ? 4 : v; shadow_key = true; }
+        else if (!strcmp(key, "shadow_sharpness")) { int v = atoi(val); g_settings.shadow_sharp = v < 1 ? 1 : v > 4 ? 4 : v; shadow_key = true; }
         else if (!strcmp(key, "resolution")) {
             int n = atoi(val);
             g_settings.res_mode = !strcmp(val, "1.5x") ? RES_X15 : !strcmp(val, "dynamic 1.5x") ? RES_DYNAMIC_X15 :
@@ -165,6 +165,7 @@ void settings_load(void) {
     fclose(f);
     if (!tip_key) g_settings.menu_tip_seen = true;  // (a settings file from before the note: not a first launch)
     if (!aspect_key) g_settings.aspect_asked = true;  // (likewise: the aspect ratio was chosen already)
+    if (shadows_4k_old && !shadow_key) g_settings.shadow_res = g_settings.shadow_sharp = 4;  // ("4K shadows" of the earlier versions: the same, 4x at both)
     if (g_settings.volume < 0) g_settings.volume = 0;
     if (g_settings.volume > 2) g_settings.volume = 2;
     LOG("[settings] loaded %s\n", SETTINGS_FILE);
@@ -195,7 +196,6 @@ void settings_save(void) {
     fprintf(f, "bloom = %d\n", g_settings.bloom);
     fprintf(f, "game_fov = %d\n", g_settings.fov);
     fprintf(f, "game_lod = %d\n", g_settings.lod);
-    fprintf(f, "game_shadows_4k = %d\n", g_settings.shadows_4k);
     fprintf(f, "shadow_resolution = %d\nshadow_sharpness = %d\n", g_settings.shadow_res, g_settings.shadow_sharp);
     fprintf(f, "upscaler = %s\n", g_settings.upscaler == UPSCALE_METALFX ? "metalfx" : g_settings.upscaler == UPSCALE_FSR1 ? "fsr1" : "bilinear");
     fprintf(f, "antialias = %s\n", g_settings.antialias == AA_SMAA ? "smaa" : "off");

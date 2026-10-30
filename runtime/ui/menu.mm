@@ -559,9 +559,6 @@ static void tab_display(void) {
             opt_toggle("Sharper textures", &g_settings.lod, true,
                        "Textures stay sharp on ground and walls seen at a slant, and (macOS 26 or later) farther away too. "
                        "Off: the game's own.");
-            opt_toggle("4K shadows", &g_settings.shadows_4k, false,
-                       "Shadows from a 4096 map, sharper than the game's own. Costs GPU memory and work. Off: the game's own. "
-                       "Takes effect the next time the game starts. An older way of the two options below; use one or the other.");
             {   // the shadow map's size (runtime/nvn/metal.m: taken at start) and its filter's width (runtime/nvn/renderer.m)
                 static const char *sz[] = {"Game's", "2x", "3x", "4x"};
                 int si = g_settings.shadow_res - 1;
