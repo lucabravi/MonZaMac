@@ -560,7 +560,24 @@ static void tab_display(void) {
                        "Textures stay sharp on ground and walls seen at a slant, and (macOS 26 or later) farther away too. "
                        "Off: the game's own.");
             opt_toggle("4K shadows", &g_settings.shadows_4k, false,
-                       "Shadows from a 4096 map, sharper than the game's own. Costs GPU memory and work. Off: the game's own.");
+                       "Shadows from a 4096 map, sharper than the game's own. Costs GPU memory and work. Off: the game's own. "
+                       "Takes effect the next time the game starts. An older way of the two options below; use one or the other.");
+            {   // the shadow map's size (runtime/nvn/metal.m: taken at start) and its filter's width (runtime/nvn/renderer.m)
+                static const char *sz[] = {"Game's", "2x", "3x", "4x"};
+                int si = g_settings.shadow_res - 1;
+                if (opt_choice("Shadow resolution", &si, sz, 4, 0,
+                               "The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024). Higher: "
+                               "smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory "
+                               "(4x: about 240 MB, 2x: 60 MB). From the next start."))
+                    g_settings.shadow_res = si + 1;
+                int sh = g_settings.shadow_sharp - 1;
+                if (g_settings.shadow_res == 1) opt_disable_next();  // (nothing to narrow at the game's size)
+                if (opt_choice("Shadow sharpness", &sh, sz, 4, 0,
+                               "How soft the edges of the sun's shadows are: the game's own blur, or 2-4 times narrower, "
+                               "so sharper shadows. At most the shadow resolution (the blur is measured in the map's texels). "
+                               "Changes at once."))
+                    g_settings.shadow_sharp = sh + 1;
+            }
         }
     }
 

@@ -626,6 +626,7 @@ static id<MTLCommandBuffer> cb(void) {
 }
 
 void renderer_texture_scale(NvnTexture *t, float *sx, float *sy);
+float renderer_texture_shadow_k(NvnTexture *t);  // runtime/nvn/metal.m
 void renderer_texture_unscale(NvnTexture *t, const char *why);
 void renderer_get_scale(float *sx, float *sy);
 static float pass_sx = 1, pass_sy = 1;  // allocation scale of the current pass's attachments
@@ -2611,6 +2612,24 @@ static void bind_textures(int stage, ShaderInfo *si) {
         NvnSamplerDesc *sd = h && st.spool && tsc < (uint32_t)st.spool->count ? &((NvnSamplerDesc *)st.spool->entries)[tsc] : NULL;
         if (sd) smp = sampler_for(sd);
         if (i < 64) tex_lb[stage][i] = hiz_lod(sd, tex_sc[stage][i][0], tex_sc[stage][i][1]);
+        if (i < 64 && g_settings.shadow_sharp > 1 && h && st.tpool && tic < (uint32_t)st.tpool->count) {
+            // Shadow sharpness: Z-A spreads its 16 shadow filter taps by (1 / the size its size query returns) x a radius,
+            // so a bigger map alone keeps the same blur in the map's texels. The depth map's size queries report
+            // `sharp` times the game's size instead (at most the map's own scale): the taps sit that much closer. The
+            // 8-bit object-id map beside it is fetched at trunc(queried size x the tap's uv): at the game's size that is a
+            // 4x4 block's centre, not the depth tap's texel, and the self-shadow guard fails along characters' edges
+            // (dark streaks), so it reports its real size and no scale. The reads use normalized coordinates and don't
+            // see any of this.
+            NvnTexture *nt = ((NvnTexEntry *)st.tpool->entries)[tic].tex;
+            float k = renderer_texture_shadow_k(nt);
+            if (k > 1) {
+                if (renderer_format_is_depth(nt->format)) {
+                    float d = g_settings.shadow_sharp < k ? (float)g_settings.shadow_sharp : k;
+                    tex_sc[stage][i][0] /= d;
+                    tex_sc[stage][i][1] /= d;
+                } else tex_sc[stage][i][0] = tex_sc[stage][i][1] = 1;
+            }
+        }
         if (st_->shadow) tex = shadow_slot_texture(tex, st_);
         if (!tex) tex = dummy_texture_ex(st_->type, st_->scalar_kind, st_->is_image);
         {   // LARECOMP_DUMMY_TEX=<fs addr or fsh>:<slot>,...: bind the neutral dummy texture to these fragment shader inputs (A/B tests)
