@@ -647,6 +647,22 @@ typedef struct { char root[1024]; } HostFs;
 typedef struct { int fd; char path[1100]; } HostFile;
 typedef struct { DIR *d; char path[1024]; int mode; } HostDir;
 
+static void file_close(Service *s) {
+    HostFile *f = s->state;
+    if (!f) return;
+    close(f->fd);
+    free(f);
+    s->state = NULL;
+}
+
+static void directory_close(Service *s) {
+    HostDir *d = s->state;
+    if (!d) return;
+    closedir(d->d);
+    free(d);
+    s->state = NULL;
+}
+
 static const char *in_path(IpcReq *req, int i) {
     if (i < req->nx) return (const char *)(uintptr_t)req->x[i].addr;
     if (i < req->na) return (const char *)(uintptr_t)req->a[i].addr;
@@ -821,7 +837,9 @@ static void filesystem(Service *s, IpcReq *req, IpcResp *resp) {
         HostFile *f = calloc(1, sizeof *f);
         f->fd = fd;
         strlcpy(f->path, p, sizeof f->path);
-        ipc_return_object(resp, service_new("IFile", file, f));
+        Service *obj = service_new("IFile", file, f);
+        obj->on_close = file_close;
+        ipc_return_object(resp, obj);
         break;
     }
     case 9: {  // OpenDirectory(mode)
@@ -831,7 +849,9 @@ static void filesystem(Service *s, IpcReq *req, IpcResp *resp) {
         hd->d = d;
         hd->mode = (int)IN(uint32_t, 0);
         snprintf(hd->path, sizeof hd->path, "%s", p);
-        ipc_return_object(resp, service_new("IDirectory", directory, hd));
+        Service *obj = service_new("IDirectory", directory, hd);
+        obj->on_close = directory_close;
+        ipc_return_object(resp, obj);
         break;
     }
     case 10: break;  // Commit

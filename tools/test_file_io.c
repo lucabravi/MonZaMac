@@ -58,6 +58,7 @@ static int test_fsync(int fd) {
 #undef pwrite
 #undef pread
 #undef fsync
+#include "../runtime/ipc.c"
 
 _Static_assert(offsetof(IpcResp, data) % _Alignof(uint64_t) == 0, "IPC response payload alignment");
 
@@ -67,12 +68,46 @@ const char *pl_prompt_set(void) { return "default"; }
 void rt_fatal_trace(void) { abort(); }
 int plat_open_file(const char *path, int flags) { return open(path, flags, 0600); }
 int plat_rename(const char *from, const char *to) { return rename(from, to); }
-Service *service_new(const char *name, ServiceHandler handler, void *state) {
-    Service *s = calloc(1, sizeof *s); assert(s);
-    s->name = name; s->handler = handler; s->state = state;
-    return s;
+static KObject *test_handles[16];
+uint32_t kernel_new_handle(KObject *obj) {
+    for (uint32_t h = 1; h < 16; h++) if (!test_handles[h]) { test_handles[h] = obj; return h; }
+    abort();
 }
-void ipc_return_object(IpcResp *resp, Service *s) { resp->objects[resp->nobjects++] = s; }
+KObject *handle_get(uint32_t h) { return h < 16 ? test_handles[h] : NULL; }
+
+static void close_session(uint32_t handle) {
+    uint32_t msg[64] __attribute__((aligned(16))) = {2, 0};  // HIPC Close
+    Cpu cpu = {.tpidrro = (uintptr_t)msg};
+    assert(ipc_handle_request(&cpu, handle) == 0);
+    free(test_handles[handle]); test_handles[handle] = NULL;
+}
+
+static void check_close(const char *name) {
+    bool isdir = !strcmp(name, "close-directory"), clone = !strcmp(name, "close-cloned-file");
+    char root[] = "/tmp/monzamac-handles.XXXXXX"; assert(mkdtemp(root));
+    char path[256]; snprintf(path, sizeof path, "%s/file.bin", root);
+    int created = open(path, O_CREAT | O_EXCL | O_RDWR, 0600); assert(created >= 0); assert(!close(created));
+    HostFs fs = {0}; strlcpy(fs.root, root, sizeof fs.root);
+    Service mount = {.state = &fs};
+    uint32_t mode = 1;
+    const char *guest_path = isdir ? "/" : "/file.bin";
+    IpcReq req = {.cmd = isdir ? 9 : 8, .data = (const uint8_t *)&mode, .data_size = sizeof mode, .nx = 1};
+    req.x[0] = (IpcBuf){(uintptr_t)guest_path, strlen(guest_path) + 1};
+    IpcResp resp = {0};
+    filesystem(&mount, &req, &resp);
+    assert(!resp.result && resp.nobjects == 1);
+    Service *obj = resp.objects[0];
+    int fd = isdir ? dirfd(((HostDir *)obj->state)->d) : ((HostFile *)obj->state)->fd;
+    uint32_t first = session_new(obj), second = clone ? session_new(obj) : 0;
+    close_session(first);
+    if (second) { assert(fcntl(fd, F_GETFD) >= 0); close_session(second); }
+    errno = 0;
+    assert(fcntl(fd, F_GETFD) == -1 && errno == EBADF);
+    assert(!obj->state);
+    free((char *)obj->name); free(obj);
+    assert(!unlink(path)); assert(!rmdir(root));
+    printf("PASS %s\n", name);
+}
 
 static const char old_bytes[] = "old committed data";
 static const char new_bytes[] = "new complete bytes";
@@ -86,6 +121,7 @@ static void check_bytes(int fd, const void *expected, size_t size) {
 
 int main(int argc, char **argv) {
     assert(argc == 2);
+    if (!strncmp(argv[1], "close-", 6)) { check_close(argv[1]); return 0; }
     char path[] = "/tmp/monzamac-file-io.XXXXXX";
     int fd = mkstemp(path); assert(fd >= 0); assert(!unlink(path));
     assert(pwrite(fd, old_bytes, sizeof old_bytes, 0) == sizeof old_bytes);
