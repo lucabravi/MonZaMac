@@ -38,6 +38,8 @@ Settings g_settings = {
     .gpu_overlap = true,
     .xfb_barrier = true,
     .shadows_4k = false, // (more GPU memory and work: off by default)
+    .shadow_res = 1,
+    .shadow_sharp = 1,
     .upscaler = UPSCALE_SHARP,  // (MetalFX on macOS, AMD FSR 1 on Windows)
 };
 
@@ -118,6 +120,8 @@ void settings_load(void) {
         else if (!strcmp(key, "game_fov")) g_settings.fov = atoi(val) != 0;
         else if (!strcmp(key, "game_lod")) g_settings.lod = atoi(val) != 0;
         else if (!strcmp(key, "game_shadows_4k")) g_settings.shadows_4k = atoi(val) != 0;
+        else if (!strcmp(key, "shadow_resolution")) { int v = atoi(val); g_settings.shadow_res = v < 1 ? 1 : v > 4 ? 4 : v; }
+        else if (!strcmp(key, "shadow_sharpness")) { int v = atoi(val); g_settings.shadow_sharp = v < 1 ? 1 : v > 4 ? 4 : v; }
         else if (!strcmp(key, "resolution")) {
             int n = atoi(val);
             g_settings.res_mode = !strcmp(val, "1.5x") ? RES_X15 : !strcmp(val, "dynamic 1.5x") ? RES_DYNAMIC_X15 :
@@ -192,6 +196,7 @@ void settings_save(void) {
     fprintf(f, "game_fov = %d\n", g_settings.fov);
     fprintf(f, "game_lod = %d\n", g_settings.lod);
     fprintf(f, "game_shadows_4k = %d\n", g_settings.shadows_4k);
+    fprintf(f, "shadow_resolution = %d\nshadow_sharpness = %d\n", g_settings.shadow_res, g_settings.shadow_sharp);
     fprintf(f, "upscaler = %s\n", g_settings.upscaler == UPSCALE_METALFX ? "metalfx" : g_settings.upscaler == UPSCALE_FSR1 ? "fsr1" : "bilinear");
     fprintf(f, "antialias = %s\n", g_settings.antialias == AA_SMAA ? "smaa" : "off");
     if (g_settings.res_mode == RES_DYNAMIC) fprintf(f, "resolution = dynamic\n");
