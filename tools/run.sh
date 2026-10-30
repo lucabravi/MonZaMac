@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build, run, and summarize: last log lines + symbolized guest backtrace.
 cd "$(dirname "$0")/.."
-make -j16 2>&1 | grep -E 'error' -A3 && exit 1
+make -j16 || exit $?
 SECS=${SECS:-30}
 export LARECOMP_NO_AUDIO=${LARECOMP_NO_AUDIO:-1} LARECOMP_NO_MOVIE_AUDIO=${LARECOMP_NO_MOVIE_AUDIO:-1}  # (silent; =0 for audio tests)
 # Test runs play from a scratch copy of the save (default: the user's slot 0 only) so they are repeatable
