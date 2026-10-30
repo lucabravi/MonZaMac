@@ -26,7 +26,7 @@ static const ImU32 gold = IM_COL32(244, 194, 72, 255);
 }
 
 enum Ask { NONE, NEW, COPY, RENAME, DELETE };
-static int g_open = -1;  // the save showing its whole team (its expand button, or Y / I on the selected one)
+static int g_open = -1;  // the save showing its whole team (its expand button, or Y on a pad, I on the keyboard, on the selected one)
 static SaveSlot g_slots[SAVE_SLOTS_MAX];
 static int g_n, g_sel, g_focus = -1, g_ask = NONE;
 static char g_name[SAVE_NAME_MAX * 4 + 1], g_err[96], g_created[SAVE_NAME_MAX + 1];
@@ -277,7 +277,10 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_) {
     // (sizes follow the font: the start screen's fonts are big)
     float u = small_->FontSize;
     if (g_n) {
-        const char *hint = g_open == g_sel ? "Y / I   hide the team" : "Y / I   show the team";
+        // (the key of the device last used: a pad's Y or the keyboard's I)
+        bool pad = ImGui::GetCurrentContext()->NavInputSource == ImGuiInputSource_Gamepad;
+        const char *hint = g_open == g_sel ? (pad ? "Y   hide the team" : "I   hide the team")
+                                           : (pad ? "Y   show the team" : "I   show the team");
         dl->AddText(small_, u * 0.8f, ImVec2(x0 + w - small_->CalcTextSizeA(u * 0.8f, FLT_MAX, 0, hint).x, wp.y + 70 * sc + th - u * 0.7f),
                     pal::sub, hint);
     }
