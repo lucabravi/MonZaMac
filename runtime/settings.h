@@ -20,7 +20,7 @@ enum { LANG_AUTO = 0, N_LANGUAGES = 12 };
 extern const char *const g_language_codes[N_LANGUAGES];  // what the game is told: "ja", "en-US", "es", ...
 extern const char *const g_language_names[N_LANGUAGES];  // for the menu ("Auto", "Japanese", ..., "Spanish")
 
-enum { MOUSE_CAM_OFF, MOUSE_CAM_RIGHT, MOUSE_CAM_LEFT, MOUSE_CAM_MIDDLE, MOUSE_CAM_ANY, MOUSE_CAM_NONE, MOUSE_CAM_TRACKPAD };
+enum { MOUSE_CAM_OFF, MOUSE_CAM_RIGHT, MOUSE_CAM_LEFT, MOUSE_CAM_MIDDLE, MOUSE_CAM_ANY, MOUSE_CAM_TRACKPAD, MOUSE_CAM_NONE };
 
 typedef struct {
     int aspect;          // ASPECT_*: unlocked = fill the window (wider/taller views), original = 16:9 with bars

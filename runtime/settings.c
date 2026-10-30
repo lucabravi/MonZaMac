@@ -130,7 +130,7 @@ void settings_load(void) {
         else if (!strcmp(key, "mouse_speed")) g_settings.mouse_speed = (float)atof(val);
         else if (!strcmp(key, "rstick_snap")) g_settings.rstick_snap = atoi(val);
         else if (!strcmp(key, "mouse_camera")) {
-            static const char *const names[] = {"off", "right", "left", "middle", "any", "none", "trackpad"};
+            static const char *const names[] = {"off", "right", "left", "middle", "any", "trackpad", "none"};
             for (int i = 0; i < 7; i++) if (!strcmp(val, names[i])) g_settings.mouse_camera = i;
         }
         else if (!strcmp(key, "mirror_mode")) g_settings.mirror_mode = atoi(val) != 0;
@@ -193,7 +193,7 @@ void settings_save(void) {
     fprintf(f, "dpad_move = %d\n", g_settings.dpad_move);
     fprintf(f, "mouse_speed = %g\n", g_settings.mouse_speed);
     fprintf(f, "rstick_snap = %d\n", g_settings.rstick_snap);
-    static const char *const mouse_cam[] = {"off", "right", "left", "middle", "any", "none", "trackpad"};
+    static const char *const mouse_cam[] = {"off", "right", "left", "middle", "any", "trackpad", "none"};
     fprintf(f, "mouse_camera = %s\n", mouse_cam[g_settings.mouse_camera >= 0 && g_settings.mouse_camera <= 6 ? g_settings.mouse_camera : 1]);
     static const char *const prompts[] = {"auto", "nintendo", "xbox", "playstation", "keyboard"};
     fprintf(f, "prompts = %s\n", prompts[g_settings.prompts <= 4 ? g_settings.prompts : 0]);
