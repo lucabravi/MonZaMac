@@ -11,9 +11,11 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 - **Each save can open its team:** a button on the right of the card (or Y / I) lists every Pokémon with its ball
   (gold for a shiny), name and level. Names in another script use a macOS system font when the launcher starts; the
   Pokédex number stands in for a character that font lacks.
+
 ### Controls
-- **Mouse camera speed and right stick snap** (Settings > Controls): the right mouse button's camera speed is adjustable
-  (100% is the old speed), and a right stick held within a few degrees of an axis can snap onto it (0 = off, the default).
+- **Mouse settings** (Settings > Controls, a Mouse section): the camera turns with the mouse while a button is held (right,
+  left, middle or any), always (cursor held in the window), or not at all; a two-finger trackpad drag turns it too; each
+  axis can be inverted; the speed is adjustable (100% is the default). The right stick snap (0 = off) sits with the d-pad.
 
 ## 0.1.3
 
