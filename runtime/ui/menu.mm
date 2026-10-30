@@ -560,7 +560,8 @@ static void tab_display(void) {
                        "Textures stay sharp on ground and walls seen at a slant, and (macOS 26 or later) farther away too. "
                        "Off: the game's own.");
             opt_toggle("4K shadows", &g_settings.shadows_4k, false,
-                       "Shadows from a 4096 map, sharper than the game's own. Costs GPU memory and work. Off: the game's own.");
+                       "Shadows from a 4096 map, sharper than the game's own. Costs GPU memory and work. Off: the game's own. "
+                       "Takes effect the next time the game starts.");
         }
     }
 
