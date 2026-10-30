@@ -2139,7 +2139,7 @@ static MTLTextureType mtl_type_for(int t) {
 
 // Shadow slots (depth2d, sample_compare) need a depth texture: with nothing usable bound they get a 1x1 Depth32Float
 // cleared to 1.0 (lit under less / less-equal, as an empty shadow map) instead of the RGBA8 dummy, which compares as 0
-// (in shadow) and is not a valid depth2d binding. (As LASRecomp c7e85df.)
+// (in shadow) and is not a valid depth2d binding.
 static id<MTLTexture> shadow_slot_texture(id<MTLTexture> tex, const ShaderTexture *st_) {
     if (tex && tex.textureType != MTLTextureType2DMultisample)
         switch (tex.pixelFormat) {
