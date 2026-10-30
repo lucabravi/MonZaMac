@@ -267,6 +267,26 @@ static PlatProc start_compile(const Tools *t, const Unit *u) {
     return p;
 }
 
+static bool prepare_zig_cache(const char *work) {
+    char path[1200];
+    snprintf(path, sizeof path, "%s" SEP "zig-cache", work);
+    if (mkdir(path, 0755) != 0) return false;
+    // Zig must receive an existing, absolute cache path (also when game_dir is relative).
+#ifdef _WIN32
+    char *absolute = _fullpath(NULL, path, 0);
+#else
+    char *absolute = realpath(path, NULL);
+#endif
+    if (!absolute) return false;
+#ifdef _WIN32
+    bool ok = _putenv_s("ZIG_GLOBAL_CACHE_DIR", absolute) == 0 && _putenv_s("ZIG_LOCAL_CACHE_DIR", absolute) == 0;
+#else
+    bool ok = setenv("ZIG_GLOBAL_CACHE_DIR", absolute, 1) == 0 && setenv("ZIG_LOCAL_CACHE_DIR", absolute, 1) == 0;
+#endif
+    free(absolute);
+    return ok;
+}
+
 // ------------------------------------------------------------------ the build
 bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size_t why_size) {
     uint64_t t0 = plat_now_ns();
@@ -281,20 +301,16 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
     snprintf(work, sizeof work, "%s" SEP ".gamebuild", game_dir);
     snprintf(lib, sizeof lib, "%s" SEP "%s", game_dir, GAMELIB_NAME);
     snprintf(tmp, sizeof tmp, "%s" SEP "%s.tmp", work, GAMELIB_NAME);
-    rt_remove_game_file(game_dir, ".gamebuild");
-    rt_remove_game_file(game_dir, GAMELIB_NAME);
-    rt_remove_game_file(game_dir, GAMELIB_NAME ".id");
-    mkdir(work, 0755);
-    if (t.zig) {  // its caches in the work folder too (deleted below), not ~/.cache: hundreds of MB, used once
-        char zc[1200];
-        snprintf(zc, sizeof zc, "%s" SEP "zig-cache", work);
-#ifdef _WIN32
-        _putenv_s("ZIG_GLOBAL_CACHE_DIR", zc);
-        _putenv_s("ZIG_LOCAL_CACHE_DIR", zc);
-#else
-        setenv("ZIG_GLOBAL_CACHE_DIR", zc, 1);
-        setenv("ZIG_LOCAL_CACHE_DIR", zc, 1);
-#endif
+    if (!rt_remove_game_file(game_dir, ".gamebuild") ||
+        !rt_remove_game_file(game_dir, GAMELIB_NAME) ||
+        !rt_remove_game_file(game_dir, GAMELIB_NAME ".id") || mkdir(work, 0755) != 0) {
+        snprintf(why, why_size, "the game code workspace couldn't be prepared");
+        return false;
+    }
+    if (t.zig && !prepare_zig_cache(work)) {  // caches stay with the disposable build, not in ~/.cache
+        snprintf(why, why_size, "the compiler cache couldn't be prepared");
+        rt_remove_game_file(game_dir, ".gamebuild");
+        return false;
     }
     LOG("[gamebuild] generator %s%s%s, compiler %s%s, %d jobs\n", t.gen, t.gen_script[0] ? " " : "", t.gen_script,
         t.cc, t.zig ? " cc" : "", o->jobs);
