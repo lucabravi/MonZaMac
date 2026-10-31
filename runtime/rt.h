@@ -7,8 +7,13 @@
 #include "cpu.h"
 #include "platform.h"
 
+// runtime/crash_explain.c: the fatal line / crash spot, and the player's explanation of it (the crash alert)
+void rt_fatal_msg(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+void rt_crash_fault(const char *what, uint64_t fa, uint64_t pc);
+void rt_crash_explain(char *out, size_t n, const char *log_path);
+
 #define LOG(...) fprintf(stderr, __VA_ARGS__)
-#define FATAL(...) (fprintf(stderr, "FATAL: " __VA_ARGS__), rt_fatal_trace())
+#define FATAL(...) (rt_fatal_msg(__VA_ARGS__), rt_fatal_trace())  // (runtime/crash_explain.c keeps the line)
 
 // ---- address space layout (guest addresses == host addresses)
 // Guest addresses must fit in 39 bits; the window starts at 0x70_0000_0000, above the region macOS reserves.
@@ -39,7 +44,7 @@ typedef struct Module {
     uint64_t base, size;
     uint64_t text_off, text_size, ro_off, ro_size, data_off, data_size;
     uint64_t dynamic, init, fini, init_array, init_array_sz, fini_array, fini_array_sz;
-    uint64_t symtab, strtab, nsyms;
+    uint64_t symtab, strtab, nsyms, strtab_size;
 } Module;
 
 extern Module g_modules[4];

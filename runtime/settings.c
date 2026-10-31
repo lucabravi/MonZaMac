@@ -20,6 +20,9 @@ Settings g_settings = {
     // the defaults of a new player (an existing larecomp.ini keeps its own): fullscreen, dynamic resolution, 60 fps, SMAA,
     // authentic 16:9, sharper textures (anisotropic filtering)
     .fullscreen = true,
+    .mouse_speed = 1.0f,
+    .mouse_camera = MOUSE_CAM_HOLD,
+    .mouse_camera_button = MOUSE_BTN_RIGHT,
     .res_mode = RES_DYNAMIC,
     .fps60 = true,
     .antialias = AA_SMAA,
@@ -35,6 +38,8 @@ Settings g_settings = {
     .gpu_overlap = true,
     .xfb_barrier = true,
     .shadows_4k = false, // (more GPU memory and work: off by default)
+    .shadow_res = 1,
+    .shadow_sharp = 1,
     .upscaler = UPSCALE_SHARP,  // (MetalFX on macOS, AMD FSR 1 on Windows)
 };
 
@@ -87,7 +92,7 @@ void settings_load(void) {
     FILE *f = fopen(SETTINGS_FILE, "r");
     if (!f) return;
     char line[256];
-    bool tip_key = false, aspect_key = false;
+    bool tip_key = false, aspect_key = false, shadow_key = false, shadows_4k_old = false;
     while (fgets(line, sizeof line, f)) {
         char key[64];
         char val[128];
@@ -114,7 +119,9 @@ void settings_load(void) {
         else if (!strcmp(key, "bloom")) g_settings.bloom = atoi(val) != 0;
         else if (!strcmp(key, "game_fov")) g_settings.fov = atoi(val) != 0;
         else if (!strcmp(key, "game_lod")) g_settings.lod = atoi(val) != 0;
-        else if (!strcmp(key, "game_shadows_4k")) g_settings.shadows_4k = atoi(val) != 0;
+        else if (!strcmp(key, "game_shadows_4k")) shadows_4k_old = atoi(val) != 0;  // (the option is gone: see below)
+        else if (!strcmp(key, "shadow_resolution")) { int v = atoi(val); g_settings.shadow_res = v < 1 ? 1 : v > 4 ? 4 : v; shadow_key = true; }
+        else if (!strcmp(key, "shadow_sharpness")) { int v = atoi(val); g_settings.shadow_sharp = v < 1 ? 1 : v > 4 ? 4 : v; shadow_key = true; }
         else if (!strcmp(key, "resolution")) {
             int n = atoi(val);
             g_settings.res_mode = !strcmp(val, "1.5x") ? RES_X15 : !strcmp(val, "dynamic 1.5x") ? RES_DYNAMIC_X15 :
@@ -125,6 +132,23 @@ void settings_load(void) {
         else if (!strcmp(key, "upscaler")) g_settings.upscaler = !strcmp(val, "bilinear") ? UPSCALE_BILINEAR : UPSCALE_SHARP;  // (metalfx / fsr1: this OS's)
         else if (!strcmp(key, "antialias")) g_settings.antialias = !strcmp(val, "off") ? AA_OFF : AA_SMAA;  // ("fxaa": SMAA now)
         else if (!strcmp(key, "dpad_move")) g_settings.dpad_move = atoi(val) != 0;
+        else if (!strcmp(key, "mouse_speed")) g_settings.mouse_speed = (float)atof(val);
+        else if (!strcmp(key, "rstick_snap")) g_settings.rstick_snap = atoi(val);
+        else if (!strcmp(key, "mouse_camera")) {  // (the old single list: right / left / middle / any / none / trackpad still read)
+            static const char *const old[] = {"right", "left", "middle", "any"};
+            if (!strcmp(val, "off")) g_settings.mouse_camera = MOUSE_CAM_OFF;
+            else if (!strcmp(val, "hold")) g_settings.mouse_camera = MOUSE_CAM_HOLD;
+            else if (!strcmp(val, "always") || !strcmp(val, "none")) g_settings.mouse_camera = MOUSE_CAM_ALWAYS;
+            else if (!strcmp(val, "trackpad")) { g_settings.mouse_camera = MOUSE_CAM_OFF; g_settings.trackpad_camera = true; }
+            else for (int i = 0; i < 4; i++) if (!strcmp(val, old[i])) g_settings.mouse_camera = MOUSE_CAM_HOLD, g_settings.mouse_camera_button = i;
+        }
+        else if (!strcmp(key, "mouse_camera_button")) {
+            static const char *const names[] = {"right", "left", "middle", "any"};
+            for (int i = 0; i < 4; i++) if (!strcmp(val, names[i])) g_settings.mouse_camera_button = i;
+        }
+        else if (!strcmp(key, "trackpad_camera")) g_settings.trackpad_camera = atoi(val) != 0;
+        else if (!strcmp(key, "invert_mouse_x")) g_settings.invert_mouse_x = atoi(val) != 0;
+        else if (!strcmp(key, "invert_mouse_y")) g_settings.invert_mouse_y = atoi(val) != 0;
         else if (!strcmp(key, "mirror_mode")) g_settings.mirror_mode = atoi(val) != 0;
         else if (!strcmp(key, "prompts")) g_settings.prompts = !strcmp(val, "nintendo") ? PROMPTS_NINTENDO : !strcmp(val, "xbox") ?
                                                               PROMPTS_XBOX : !strcmp(val, "playstation") ? PROMPTS_PLAYSTATION : !strcmp(val, "keyboard") ? PROMPTS_KEYBOARD : PROMPTS_AUTO;
@@ -141,6 +165,7 @@ void settings_load(void) {
     fclose(f);
     if (!tip_key) g_settings.menu_tip_seen = true;  // (a settings file from before the note: not a first launch)
     if (!aspect_key) g_settings.aspect_asked = true;  // (likewise: the aspect ratio was chosen already)
+    if (shadows_4k_old && !shadow_key) g_settings.shadow_res = g_settings.shadow_sharp = 4;  // ("4K shadows" of the earlier versions: the same, 4x at both)
     if (g_settings.volume < 0) g_settings.volume = 0;
     if (g_settings.volume > 2) g_settings.volume = 2;
     LOG("[settings] loaded %s\n", SETTINGS_FILE);
@@ -171,7 +196,7 @@ void settings_save(void) {
     fprintf(f, "bloom = %d\n", g_settings.bloom);
     fprintf(f, "game_fov = %d\n", g_settings.fov);
     fprintf(f, "game_lod = %d\n", g_settings.lod);
-    fprintf(f, "game_shadows_4k = %d\n", g_settings.shadows_4k);
+    fprintf(f, "shadow_resolution = %d\nshadow_sharpness = %d\n", g_settings.shadow_res, g_settings.shadow_sharp);
     fprintf(f, "upscaler = %s\n", g_settings.upscaler == UPSCALE_METALFX ? "metalfx" : g_settings.upscaler == UPSCALE_FSR1 ? "fsr1" : "bilinear");
     fprintf(f, "antialias = %s\n", g_settings.antialias == AA_SMAA ? "smaa" : "off");
     if (g_settings.res_mode == RES_DYNAMIC) fprintf(f, "resolution = dynamic\n");
@@ -183,6 +208,13 @@ void settings_save(void) {
     else if (g_settings.res_mode >= 1 && g_settings.res_mode <= 8) fprintf(f, "resolution = %dx\n", g_settings.res_mode);
     else fprintf(f, "resolution = match\n");
     fprintf(f, "dpad_move = %d\n", g_settings.dpad_move);
+    fprintf(f, "mouse_speed = %g\n", g_settings.mouse_speed);
+    fprintf(f, "rstick_snap = %d\n", g_settings.rstick_snap);
+    static const char *const mouse_cam[] = {"off", "hold", "always"}, *const mouse_btn[] = {"right", "left", "middle", "any"};
+    fprintf(f, "mouse_camera = %s\nmouse_camera_button = %s\ntrackpad_camera = %d\ninvert_mouse_x = %d\ninvert_mouse_y = %d\n",
+            mouse_cam[g_settings.mouse_camera >= 0 && g_settings.mouse_camera <= 2 ? g_settings.mouse_camera : 1],
+            mouse_btn[g_settings.mouse_camera_button >= 0 && g_settings.mouse_camera_button <= 3 ? g_settings.mouse_camera_button : 0],
+            g_settings.trackpad_camera, g_settings.invert_mouse_x, g_settings.invert_mouse_y);
     static const char *const prompts[] = {"auto", "nintendo", "xbox", "playstation", "keyboard"};
     fprintf(f, "prompts = %s\n", prompts[g_settings.prompts <= 4 ? g_settings.prompts : 0]);
     fprintf(f, "mirror_mode = %d\n", g_settings.mirror_mode);

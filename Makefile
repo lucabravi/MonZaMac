@@ -68,6 +68,15 @@ $(B)/rt/gamebuild.o: $(GAMELIB_SRCS) Makefile
 $(B)/rt/gamebuild.o: RTFLAGS += -DGAMELIB_ID='"$(GAMELIB_ID)"' -DGAMELIB_CFLAGS='"$(strip $(filter-out -Iruntime,$(GENFLAGS)))"' \
                                 -DGAMELIB_SHARED='"$(GAMELIB_SHARED)"'
 
+# Command-line GENOPT / GENFLAGS changes have no source mtime. Keep the game objects and both runtime copies of
+# their build identity in sync, without rebuilding when the effective flags are unchanged.
+$(GEN_OBJ) $(B)/rt/gamelib.o $(B)/rt/gamebuild.o: $(B)/gamelib-flags
+$(B)/gamelib-flags: force-gamelib-flags
+	@mkdir -p $(dir $@)
+	@printf '%s\n' '$(GENFLAGS)' > $@.tmp
+	@if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv -f $@.tmp $@; fi
+.PHONY: force-gamelib-flags
+
 $(B)/rt/%.o: runtime/%.c $(RT_HDRS)
 	@mkdir -p $(dir $@)
 	$(CC) $(RTFLAGS) -c $< -o $@

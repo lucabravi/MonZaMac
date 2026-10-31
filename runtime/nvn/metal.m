@@ -180,6 +180,7 @@ typedef struct {
     uint32_t level_gen;      // g_level_gen when last used as a render target
     uint64_t frame_cleared;  // LARECOMP_FRAME_CLEAR: frame it was last cleared at first use
     float sx, sy;        // allocation scale relative to the guest's size
+    float shadow_k;      // a shadow map drawn at shadow_k times the game's size (tex_shadow_scale): 0 / 1 = as is
     int reg;             // slot in g_reg (live textures, for the "largest textures" dump) + 1
 } TexBackend;
 
@@ -241,6 +242,37 @@ static bool tex_scalable(const NvnTexture *t) {
     return a > 1.74f && a < 1.81f;  // 16:9 (1920x1080 and its fractions, 704x396, 60x33...)
 }
 
+// Shadow maps (square render targets: Pokémon Z-A's cascades are a depth array of 1024x1024 x 3, with an 8-bit object-id
+// array of the same shape drawn in the same pass) keep the game's size at any output resolution, so their texels get
+// bigger on screen as the picture gets sharper: blocky shadow edges. Settings > Rendering > Shadow resolution
+// (shadow_resolution; LARECOMP_SHADOW_SCALE=<1-4> overrides it) draws them that many times bigger instead, from the next
+// start (the size is taken once). The shaders still see the game's size (renderer_texture_scale, as for the scaled
+// targets), and the passes' viewports follow it. The id array has to match the depth's size, so square render-target
+// arrays of 2-4 layers are scaled, depth or not. Z-A at 4x: 4096x4096 x 3, about 240 MB for the two.
+static float tex_shadow_scale(const NvnTexture *t) {
+    static int k = -1;
+    if (k < 0) {
+        const char *e = getenv("LARECOMP_SHADOW_SCALE");
+        k = e ? atoi(e) : g_settings.shadow_res;
+        if (k < 1) k = 1;
+        if (k > 4) k = 4;
+    }
+    if (k == 1 || !(t->flags & 8) || t->samples > 1 || t->width != t->height || t->width < 256 || t->width * k > 8192) return 1;
+    bool array = t->target == 4 && t->depth >= 2 && t->depth <= 4;
+    if (!array && !(t->target == 1 && renderer_format_is_depth(t->format))) return 1;
+    static int nlog;
+    if (nlog++ < 4)
+        LOG("[shadow] map %s %ux%u (%u layers) drawn at %ux%u\n", renderer_format_is_depth(t->format) ? "depth" : "colour", t->width,
+            t->height, t->target == 4 ? t->depth : 1, t->width * k, t->height * k);
+    return (float)k;
+}
+
+// A shadow map's size over the game's (1: not one, or at the game's size).
+float renderer_texture_shadow_k(NvnTexture *t) {
+    TexBackend *b = t ? (TexBackend *)t->backend : NULL;
+    return b && b->shadow_k > 1 ? b->shadow_k : 1;
+}
+
 // First write this frame to a presented image while the output is reshaped: returns true once per frame.
 bool renderer_texture_first_write(NvnTexture *t) {
     TexBackend *b = t ? (TexBackend *)t->backend : NULL;
@@ -294,7 +326,7 @@ bool renderer_texture_presented(NvnTexture *t) {
 
 void renderer_texture_scale(NvnTexture *t, float *sx, float *sy) {
     TexBackend *b = t ? (TexBackend *)t->backend : NULL;
-    if (b && b->scalable) { *sx = b->sx; *sy = b->sy; }
+    if (b && (b->scalable || b->shadow_k > 1)) { *sx = b->sx; *sy = b->sy; }
     else { *sx = 1; *sy = 1; }
 }
 
@@ -329,6 +361,7 @@ static TexBackend *tex_backend(NvnTexture *t) {
     }
     TexBackend *b = calloc(1, sizeof *b);
     b->scalable = tex_scalable(t);
+    b->shadow_k = tex_shadow_scale(t);
     if (t->width == 1920 && t->height == 1080 && getenv("LARECOMP_LOG_SCALABLE"))
         LOG("[scale] 1920x1080 tex %p f%#x flags %#x target %u samples %u levels %u -> scalable %d (%s)\n", (void *)t, t->format,
             t->flags, t->target, t->samples, t->levels, b->scalable, t->label);
@@ -367,6 +400,10 @@ static void create_backend_texture(NvnTexture *t, TexBackend *b) {
         tw = (uint32_t)lroundf(tw * b->sx); th = (uint32_t)lroundf(th * b->sy);
         if (tw < 1) tw = 1;
         if (th < 1) th = 1;
+    }
+    if (b->shadow_k > 1) {
+        tw = (uint32_t)lroundf(tw * b->shadow_k); th = (uint32_t)lroundf(th * b->shadow_k);
+        b->sx = b->sy = b->shadow_k;
     }
     d.width = tw;
     d.height = (t->target == 0 || t->target == 3) ? 1 : th;
@@ -1099,6 +1136,12 @@ void backend_present(NvnTexture *t) {
             g_stat_cpu_ms = g_stat_cpu_ms * 0.9 + (double)(sn - submit_prev) / 1e6 * 0.1;
             submit_prev = sn;
             if (gpu_ms >= 0) g_stat_gpu_ms = g_stat_gpu_ms * 0.9 + gpu_ms * 0.1;
+            // LARECOMP_PERF_LOG=<n>: the same two smoothed times the F3 overlay shows, as a log line every n presented frames
+            // (tools/perf_scene.py averages them over a window of a scripted run)
+            static int perf_every = -1;
+            if (perf_every < 0) perf_every = getenv("LARECOMP_PERF_LOG") ? atoi(getenv("LARECOMP_PERF_LOG")) : 0;
+            if (perf_every > 0 && frame % (uint64_t)perf_every == 0)
+                LOG("[perf] frame %llu cpu %.3f gpu %.3f\n", (unsigned long long)frame, g_stat_cpu_ms, g_stat_gpu_ms);
         }
         OutScale os;
         output_scale(dw, dh, present_unlocked(), gpu_sample_time, gpu_ms, &os);
@@ -1331,6 +1374,7 @@ int ui_run(void) {
             if (menu_handle_event(&e)) continue;
             input_handle_event(&e);
         }
+        input_mouse_update(window);  // (Mouse camera "No button": the cursor held in the window)
         menu_apply_window_requests(window);
         int w, h;
         SDL_GetWindowSizeInPixels(window, &w, &h);

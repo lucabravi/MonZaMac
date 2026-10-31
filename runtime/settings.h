@@ -20,6 +20,9 @@ enum { LANG_AUTO = 0, N_LANGUAGES = 12 };
 extern const char *const g_language_codes[N_LANGUAGES];  // what the game is told: "ja", "en-US", "es", ...
 extern const char *const g_language_names[N_LANGUAGES];  // for the menu ("Auto", "Japanese", ..., "Spanish")
 
+enum { MOUSE_CAM_OFF, MOUSE_CAM_HOLD /* while a button is held */, MOUSE_CAM_ALWAYS /* cursor held in the window */ };
+enum { MOUSE_BTN_RIGHT, MOUSE_BTN_LEFT, MOUSE_BTN_MIDDLE, MOUSE_BTN_ANY };
+
 typedef struct {
     int aspect;          // ASPECT_*: unlocked = fill the window (wider/taller views), original = 16:9 with bars
     bool fullscreen;
@@ -45,8 +48,16 @@ typedef struct {
     bool bloom;          // Pokémon Z-A: its bloom (glow around bright light)
     bool fov;            // Pokémon Z-A: a wider field of view (runtime/hle/za_mods.c rt_za_fov)
     bool lod;            // Pokémon Z-A: 8x anisotropic filtering and LOD bias -1.0 (the bias needs macOS 26) (rt_za_lod)
-    bool shadows_4k;     // Pokémon Z-A: 4096 shadow map (rt_za_shadows_4k)
+    bool shadows_4k;     // Pokémon Z-A: 4096 shadow map, only with LARECOMP_SHADOWS_4K=1 (rt_za_shadows_4k): no menu entry or ini key any more, see shadow_res
+    int shadow_res;      // 1-4: the shadow maps are drawn at that many times the game's size, from the next start (runtime/nvn/metal.m)
+    int shadow_sharp;    // 1-4: the game's shadow filter that many times narrower, up to shadow_res (runtime/nvn/renderer.m)
     bool dpad_move;      // the d-pad (and arrow keys) move like the stick
+    float mouse_speed;   // the mouse's camera speed, 1 = the default (runtime/hle/input.c)
+    int mouse_camera;        // MOUSE_CAM_*: when the mouse turns the camera (runtime/hle/input.c)
+    int mouse_camera_button; // MOUSE_BTN_*: the button held for MOUSE_CAM_HOLD
+    bool trackpad_camera;    // two fingers on the trackpad turn the camera (its scroll events)
+    bool invert_mouse_x, invert_mouse_y;  // the camera's direction, per axis (mouse and trackpad)
+    int rstick_snap;     // degrees: a right stick this close to an axis is held on it (0 = off; runtime/hle/input.c)
     bool mirror_mode;    // the world mirrored left to right (Gameplay tab): renderers + runtime/hle/input.c
     int language;        // LANG_AUTO or an index into g_language_codes: the game's text language
     int prompts;         // PROMPTS_*: button glyphs (auto = follow the controller SDL reports): runtime/nvn/texpatch.c

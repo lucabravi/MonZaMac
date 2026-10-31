@@ -143,9 +143,68 @@ int input_pad_family(void) {
     return env >= 0 ? env : pad_family;
 }
 
-// mouse camera: right stick deflection from the last motion with the right button held (input_handle_event), and its time
-static _Atomic int32_t mouse_rx, mouse_ry;
-static _Atomic uint64_t mouse_t;
+// Right stick snap (Controls > Right stick snap): a direction within `deg` degrees of an axis is held on that axis.
+static void snap_to_axis(int32_t *x, int32_t *y, int deg) {
+    if (deg <= 0 || (!*x && !*y)) return;
+    double a = fmod(fabs(atan2((double)*y, (double)*x) * 180.0 / M_PI), 90.0);  // (0 on an axis, 45 on a diagonal)
+    if (fmin(a, 90.0 - a) >= deg) return;
+    if (fabs((double)*x) >= fabs((double)*y)) *y = 0;  // near the horizontal axis: drop the vertical part
+    else *x = 0;
+}
+
+// Settings > Controls > Mouse camera: which button, held down, lets the mouse turn the camera. "No button" does it all the
+// time, with the cursor held inside the window (input_mouse_update), so it cannot leave the window and spin the camera.
+extern bool menu_input_captured(void);  // runtime/ui/menu.mm
+static bool mouse_camera_on(uint32_t state) {
+    if (g_settings.mouse_camera == MOUSE_CAM_ALWAYS) return true;
+    if (g_settings.mouse_camera != MOUSE_CAM_HOLD) return false;
+    switch (g_settings.mouse_camera_button) {
+    case MOUSE_BTN_LEFT: return state & SDL_BUTTON_LMASK;
+    case MOUSE_BTN_MIDDLE: return state & SDL_BUTTON_MMASK;
+    case MOUSE_BTN_ANY: return state & (SDL_BUTTON_LMASK | SDL_BUTTON_MMASK | SDL_BUTTON_RMASK);
+    default: return state & SDL_BUTTON_RMASK;
+    }
+}
+
+// Main thread, after each batch of events (runtime/nvn/metal.m ui_run): while the game has the controls the mouse is in
+// relative mode: the cursor is hidden (nothing in the game is clicked) and held in place, so the camera never stops at
+// the window's edge; the menu and the name entry get the cursor back.
+void input_mouse_update(SDL_Window *w) {
+    static bool held;
+    bool want = !menu_input_captured() && (SDL_GetWindowFlags(w) & SDL_WINDOW_INPUT_FOCUS);
+    if (want == held) return;
+    SDL_SetWindowRelativeMouseMode(w, want);
+    held = want;
+}
+
+// mouse camera: the right stick from how fast the mouse moves with the right button held. Motion is added up between
+// the game's reads of its controller (input_handle_event, in 1/16 px) and turned into a speed (px/s, smoothed over
+// ~30 ms) and that into a deflection: past the stick's dead zone at once (else slow moves do nothing), full at
+// MOUSE_FULL px/s divided by mouse_speed. A per-event gain (the old way) made 3-4 px already full tilt, so the
+// speed setting did nothing and the camera turned in jerks.
+static _Atomic int32_t mouse_acc_x, mouse_acc_y;
+#define MOUSE_FULL 1200.0  // px/s for full tilt at speed 1
+#define MOUSE_FLOOR 0.2    // the stick's dead zone
+#define MOUSE_PX 3.0       // the mouse's base sensitivity: counts a motion of 1 px as 3 (three times the first version's)
+#define TRACKPAD_PX 72.0   // px per wheel unit of a two-finger drag (felt right at the 300% speed with 24: 100% now has that feel)
+static void mouse_stick(int32_t *rx, int32_t *ry) {
+    static uint64_t last;
+    static double vx, vy;
+    uint64_t now = SDL_GetTicksNS();
+    double dt = last ? (double)(now - last) / 1e9 : 0;
+    if (!last || dt > 0.25) { last = now; atomic_exchange(&mouse_acc_x, 0); atomic_exchange(&mouse_acc_y, 0); vx = vy = 0; }
+    else if (dt >= 0.004) {  // (the game reads several times a frame: speeds over at least 4 ms)
+        double tx = atomic_exchange(&mouse_acc_x, 0) / 16.0 / dt, ty = atomic_exchange(&mouse_acc_y, 0) / 16.0 / dt;
+        double a = 1 - exp(-dt / 0.03);
+        vx += (tx - vx) * a, vy += (ty - vy) * a;
+        last = now;
+    }
+    double v = sqrt(vx * vx + vy * vy);
+    if (v < 15) { *rx = *ry = 0; return; }  // (at rest: below ~15 px/s)
+    double m = v * g_settings.mouse_speed / MOUSE_FULL;
+    double d = (MOUSE_FLOOR + (1 - MOUSE_FLOOR) * (m > 1 ? 1 : m)) * 32767 / v;
+    *rx = (int32_t)(vx * d), *ry = (int32_t)(-vy * d);
+}
 void input_handle_event(const SDL_Event *e) {
     static bool scanned;  // pads present at startup: their ADDED event may have gone to the start screen's loop
     if (!scanned) {
@@ -173,14 +232,18 @@ void input_handle_event(const SDL_Event *e) {
     case SDL_EVENT_GAMEPAD_AXIS_MOTION: case SDL_EVENT_GAMEPAD_BUTTON_DOWN: case SDL_EVENT_GAMEPAD_BUTTON_UP:
         recompute_pad();
         break;
-    case SDL_EVENT_MOUSE_MOTION:  // right button held: the mouse turns the camera (right stick)
-        if (e->motion.state & SDL_BUTTON_RMASK) {
-            static double gain = -1;
-            if (gain < 0) gain = getenv("LARECOMP_MOUSE_GAIN") ? atof(getenv("LARECOMP_MOUSE_GAIN")) : 2500;
-            double x = e->motion.xrel * gain, y = -e->motion.yrel * gain;
-            mouse_rx = (int32_t)(x > 32767 ? 32767 : x < -32767 ? -32767 : x);
-            mouse_ry = (int32_t)(y > 32767 ? 32767 : y < -32767 ? -32767 : y);
-            mouse_t = SDL_GetTicksNS();
+    case SDL_EVENT_MOUSE_WHEEL:  // Mouse camera "Trackpad": two fingers on the trackpad turn the camera (the mouse wheel too)
+        if (g_settings.trackpad_camera) {
+            // (wheel units to pixels: a two-finger drag is a few units a frame; the speed setting scales it as the mouse's)
+            double sx = g_settings.invert_mouse_x ? -1 : 1, sy = g_settings.invert_mouse_y ? 1 : -1;
+            atomic_fetch_add(&mouse_acc_x, (int32_t)lround(sx * e->wheel.x * TRACKPAD_PX * 16));
+            atomic_fetch_add(&mouse_acc_y, (int32_t)lround(sy * e->wheel.y * TRACKPAD_PX * 16));
+        }
+        break;
+    case SDL_EVENT_MOUSE_MOTION:  // the chosen button held (or none): the mouse turns the camera (right stick)
+        if (mouse_camera_on(e->motion.state)) {
+            atomic_fetch_add(&mouse_acc_x, (int32_t)lround((g_settings.invert_mouse_x ? -1 : 1) * e->motion.xrel * MOUSE_PX * 16));
+            atomic_fetch_add(&mouse_acc_y, (int32_t)lround((g_settings.invert_mouse_y ? -1 : 1) * e->motion.yrel * MOUSE_PX * 16));
         }
         break;
     }
@@ -414,9 +477,10 @@ static void fill_state(Cpu *c) {
         if (renderer_present_count() < until) b |= 1ull << BTN_PLUS;
     }
     int32_t lx = clamp_axis((menu ? 0 : key_lx + pad_lx) + script_lx), ly = clamp_axis((menu ? 0 : key_ly + pad_ly) + script_ly);
-    bool mouse = SDL_GetTicksNS() - mouse_t < 80000000ull;  // (the last mouse motion's deflection, for 80 ms)
-    int32_t mrx = mouse ? mouse_rx : 0, mry = mouse ? mouse_ry : 0;
+    int32_t mrx, mry;
+    mouse_stick(&mrx, &mry);
     int32_t rx = clamp_axis((menu ? 0 : key_rx + pad_rx + mrx) + script_rx), ry = clamp_axis((menu ? 0 : key_ry + pad_ry + mry) + script_ry);
+    snap_to_axis(&rx, &ry, g_settings.rstick_snap);
     extern bool mirror_input(void);  // mirror mode, the world on screen (runtime/hle/mirror.c): left and right swap
     bool mirrored = !menu && mirror_input();
     if (mirrored) {

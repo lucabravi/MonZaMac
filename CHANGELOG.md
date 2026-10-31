@@ -3,7 +3,44 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
-## Unreleased
+## 0.1.4
+
+### Rendering
+- **Shadow resolution and shadow sharpness** (Settings > Rendering): the sun's shadow maps can be drawn 2x, 3x or 4x
+  bigger (from the next start), and the filter 2x to 4x narrower (at once, up to the resolution): smooth, crisp shadow
+  edges. They replace "4K shadows", which is gone from the menu: a `game_shadows_4k = 1` in `larecomp.ini` becomes 4x for
+  both. Off ("Game's") by default.
+
+### Start screen and saves
+- **Crashes are explained**: when the app is opened by double click and the game stops on an error, an alert says in plain
+  words what happened and what to do (graphics driver, the game's own check, a bug in MonZaMac), and points to
+  `logs/play.log` (the previous run: `play-anterior.log`) to attach to a report.
+- **The save card shows the trainer's data:** name, trainer ID, play time, money and the team, read from the save
+  itself (read only), laid out in two columns. The SAVES list shows the same for every save.
+- **Each save can open its team:** a button on the right of the card (or Y / I) lists every Pokémon with its ball
+  (gold for a shiny), name and level. Names in another script use a macOS system font when the launcher starts; the
+  Pokédex number stands in for a character that font lacks.
+
+### Controls
+- **Mouse settings** (Settings > Controls, a Mouse section): the camera turns with the mouse while a button is held (right,
+  left, middle or any), always, or not at all; a two-finger trackpad drag turns it too; each axis can be
+  inverted; the speed is adjustable (100% is the default, a higher base than before). In the game the cursor is hidden
+  and held in place, so the camera never stops at the window's edge; the menu gives it back. The right stick snap
+  (0 = off) sits with the d-pad.
+
+### Stability
+- **Game file paths stay inside the mounted folder:** a path with `..` is refused as not found instead of reaching
+  outside the save directory.
+- **File service:** short writes are completed, errors are returned to the game instead of being dropped, and file
+  descriptors are released when the game closes them.
+- **Loading and generation checks:** executable sizes are checked before they are read, truncated shader headers are
+  refused, SIMD batches in the generated code no longer overwrite a guest register with the flags, and the renderer's
+  program and pipeline indexes can no longer loop when full.
+- **Build helpers** stop on a failed step and rebuild when the compile flags change.
+
+### Developer
+- **CPU and GPU frame time log** (`LARECOMP_PERF_LOG`) and a scene benchmark (`tools/perf_scene.py`), with the measured
+  cost of the shadow options in `docs/performance-shadows.md`.
 
 ## 0.1.3
 

@@ -12,6 +12,7 @@
 #include <SDL3/SDL_timer.h>
 
 #include "maxwell/shader.h"
+#include "cache_probe.h"
 #include "nvn.h"
 #include "renderer.h"
 #include "../settings.h"  // (g_settings.game_drs)
@@ -626,6 +627,7 @@ static id<MTLCommandBuffer> cb(void) {
 }
 
 void renderer_texture_scale(NvnTexture *t, float *sx, float *sy);
+float renderer_texture_shadow_k(NvnTexture *t);  // runtime/nvn/metal.m
 void renderer_texture_unscale(NvnTexture *t, const char *why);
 void renderer_get_scale(float *sx, float *sy);
 static float pass_sx = 1, pass_sy = 1;  // allocation scale of the current pass's attachments
@@ -1627,7 +1629,7 @@ static int rt_kind(uint32_t f) {
 }
 
 #define PROG_TAB 4096
-static struct { uint64_t key; void *prog; } prog_tab[PROG_TAB];
+static NvnCacheEntry prog_tab[PROG_TAB];
 
 // Shader warm-up cache: every translated shader's MSL is kept in cache/shaders/ (v_/f_<hash>.metal). At startup
 // they're all compiled once on a background queue, which fills Metal's own on-disk shader cache so that a later
@@ -1902,16 +1904,16 @@ static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
     h ^= (uint64_t)fkey->img_uint << 8 | fkey->img_sint; h *= 0x100000001B3ull;
     if (!h) h = 1;
     uint32_t slot = (uint32_t)(h ^ (h >> 31)) & (PROG_TAB - 1);
-    while (prog_tab[slot].key && prog_tab[slot].key != h) slot = (slot + 1) & (PROG_TAB - 1);
-    if (prog_tab[slot].key) { Prog *fp = (__bridge Prog *)prog_tab[slot].prog; return fp->failed ? nil : fp; }
+    slot = nvn_cache_probe(prog_tab, PROG_TAB, h, slot);
+    if (prog_tab[slot].key) { Prog *fp = (__bridge Prog *)prog_tab[slot].value; return fp->failed ? nil : fp; }
     NSString *vertex_key = [[NSData dataWithBytes:vkey length:sizeof *vkey] base64EncodedStringWithOptions:0];
-    NSString *key = [NSString stringWithFormat:@"%llx/%llx/%@/%@/%x/%x/%x/%x%x%s", p->stages[0].code_addr, p->stages[1].code_addr,
+    NSString *key = [NSString stringWithFormat:@"%llx/%llx/%@/%@/%x/%x/%x/%x/%x%s", p->stages[0].code_addr, p->stages[1].code_addr,
                      vertex_key, [NSData dataWithBytes:fkey->rt_kind length:8],
                      fkey->stencil_slots, fkey->sint_slots, fkey->uint_slots, fkey->img_uint, fkey->img_sint, vkey->flip_x ? "/mirror" : ""];
     Prog *pr = cache[key];
     if (pr) {
         prog_tab[slot].key = h;
-        prog_tab[slot].prog = (__bridge void *)pr;
+        prog_tab[slot].value = (__bridge void *)pr;
         return pr->failed ? nil : pr;
     }
     pr = [Prog new];
@@ -1919,7 +1921,7 @@ static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
     pr->fs_addr = p->stages[1].code_addr;
     cache[key] = pr;
     prog_tab[slot].key = h;
-    prog_tab[slot].prog = (__bridge void *)pr;  // retained by the cache dictionary
+    prog_tab[slot].value = (__bridge void *)pr;  // retained by the cache dictionary
     dump_program(p);
     backend_gwin_pick();
     maxwell_gmem_base = g_gwin_base;
@@ -2139,7 +2141,7 @@ static MTLTextureType mtl_type_for(int t) {
 
 // Shadow slots (depth2d, sample_compare) need a depth texture: with nothing usable bound they get a 1x1 Depth32Float
 // cleared to 1.0 (lit under less / less-equal, as an empty shadow map) instead of the RGBA8 dummy, which compares as 0
-// (in shadow) and is not a valid depth2d binding. (As LASRecomp c7e85df.)
+// (in shadow) and is not a valid depth2d binding.
 static id<MTLTexture> shadow_slot_texture(id<MTLTexture> tex, const ShaderTexture *st_) {
     if (tex && tex.textureType != MTLTextureType2DMultisample)
         switch (tex.pixelFormat) {
@@ -2611,6 +2613,24 @@ static void bind_textures(int stage, ShaderInfo *si) {
         NvnSamplerDesc *sd = h && st.spool && tsc < (uint32_t)st.spool->count ? &((NvnSamplerDesc *)st.spool->entries)[tsc] : NULL;
         if (sd) smp = sampler_for(sd);
         if (i < 64) tex_lb[stage][i] = hiz_lod(sd, tex_sc[stage][i][0], tex_sc[stage][i][1]);
+        if (i < 64 && g_settings.shadow_sharp > 1 && h && st.tpool && tic < (uint32_t)st.tpool->count) {
+            // Shadow sharpness: Z-A spreads its 16 shadow filter taps by (1 / the size its size query returns) x a radius,
+            // so a bigger map alone keeps the same blur in the map's texels. The depth map's size queries report
+            // `sharp` times the game's size instead (at most the map's own scale): the taps sit that much closer. The
+            // 8-bit object-id map beside it is fetched at trunc(queried size x the tap's uv): at the game's size that is a
+            // 4x4 block's centre, not the depth tap's texel, and the self-shadow guard fails along characters' edges
+            // (dark streaks), so it reports its real size and no scale. The reads use normalized coordinates and don't
+            // see any of this.
+            NvnTexture *nt = ((NvnTexEntry *)st.tpool->entries)[tic].tex;
+            float k = renderer_texture_shadow_k(nt);
+            if (k > 1) {
+                if (renderer_format_is_depth(nt->format)) {
+                    float d = g_settings.shadow_sharp < k ? (float)g_settings.shadow_sharp : k;
+                    tex_sc[stage][i][0] /= d;
+                    tex_sc[stage][i][1] /= d;
+                } else tex_sc[stage][i][0] = tex_sc[stage][i][1] = 1;
+            }
+        }
         if (st_->shadow) tex = shadow_slot_texture(tex, st_);
         if (!tex) tex = dummy_texture_ex(st_->type, st_->scalar_kind, st_->is_image);
         {   // LARECOMP_DUMMY_TEX=<fs addr or fsh>:<slot>,...: bind the neutral dummy texture to these fragment shader inputs (A/B tests)
@@ -3070,7 +3090,7 @@ static unsigned g_pipeline_gen;
 static NSMutableDictionary *g_ready_pipes;
 
 #define PIPE_TAB 8192
-static struct { uint64_t key; void *pipe; } pipe_tab[PIPE_TAB];
+static NvnCacheEntry pipe_tab[PIPE_TAB];
 
 // ---- live diagnostics: commands in build/dbgcmd, applied between passes (no restart to A/B a state).
 // One command per line:
@@ -3481,8 +3501,8 @@ static void draw(CmdRec *r, bool indexed) {
     phash = hmix(phash, stream_slots, sizeof stream_slots);
     if (!phash) phash = 1;
     uint32_t pslot = (uint32_t)(phash ^ (phash >> 29)) & (PIPE_TAB - 1);
-    while (pipe_tab[pslot].key && pipe_tab[pslot].key != phash) pslot = (pslot + 1) & (PIPE_TAB - 1);
-    id<MTLRenderPipelineState> pipe = pipe_tab[pslot].key ? (__bridge id<MTLRenderPipelineState>)pipe_tab[pslot].pipe : nil;
+    pslot = nvn_cache_probe(pipe_tab, PIPE_TAB, phash, pslot);
+    id<MTLRenderPipelineState> pipe = pipe_tab[pslot].key ? (__bridge id<MTLRenderPipelineState>)pipe_tab[pslot].value : nil;
     if (!pipe) {
     MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
     pd.vertexFunction = pr->vs;
@@ -3610,7 +3630,7 @@ static void draw(CmdRec *r, bool indexed) {
     if (pobj == [NSNull null]) { stat_skipped++; dbg_skips++; return; }
     pipe = pobj;
     pipe_tab[pslot].key = phash;
-    pipe_tab[pslot].pipe = (__bridge void *)pipe;  // retained by the cache dictionary
+    pipe_tab[pslot].value = (__bridge void *)pipe;  // retained by the cache dictionary
     }
     g_last_pipe_label = pipe.label;
     [enc setRenderPipelineState:pipe];

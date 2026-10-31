@@ -99,6 +99,18 @@ actual render encoders and command buffers ended. Empty close/submit requests do
 requested; it changes no render state and does not wait for the GPU. See [GPU measurements](docs/performance-gpu.md)
 for scope, results and limitations.
 
+**Frame times of a scene.** `LARECOMP_PERF_LOG=60` logs a `[perf] frame N cpu X gpu Y` line every 60 presented frames:
+the smoothed CPU submit time and GPU busy time per frame, the two numbers of the F3 overlay (Developer tab, "Frame
+times in F3"). `tools/perf_scene.py` runs the game from a copy of a save with the scripted title input of
+`tools/perf_sweep.py`, lets it settle and averages those lines over a window (30 s by default), once or several times:
+
+```sh
+tools/perf_scene.py --save saves/<slot> --runs 2     # internal resolution and the options come from larecomp.ini
+```
+
+To compare two builds, run them one after the other, alternating, with the window in front and the Mac idle, and keep
+a run of the same build at the end to see the noise.
+
 To capture one complete frame, launch with Metal capture support, then request the capture from another terminal:
 
 ```sh

@@ -559,8 +559,22 @@ static void tab_display(void) {
             opt_toggle("Sharper textures", &g_settings.lod, true,
                        "Textures stay sharp on ground and walls seen at a slant, and (macOS 26 or later) farther away too. "
                        "Off: the game's own.");
-            opt_toggle("4K shadows", &g_settings.shadows_4k, false,
-                       "Shadows from a 4096 map, sharper than the game's own. Costs GPU memory and work. Off: the game's own.");
+            {   // the shadow map's size (runtime/nvn/metal.m: taken at start) and its filter's width (runtime/nvn/renderer.m)
+                static const char *sz[] = {"Game's", "2x", "3x", "4x"};
+                int si = g_settings.shadow_res - 1;
+                if (opt_choice("Shadow resolution", &si, sz, 4, 0,
+                               "The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024). Higher: "
+                               "smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory "
+                               "(4x: about 240 MB, 2x: 60 MB). From the next start."))
+                    g_settings.shadow_res = si + 1;
+                int sh = g_settings.shadow_sharp - 1;
+                if (g_settings.shadow_res == 1) opt_disable_next();  // (nothing to narrow at the game's size)
+                if (opt_choice("Shadow sharpness", &sh, sz, 4, 0,
+                               "How soft the edges of the sun's shadows are: the game's own blur, or 2-4 times narrower, "
+                               "so sharper shadows. At most the shadow resolution (the blur is measured in the map's texels). "
+                               "Changes at once."))
+                    g_settings.shadow_sharp = sh + 1;
+            }
         }
     }
 
@@ -653,6 +667,34 @@ static void tab_about(void) {
     header("Movement");
     toggle("D-pad moves the character", &g_settings.dpad_move);
     hint("The d-pad and the arrow keys move like the left stick.");
+    {
+        float snap = (float)g_settings.rstick_snap;
+        if (opt_slider("Right stick snap", &snap, 0, 20, 1, 0, "%g degrees",
+                   "A right stick (or mouse camera) pointed within this many degrees of up, down, left or right is held exactly on that direction. 0: off."))
+            g_settings.rstick_snap = (int)roundf(snap);
+    }
+    ImGui::Spacing();
+    header("Mouse");
+    {
+        static const char *const cam[] = {"Off", "While holding a button", "Always (cursor held in the window)"};
+        choice("Camera", &g_settings.mouse_camera, cam, 3);
+        hint("While holding a button: the mouse turns the camera while the chosen button is held. Always: the camera "
+             "follows the mouse all the time, and the cursor is held inside the window (the menus free it).");
+    }
+    if (g_settings.mouse_camera == MOUSE_CAM_HOLD) {
+        static const char *const btn[] = {"Right button", "Left button", "Middle button", "Any button"};
+        choice("Button to hold", &g_settings.mouse_camera_button, btn, 4);
+    }
+    toggle("Two-finger drag on the trackpad", &g_settings.trackpad_camera);
+    hint("The trackpad's two-finger scroll turns the camera, as the mouse does.");
+    ImGui::Checkbox("Invert horizontal", &g_settings.invert_mouse_x);
+    ImGui::Checkbox("Invert vertical", &g_settings.invert_mouse_y);
+    {
+        float pct = roundf(g_settings.mouse_speed * 100);
+        if (opt_slider("Mouse camera speed", &pct, 25, 300, 5, 100, "%g%%",
+                   "How fast the mouse and the trackpad turn the camera. 100% is the default."))
+            g_settings.mouse_speed = pct / 100.0f;
+    }
     ImGui::Spacing();
     header("Button prompts");
     {

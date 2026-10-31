@@ -647,14 +647,38 @@ typedef struct { char root[1024]; } HostFs;
 typedef struct { int fd; char path[1100]; } HostFile;
 typedef struct { DIR *d; char path[1024]; int mode; } HostDir;
 
+static void file_close(Service *s) {
+    HostFile *f = s->state;
+    if (!f) return;
+    close(f->fd);
+    free(f);
+    s->state = NULL;
+}
+
+static void directory_close(Service *s) {
+    HostDir *d = s->state;
+    if (!d) return;
+    closedir(d->d);
+    free(d);
+    s->state = NULL;
+}
+
 static const char *in_path(IpcReq *req, int i) {
     if (i < req->nx) return (const char *)(uintptr_t)req->x[i].addr;
     if (i < req->na) return (const char *)(uintptr_t)req->a[i].addr;
     return "";
 }
 
-static void host_path(HostFs *fs, const char *p, char *out, size_t n) {
+// false: the path has a ".." component, which would leave the mounted root (the console has no such thing).
+// shortcut: symlinks inside the root aren't resolved, the mounts hold only files the game itself created.
+static bool host_path(HostFs *fs, const char *p, char *out, size_t n) {
+    for (const char *c = p; *c; ) {
+        const char *e = c + strcspn(c, "/");
+        if (e - c == 2 && c[0] == '.' && c[1] == '.') return false;
+        c = *e ? e + 1 : e;
+    }
     snprintf(out, n, "%s%s%s", fs->root, p[0] == '/' ? "" : "/", p);
+    return true;
 }
 
 static uint32_t errno_result(void) {
@@ -671,8 +695,13 @@ static void file(Service *s, IpcReq *req, IpcResp *resp) {
     case 0: {  // Read(option, offset, size) -> B
         int64_t off = IN(int64_t, 8), size = IN(int64_t, 16);
         IpcBuf *b = out_buf(req, 0);
+        if (!b || off < 0 || size < 0 || size > INT64_MAX - off) {
+            resp->result = MAKE_RESULT(2, 6001); break;
+        }
         if ((uint64_t)size > b->size) size = (int64_t)b->size;
-        ssize_t n = pread(f->fd, (void *)(uintptr_t)b->addr, (size_t)size, off);
+        ssize_t n;
+        do { n = pread(f->fd, (void *)(uintptr_t)b->addr, (size_t)size, off); } while (n < 0 && errno == EINTR);
+        if (n < 0) resp->result = errno_result();
         if (strstr(f->path, "savedata")) {
             LOG("[save] read %s off %lld size %lld -> guest %llx\n", f->path, (long long)off, (long long)size, (unsigned long long)b->addr);
         }
@@ -683,16 +712,33 @@ static void file(Service *s, IpcReq *req, IpcResp *resp) {
     case 1: {  // Write(option, offset, size) <- A
         int64_t off = IN(int64_t, 8), size = IN(int64_t, 16);
         IpcBuf *a = in_buf(req, 0);
+        if (!a || off < 0 || size < 0 || size > INT64_MAX - off || (uint64_t)size > a->size) {
+            resp->result = MAKE_RESULT(2, 6001); break;
+        }
         if (strstr(f->path, "savedata"))
             LOG("[save] write %s off %lld size %lld <- guest %llx\n", f->path, (long long)off, (long long)size, (unsigned long long)a->addr);
-        if (pwrite(f->fd, (void *)(uintptr_t)a->addr, (size_t)size, off) < 0) resp->result = errno_result();
+        // A successful short write is not a complete save. Continue at its end, and never hide a later failure.
+        for (int64_t done = 0; done < size;) {
+            ssize_t n = pwrite(f->fd, (void *)(uintptr_t)(a->addr + done), (size_t)(size - done), off + done);
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) {
+                if (!n) errno = EIO;
+                resp->result = errno_result(); break;
+            }
+            done += n;
+        }
         break;
     }
-    case 2: fsync(f->fd); break;
+    case 2: {
+        int r;
+        do { r = fsync(f->fd); } while (r < 0 && errno == EINTR);
+        if (r < 0) resp->result = errno_result();
+        break;
+    }
     case 3: if (ftruncate(f->fd, IN(int64_t, 0))) resp->result = errno_result(); break;
     case 4: {
         struct stat sb;
-        fstat(f->fd, &sb);
+        if (fstat(f->fd, &sb)) { resp->result = errno_result(); break; }
         OUT(int64_t, 0) = sb.st_size;
         resp_size(resp, 8);
         break;
@@ -768,7 +814,7 @@ static int rm_rf(const char *p, bool keep_root) {
 static void filesystem(Service *s, IpcReq *req, IpcResp *resp) {
     HostFs *fs = s->state;
     char p[2048], p2[2048];
-    host_path(fs, in_path(req, 0), p, sizeof p);
+    if (!host_path(fs, in_path(req, 0), p, sizeof p)) { resp->result = FS_PATH_NOT_FOUND; return; }
     switch (req->cmd) {
     case 0: {  // CreateFile(option, size)
         int fd = plat_open_file(p, O_CREAT | O_EXCL | O_RDWR);
@@ -782,7 +828,7 @@ static void filesystem(Service *s, IpcReq *req, IpcResp *resp) {
     case 3: if (rmdir(p)) resp->result = errno_result(); break;
     case 4: if (rm_rf(p, false)) resp->result = errno_result(); break;
     case 5: case 6:
-        host_path(fs, in_path(req, 1), p2, sizeof p2);
+        if (!host_path(fs, in_path(req, 1), p2, sizeof p2)) { resp->result = FS_PATH_NOT_FOUND; break; }
         if (plat_rename(p, p2)) resp->result = errno_result();
         break;
     case 7: {  // GetEntryType
@@ -799,7 +845,9 @@ static void filesystem(Service *s, IpcReq *req, IpcResp *resp) {
         HostFile *f = calloc(1, sizeof *f);
         f->fd = fd;
         strlcpy(f->path, p, sizeof f->path);
-        ipc_return_object(resp, service_new("IFile", file, f));
+        Service *obj = service_new("IFile", file, f);
+        obj->on_close = file_close;
+        ipc_return_object(resp, obj);
         break;
     }
     case 9: {  // OpenDirectory(mode)
@@ -809,7 +857,9 @@ static void filesystem(Service *s, IpcReq *req, IpcResp *resp) {
         hd->d = d;
         hd->mode = (int)IN(uint32_t, 0);
         snprintf(hd->path, sizeof hd->path, "%s", p);
-        ipc_return_object(resp, service_new("IDirectory", directory, hd));
+        Service *obj = service_new("IDirectory", directory, hd);
+        obj->on_close = directory_close;
+        ipc_return_object(resp, obj);
         break;
     }
     case 10: break;  // Commit

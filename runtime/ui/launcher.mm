@@ -88,7 +88,7 @@ static void save_png(id<MTLTexture> tex, const char *path) {
 static const uint8_t BUILD_ID[8] = {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a};  // Pokémon Legends: Z-A v2.0.2 main
 // The release tag this build is (also names the release files; Makefile / tools/bundle_macos.sh / make_dmg.sh read
 // it): v<major>.<minor>.<patch>, 0.x until 1.0.
-#define LARECOMP_VERSION "v0.1.3"
+#define LARECOMP_VERSION "v0.1.4"
 
 // ------------------------------------------------------------------ update check
 // The start screen asks GitHub for the project's releases once per launch (a background curl, which macOS and
@@ -629,6 +629,32 @@ void saves_home_footer(float *x, float *y, float *w, float *u);  // where the li
 int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready, bool show_setup, bool focus_first);
 void saves_new_game_begin(void);
 bool saves_use_latest(void);
+void saves_name_glyphs(ImFontGlyphRangesBuilder *b);  // runtime/ui/saves_ui.mm
+
+// The launcher's font is Latin only; the saves' names (a trainer or a Pokémon of a game in another language) are not.
+// The characters they use are taken from a system font, merged into the font just added (none shipped; macOS only).
+static void merge_name_fonts(ImGuiIO &io, float size) {
+#ifdef __APPLE__
+    static ImVector<ImWchar> wanted;
+    static bool built;
+    if (!built) {
+        built = true;
+        ImFontGlyphRangesBuilder b;
+        saves_name_glyphs(&b);
+        b.BuildRanges(&wanted);  // (the atlas keeps the pointer: it stays)
+    }
+    if (wanted.Size <= 1) return;
+    static const char *const sys[] = {"/System/Library/Fonts/PingFang.ttc", "/System/Library/Fonts/Hiragino Sans GB.ttc",
+                                      "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+                                      "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"};
+    for (const char *f : sys) {
+        if (!file_exists(f)) continue;
+        ImFontConfig cfg;
+        cfg.MergeMode = true;  // (a glyph an earlier font has is kept)
+        io.Fonts->AddFontFromFileTTF(f, size * 0.78f, &cfg, wanted.Data);  // (the launcher's font runs small: these look big beside it)
+    }
+#endif
+}
 bool saves_new_game_draw(float scale, ImFont *body, ImFont *small_);
 static float g_menu_gap = 0.35f;  // space under each item, in line heights
 
@@ -996,7 +1022,9 @@ extern "C" void launcher_run(const char *root) {
         if (g_font_menu || !*p || !file_exists(p)) continue;
         bool b2 = p == own.c_str() || getenv("LARECOMP_LAUNCHER_FONT");
         g_font_small = io.Fonts->AddFontFromFileTTF(p, 30 * (b2 ? 1.75f : 1), NULL, ranges);
+        merge_name_fonts(io, 30 * (b2 ? 1.75f : 1));
         g_font_menu = io.Fonts->AddFontFromFileTTF(p, 52 * (b2 ? 1.85f : 1), NULL, ranges);
+        merge_name_fonts(io, 52 * (b2 ? 1.85f : 1));
         g_font_title = io.Fonts->AddFontFromFileTTF(p, 92 * (b2 ? 2.3f : 1), NULL, ranges);
     }
     if (!g_font_menu) g_font_small = g_font_menu = g_font_title = io.Fonts->AddFontDefault();
