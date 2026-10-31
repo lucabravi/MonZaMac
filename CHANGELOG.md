@@ -26,6 +26,17 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   "75%" on a 1800p screen drew 1350p). Existing `larecomp.ini` values keep working.
 - New installs start at **Dynamic, up to 1080p** (was up to the display's own resolution).
 
+### Start screen and saves
+- **Import and export saves** (SAVES page): Export makes a .zip of the selected save, named after the save, its play time and the day
+  (`Main save - 12h34 - 2026-10-31.zip`); Import takes a .zip or a folder
+  (our export, a JKSV backup, a copy from a console), shows whose save it is (trainer, play time, money, team) and adds
+  it as a new save: one of our exports gets its old name back, anything else "<trainer> - <play time> - <file name>". Nothing existing is replaced; Copy duplicates a save as before, now with a name offered
+  ("Trainer - 12h34").
+- **Saves tab in the in-game menu:** the save being played (trainer, play time, coins, team), with Copy and Export;
+  every other save, each with a window to **play it** (after a yes, the game restarts with it), copy, export, rename or
+  delete it; Import, and a New game in a new save. A reboot into the game now keeps the save it was playing (it fell
+  back to `save/`).
+
 ## 0.1.4
 
 ### Rendering

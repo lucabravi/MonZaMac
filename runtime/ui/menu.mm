@@ -862,13 +862,13 @@ extern "C" int menu_keyboard_run(const char *initial, int max_len, char *out, in
 static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
     // (id: the page; -1 = Prelaunch)
     struct Tab { const char *name; int id; bool on; };
-    Tab tabs[6];
+    Tab tabs[8];
     int ntabs = 0;
     if (prelaunch) tabs[ntabs++] = {"Prelaunch", -1, true};
-    static const char *names[] = {"Video", "Audio", "", "", "", "", "", "", "Controls", "Quit", "Developer"};
-    static const int order[] = {8, 0, 1, 9};  // Controls, Video, Audio, Quit (ids stay: test hooks)
-    for (int i : order)  // (Quit: in game only - the start screen has its own QUIT)
-        if (i != 9 || !prelaunch) tabs[ntabs++] = {names[i], i, true};
+    static const char *names[] = {"Video", "Audio", "", "", "", "", "", "", "Controls", "Quit", "Developer", "Saves"};
+    static const int order[] = {8, 0, 1, 11, 9};  // Controls, Video, Audio, Saves, Quit (ids stay: test hooks)
+    for (int i : order)  // (Saves and Quit: in game only - the start screen has its own SAVES and QUIT)
+        if ((i != 9 && i != 11) || !prelaunch) tabs[ntabs++] = {names[i], i, true};
     if (g_settings.developer || getenv("LARECOMP_DEVELOPER")) tabs[ntabs++] = {names[10], 10, true};
     int cur = 0;  // g_tab / g_tab_request hold ids
     for (int i = 0; i < ntabs; i++) if (tabs[i].id == g_tab) cur = i;
@@ -955,6 +955,11 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
                 case 8: tab_about(); break;
                 case 9: tab_quit(scale, in_game); break;
                 case 10: tab_developer(); break;
+                case 11: {  // (true: the game restarts with another save)
+                    bool saves_ingame_tab(float, ImFont *, ImFont *);
+                    if (saves_ingame_tab(scale, g_font_big, g_font)) set_open(false);
+                    break;
+                }
                 }
                 static const char *scroll_test = getenv("LARECOMP_MENU_SCROLL");  // test hook: page scroll, 0..1
                 if (scroll_test) ImGui::SetScrollY(ImGui::GetScrollMaxY() * (float)atof(scroll_test));

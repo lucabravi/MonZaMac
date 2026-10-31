@@ -194,3 +194,10 @@ $(B)/test_metal_renderer: $(METAL_TEST_OBJS) $(B)/tests/metal_backend.o $(B)/tes
 .PHONY: test-metal-renderer
 test-metal-renderer: $(B)/test_metal_renderer
 	$(B)/test_metal_renderer $(or $(CASE),all)
+
+$(B)/test_saves_io: tools/test_saves_io.c runtime/saves.c runtime/saves.h
+	@mkdir -p $(dir $@)
+	$(CC) -O1 -Wall -Iruntime -o $@ tools/test_saves_io.c runtime/saves.c
+.PHONY: test-saves-io
+test-saves-io: $(B)/test_saves_io
+	$(B)/test_saves_io

@@ -1054,7 +1054,7 @@ extern "C" void launcher_run(const char *root) {
     Page page = status.empty() ? MAIN : SETUP;
     g_saves_first = 0;
     bool play = false;
-    // LARECOMP_LAUNCHER_SHOT=<frame>[:<page>] (test): save build/launcher.png at that frame and exit; page: settings[:<tab>] / askdelete / setup / setup-error-update
+    // LARECOMP_LAUNCHER_SHOT=<frame>[:<page>] (test): save build/launcher.png at that frame and exit; page: settings[:<tab>] / askdelete / setup / setup-error-update / saves / saves-import=<path>
     long shot_at = getenv("LARECOMP_LAUNCHER_SHOT") ? atol(getenv("LARECOMP_LAUNCHER_SHOT")) : 0, frame = 0;
     if (shot_at) {
 #ifdef __APPLE__
@@ -1064,6 +1064,10 @@ extern "C" void launcher_run(const char *root) {
         if (pg && (!strncmp(pg + 1, "settings", 8) || !strcmp(pg + 1, "askdelete"))) page = SETTINGS, menu_tabs_focus(true);
         if (pg && !strcmp(pg + 1, "setup")) page = SETUP;
         if (pg && !strcmp(pg + 1, "saves")) saves_screen_open(), page = SAVES;
+        if (pg && !strncmp(pg + 1, "saves-import=", 13)) {
+            void saves_screen_test_import(const char *src);
+            saves_screen_open(), page = SAVES, saves_screen_test_import(pg + 14);
+        }
         if (pg && !strcmp(pg + 1, "setup-error-update")) {
             page = SETUP;
             g_bad_input = "update";
