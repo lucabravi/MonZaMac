@@ -23,7 +23,7 @@ Settings g_settings = {
     .mouse_speed = 1.0f,
     .mouse_camera = MOUSE_CAM_HOLD,
     .mouse_camera_button = MOUSE_BTN_RIGHT,
-    .res_mode = RES_DYNAMIC,
+    .res_mode = RES_DYNAMIC_X1,  // (dynamic up to the game's own 1080p: holds the frame rate on most Macs)
     .fps60 = true,
     .antialias = AA_SMAA,
     .volume = 1.0f,
@@ -124,7 +124,7 @@ void settings_load(void) {
         else if (!strcmp(key, "shadow_sharpness")) { int v = atoi(val); g_settings.shadow_sharp = v < 1 ? 1 : v > 4 ? 4 : v; shadow_key = true; }
         else if (!strcmp(key, "resolution")) {
             int n = atoi(val);
-            g_settings.res_mode = !strcmp(val, "1.5x") ? RES_X15 : !strcmp(val, "dynamic 1.5x") ? RES_DYNAMIC_X15 :
+            g_settings.res_mode = !strcmp(val, "1.5x") ? RES_X15 : !strcmp(val, "dynamic 1.5x") ? RES_DYNAMIC_X15 : !strcmp(val, "dynamic 1x") ? RES_DYNAMIC_X1 :
                                   !strcmp(val, "dynamic") ? RES_DYNAMIC : (!strcmp(val, "75%") || !strcmp(val, "67%")) ? RES_Q75 :
                                   !strcmp(val, "50%") ? RES_Q50 : !strcmp(val, "25%") ? RES_Q25 :
                                   (n >= 1 && n <= 4) ? n : n > 4 ? 4 : RES_MATCH;  // (5x-8x were removed)
@@ -205,6 +205,7 @@ void settings_save(void) {
     else if (g_settings.res_mode == RES_Q50) fprintf(f, "resolution = 50%%\n");
     else if (g_settings.res_mode == RES_X15) fprintf(f, "resolution = 1.5x\n");
     else if (g_settings.res_mode == RES_DYNAMIC_X15) fprintf(f, "resolution = dynamic 1.5x\n");
+    else if (g_settings.res_mode == RES_DYNAMIC_X1) fprintf(f, "resolution = dynamic 1x\n");
     else if (g_settings.res_mode >= 1 && g_settings.res_mode <= 8) fprintf(f, "resolution = %dx\n", g_settings.res_mode);
     else fprintf(f, "resolution = match\n");
     fprintf(f, "dpad_move = %d\n", g_settings.dpad_move);

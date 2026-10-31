@@ -4,8 +4,8 @@
 //   Match display  render at the window's own pixel size
 //   1x .. 4x       N times the Switch's docked image (1x: the default): 1080 lines x N (wide windows keep their shape: 32:9 at 2x =
 //                  7680 x 2160); capped to the GPU's 16384-pixel texture limit
-//   .75x / .50x / .25x  of Match display (scaled up to the window - with MetalFX on macOS when chosen)
-//   Dynamic 1.5x   1.5x, lowered the same way (to 0.75x at the floor)
+//   75% / 50% / 25%  of the game's own image (810p / 540p / 270p docked; scaled up to the window - with MetalFX when chosen)
+//   Dynamic 1.5x   1.5x, lowered the same way (to 0.75x at the floor); Dynamic 1x: 1x the same way
 //   Dynamic        Match display, lowered in steps while the GPU can't hold the game's frame rate and raised again when it can
 //                  (each change reallocates the render targets: a short hitch, so it changes rarely, with hysteresis)
 // Test overrides: LARECOMP_SCALE=<f> (render height = 1080 x f), LARECOMP_WIDE_TEST=<f> (forced shape).
@@ -116,20 +116,21 @@ void output_scale(double dw, double dh, bool reshape_allowed, double now, double
     int mode = g_settings.res_mode;
     static int last_mode = -1;
     if (mode != last_mode) {
-        if (last_mode >= 0 && (mode == RES_DYNAMIC || mode == RES_DYNAMIC_X15)) dyn_reset(now);
+        if (last_mode >= 0 && res_is_dynamic(mode)) dyn_reset(now);
         last_mode = mode;
     }
     if (forced > 0) h = forced;
     else if (mode >= 1 && mode <= 8) h = mode;
     else if (mode == RES_X15) h = 1.5;  // (between 1x and 2x: most of 2x's smoothing for about half its cost)
+    else if (mode == RES_Q75) h = 0.75;  // (shares of the game's own image, for slower Macs; were shares of Match display)
+    else if (mode == RES_Q50) h = 0.5;
+    else if (mode == RES_Q25) h = 0.25;
     else if (mode == RES_DYNAMIC_X15) { dyn_update(now, gpu_ms); h = 1.5 * g_dyn; }  // (1.5x while the GPU holds the frame rate, lower when it can't)
+    else if (mode == RES_DYNAMIC_X1) { dyn_update(now, gpu_ms); h = g_dyn; }  // (1080p the same way)
     else {
         h = reshape ? dh / 1080.0 : fit;  // Match display
         if (g_za_frame_hook && am_handheld()) h *= 1080.0 / 720.0;
         if (mode == RES_DYNAMIC) { dyn_update(now, gpu_ms); h *= g_dyn; }
-        else if (mode == RES_Q75) h *= 0.75;
-        else if (mode == RES_Q25) h *= 0.25;
-        else if (mode == RES_Q50) h *= 0.5;
     }
     h = fmax(h, 0.1);  // (.25x of a small window)
     // The game sizes its render targets for the screen of the mode it was told (handheld 1280x720, else 1920x1080) and

@@ -17,6 +17,15 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   skipped instead of drawn (`LARECOMP_IB_GUARD=0` draws them): on Vulkan these came before GPU stops and device losses. After the same fix in
   PokeZ-ARecomp by [Hexveil404](https://github.com/Hexveil404).
 
+### Settings
+- **Resolution mode** (Fixed / Dynamic) is its own choice, above Internal resolution. Dynamic goes **up to 1080p**,
+  **up to 1620p** or **up to match display** (was "Dynamic" and "Dynamic 1.5x" among the fixed sizes; up to 1080p is new,
+  `resolution = dynamic 1x`). Both name sizes the same way: 1080p, 1620p, 2160p... (was 1x, 1.5x, 2x...; 720p and up in
+  handheld mode). Match display shows its lines too ("Match display (1800p)"), and each list is in order of lines.
+- **25% / 50% / 75%** are shares of the game's own 1080p (270p / 540p / 810p; was of the display's resolution, so
+  "75%" on a 1800p screen drew 1350p). Existing `larecomp.ini` values keep working.
+- New installs start at **Dynamic, up to 1080p** (was up to the display's own resolution).
+
 ## 0.1.4
 
 ### Rendering
