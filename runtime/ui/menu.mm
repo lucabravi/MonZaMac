@@ -289,6 +289,7 @@ static bool g_inited;
 static ImGuiContext *g_ctx;  // ours: the start screen (back to it after a reboot) has its own context
 static ImFont *g_font, *g_font_big;
 static ImFont *g_menu_font, *g_menu_font_big;  // the menu window (Baloo 2); everything else keeps g_font
+static int g_tab_request_next = -2;  // (set while the tab bar is drawn: the tab the cursor moved onto)
 static int g_tab, g_tab_request = -2;  // (-2: no request; -1 is the Prelaunch tab)
 static int g_focus_tab = -99;  // put the nav cursor on this tab next frame (-100: the selected one; -99: none)
 static int g_focus_frames;
@@ -879,7 +880,13 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
                 ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(a.x + 2, b.y - h), ImVec2(b.x - 2, b.y),
                                                           IM_COL32(72, 214, 255, 255));  // (the menu's gold)
             }
-            if (ImGui::IsItemFocused()) focused_tab = t.id;
+            if (ImGui::IsItemFocused()) {
+                focused_tab = t.id;
+                // keyboard / controller: the cursor moving onto a tab opens it, as L/R do (the mouse still clicks)
+                ImGuiContext &g = *ImGui::GetCurrentContext();
+                if (t.on && t.id != g_tab && g.NavCursorVisible && g.NavInputSource != ImGuiInputSource_Mouse && !any_popup)
+                    g_tab_request_next = t.id;
+            }
             else if (focused_tab == t.id) focused_tab = -99;
             ImGui::EndDisabled();
             if (open) {
@@ -908,7 +915,7 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
                 ImGui::EndTabItem();
             }
         }
-        g_tab_request = -2;
+        g_tab_request = g_tab_request_next, g_tab_request_next = -2;
         opt_focus_first(false);  // (a page without option rows: nothing took it)
         ImGui::EndTabBar();
     }
