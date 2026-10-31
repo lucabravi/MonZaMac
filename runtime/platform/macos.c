@@ -1,5 +1,6 @@
 // macOS host layer (runtime/platform.h).
 #include <errno.h>
+#include <CoreFoundation/CoreFoundation.h>
 #include <crt_externs.h>
 #include <dlfcn.h>
 #include <execinfo.h>
@@ -17,6 +18,7 @@
 #include <unistd.h>
 
 #include "../platform.h"
+#include "../rt.h"
 
 static mach_timebase_info_data_t tb;
 
@@ -90,7 +92,26 @@ const char *plat_symbol(uint64_t pc, uint64_t *offset) {
     return di.dli_sname;
 }
 
-void plat_fatal_notice(void) {}  // (the log / terminal shows it)
+bool plat_module_name(uint64_t pc, char *out, size_t n) {
+    Dl_info di = {0};
+    if (!dladdr((void *)(uintptr_t)pc, &di) || !di.dli_fname) return false;
+    snprintf(out, n, "%s", di.dli_fname);
+    return true;
+}
+
+// Fatal error: what happened in plain words (runtime/crash_explain.c). An alert only when there is a log to point to
+// (started as the app: main.c), the terminal shows it otherwise. CFUserNotification: safe from any thread.
+char g_log_path[1100];
+void plat_fatal_notice(void) {
+    char text[1600];
+    rt_crash_explain(text, sizeof text, g_log_path);
+    if (!g_log_path[0]) return;
+    fflush(stderr);
+    CFStringRef msg = CFStringCreateWithCString(NULL, text, kCFStringEncodingUTF8);
+    CFUserNotificationDisplayAlert(0, kCFUserNotificationStopAlertLevel, NULL, NULL, NULL, CFSTR("MonZaMac"), msg,
+                                   CFSTR("OK"), NULL, NULL, NULL);
+    if (msg) CFRelease(msg);
+}
 
 void plat_print_backtrace(void) {
     void *bt[64];

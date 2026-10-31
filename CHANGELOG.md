@@ -12,6 +12,9 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   both. Off ("Game's") by default.
 
 ### Start screen and saves
+- **Crashes are explained**: when the app is opened by double click and the game stops on an error, an alert says in plain
+  words what happened and what to do (graphics driver, the game's own check, a bug in MonZaMac), and points to
+  `logs/play.log` (the previous run: `play-anterior.log`) to attach to a report.
 - **The save card shows the trainer's data:** name, trainer ID, play time, money and the team, read from the save
   itself (read only), laid out in two columns. The SAVES list shows the same for every save.
 - **Each save can open its team:** a button on the right of the card (or Y / I) lists every Pokémon with its ball
