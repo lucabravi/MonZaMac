@@ -106,7 +106,7 @@ static unsigned g_pt_frames, g_pt_pending, g_pt_total, g_pt_n;
 static int g_pt_cur = -1;
 static uint64_t g_pt_draws;
 static struct { int w, h, colors; bool depth; uint64_t draws0, draws, fs; } g_pt_meta[PT_MAX];  // fs: the first draw's fragment program
-static struct { double ticks; unsigned frames; } g_pt_sum[PT_MAX];
+static struct { double ticks, idle; unsigned frames; } g_pt_sum[PT_MAX];  // idle: of ticks, the GPU had no earlier pass running
 static unsigned g_pt_maxn;
 static double g_pt_span_sum;  // sum over frames of (last pass end - first pass start), in the counter's ticks
 static unsigned g_pt_span_n;
@@ -169,6 +169,7 @@ static void pass_timing_frame_end(void) {  // (the frame's work is complete)
                 uint64_t end = r[2 * i + 1].timestamp;
                 if (r[2 * i].timestamp == MTLCounterErrorValue || end == MTLCounterErrorValue) continue;
                 g_pt_sum[i].ticks += end > prev ? (double)(end - prev) : 0;
+                g_pt_sum[i].idle += r[2 * i].timestamp > prev ? (double)(r[2 * i].timestamp - prev) : 0;  // started after the previous ended
                 g_pt_sum[i].frames++;
                 if (end > prev) prev = end;
                 if (end > last) last = end;
@@ -192,13 +193,13 @@ static void pass_timing_report(void) {
         for (unsigned b = a; b > 0 && g_pt_sum[order[b]].ticks / g_pt_sum[order[b]].frames > g_pt_sum[order[b - 1]].ticks / g_pt_sum[order[b - 1]].frames; b--) {
             unsigned t = order[b]; order[b] = order[b - 1]; order[b - 1] = t;
         }
-    LOG("[gpupass] %u passes a frame, over %u frames: first start to last end %.0f ticks (~%.2f ms GPU busy per the F3 stats); mean cost of each pass (the time between the previous pass's end and its own) as a share of it, adding up to 100%%; slowest:\n",
+    LOG("[gpupass] %u passes a frame, over %u frames: first start to last end %.0f ticks (~%.2f ms GPU busy per the F3 stats); mean cost of each pass (the time between the previous pass's end and its own) as a share of it, adding up to 100%%, and of that the idle part (before the pass started: the GPU waiting for work, e.g. for the CPU to submit it); slowest:\n",
         g_pt_maxn, g_pt_total, frame_span, g_stat_gpu_ms);
     for (unsigned j = 0; j < k && j < 25; j++) {
         unsigned i = order[j];
         double ticks = g_pt_sum[i].ticks / g_pt_sum[i].frames;
-        LOG("[gpupass] #%u %5.1f%%  ~%.3f ms  %dx%d colors=%d depth=%d draws=%llu fs=%llx\n", i, frame_span > 0 ? 100 * ticks / frame_span : 0,
-            ticks * ms_per_tick, g_pt_meta[i].w, g_pt_meta[i].h, g_pt_meta[i].colors, g_pt_meta[i].depth, (unsigned long long)g_pt_meta[i].draws,
+        LOG("[gpupass] #%u %5.1f%%  ~%.3f ms (idle %.3f)  %dx%d colors=%d depth=%d draws=%llu fs=%llx\n", i, frame_span > 0 ? 100 * ticks / frame_span : 0,
+            ticks * ms_per_tick, g_pt_sum[i].idle / g_pt_sum[i].frames * ms_per_tick, g_pt_meta[i].w, g_pt_meta[i].h, g_pt_meta[i].colors, g_pt_meta[i].depth, (unsigned long long)g_pt_meta[i].draws,
             (unsigned long long)g_pt_meta[i].fs);
     }
 }
@@ -3625,7 +3626,7 @@ static void draw(CmdRec *r, bool indexed) {
             pobj = TIMED_COMPILE([dev newRenderPipelineStateWithDescriptor:pd error:&err]);
             if (!pobj) {
                 static int n;
-                if (n++ < 10) LOG("[metal] pipeline failed: %s\n", err.localizedDescription.UTF8String);
+                if (n++ < 10) LOG("[metal] pipeline failed (vs %llx fs %llx): %s\n", (unsigned long long)pr->vs_addr, (unsigned long long)pr->fs_addr, err.localizedDescription.UTF8String);
                 pobj = [NSNull null];
             } else pipeline_archive_add([pd copy], pr);
             cache[pk] = pobj;
@@ -3635,7 +3636,7 @@ static void draw(CmdRec *r, bool indexed) {
             MTLRenderPipelineDescriptor *pdc = [pd copy];
             double t0 = now_ms();
             [dev newRenderPipelineStateWithDescriptor:pd completionHandler:^(id<MTLRenderPipelineState> ps, NSError *e) {
-                if (!ps) { static int n; if (n++ < 10) LOG("[metal] pipeline failed: %s\n", e.localizedDescription.UTF8String); }
+                if (!ps) { static int n; if (n++ < 10) LOG("[metal] pipeline failed (vs %llx fs %llx): %s\n", (unsigned long long)pr->vs_addr, (unsigned long long)pr->fs_addr, e.localizedDescription.UTF8String); }
                 else pipeline_archive_add(pdc, pr);
                 @synchronized(ready_pipes) { ready_pipes[k] = ps ? (id)ps : (id)[NSNull null]; }
                 @synchronized(cache) { stat_compile_ms += now_ms() - t0; }

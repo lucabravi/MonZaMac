@@ -2354,6 +2354,7 @@ static bool emit_forward_flow(Ctx *c, const uint64_t *code, size_t end,
         if (op != 0xe290000000000000ull && op != 0xe2a0000000000000ull && bits(w, 16, 4) == 15) continue;
         if (op == 0xe290000000000000ull) f[i].kind = FLOW_SSY;
         else if (op == 0xe2a0000000000000ull) f[i].kind = FLOW_PBK;
+        else if (op == 0xe240000000000000ull && norm_target((int64_t)i * 8 + 8 + sbits(w, 20, 24)) / 8 == i) continue;  // BRA self: the padding after the last EXIT
         else if (op == 0xe240000000000000ull) f[i].kind = FLOW_BRA;
         else if (op == 0xe250000000000000ull) {
             f[i].kind = FLOW_BRX; has_brx = true;
@@ -2369,12 +2370,12 @@ static bool emit_forward_flow(Ctx *c, const uint64_t *code, size_t end,
         }
         if (f[i].kind >= FLOW_SYNC) f[norm_target(i * 8 + 8) / 8].split = true;
     }
-    if (!has_brx) goto done;
     for (size_t i = 1; i < end; i++) if (f[i].kind == FLOW_BRX)
         for (size_t j = f[i].first + 1; j <= i; j++) if (f[j].entry) goto done;
     f[1].seen = f[1].split = true;
     for (size_t i = 1; i < end; i++) {
         if (!f[i].seen || !(i % 4)) continue;
+        if (f[i].kind == FLOW_LINEAR && (code[i] & 0xfff0000000000000ull) == 0xe240000000000000ull && bits(code[i], 16, 4) != 15) goto done;  // reachable BRA self
         unsigned ssy = f[i].ssy, pbk = f[i].pbk;
         if (f[i].kind == FLOW_SSY) { f[i].parent = ssy; ssy = (unsigned)i; }
         else if (f[i].kind == FLOW_PBK) { f[i].parent = pbk; pbk = (unsigned)i; }
@@ -2398,6 +2399,7 @@ static bool emit_forward_flow(Ctx *c, const uint64_t *code, size_t end,
             if (!forward_edge(f, end, i, norm_target(i * 8 + 8) / 8, ssy, pbk)) goto done;
         }
     }
+    size_t body0 = c->body.len, insts0 = c->info->num_insts;
     c->branchy = false;
     sp(&c->body, "  bool flow_live = true;\n");
     for (size_t i = 1; i < end; i++) if (f[i].seen && f[i].entry)
@@ -2430,6 +2432,12 @@ static bool emit_forward_flow(Ctx *c, const uint64_t *code, size_t end,
         c->info->num_insts++;
     }
     if (open) sp(&c->body, "  }\n");
+    // Metal's GPU compiler aborts ("cannot select") on the facing flag converted to float in this flow without BRX
+    // (it works under the dispatcher); shaders that read it keep the dispatcher.
+    if (!has_brx && c->uses_front_facing) {
+        c->body.len = body0; c->body.buf[body0] = 0; c->info->num_insts = insts0; c->branchy = true;
+        goto done;
+    }
     c->info->structured_flow = true;
     ok = true;
 done:

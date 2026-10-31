@@ -120,7 +120,7 @@ This is a candidate screen, not a repeated confirmation of small differences.
 | 64 | 38.07 | 26.072 |
 
 None reduced the measured GPU time. No setting is promoted and the default remains 8. The near-equal result at
-16 is below the 3% threshold, so it does not justify further confirmation runs or a configuration change.
+16 is small and was not pursued.
 
 ## Measurement cautions
 
@@ -156,6 +156,40 @@ with `MTL_CAPTURE_ENABLED=1` and Metal API Validation enabled. The runtime was b
 No GPU optimization or performance improvement is claimed by this tooling change. Battle scenes, later areas
 and other Macs have not been tested.
 
+## Pass map (stationary scene, 1.5x)
+
+`gpupass 30` on a copy of the starting save, 1280x720 window, 1.5x (2880x1620), the settings used had the old "4K shadows" on (shadow maps 4096x4096).
+106 passes a frame, about 16-17 ms of GPU. The ordinal (`#n`) and the size of a pass stayed the same over many runs;
+the first-draw fragment address (`fs=`) did not (the game uploads its shaders to a moving address), so look a pass up
+by ordinal and size, then take its program from the same run's log.
+
+| Pass | Share | Size | Draws | Shader (translated MSL, from `LARECOMP_SAVE_MSL=1`) |
+| --- | ---: | --- | ---: | --- |
+| #24 | 21-23% | 2880x1620 | ~360 | main scene geometry |
+| #8, #9 | 12% + 9.5% | 4096x4096 | 262 each | the two shadow maps; cost follows the shadow resolution setting |
+| #30 | 11% | 2880x1620 | 1 | one full-screen program, 3258 lines, 52 transcendentals, 7 samples + 6 reads |
+| #29 | 6% | 1440x810 | 1 | one half-resolution program, 1734 lines, 19 samples from a texture array + 19 reads |
+| #0 | 4.6% | 2880x1620 | 217 | no depth attachment |
+| #104 | 3.4% | 2880x1620 | 1 | |
+
+The rest is a tail under 0.6 ms each. Labels in the last column are read from the draw/size/shader shape, not from the
+game, so treat them as hints.
+
+Uncapped, with default shadows, this scene runs at about 74 fps: 13.5 ms a frame with the GPU busy 12.9 ms and the CPU
+12.5 ms, so both are close to the limit. The `idle` share `gpupass` reports before #24 (about 2.9 ms) is mostly the
+effect of `gpupass` waiting at each frame end.
+
+With the old "4K shadows" off (shadow maps 1024x1024), the same scene is about 12.2 ms of GPU: #24 4.4 ms, #30 1.33 ms,
+#29 0.69 ms, #8/#9 0.60 + 0.55 ms. So #29 and #30 get 30% cheaper with smaller shadow maps, and #8/#9 about 70%: those
+passes are bound by their shadow-map reads, not by translated-code overhead (no `pc` loop, no FMZ or half-pack helpers
+left in #30). #8/#9's fragment program is ~100 lines: a conditional `discard_fragment()` (a fade-out test on constant
+buffer values) plus an id write.
+
+Finding what a pass runs: `LARECOMP_SAVE_MSL=1` writes `build/msl/<fs address>_fs.metal` (annotated with the guest pc of
+each instruction); `tools/msl_stats.py` summarises one. A `switch (pc)` loop with `ssy[]` arrays in it means the program
+fell back to the dispatcher instead of the structured flow (see `docs/performance-brx.md`): that is the first thing to
+look at for a heavy single-draw pass.
+
 ## Next measurements
 
 Per-pass GPU time, bandwidth and top shader costs remain unmeasured; the pass-count table cannot substitute for
@@ -163,8 +197,8 @@ them. No load/store, texture-usage, pass-merging, feedback-copy or shader change
 The chunk-size screen above found no useful candidate. Option costs (SMAA, MetalFX, Sharper textures, 4K shadows)
 remain pending. They can use the existing interval-union tracker without full-frame Xcode replay. Start each
 candidate with one 1.5x run off and one on in the same scene/settings; deepen only for a useful signal, with
-focused visual checks and a separate PR. Do not repeat unchanged matrices. Stop if the measured GPU gain is
-below 3%.
+focused visual checks and a separate PR. Do not repeat unchanged matrices. Any measured gain is kept, however
+small, as long as the checks hold.
 
 ## References
 

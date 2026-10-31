@@ -37,6 +37,11 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   delete it; Import, and a New game in a new save. A reboot into the game now keeps the save it was playing (it fell
   back to `save/`).
 
+### Rendering
+- Fragment programs that only branch forward (no jump tables) now also run as structured code instead of the
+  `switch (pc)` loop: 63.2 -> 64.7 fps (+2.4%) uncapped in the starting scene at 1.5x (4 off/on pairs,
+  one Mac, one scene). Programs that read the facing flag keep the loop (Metal's compiler cannot build them).
+
 ## 0.1.4
 
 ### Rendering
