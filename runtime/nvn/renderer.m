@@ -1772,7 +1772,12 @@ static void pipeline_archive_save(void) {  // on g_archive_q
     }
     [g_archive_saved addObjectsFromArray:g_archive_new];
     [g_archive_new removeAllObjects];
-    LOG("[shader] pipeline archive saved (%d new, %d found in it this run)\n", g_archive_dirty, g_archive_hits);
+    // A serialized archive is not added to or saved again: Metal crashed on the next save of the same one (issue 101,
+    // like nxnative's probes: 1 crash in 111 saves reusing it, 0 in 118 with a new archive per save)
+    double t0 = CFAbsoluteTimeGetCurrent();
+    pipeline_archive_rebuild(g_archive_saved);
+    LOG("[shader] pipeline archive saved (%d new, %d found in it this run; fresh archive in %.0f ms)\n", g_archive_dirty,
+        g_archive_hits, (CFAbsoluteTimeGetCurrent() - t0) * 1000);
     g_archive_dirty = 0;
 }
 
