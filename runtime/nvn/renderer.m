@@ -1444,12 +1444,12 @@ static void ring_reset(void) { ring_off = 0; ring_epoch++; }
 // Uniforms must remain snapshots even if guest memory changes before the GPU reads them. Reuse a snapshot only
 // after comparing all bytes; reset/reallocation invalidates offsets so new allocations cannot overwrite a reuse.
 static uint64_t ring_snapshot(const void *data, uint64_t size) {
-    static struct { const void *source; uint64_t size, offset, epoch; } recent[128];
+    static struct { const void *source; uint64_t size, offset, epoch; } recent[4096];
     static int disabled = -1;
     if (disabled < 0) disabled = getenv("LARECOMP_NO_UNIFORM_CACHE") != NULL;
     if (disabled) { stat_uniform_copied += size; return ring_alloc(data, size); }
     uint64_t h = (uintptr_t)data ^ (size * 0x9e3779b97f4a7c15ull);
-    unsigned slot = (h ^ (h >> 33)) & 127;
+    unsigned slot = (h ^ (h >> 33)) & 4095;
     if (ring && recent[slot].epoch == ring_epoch && recent[slot].source == data &&
         recent[slot].size == size && !memcmp(ring_data + recent[slot].offset, data, size)) {
         stat_uniform_reused += size;
@@ -2115,7 +2115,17 @@ static id<MTLSamplerState> default_sampler(void) {
     return s;
 }
 
-static uint64_t g_cur_fs_hash;
+// The hash of the current fragment shader's code (debug logs, LARECOMP_SKIP_FSHASH): worked out only when asked for,
+// as hashing 512 bytes at each program change was ~1% of the submitting thread
+static uint64_t g_fsh_addr, g_fsh;  // (the program it was worked out for; reset on reboot)
+static uint64_t cur_fs_hash(void) {
+    uint64_t fs = st.program ? st.program->stages[1].code_addr : 0;
+    if (fs != g_fsh_addr) {
+        g_fsh_addr = fs;
+        g_fsh = fs ? hmix(1469598103934665603ull, (const void *)(uintptr_t)(fs + 0x30), 0x200) : 0;
+    }
+    return g_fsh;
+}
 static id<MTLTexture> dummy_texture_ex(int type, int kind, bool image) {
     static id<MTLTexture> t[2][10][3];
     if (!t[image][type][kind]) {
@@ -2276,9 +2286,9 @@ static id<MTLTexture> sampled_texture_ex(NvnTexture *t, const NvnTextureView *v,
                              (tex.textureType == MTLTextureType2D || tex.textureType == MTLTextureType2DArray);
             if (nlog++ < 30 && cube_slot)
                 LOG("[tex] cube slot holds a 2D texture (a placeholder, or an input not taken): zero cube bound, fs %llx (%ux%u fmt %#x arr %lu)\n",
-                    (unsigned long long)g_cur_fs_hash, t->width, t->height, t->format, (unsigned long)tex.arrayLength);
+                    (unsigned long long)cur_fs_hash(), t->width, t->height, t->format, (unsigned long)tex.arrayLength);
             else if (nlog <= 30)
-                LOG("[tex] type mismatch: fs %llx want %lu have %lu (%ux%ux%u target %u fmt %#x arr %lu)\n", (unsigned long long)g_cur_fs_hash, (unsigned long)want,
+                LOG("[tex] type mismatch: fs %llx want %lu have %lu (%ux%ux%u target %u fmt %#x arr %lu)\n", (unsigned long long)cur_fs_hash(), (unsigned long)want,
                     (unsigned long)tex.textureType, t->width, t->height, t->depth, t->target, t->format, (unsigned long)tex.arrayLength);
             uint32_t format = has_view && (v->setmask & 4) ? v->format : t->format;
             return dummy_texture_ex(want_type, rt_kind(format), image);
@@ -2404,7 +2414,7 @@ static void resolve_feedback(Prog *pr) {
             if (logfb < 0) logfb = getenv("LARECOMP_LOG_FEEDBACK") != NULL;
             if (logfb && stat_feedback_copies % 50 == 1)
                 LOG("[feedback] copy %s %ux%u fmt %#x stage %d fs %016llx (last invalidated by %s) ds %d/%d/%d stencil %d ncolor %d c0 %ux%u fmt %#x mask %x\n", t == st.rt.depth ? "DEPTH" : "COLOR",
-                    t->width, t->height, t->format, sg, (unsigned long long)g_cur_fs_hash, si >= 0 ? snap_why[si] : "new",
+                    t->width, t->height, t->format, sg, (unsigned long long)cur_fs_hash(), si >= 0 ? snap_why[si] : "new",
                     st.ds[0], st.ds[1], st.ds[2], st.ds[3], st.rt.ncolor, st.rt.ncolor && st.rt.color[0] ? st.rt.color[0]->width : 0,
                     st.rt.ncolor && st.rt.color[0] ? st.rt.color[0]->height : 0, st.rt.ncolor && st.rt.color[0] ? st.rt.color[0]->format : 0, st.channel_mask);
             end_pass("feedback");
@@ -2759,6 +2769,16 @@ static void bind_cbufs(int stage, ShaderInfo *si) {
             continue;
         }
         if ((si->cbuf_dynamic & (1u << k)) && r.size) size = r.size > 0x10000 ? 0x10000 : r.size;  // indexed: whole buffer
+        {   // LARECOMP_CBUF_INPLACE=1 (experimental, off): indexed buffers read where they are in guest memory, no snapshot.
+            // -3% CPU at 1x in the starting scene, same frame on screen; the risk is a CPU write reaching a draw still on the GPU.
+            static int inplace = -1;
+            if (inplace < 0) inplace = getenv("LARECOMP_CBUF_INPLACE") != NULL;
+            if (inplace && (si->cbuf_dynamic & (1u << k)) && r.addr >= g_gwin_base && r.addr + size <= g_gwin_base + g_gwin_max && !(r.addr & 15)) {
+                if (stage == 0) [enc setVertexBuffer:g_guest_buffer offset:r.addr - g_gwin_base atIndex:k];
+                else [enc setFragmentBuffer:g_guest_buffer offset:r.addr - g_gwin_base atIndex:k];
+                continue;
+            }
+        }
         if (size > r.size && r.size) size = r.size;
         if (size < 16) size = 16;
         uint64_t off = ring_snapshot((void *)(uintptr_t)r.addr, size);  // snapshot, as later CPU writes must not leak in
@@ -3435,13 +3455,10 @@ static void draw(CmdRec *r, bool indexed) {
             if (!prog_ready_or_wait(pr, r)) { prog_skip_stat(pr, st.program, r); return; }
         }
     }
-    {   // The hash of the current fragment shader's code (debug logs, LARECOMP_SKIP_FSHASH, g_cur_fs_hash)
-        static uint64_t last_fs, last_hash;
-        uint64_t fs = st.program->stages[1].code_addr;
-        if (fs != last_fs) {
-            last_fs = fs;
-            last_hash = fs ? hmix(1469598103934665603ull, (const void *)(uintptr_t)(fs + 0x30), 0x200) : 0;
-        }
+    {   // the fragment shader's code hash, for the debug switches below
+        static int need = -1;
+        if (need < 0) need = getenv("LARECOMP_LOG_FSHASH") || getenv("LARECOMP_SKIP_FSHASH") || getenv("LARECOMP_LOG_INDOOR");
+        uint64_t fs = st.program->stages[1].code_addr, last_hash = need ? cur_fs_hash() : 0;
         static uint64_t log_hash = 1;
         if (log_hash == 1) log_hash = getenv("LARECOMP_LOG_FSHASH") ? 0 : 2;
         if (!log_hash && g_debug_frame) LOG("[fshash] fs=%llx hash %016llx\n", fs, last_hash);
@@ -3472,7 +3489,6 @@ static void draw(CmdRec *r, bool indexed) {
                 for (int i = 0; i < naskip; i++) if (st.program && st.program->stages[1].code_addr == askip[i]) { stat_skipped++; return; }
             }
         }
-        g_cur_fs_hash = last_hash;
         if (last_hash == 0x71fe31bbf03c3515ull && ENV("LARECOMP_LOG_INDOOR")) {
             static uint64_t lf;
             extern uint64_t renderer_present_count(void);
@@ -4792,7 +4808,7 @@ void renderer_reset(void) {
     memset(snap_ok, 0, sizeof snap_ok);
     for (int i = 0; i < 4; i++) { feedback_tex[i] = NULL; feedback_copy[i] = nil; }
     nfeedback = 0;
-    g_cur_fs_hash = 0;
+    g_fsh_addr = g_fsh = 0;
     last_bias_enc = nil;
     pthread_mutex_lock(&cb_lock);
     last_cb = nil;
