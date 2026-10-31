@@ -41,6 +41,10 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 - Fragment programs that only branch forward (no jump tables) now also run as structured code instead of the
   `switch (pc)` loop: 63.2 -> 64.7 fps (+2.4%) uncapped in the starting scene at 1.5x (4 off/on pairs,
   one Mac, one scene). Programs that read the facing flag keep the loop (Metal's compiler cannot build them).
+- Texture change checks hash in four parallel chains: about 1.1 ms less CPU per frame (2.2 -> 1.1 ms measured at 1.5x);
+  64.7 -> 65.2 fps uncapped in the same scene (the frame is GPU bound there).
+- The uniform snapshot cache holds 4096 entries instead of 128: ~2300 indexed constant buffers are bound a frame, so
+  the small cache kept evicting them; bytes copied fell 57%. Uncapped: 99.0 -> 100.4 fps at 1x, 65.0 -> 65.6 at 1.5x.
 
 ## 0.1.4
 

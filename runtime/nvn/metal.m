@@ -461,25 +461,34 @@ void backend_texture_destroyed(NvnTexture *t) {
 static uint64_t g_frame_counter;  // presents so far (texture change detection runs once per frame)
 static uint64_t full_hash_budget, full_hash_budget_frame;
 
+// Four independent multiply chains over interleaved 8-byte words: one chain is bound by the multiply's latency (a 1.2 ms
+// share of a 1.5x frame for ~6 MB), four keep the multiplier busy.
 static uint64_t hash_full(const uint8_t *p, uint64_t n) {
-    uint64_t h = 0x9E3779B97F4A7C15ull ^ n;
+    uint64_t h[4] = {0x9E3779B97F4A7C15ull ^ n, 0xC2B2AE3D27D4EB4Full, 0x165667B19E3779F9ull, 0x27D4EB2F165667C5ull};
     uint64_t i = 0;
-    for (; i + 8 <= n; i += 8) {
-        uint64_t v;
-        memcpy(&v, p + i, 8);
-        h = (h ^ v) * 0x100000001B3ull;
-        h ^= h >> 29;
+    for (; i + 32 <= n; i += 32) {
+        uint64_t v[4];
+        memcpy(v, p + i, 32);
+        for (int k = 0; k < 4; k++) {
+            h[k] = (h[k] ^ v[k]) * 0x100000001B3ull;
+            h[k] ^= h[k] >> 29;
+        }
     }
-    for (; i < n; i++) h = (h ^ p[i]) * 0x100000001B3ull;
-    return h;
+    uint64_t r = h[0];
+    for (int k = 1; k < 4; k++) { r = (r ^ h[k]) * 0x100000001B3ull; r ^= r >> 29; }
+    for (; i < n; i++) r = (r ^ p[i]) * 0x100000001B3ull;
+    return r;
 }
 
 static uint64_t fnv_sample(const uint8_t *p, uint64_t n) {
     // cheap change detector: hash a strided sample of the data
-    uint64_t h = 1469598103934665603ull;
-    uint64_t step = n > 4096 ? n / 4096 : 1;
-    for (uint64_t i = 0; i < n; i += step) { h ^= p[i]; h *= 1099511628211ull; }
-    return h ^ n;
+    // (four chains, as hash_full: one serial multiply per sampled byte made ~100 checks a frame cost about 1 ms)
+    uint64_t h[4] = {1469598103934665603ull, 0xC2B2AE3D27D4EB4Full, 0x165667B19E3779F9ull, 0x27D4EB2F165667C5ull};
+    uint64_t step = n > 4096 ? n / 4096 : 1, i = 0;
+    for (; i + 3 * step < n; i += 4 * step)
+        for (int k = 0; k < 4; k++) { h[k] ^= p[i + k * step]; h[k] *= 1099511628211ull; }
+    for (; i < n; i += step) { h[0] ^= p[i]; h[0] *= 1099511628211ull; }
+    return (h[0] ^ (h[1] * 3) ^ (h[2] * 5) ^ (h[3] * 7)) ^ n;
 }
 
 // Upload all levels/layers from block-linear guest memory.

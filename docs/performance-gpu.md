@@ -185,10 +185,39 @@ passes are bound by their shadow-map reads, not by translated-code overhead (no 
 left in #30). #8/#9's fragment program is ~100 lines: a conditional `discard_fragment()` (a fade-out test on constant
 buffer values) plus an id write.
 
+Specialising on constant-buffer values (measured, not built): #30's 221 constant-buffer reads include 100 that held the
+same value across two samples far apart; replacing all 100 with literals (an upper bound: a real version would need a
+variant per value set, a check per draw and background compiles) took #30 from 1.60 to 1.525 ms, about 0.5% of the
+frame; replacing only the four read straight into a condition changed nothing. The shadow passes' `discard` cannot go:
+the constant that enables it is set (1.0), and the per-draw value it compares with varies. Not worth the machinery for now.
+
 Finding what a pass runs: `LARECOMP_SAVE_MSL=1` writes `build/msl/<fs address>_fs.metal` (annotated with the guest pc of
 each instruction); `tools/msl_stats.py` summarises one. A `switch (pc)` loop with `ssy[]` arrays in it means the program
 fell back to the dispatcher instead of the structured flow (see `docs/performance-brx.md`): that is the first thing to
 look at for a heavy single-draw pass.
+
+## Tried and not pursued (2026-10-31, Apple M5, starting scene, 1.5x)
+
+So the analysis is not repeated. Each line: what was tried, what it measured, why it stopped.
+
+- **Structured flow for #24's programs.** 40 of #24's 41 programs read the facing flag and stay on the `pc` loop (see
+  `docs/performance-brx.md`). Forcing them structured: #24 4.40 -> 4.38 ms, nothing. The loop is not what #24 costs.
+- **#24 is not pixel bound**: 3.95 ms at 1x, 4.40 ms at 1.5x (2.25x the pixels). `gpupass` showed ~2.9 ms of it as idle,
+  but uncapped play keeps the GPU busy 12.9 of 13.5 ms a frame: mostly the `gpupass` frame-end wait.
+- **Writing the facing flag differently** so Metal's compiler accepts it structured (`0u - uint(front_facing)`, an
+  `int` multiply, a select against a value read from the scale table, reading it once at the top): every form still
+  aborts the compiler; only removing the flag-to-float use avoids it.
+- **#29 and #30**: no translation overhead left (structured, no FMZ / half-pack helpers); both get ~30% cheaper with
+  1024x1024 shadow maps instead of 4096x4096, so their cost is shadow-map reads.
+- **Game code built with `-mcpu=apple-m1`** (`GENOPT="-O1 -mcpu=apple-m1"`): same build time (~10 min from scratch),
+  CPU 8.78 -> 8.90 ms at 1x uncapped, slightly worse in all four pairs, GPU the same. Kept at plain `-O1`.
+- **Constant-buffer specialisation** (see the pass map above): at most ~0.08 ms a frame (#30 1.60 -> 1.525 ms with all
+  100 stable constants as literals), nothing on the shadow passes. Building it would take a variant per value set, a
+  value check per draw, background compiles and pipeline-cache/archive keys (about a day of work), with the risk of
+  variant churn in scenes where the values move (time of day, weather, menus). Revisit only if a pass where the same
+  experiment gains far more turns up. The experiment: dump the program's constant buffers at two far-apart draws,
+  replace the words equal in both with literals in its saved MSL, load it with `LARECOMP_FS_OVERRIDE_HASH`, time it
+  with `gpupass`.
 
 ## Next measurements
 
