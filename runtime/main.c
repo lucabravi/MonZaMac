@@ -1,6 +1,9 @@
 // MonZaMac entry: load modules, set up the kernel, run nn::init::Start on the main thread.
 #include <SDL3/SDL.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
@@ -187,6 +190,19 @@ int main(int argc, char **argv) {
     }
     const bool explicit_skip = skip_launcher;  // (--play, tests: no save picker either)
     rt_paths_init();  // the data root becomes the working directory (runtime/paths.h)
+#ifdef __APPLE__
+    {   // Started as the app (double click: stderr is /dev/null): keep a log the crash alert can point to
+        struct stat st;
+        if (!isatty(2) && !fstat(2, &st) && S_ISCHR(st.st_mode) && SDL_CreateDirectory("logs")) {
+            remove("logs/play-anterior.log");
+            rename("logs/play.log", "logs/play-anterior.log");
+            if (freopen("logs/play.log", "w", stderr)) {
+                setvbuf(stderr, NULL, _IONBF, 0);
+                if (!realpath("logs/play.log", g_log_path)) g_log_path[0] = 0;
+            }
+        }
+    }
+#endif
     if (play_flag) saves_select_latest();  // --play skips the start screen: the most recent save, as its CONTINUE
     {   // Pokémon Legends Z-A (exefs/main build 7222e13ecf6adb32: 1.0.0, 8a1c86c437394b69: 2.0.0, b1f12fd919eae86a: 2.0.2): the start screen would ask for
         // game files it doesn't use - straight into the game, as with --play. Started without a log redirect (a
