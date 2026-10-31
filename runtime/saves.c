@@ -1,4 +1,6 @@
 #include "saves.h"
+#include "platform.h"
+#include "save_info.h"
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -198,6 +200,9 @@ bool saves_delete(const char *id) {
     return !exists(p);
 }
 
+// The slot the game reads and writes (g_save_dir): its path as in SaveSlot.path
+const char *saves_current_path(void) { return g_save_dir ? g_save_dir : DEFAULT_DIR; }
+
 void saves_select(const char *id) {
     static char dir[128];
     slot_path(id, dir, sizeof dir);
@@ -211,4 +216,142 @@ void saves_select_latest(void) {
     for (int i = 0; i < n; i++)
         if (slots[i].played && (best < 0 || slots[i].played > slots[best].played)) best = i;
     saves_select(best < 0 ? "" : slots[best].id);
+}
+
+// ------------------------------------------------------------------ import / export
+// An import is first copied into STAGE (hidden from the list: its name starts with a dot) and read there, so the
+// player sees whose save it is before naming it; saves_import_commit moves it into a new slot in one rename. An import
+// never replaces a slot.
+#define STAGE ROOT "/.import"
+#define IMPORT_MAX_BYTES (64ll << 20)  // a Z-A save is a few MB: anything far bigger is not one
+
+static bool run_tar(const char *const argv[]) {
+    PlatProc p = plat_spawn(argv, NULL, false);
+    return p && plat_proc_wait(p, true) == 0;
+}
+
+// The folder under p (p itself first, then up to 4 levels down) holding a regular file `main`: the save, whether p is
+// our export, a JKSV backup or a folder copied off a console. Links are not followed.
+static bool find_main(const char *p, int depth, char *out, size_t n) {
+    char f[1024];
+    struct stat st;
+    snprintf(f, sizeof f, "%s/main", p);
+    if (lstat(f, &st) == 0 && S_ISREG(st.st_mode)) return snprintf(out, n, "%s", p), true;
+    if (depth >= 4) return false;
+    DIR *d = opendir(p);
+    if (!d) return false;
+    struct dirent *e;
+    bool found = false;
+    while (!found && (e = readdir(d))) {
+        if (e->d_name[0] == '.' || !strcmp(e->d_name, "__MACOSX")) continue;
+        snprintf(f, sizeof f, "%s/%s", p, e->d_name);
+        if (lstat(f, &st) == 0 && S_ISDIR(st.st_mode)) found = find_main(f, depth + 1, out, n);
+    }
+    closedir(d);
+    return found;
+}
+
+static long long tree_bytes(const char *p) {
+    long long sum = 0;
+    DIR *d = opendir(p);
+    if (!d) return 0;
+    struct dirent *e;
+    while ((e = readdir(d))) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        char q[1024];
+        struct stat st;
+        snprintf(q, sizeof q, "%s/%s", p, e->d_name);
+        if (lstat(q, &st) != 0) continue;
+        if (S_ISDIR(st.st_mode)) sum += tree_bytes(q);
+        else if (S_ISREG(st.st_mode)) sum += st.st_size;
+        if (sum > IMPORT_MAX_BYTES) break;
+    }
+    closedir(d);
+    return sum;
+}
+
+static bool is_dir(const char *p) {
+    struct stat st;
+    return stat(p, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+bool saves_import_stage(const char *src, char *err, size_t n) {
+    remove_tree(STAGE);
+    mkdir(ROOT, 0755);
+    if (mkdir(STAGE, 0755) != 0) return snprintf(err, n, "Couldn't prepare the import."), false;
+    char from[1024];
+    if (is_dir(src)) {
+        if (!find_main(src, 0, from, sizeof from)) return snprintf(err, n, "No save in that folder (a folder with the file \"main\")."), false;
+    } else {
+        // a .zip (our export, JKSV's): opened by the system's tar, which keeps entries inside STAGE/zip (no absolute
+        // paths, no ..); links in it are skipped below
+        mkdir(STAGE "/zip", 0755);
+        const char *argv[] = {"/usr/bin/tar", "-x", "-f", src, "-C", STAGE "/zip", NULL};
+        if (!run_tar(argv)) return remove_tree(STAGE), snprintf(err, n, "That file couldn't be opened: choose a .zip or a folder."), false;
+        if (!find_main(STAGE "/zip", 0, from, sizeof from))
+            return remove_tree(STAGE), snprintf(err, n, "No save in that file (a folder with the file \"main\")."), false;
+    }
+    if (tree_bytes(from) > IMPORT_MAX_BYTES) return remove_tree(STAGE), snprintf(err, n, "That's too big to be a Z-A save."), false;
+    bool ok = copy_tree(from, STAGE "/save_0");
+    remove_tree(STAGE "/zip");
+    if (!ok) return remove_tree(STAGE), snprintf(err, n, "The save couldn't be copied."), false;
+    if (!save_info(STAGE)) return remove_tree(STAGE), snprintf(err, n, "That's not a Pokémon Legends: Z-A save."), false;
+    return true;
+}
+
+const char *saves_import_staged(void) { return STAGE; }
+
+bool saves_import_commit(const char *name, char *id_out) {
+    char id[SAVE_NAME_MAX + 1], path[128], to[160];
+    if (!new_slot_path(name, id, path, sizeof path) || mkdir(path, 0755) != 0) return false;
+    snprintf(to, sizeof to, "%s/save_0", path);
+    if (rename(STAGE "/save_0", to) != 0) { rmdir(path); return false; }
+    remove_tree(STAGE);
+    if (id_out) snprintf(id_out, SAVE_NAME_MAX + 1, "%s", id);
+    return true;
+}
+
+void saves_import_cancel(void) { remove_tree(STAGE); }
+
+bool saves_export(const char *id, const char *zip) {
+    char slot[128], s0[160];
+    slot_path(id, slot, sizeof slot);
+    snprintf(s0, sizeof s0, "%s/save_0", slot);
+    if (!is_dir(s0)) return false;
+    unlink(zip);  // (the save panel asked before replacing it)
+    const char *argv[] = {"/usr/bin/tar", "-a", "-c", "-f", zip, "-C", slot, "save_0", NULL};  // -a: a .zip, from the name
+    return run_tar(argv);
+}
+
+// A name for the staged save. Our own export's file name ("<name> - <h>h<mm> - <yyyy-mm-dd>.zip") gives back the slot's
+// name it had; any other file or folder: "<trainer> - <h>h<mm> - <its name>". Only the characters a slot name holds,
+// cut to fit, and made free with " 2", " 3"... like a typed one.
+void saves_import_name(const char *src, char *out, size_t n) {
+    const char *slash = strrchr(src, '/');
+    char file[256], want[320];
+    snprintf(file, sizeof file, "%s", slash ? slash + 1 : src);
+    size_t fl = strlen(file);
+    if (fl > 4 && !strcasecmp(file + fl - 4, ".zip")) file[fl -= 4] = 0;
+    unsigned h, m, y, mo, d;
+    int at = -1;
+    for (size_t k = 0; k + 3 < fl; k++)  // (the " - " that starts "<h>h<mm> - <date>")
+        if (!strncmp(file + k, " - ", 3) && sscanf(file + k, " - %uh%2u - %4u-%2u-%2u", &h, &m, &y, &mo, &d) == 5) at = (int)k;
+    const SaveInfo *si = save_info(STAGE);
+    unsigned t = si && si->played > 0 ? (unsigned)si->played : 0;
+    if (at > 0) snprintf(want, sizeof want, "%.*s", at, file);
+    else snprintf(want, sizeof want, "%s - %uh%02u - %s", si && si->trainer[0] ? si->trainer : "Imported", t / 3600, t / 60 % 60, file);
+    char base[SAVE_NAME_MAX + 1] = {0};
+    size_t k = 0;
+    for (const char *c = want; *c && k < SAVE_NAME_MAX - 3; c++)  // (3 left for a " 2")
+        if ((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9') || *c == ' ' || *c == '-' || *c == '_')
+            if (!(*c == ' ' && (!k || base[k - 1] == ' '))) base[k++] = *c;  // (no double space where a character was dropped)
+    while (k && (base[k - 1] == ' ' || base[k - 1] == '-')) base[--k] = 0;
+    if (!k) snprintf(base, sizeof base, "Imported save");
+    char id[SAVE_NAME_MAX + 1], path[128];
+    snprintf(out, n, "%s", base);
+    for (int i = 2; i < 100; i++) {
+        bool taken = !clean_name(out, id) || !strcasecmp(id, ORIGINAL_NAME) || (snprintf(path, sizeof path, ROOT "/%s", id), exists(path));
+        if (!taken) break;
+        snprintf(out, n, "%s %d", base, i);
+    }
 }
