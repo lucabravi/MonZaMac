@@ -89,8 +89,11 @@ default; turn it off in the Developer tab (Cmd+Shift+D, "Keep passes open after 
 
 `gpupass 30` in `build/dbgcmd` times each render pass of 30 frames with GPU timestamps (no Xcode, no capture): after the
 last frame the log lists the 25 slowest passes by their ordinal in the frame, with size, attachments and draws
-(`[gpupass] #12 2.31 ms 2880x1620 colors=3 depth=1 draws=412`). The spans of neighbouring passes overlap on the GPU, so
-each pass is charged the time between the previous pass's end and its own, so they add up to the frame's GPU span. It waits for the GPU at each frame end: run it on its own,
+(`[gpupass] #12 2.31 ms (idle 0.40) 2880x1620 colors=3 depth=1 draws=412`). The spans of neighbouring passes overlap on the GPU, so
+each pass is charged the time between the previous pass's end and its own, so they add up to the frame's GPU span. The
+`idle` part is the time before the pass started with no earlier pass still running: the GPU waiting for work. Because
+`gpupass` waits for the GPU at each frame end (no CPU/GPU overlap), that part is larger than in normal play; compare a
+run with uncapped FPS before reading it as a CPU bottleneck. It waits for the GPU at each frame end: run it on its own,
 not together with a benchmark.
 
 In a running development build, write `gpuprofile 30` to `build/dbgcmd` to collect 30 complete presented frames.
@@ -142,6 +145,17 @@ dispatches whose output differs, and with `LARECOMP_CS_DUMP=1` `tools/cs_dump_di
 words changed. Each traced dispatch is waited for, so the game runs slowly while a window is open.
 
 
+
+### When Metal's compiler rejects a translated shader
+
+A pipeline that fails with `XPC_ERROR_CONNECTION_INTERRUPTED` is the Metal compiler service crashing, not a transport
+problem: the log line names the program (`[metal] pipeline failed (vs ... fs ...)`), and macOS keeps the stack and the
+reason in `~/Library/Logs/DiagnosticReports/MTLCompilerService-*.ips` (the JSON `termination.reasons` field, e.g.
+`cannot select: ...`; the frames show the compiler pass). To find the construct that triggers it, take the program's MSL
+(`LARECOMP_SAVE_MSL=1`) and compile edited copies with `LARECOMP_FS_OVERRIDE_HASH=<fnv64 of the saved MSL>:<file>`
+(the hash is of the annotated text, so keep `LARECOMP_SAVE_MSL=1` set when overriding): remove one construct per copy
+until the failure goes away. Known case: the facing flag converted to float inside the structured flow of a program
+without BRX (the translator keeps the dispatcher for those).
 
 ## First-run setup in the packaged app
 

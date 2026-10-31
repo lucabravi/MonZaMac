@@ -17,6 +17,23 @@ retain the original dispatcher. The existing entry point without compiler consta
 The renderer supplies embedded program constants for fragment and compute translation. Successful fragment
 specialization logs `[shader] structured FS ...`; the switch is read at translation time and requires a restart.
 
+## Programs without a jump table
+
+The same path also takes fragment programs whose only flow is forward SSY/SYNC/BRA/BRK/EXIT (no BRX), except:
+
+- the `BRA` to itself the compiler pads after the last `EXIT` is skipped (it is never reached; a reachable one keeps the
+  dispatcher). Its offset is -16, not -8, when the slot before it is a scheduling word: the target is compared after
+  normalising, like every other target.
+- programs that read the facing flag (attribute `0x3FC`) keep the dispatcher: with the structured flow Metal's GPU
+  compiler aborts on `cannot select ...` for the flag converted to float (found from the compiler service's crash report,
+  see "When Metal's compiler rejects a translated shader" in `docs/development.md`).
+
+Starting scene, 1.5x, 4K shadows, uncapped frame rate, four alternating off/on pairs (develop vs this change): 63.2 ->
+64.7 fps (+2.4%), GPU 15.79 -> 15.40 ms (-2.5%), CPU 15.07 -> 14.72 ms (-2.3%). With the 60 fps cap the same pairs gave
+GPU 16.26 -> 15.90 ms and CPU 10.84 -> 10.21 ms. The half-resolution pass that prompted it did not get faster (0.97 -> 0.98 ms by `gpupass`),
+so the gain comes from the other programs that stopped using the loop. A first pair that looked like -6.5% GPU was a
+mistake: one program failed to compile and its draws were skipped.
+
 ## One A/B comparison on Apple M5
 
 Base: `develop` at `3ea2ae0`, Apple M5, macOS 26.5.1. Same copied plaza save and initial-confirmation replay,
