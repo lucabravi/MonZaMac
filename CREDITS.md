@@ -7,6 +7,12 @@ Pokémon Legends: Z-A. LAS Recomp, by **[Peiikai](https://github.com/peiikai)**,
 list below is inherited from LAS Recomp: it names everyone who contributed to it. Components that only the Zelda randomizer or the Windows / Linux builds used are no longer part of
 MonZaMac and are not listed.
 
+**From PokeZ-ARecomp after the fork** - fixes found by [Hexveil404](https://github.com/Hexveil404) and brought over:
+- Ansha's donuts showing up (`std::chrono::system_clock::now` from the host clock,
+  [36e14c5](https://github.com/Hexveil404/PokeZ-ARecomp/commit/36e14c5))
+- The Royale profile photo (texture read-back into guest memory) and skipping indirect draws with impossible
+  parameters, both after their fixes
+
 **Contributors** - thank you to everyone who has sent code (GitHub handles, in order of first contribution):
 - **[@dvilelaf](https://github.com/dvilelaf)** - the System language setting (#15), packaging fix for the game code
   generator helper (#10), and the task forwarder fix for the level-transition crash (#34, issue #19)

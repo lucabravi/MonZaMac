@@ -128,7 +128,7 @@ static const char *pred(Ctx *c, int p, bool neg, char *buf) {
 
 static const char *cbuf_ref(Ctx *c, int idx, int64_t off, const char *dyn, char *buf) {
     // NVN keeps the draw's base instance in driver word c0[0x644]; vertex shaders add it to the instance id, which the
-    // hardware counts from 0 (nxnative, Z-A's occlusion boxes). Read it from the draw itself, indirect draws included.
+    // hardware counts from 0 (Z-A's occlusion boxes). Read it from the draw itself, indirect draws included.
     if (!dyn && idx == 0 && off == 0x644 && c->stage == STAGE_VERTEX) { strcpy(buf, "biid"); return buf; }
     c->info->cbuf_mask |= 1u << idx;
     if (off + 16 > (int64_t)c->info->cbuf_size[idx]) c->info->cbuf_size[idx] = (uint32_t)((off + 16 + 255) & ~255);

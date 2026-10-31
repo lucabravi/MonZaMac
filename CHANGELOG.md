@@ -3,6 +3,20 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
+## Unreleased
+
+### Fixes
+- Ansha's donuts show up: `std::chrono::system_clock::now` answers from the Mac's clock. The SDK's own path read ~0,
+  and the game files a donut stamped 0 as an empty slot, so new donuts never appeared and each overwrote the last.
+  Found and fixed by [Hexveil404](https://github.com/Hexveil404) in
+  [PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp/commit/36e14c5).
+- The Royale profile photo is no longer black: `nvnTextureReadTexels[Strided]` read the texture back, and a copy into a
+  pitch-linear texture also reaches guest memory (the game reads that memory and encodes the photo itself). After the fix in
+  PokeZ-ARecomp by [Hexveil404](https://github.com/Hexveil404).
+- Indirect draws with parameters no draw can have (a count over 4M, a base instance past an instance buffer) are
+  skipped instead of drawn (`LARECOMP_IB_GUARD=0` draws them): on Vulkan these came before GPU stops and device losses. After the same fix in
+  PokeZ-ARecomp by [Hexveil404](https://github.com/Hexveil404).
+
 ## 0.1.4
 
 ### Rendering
