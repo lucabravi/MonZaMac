@@ -1704,6 +1704,9 @@ void shader_cache_warm(void) {
 // this run's pipelines (hits included) go into a new one, written on a background queue, which then replaces the file
 // (on the Mac, saving an archive loaded from a file failed with "Invalid URL").
 // LARECOMP_NO_PIPELINE_ARCHIVE=1 turns it off (A/B); delete cache/ to reset it.
+// Metal's serializeToURL: has crashed inside Metal (EXC_BAD_ACCESS, no error returned) on some Macs. A save leaves
+// cache/pipelines.saving while it runs; finding it at the next start means that save killed the game, so the archive
+// stays off from then on (cache/pipelines.crashed), instead of crashing every session.
 static id<MTLBinaryArchive> g_archive;       // this run's pipelines, saved to the file (on g_archive_q only)
 static id<MTLBinaryArchive> g_archive_read;  // the last run's file, only looked up (render thread)
 static dispatch_queue_t g_archive_q;
@@ -1737,6 +1740,8 @@ static void pipeline_archive_save(void) {  // on g_archive_q
     // write next to the file and rename: the archive being looked up still reads the old one
     NSURL *tmp = [g_archive_url URLByAppendingPathExtension:@"tmp"];
     NSError *err;
+    int mk = open("cache/pipelines.saving", O_CREAT | O_WRONLY, 0644);
+    if (mk >= 0) close(mk);
     if (![g_archive serializeToURL:tmp error:&err]) {
         // Some pipelines save alone but not next to others ("expecting 'fragment' stage in pipeline no. N", where N is
         // not the order they were added in): start again from the last saved set and add the new ones one at a time,
@@ -1754,15 +1759,25 @@ static void pipeline_archive_save(void) {  // on g_archive_q
             pipeline_archive_rebuild(g_archive_saved);
         }
         [g_archive_new removeAllObjects];
-        if (![g_archive serializeToURL:tmp error:&err]) { LOG("[shader] pipeline archive save failed: %s\n", err.localizedDescription.UTF8String); return; }
+        if (![g_archive serializeToURL:tmp error:&err]) {
+            LOG("[shader] pipeline archive save failed: %s\n", err.localizedDescription.UTF8String);
+            unlink("cache/pipelines.saving");
+            return;
+        }
     }
+    unlink("cache/pipelines.saving");
     if (rename(tmp.fileSystemRepresentation, g_archive_url.fileSystemRepresentation) != 0) {
         LOG("[shader] pipeline archive save failed: %s\n", strerror(errno));
         return;
     }
     [g_archive_saved addObjectsFromArray:g_archive_new];
     [g_archive_new removeAllObjects];
-    LOG("[shader] pipeline archive saved (%d new, %d found in it this run)\n", g_archive_dirty, g_archive_hits);
+    // A serialized archive is not added to or saved again: Metal crashed on the next save of the same one (issue 101,
+    // like nxnative's probes: 1 crash in 111 saves reusing it, 0 in 118 with a new archive per save)
+    double t0 = CFAbsoluteTimeGetCurrent();
+    pipeline_archive_rebuild(g_archive_saved);
+    LOG("[shader] pipeline archive saved (%d new, %d found in it this run; fresh archive in %.0f ms)\n", g_archive_dirty,
+        g_archive_hits, (CFAbsoluteTimeGetCurrent() - t0) * 1000);
     g_archive_dirty = 0;
 }
 
@@ -1773,6 +1788,11 @@ static id<MTLBinaryArchive> pipeline_archive(void) {
     dispatch_once(&once, ^{
         if (getenv("LARECOMP_NO_PIPELINE_ARCHIVE") && atoi(getenv("LARECOMP_NO_PIPELINE_ARCHIVE"))) return;
         mkdir("cache", 0755);
+        if (access("cache/pipelines.saving", F_OK) == 0) {  // the last run died while saving (see above)
+            rename("cache/pipelines.saving", "cache/pipelines.crashed");
+            LOG("[shader] the last pipeline archive save crashed: the archive is off (delete cache/ to try again)\n");
+        }
+        if (access("cache/pipelines.crashed", F_OK) == 0) return;
         g_archive_url = [NSURL fileURLWithPath:@"cache/pipelines.bin"].absoluteURL;
         MTLBinaryArchiveDescriptor *ad = [MTLBinaryArchiveDescriptor new];
         NSError *err;
