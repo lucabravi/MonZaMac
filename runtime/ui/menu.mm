@@ -33,6 +33,7 @@ void input_reset(void);
 void controls_bindings_draw(float scale);  // controls_ui.mm
 #include "../input_bind.h"
 #include "../paths.h"
+extern "C" SDL_Window *ui_window(void);  // (runtime/nvn/metal.m)
 }
 
 // ------------------------------------------------------------------ state shared with the main thread
@@ -493,27 +494,73 @@ static void tab_display(void) {
     }
 
     opt_section("Rendering");
-    // display order -> RES_* (the ini / enum order predates the menu order)
-    // (up to 4x: 7680 x 4320, 8K - more only ran out of GPU memory, and sat next to 75% in the list)
-    // (Match display in the middle: left from it 75% / 50% / 25%, right Dynamic then 1x-4x; user 2026-10-11)
-    static const char *res[] = {"25%", "50%", "75%", "Match display", "Dynamic", "Dynamic 1.5x", "1x", "1.5x", "2x", "3x", "4x"};
-    static const int res_mode[] = {RES_Q25, RES_Q50, RES_Q75, RES_MATCH, RES_DYNAMIC, RES_DYNAMIC_X15, 1, RES_X15, 2, 3, 4};
-    enum { RES_MATCH_AT = 3, RES_1X_AT = 6 };
-    enum { NRES = sizeof res_mode / sizeof res_mode[0] };
+    // Two choices: Fixed or Dynamic, then the resolution - for Dynamic how far up it may go (it's lowered while the GPU
+    // can't hold the frame rate). Display order -> RES_* (the ini / enum order predates the menu order).
+    // (Fixed: Match display in the middle, left from it 75% / 50% / 25%, right 1x-4x; user 2026-10-11)
+    // (the same names in both: lines of the game's image - 1080p docked, 720p handheld - N times, or the display's own)
+    // (the same names in both: lines of the game's image - 1080p docked, 720p handheld - N times, or the display's own;
+    // each list in order of lines, Match display and the shares of it where the window puts them)
+    static char lines[5][16], up[2][24], match[32], up_match[40], share[3][24];
+    int base = g_settings.handheld ? 720 : 1080;
+    const double mul[5] = {1, 1.5, 2, 3, 4};
+    for (int i = 0; i < 5; i++) snprintf(lines[i], sizeof lines[i], "%dp", (int)(base * mul[i]));
+    for (int i = 0; i < 2; i++) snprintf(up[i], sizeof up[i], "Up to %s", lines[i]);
+    int ww = 0, wh = 0;
+    if (ui_window()) SDL_GetWindowSizeInPixels(ui_window(), &ww, &wh);
+    int ml = ww > 0 && wh > 0 ? (int)lround(fmin(ww / 1920.0, wh / 1080.0) * 1080.0) : 0;  // (as output_scale: 16:9 fitted)
+    const int pct[3] = {25, 50, 75};  // (of the game's own image)
+    for (int i = 0; i < 3; i++) snprintf(share[i], sizeof share[i], "%dp (%d%%)", base * pct[i] / 100, pct[i]);
+    if (ml) snprintf(match, sizeof match, "Match display (%dp)", ml), snprintf(up_match, sizeof up_match, "Up to match display (%dp)", ml);
+    else snprintf(match, sizeof match, "Match display"), snprintf(up_match, sizeof up_match, "Up to match display");
+    struct Res { const char *name; int mode, lines; };
+    Res fr[] = {{share[0], RES_Q25, base / 4}, {share[1], RES_Q50, base / 2}, {share[2], RES_Q75, base * 3 / 4}, {match, RES_MATCH, ml},
+                {lines[0], 1, base}, {lines[1], RES_X15, base * 3 / 2}, {lines[2], 2, base * 2}, {lines[3], 3, base * 3},
+                {lines[4], 4, base * 4}};
+    Res dr[] = {{up[0], RES_DYNAMIC_X1, base}, {up[1], RES_DYNAMIC_X15, base * 3 / 2}, {up_match, RES_DYNAMIC, ml}};
+    enum { NFIXED = sizeof fr / sizeof fr[0], NDYN = sizeof dr / sizeof dr[0] };
+    auto by_lines = [&](Res *r, int n) {  // (stable: equal lines keep the order above; no window yet: as listed)
+        for (int a = 1; ml && a < n; a++)
+            for (int b = a; b > 0 && r[b].lines < r[b - 1].lines; b--) std::swap(r[b], r[b - 1]);
+    };
+    by_lines(fr, NFIXED), by_lines(dr, NDYN);
+    const char *fixed[NFIXED], *dyn[NDYN];
+    int fixed_mode[NFIXED], dyn_mode[NDYN], fixed_def = 0, dyn_def = 0;
+    for (int i = 0; i < NFIXED; i++) { fixed[i] = fr[i].name, fixed_mode[i] = fr[i].mode; if (fr[i].mode == 1) fixed_def = i; }
+    for (int i = 0; i < NDYN; i++) { dyn[i] = dr[i].name, dyn_mode[i] = dr[i].mode; if (dr[i].mode == RES_DYNAMIC_X1) dyn_def = i; }
     {
-        int ri = RES_MATCH_AT;
-        for (int i = 0; i < NRES; i++) if (res_mode[i] == g_settings.res_mode) ri = i;
+        bool is_dyn = res_is_dynamic(g_settings.res_mode);
         float sx, sy;
         renderer_get_scale(&sx, &sy);
         char d[640];
-        int n = snprintf(d, sizeof d, "How sharp the 3D image is. Match display: your screen's own resolution. Dynamic: "
-                                      "as sharp as your GPU keeps at full speed. Dynamic 1.5x: 1.5x while your GPU keeps "
-                                      "the frame rate, lower when it can't. 1x-4x: the Switch's 1080p times that. "
-                                      "75%% / 50%% / 25%%: a share of the display, for slower machines.\n\nRendering at "
-                                      "%.0f x %.0f.", 1920.0 * sx, 1080.0 * sy);
-        if (g_settings.res_mode == RES_DYNAMIC || g_settings.res_mode == RES_DYNAMIC_X15)
-            snprintf(d + n, sizeof d - n, " Dynamic: %.0f%% of its top resolution right now.", output_scale_dynamic_factor() * 100);
-        if (opt_choice("Internal resolution", &ri, res, NRES, RES_1X_AT, d, false)) g_settings.res_mode = res_mode[ri];
+        int n = snprintf(d, sizeof d, "Fixed: always the resolution you choose. Dynamic: as sharp as your GPU can draw while "
+                                      "keeping the frame rate, lowered when it can't, up to the resolution you choose.\n\n"
+                                      "Rendering at %.0f x %.0f.", 1920.0 * sx, 1080.0 * sy);
+        if (is_dyn) snprintf(d + n, sizeof d - n, " Dynamic: %.0f%% of its top resolution right now.", output_scale_dynamic_factor() * 100);
+        static const char *modes[] = {"Fixed", "Dynamic"};
+        int mi = is_dyn;
+        if (opt_choice("Resolution mode", &mi, modes, 2, 1, d, false) && mi != (int)is_dyn) {
+            // the nearest of the other kind: Match display <-> this screen, 1x and below <-> 1080p, above <-> 1620p
+            int m = g_settings.res_mode;
+            if (mi) g_settings.res_mode = m == RES_MATCH ? RES_DYNAMIC : (m == 1 || m == RES_Q25 || m == RES_Q50 || m == RES_Q75) ? RES_DYNAMIC_X1 : RES_DYNAMIC_X15;
+            else g_settings.res_mode = m == RES_DYNAMIC ? RES_MATCH : m == RES_DYNAMIC_X1 ? 1 : RES_X15;
+            is_dyn = mi;
+        }
+        char d2[480];
+        if (is_dyn) {
+            snprintf(d2, sizeof d2, "The sharpest the dynamic resolution goes: the game's own %s, %s (1.5x), or your "
+                                    "display's own resolution. It's lowered from there while your GPU can't keep the frame rate.",
+                     lines[0], lines[1]);
+            int ri = dyn_def;
+            for (int i = 0; i < NDYN; i++) if (dyn_mode[i] == g_settings.res_mode) ri = i;
+            if (opt_choice("Internal resolution", &ri, dyn, NDYN, dyn_def, d2, false)) g_settings.res_mode = dyn_mode[ri];
+        } else {
+            snprintf(d2, sizeof d2, "How sharp the 3D image is. Match display: your display's own resolution. %s: the game's "
+                                    "own image (%s mode), %s-%s: 1.5x to 4x that. The percentages: a share of the game's own image, "
+                                    "for slower Macs.", lines[0], g_settings.handheld ? "handheld" : "docked", lines[1], lines[4]);
+            int ri = fixed_def;
+            for (int i = 0; i < NFIXED; i++) if (fixed_mode[i] == g_settings.res_mode) ri = i;
+            if (opt_choice("Internal resolution", &ri, fixed, NFIXED, fixed_def, d2, false)) g_settings.res_mode = fixed_mode[ri];
+        }
     }
     {   // each OS's own upscaler next to bilinear (UPSCALE_SHARP: MetalFX on macOS, AMD FSR 1 on Windows)
 #ifdef __APPLE__
@@ -1000,7 +1047,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
             extern bool g_za_frame_hook;
             bool hh = g_za_frame_hook && am_handheld();  // (the game's own size: handheld renders for 1280x720)
             ImGui::Text("render %.0f x %.0f%s", (hh ? 1280.0 : 1920.0) * sx, (hh ? 720.0 : 1080.0) * sy, hh ? " (handheld)" : "");
-            if (g_settings.res_mode == RES_DYNAMIC || g_settings.res_mode == RES_DYNAMIC_X15) {
+            if (res_is_dynamic(g_settings.res_mode)) {
                 double fm, gm;
                 bool gok = output_scale_dynamic_stats(&fm, &gm);
                 ImGui::Text("dynamic %.0f%%  (frame %.1f ms, gpu %.1f ms%s)", output_scale_dynamic_factor() * 100, fm, gm, gok ? "" : ", not used");
