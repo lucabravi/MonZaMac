@@ -65,6 +65,7 @@ _Static_assert(offsetof(IpcResp, data) % _Alignof(uint64_t) == 0, "IPC response 
 // Unused RomFS / host-service dependencies; the IFile handler above is unchanged.
 const char *g_romfs_dir = ".";
 const char *pl_prompt_set(void) { return "default"; }
+void rt_fatal_msg(const char *fmt, ...) { (void)fmt; }
 void rt_fatal_trace(void) { abort(); }
 int plat_open_file(const char *path, int flags) { return open(path, flags, 0600); }
 int plat_rename(const char *from, const char *to) { return rename(from, to); }
@@ -109,6 +110,29 @@ static void check_close(const char *name) {
     printf("PASS %s\n", name);
 }
 
+// A ".." path must not reach outside the mounted root (CreateFile / OpenFile), a name that merely contains dots may.
+static void check_confine(void) {
+    char root[] = "/tmp/monzamac-confine.XXXXXX"; assert(mkdtemp(root));
+    char outside[300]; snprintf(outside, sizeof outside, "%s.outside", root);
+    HostFs fs = {0}; strlcpy(fs.root, root, sizeof fs.root);
+    Service mount = {.state = &fs};
+    const char *paths[] = {"/../x.outside", "/a/../../x.outside", "/..", "/..bin"};
+    for (int i = 0; i < 4; i++) {
+        char rel[64]; snprintf(rel, sizeof rel, "%s", paths[i]);
+        int64_t size[2] = {0, 1};
+        IpcReq req = {.cmd = 0, .data = (const uint8_t *)size, .data_size = 16, .nx = 1};
+        req.x[0] = (IpcBuf){(uintptr_t)rel, strlen(rel) + 1};
+        IpcResp resp = {0};
+        filesystem(&mount, &req, &resp);
+        if (i < 3) assert(resp.result == FS_PATH_NOT_FOUND);
+        else assert(!resp.result);
+    }
+    assert(access(outside, F_OK) != 0);
+    char dots[300]; snprintf(dots, sizeof dots, "%s/..bin", root);
+    assert(!unlink(dots)); assert(!rmdir(root));
+    printf("PASS confine\n");
+}
+
 static const char old_bytes[] = "old committed data";
 static const char new_bytes[] = "new complete bytes";
 
@@ -121,6 +145,7 @@ static void check_bytes(int fd, const void *expected, size_t size) {
 
 int main(int argc, char **argv) {
     assert(argc == 2);
+    if (!strcmp(argv[1], "confine")) { check_confine(); return 0; }
     if (!strncmp(argv[1], "close-", 6)) { check_close(argv[1]); return 0; }
     char path[] = "/tmp/monzamac-file-io.XXXXXX";
     int fd = mkstemp(path); assert(fd >= 0); assert(!unlink(path));

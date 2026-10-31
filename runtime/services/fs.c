@@ -669,8 +669,16 @@ static const char *in_path(IpcReq *req, int i) {
     return "";
 }
 
-static void host_path(HostFs *fs, const char *p, char *out, size_t n) {
+// false: the path has a ".." component, which would leave the mounted root (the console has no such thing).
+// shortcut: symlinks inside the root aren't resolved, the mounts hold only files the game itself created.
+static bool host_path(HostFs *fs, const char *p, char *out, size_t n) {
+    for (const char *c = p; *c; ) {
+        const char *e = c + strcspn(c, "/");
+        if (e - c == 2 && c[0] == '.' && c[1] == '.') return false;
+        c = *e ? e + 1 : e;
+    }
     snprintf(out, n, "%s%s%s", fs->root, p[0] == '/' ? "" : "/", p);
+    return true;
 }
 
 static uint32_t errno_result(void) {
@@ -806,7 +814,7 @@ static int rm_rf(const char *p, bool keep_root) {
 static void filesystem(Service *s, IpcReq *req, IpcResp *resp) {
     HostFs *fs = s->state;
     char p[2048], p2[2048];
-    host_path(fs, in_path(req, 0), p, sizeof p);
+    if (!host_path(fs, in_path(req, 0), p, sizeof p)) { resp->result = FS_PATH_NOT_FOUND; return; }
     switch (req->cmd) {
     case 0: {  // CreateFile(option, size)
         int fd = plat_open_file(p, O_CREAT | O_EXCL | O_RDWR);
@@ -820,7 +828,7 @@ static void filesystem(Service *s, IpcReq *req, IpcResp *resp) {
     case 3: if (rmdir(p)) resp->result = errno_result(); break;
     case 4: if (rm_rf(p, false)) resp->result = errno_result(); break;
     case 5: case 6:
-        host_path(fs, in_path(req, 1), p2, sizeof p2);
+        if (!host_path(fs, in_path(req, 1), p2, sizeof p2)) { resp->result = FS_PATH_NOT_FOUND; break; }
         if (plat_rename(p, p2)) resp->result = errno_result();
         break;
     case 7: {  // GetEntryType
