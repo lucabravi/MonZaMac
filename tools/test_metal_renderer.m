@@ -1529,6 +1529,61 @@ static void free_source_program(Prog *pr) {
     free(pr->vi->msl); free(pr->fi->msl); free(pr->vi); free(pr->fi);
 }
 
+static void shader_preparation(void) {
+    ShaderKey original = {0}, decoded = {0};
+    original.uint_slots = 9; original.xfb_count[2] = 3; original.xfb_void = true;
+    CHECK(prep_key_parse(prep_key_dict(&original), &decoded) && !memcmp(&original, &decoded, sizeof original),
+          "specialization roundtrip preserves typed textures and transform feedback");
+    CHECK(!prep_key_parse(@{}, &decoded), "incomplete specialization is rejected");
+    CHECK(prep_descriptor(@{}, nil) == nil, "incomplete pipeline recipe is rejected");
+
+    mkdir("inputs", 0755);
+    setenv("LARECOMP_SHADER_RECORD", "recipes.jsonl", 1);
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    bind_targets(&color, NULL, NULL); prepare_draw();
+    NSMutableDictionary *shaders = [NSMutableDictionary new];
+    for (int i = 0; i < 2; i++) {
+        NvnShaderStage *stage = &st.program->stages[i];
+        NSString *hash = prep_stage_hash(stage);
+        NSData *bytes = [NSData dataWithBytes:(void *)(uintptr_t)stage->code_addr length:stage->const_offset];
+        CHECK(([bytes writeToFile:[NSString stringWithFormat:@"inputs/%@.bin", hash] atomically:YES]), "write synthetic input");
+        shaders[hash] = @{@"stage": @(i), @"size": @(stage->const_offset), @"const_offset": @(stage->const_offset), @"const_size": @0};
+    }
+    CHECK(([[NSJSONSerialization dataWithJSONObject:@{@"version": @1, @"shaders": shaders} options:0 error:nil]
+           writeToFile:@"inputs/index.json" atomically:YES]), "write synthetic index");
+    fullscreen_draw(1); expect_rgba(&color, 0, 255, 0);
+    NvnProgram xfb = *st.program;
+    xfb.stage_mask = 1; st.program = &xfb; g_xfb_on = g_raster_discard = true;
+    fullscreen_draw(1); renderer_flush();
+    g_xfb_on = g_raster_discard = false;
+    CHECK(access("recipes.jsonl", R_OK) == 0, "live draw records a numeric/hash-only recipe");
+    unsetenv("LARECOMP_SHADER_RECORD");
+    renderer_reset();
+    CHECK(prep_run(@"recipes.jsonl", @"inputs"), "prepare exact variants from synthetic input references");
+    CHECK(g_prep_programs.count == 2 && g_prep_pipelines.count == 2, "preparation covers vertex-only XFB without active live XFB state");
+    unsigned before_programs = g_prep_program_hits, before_pipelines = g_prep_pipeline_hits;
+    stat_compiles = 0;
+    bind_targets(&color, NULL, NULL); prepare_draw(); fullscreen_draw(1); expect_rgba(&color, 0, 255, 0);
+    CHECK(stat_compiles == 0 && g_prep_program_hits > before_programs && g_prep_pipeline_hits > before_pipelines,
+          "first live draw reuses prepared program and pipeline without compilation");
+    destroy_texture(&color);
+    NSMutableData *short_input = [NSMutableData dataWithLength:16];
+    NSString *hash = prep_digest(short_input);
+    CHECK(([short_input writeToFile:[NSString stringWithFormat:@"inputs/%@.bin", hash] atomically:YES]), "write truncated synthetic input");
+    shaders[hash] = @{@"stage": @0, @"size": @16, @"const_offset": @16, @"const_size": @0};
+    CHECK(([[NSJSONSerialization dataWithJSONObject:@{@"version": @1, @"shaders": shaders} options:0 error:nil]
+           writeToFile:@"inputs/index.json" atomically:YES]), "write malformed-input index");
+    NSString *line = [[[NSString stringWithContentsOfFile:@"recipes.jsonl" encoding:NSUTF8StringEncoding error:nil]
+                       componentsSeparatedByString:@"\n"] firstObject];
+    NSMutableDictionary *bad = [[NSJSONSerialization JSONObjectWithData:[line dataUsingEncoding:NSUTF8StringEncoding] options:NSJSONReadingMutableContainers error:nil] mutableCopy];
+    bad[@"program"][@"vs"] = hash;
+    CHECK(([prep_json(bad) writeToFile:@"bad.jsonl" atomically:YES]), "write malformed recipe");
+    mkdir("build", 0755); mkdir("build/shaders", 0755);
+    CHECK(!prep_run(@"bad.jsonl", @"inputs"), "truncated source falls back instead of becoming prepared");
+    CHECK([[NSFileManager defaultManager] contentsOfDirectoryAtPath:@"build/shaders" error:nil].count == 0,
+          "preparation errors never dump beyond bounded private inputs");
+}
+
 static void program_readiness(void) {
     CmdRec r = {.op = CMD_DRAW_ARRAYS, .x = {4, 0, 7}};
     CHECK(!prog_ready_or_wait(nil, &r), "a missing program cannot draw");
@@ -2113,6 +2168,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"integer-opcode-semantics", "integers", integer_opcode_semantics},
     {"surface-handle-provenance", "integers", surface_handle_provenance},
     {"ldc64-overlap", "sibling", ldc64_overlap},
+    {"shader-preparation", "preparation", shader_preparation},
     {"program-readiness", "sibling", program_readiness},
     {"pipeline-archive", "sibling", pipeline_archive_reload},
     {"shadow-fallback", "sibling", shadow_fallback},
