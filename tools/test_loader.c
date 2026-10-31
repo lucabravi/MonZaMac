@@ -6,6 +6,7 @@ static uint8_t *test_memory;
 void plat_commit(uint64_t addr, uint64_t size) {
     if (addr != (uintptr_t)test_memory || size > 0x4000) exit(43);
 }
+void rt_fatal_msg(const char *fmt, ...) { (void)fmt; }
 void rt_fatal_trace(void) { exit(42); }
 uint64_t hle_register(const char *name, HostFn fn) { (void)name; (void)fn; return 0; }
 HostFn hle_lookup_impl(const char *name) { (void)name; return NULL; }
