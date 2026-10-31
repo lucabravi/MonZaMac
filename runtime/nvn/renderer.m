@@ -1772,8 +1772,8 @@ static void pipeline_archive_save(void) {  // on g_archive_q
     }
     [g_archive_saved addObjectsFromArray:g_archive_new];
     [g_archive_new removeAllObjects];
-    // A serialized archive is not added to or saved again: Metal crashed on the next save of the same one (issue 101,
-    // like nxnative's probes: 1 crash in 111 saves reusing it, 0 in 118 with a new archive per save)
+    // A serialized archive is not added to or saved again: Metal crashed on the next save of the same one (issue 101;
+    // probes: 1 crash in 111 saves reusing it, 0 in 118 with a new archive per save)
     double t0 = CFAbsoluteTimeGetCurrent();
     pipeline_archive_rebuild(g_archive_saved);
     LOG("[shader] pipeline archive saved (%d new, %d found in it this run; fresh archive in %.0f ms)\n", g_archive_dirty,
@@ -2268,7 +2268,7 @@ static id<MTLTexture> sampled_texture_ex(NvnTexture *t, const NvnTextureView *v,
             tex = view_cached(src, 0x6000000000000000ull | 3, ^{ return [src newTextureViewWithPixelFormat:src.pixelFormat textureType:MTLTextureTypeCube levels:NSMakeRange(0, src.mipmapLevelCount) slices:NSMakeRange(0, 6)]; });
         else {
             static int nlog;
-            // Z-A (and Mario Kart 8, as nxnative found) binds a 2D texture, or a small 2D array, where a shader declares a cube:
+            // Z-A (and Mario Kart 8) binds a 2D texture, or a small 2D array, where a shader declares a cube:
             // a placeholder for an environment map, or an input a branch does not take. The zero cube below is what is
             // bound for it; that is not an error, so it is said apart from the real mismatches.
             bool cube_slot = (want == MTLTextureTypeCube || want == MTLTextureTypeCubeArray) &&
