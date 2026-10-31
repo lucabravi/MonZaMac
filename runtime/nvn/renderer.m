@@ -3940,6 +3940,32 @@ static void draw(CmdRec *r, bool indexed) {
     }
 }
 
+// Parameters no draw can have, in blocks the GPU reads in place: a count over 4M, or a base instance whose first element
+// already lies past a per-instance stream's buffer (the instance attributes would be read far beyond it). Seen on Vulkan
+// before 10 s GPU stops and device losses, where blocks held other data for frames on end. Checked as the CPU sees them
+// (the base instance is the CPU's) and skipped; LARECOMP_IB_GUARD=0 draws them.
+static bool ind_args_bad(const uint32_t *p, uint64_t pa, bool elements) {
+    static int on = -1;
+    if (on < 0) on = !getenv("LARECOMP_IB_GUARD") || atoi(getenv("LARECOMP_IB_GUARD")) != 0;
+    if (!on) return false;
+    uint32_t binst = elements ? p[4] : p[3];
+    const char *why = p[0] > (1u << 22) ? "count over 4M" : NULL;
+    for (int a = 0; a < st.nattrib && a < 16 && !why; a++) {
+        if (!(st.attrib[a] & 0xFF)) continue;
+        uint32_t s = st.attrib[a] >> 8 & 0x1F, off = st.attrib[a] >> 13;
+        if (s >= 16 || !st.stream[s][1] || !st.stream[s][0] || !st.vbuf[s].size) continue;
+        if ((uint64_t)binst * st.stream[s][0] + off + 4 > st.vbuf[s].size) why = "base instance past an instance stream";
+    }
+    if (!why) return false;
+    extern uint64_t renderer_present_count(void);
+    static int nlog;
+    if (nlog++ < 60)
+        LOG("[ibguard] frame %llu: skipped draw (%s): args %llx = %u %u %u %d %u\n", (unsigned long long)renderer_present_count(),
+            why, (unsigned long long)pa, p[0], p[1], p[2], (int)p[3], elements ? p[4] : 0);
+    stat_skipped++;
+    return true;
+}
+
 // Indirect draws (NVN DrawArrays / DrawElements Indirect, MultiDraw...IndirectCount). Z-A's culling compute fills in the
 // instance counts on the GPU, so arguments inside the gmem window are read by the GPU (Metal's indirect draw); the CPU
 // copy only sizes the index range. Arguments elsewhere are read here. (As vulkan/exec.c.)
@@ -3985,6 +4011,7 @@ static void draw_indirect(CmdRec *r) {
                     st.program ? (unsigned long long)st.program->stages[1].code_addr : 0ull);
             }
         }
+        if (ind_args_bad(p, pa, elements)) continue;
         if (gpu) {
             if (elements) { d.x[1] = r->x[1]; d.x[2] = p[0] + p[2]; d.x[3] = r->x[2]; d.x[4] = (uint64_t)(int64_t)(int32_t)p[3]; d.x[5] = p[4]; d.x[6] = 1; }
             else { d.x[1] = 0; d.x[2] = p[0] + p[2]; d.x[3] = p[3]; d.x[4] = 1; }
@@ -4176,7 +4203,53 @@ static void copy_texture_to_buffer(const TexRefRec *src, uint64_t dst) {
     renderer_flush_reason("cpu-read");  // the CPU may read the result right after the fence
 }
 
+// nvnTextureReadTexels[Strided] (objects.c, exec lock held): the readback a texture-to-buffer copy does (guest-sized
+// texels, a scaled target filtered down), with the call's strides, then waited for: the CPU reads data on return.
+void backend_texture_read(NvnTexture *t, const void *view, const int32_t region[6], void *data, uint64_t row, uint64_t img) {
+    TexRefRec ref = {.tex = (uint64_t)(uintptr_t)t};
+    if (view) { memcpy(&ref.view, view, sizeof ref.view); ref.has_view = 1; }
+    memcpy(ref.region, region, sizeof ref.region);
+    uint64_t saved_row = st.copy_row_stride, saved_img = st.copy_image_stride;
+    st.copy_row_stride = row; st.copy_image_stride = img;
+    const FormatInfo *fi;
+    int32_t rg[6];
+    int level;
+    uint64_t r, im, dst = (uint64_t)(uintptr_t)data;
+    copy_region_dims(t, &ref, &fi, rg, &level, &r, &im);
+    if (fi && dst >= g_gwin_base && dst + im * (uint64_t)rg[5] <= g_gwin_base + g_gwin_max) {
+        copy_texture_to_buffer(&ref, dst);
+        gpu_capture_drain();  // (a marker after it on the same queue: waits for the copy)
+    } else {
+        static int nlog;
+        if (nlog++ < 4) LOG("[nvn] ReadTexels into %llx: outside the GPU's window of guest memory, left as it was\n", dst);
+    }
+    st.copy_row_stride = saved_row; st.copy_image_stride = saved_img;
+}
+
+static void copy_texture_gpu(const TexRefRec *src, const TexRefRec *dst, uint64_t flags);
+// A copy into a pitch-linear texture (one with a stride: memory the CPU reads as it is) also lands in guest memory, read
+// back at the texture's own row pitch. Royale Z-A's profile photo: the frame is copied into a 1920x1080 linear RGBA8
+// texture, the CPU maps that memory, crops it and encodes it to BC1 itself (game fn 0x700189a880): with the copy only in
+// the Metal texture the CPU read zeros, a black photo. Rare (one copy per photo). LARECOMP_LINEAR_WRITEBACK=0: texture only.
 static void copy_texture(const TexRefRec *src, const TexRefRec *dst, uint64_t flags) {
+    copy_texture_gpu(src, dst, flags);
+    NvnTexture *dt = (NvnTexture *)(uintptr_t)dst->tex;
+    static int on = -1;
+    if (on < 0) on = !getenv("LARECOMP_LINEAR_WRITEBACK") || atoi(getenv("LARECOMP_LINEAR_WRITEBACK")) != 0;
+    if (!on || !dt || !dt->stride || dt->addr < GUEST_LO || (dst->has_view && (dst->view.setmask & 1) && dst->view.base_level))
+        return;
+    const FormatInfo *fi = nvn_format_info(dt->format);
+    if (!fi || fi->bw != 1 || fi->bh != 1 || !fi->bpb || fi->bpb == 3 || dt->stride < (uint64_t)dt->width * fi->bpb) return;
+    if (dt->addr + (uint64_t)dt->stride * dt->height > g_gwin_base + g_gwin_max) return;
+    TexRefRec whole = *dst;  // (the whole image: the rows the CPU sees, at the texture's pitch)
+    memset(whole.region, 0, sizeof whole.region);
+    uint64_t row = st.copy_row_stride, img = st.copy_image_stride;
+    st.copy_row_stride = dt->stride, st.copy_image_stride = (uint64_t)dt->stride * dt->height;
+    copy_texture_to_buffer(&whole, dt->addr);
+    st.copy_row_stride = row, st.copy_image_stride = img;
+}
+
+static void copy_texture_gpu(const TexRefRec *src, const TexRefRec *dst, uint64_t flags) {
     snap_reason = "tex2tex"; snapshots_invalidate(NULL);
     NvnTexture *st_ = (NvnTexture *)(uintptr_t)src->tex, *dt = (NvnTexture *)(uintptr_t)dst->tex;
     if (!st_ || !dt) return;

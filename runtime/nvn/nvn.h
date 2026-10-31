@@ -140,4 +140,8 @@ void backend_init(void);
 void backend_execute(uint64_t handle);            // run a recorded command list
 void backend_present(NvnTexture *tex);            // show a texture in the window
 void backend_texture_destroyed(NvnTexture *tex);
+// nvnTextureReadTexels[Strided]: the texture's region (view: the guest's NVNtextureView or NULL; region: x, y, z, w, h, d)
+// into data, rows / images that many bytes apart (0: packed), as the GPU last left it. Called with the exec lock held.
+void backend_texture_read(NvnTexture *tex, const void *view, const int32_t region[6], void *data, uint64_t row_stride,
+                          uint64_t image_stride);
 void backend_pool_written(uint64_t addr, uint64_t size);
