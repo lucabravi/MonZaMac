@@ -83,7 +83,7 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   shaders. **Update shader catalog** checks the project's official releases for a `shader-catalog.json` asset only when you
   press it, verifies its size, SHA-256 and schema, rebuilds the inputs from your own files and installs it atomically; the
   previous catalog stays if anything fails. Recipes the new catalog covers leave your pending list. The start screen shows
-  whether your catalog is current. No catalog is published yet. Its text is the size of the Legal notice button's.
+  whether your catalog is current, and stays hidden until the project has published one. No catalog is published yet. Its text is the size of the Legal notice button's.
 - **Compile shaders early** (Shaders tab, **on by default**, can be turned off): when the game registers a shader a catalog or your own journal
   knows, it is translated and compiled on background workers (sized to the CPU count) before its first draw, and the draw
   shares that work if it comes first. Misses compile normally. Cold-cache station walk on an M5 with a catalog (two rounds,

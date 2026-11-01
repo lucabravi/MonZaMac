@@ -679,6 +679,11 @@ static void shader_catalog_badge(float s) {
         else if (!strcmp(test, "checking")) state = CATALOG_CHECKING;
         else state = CATALOG_ERROR;
     }
+    // Nothing to show until the project has published a catalog (and it could be checked): no badge, and the one below moves up.
+    if (state != CATALOG_CURRENT && state != CATALOG_AVAILABLE && state != CATALOG_UPDATING && state != CATALOG_UPDATE_ERROR) {
+        g_catalog_badge_bottom = 54;
+        return;
+    }
     const char *status = "Not checked";
     switch (state) {
     case CATALOG_CHECKING: status = "Checking..."; break;
