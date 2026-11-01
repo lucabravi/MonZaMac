@@ -8,6 +8,7 @@
 #include "shader_trace.h"
 
 void renderer_sync(void);
+void renderer_shader_registered(const NvnShaderStage *stage);
 
 static uint64_t next_debug_id = 1;
 
@@ -687,6 +688,7 @@ static void set_shaders(Cpu *c, int stride) {
         p->stages[stage].const_size = *(const uint32_t *)(control + 0x6FC);
         p->stage_mask |= 1u << stage;
         if (shader_trace_enabled()) shader_trace_stage(c, &p->stages[stage], A(0));
+        renderer_shader_registered(&p->stages[stage]);
     }
     RET(1);
 }

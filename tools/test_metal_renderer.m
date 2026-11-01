@@ -1530,6 +1530,86 @@ static void free_source_program(Prog *pr) {
     free(pr->vi->msl); free(pr->fi->msl); free(pr->vi); free(pr->fi);
 }
 
+static void shader_early_snapshot(void) {
+    CHECK(!g_settings.early_shaders && !early_enabled(), "early compilation is off without an ini key");
+    g_settings.early_shaders = true;
+    CHECK(early_enabled(), "the setting turns early compilation on");
+    setenv("LARECOMP_SHADER_EARLY", "0", 1);
+    CHECK(!early_enabled(), "diagnostic disable takes precedence");
+    unsetenv("LARECOMP_SHADER_EARLY");
+    setenv("LARECOMP_SHADER_RECORD", "early-source.jsonl", 1);
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    bind_targets(&color, NULL, NULL); prepare_draw();
+    fullscreen_draw(1); expect_rgba(&color, 0, 255, 0);
+    renderer_recipe_flush();
+    NSString *text = [NSString stringWithContentsOfFile:@"early-source.jsonl" encoding:NSUTF8StringEncoding error:nil];
+    NSString *line = [[text componentsSeparatedByString:@"\n"] firstObject];
+    NSDictionary *recipe = [NSJSONSerialization JSONObjectWithData:[line dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+    CHECK(recipe[@"program"] != nil, "record a synthetic live specialization");
+    unsetenv("LARECOMP_SHADER_RECORD");
+    CHECK(prep_worker_count(10, 64, NULL) == 10 && prep_worker_count(12, 64, NULL) == 12 &&
+          prep_worker_count(6, 64, NULL) == 6 && prep_worker_count(10, 2, NULL) == 2 &&
+          prep_worker_count(10, 2, "1") == 1,
+          "early concurrency is CPU/job bounded with a serial comparison override");
+    NSMutableArray *loaded = [NSMutableArray new]; NSMutableSet *hashes = [NSMutableSet new], *seen = [NSMutableSet new];
+    NSDictionary *v2 = @{@"version": @2, @"profiles": @{@"vertex_keys": @[recipe[@"program"][@"vkey"]],
+        @"fragment_keys": @[recipe[@"program"][@"fkey"]], @"descriptors": @[recipe[@"pipeline"]]},
+        @"recipes": @[@{@"vs": recipe[@"program"][@"vs"], @"fs": recipe[@"program"][@"fs"], @"vertex_key": @0, @"fragment_key": @0, @"descriptor": @0}]};
+    [prep_json(v2) writeToFile:@"early-catalog.json" atomically:YES];
+    early_read(@"early-catalog.json", true, loaded, hashes, seen);
+    early_read(@"early-source.jsonl", false, loaded, hashes, seen);
+    CHECK(loaded.count == 1 && hashes.count == 2, "catalog profiles and local recipes normalize and deduplicate");
+    early_init();
+    NSMutableDictionary *alias = [recipe mutableCopy], *alias_program = [recipe[@"program"] mutableCopy];
+    NSMutableDictionary *alias_fkey = [alias_program[@"fkey"] mutableCopy];
+    NSMutableArray *alias_params = [alias_fkey[@"params"] mutableCopy];
+    alias_params[0] = @(![alias_params[0] boolValue]); alias_fkey[@"params"] = alias_params;
+    alias_program[@"fkey"] = alias_fkey; alias[@"program"] = alias_program;
+    early_limit = 2;
+    early_recipes = @[recipe, alias]; early_targets = [NSSet setWithArray:@[recipe[@"program"][@"vs"], recipe[@"program"][@"fs"]]];
+    early_inputs = [NSMutableDictionary new]; early_attempted = [NSMutableSet new]; early_submitted = [NSMutableSet new]; early_hits = [NSMutableSet new]; early_completed = [NSMutableArray new];
+    early_queue = dispatch_queue_create("test.early", DISPATCH_QUEUE_CONCURRENT); early_group = dispatch_group_create();
+    mach_vm_address_t address = GUEST_LO + 0x900000;
+    // The runtime constructor already reserves writable guest memory.
+    NvnProgram original = *st.program, moved = original;
+    for (int i = 0; i < 2; i++) {
+        NvnShaderStage stage = original.stages[i]; size_t n = stage.const_offset + stage.const_size;
+        CHECK(n < 0x2000, "synthetic stage fits its region");
+        memcpy((void *)(uintptr_t)(address + i * 0x2000), (void *)(uintptr_t)stage.code_addr, n);
+        stage.code_addr = address + i * 0x2000; renderer_shader_registered(&stage);
+        // The compiler must never read the registered guest buffer after return.
+        memset((void *)(uintptr_t)stage.code_addr, 0, n);
+        moved.stages[i].code_addr = address + 0x4000 + i * 0x2000;
+        memcpy((void *)(uintptr_t)moved.stages[i].code_addr, (void *)(uintptr_t)original.stages[i].code_addr, n);
+    }
+    CHECK(early_inputs.count == 2, "only selected full-hash stage snapshots are retained");
+    [cache removeAllObjects]; memset(prog_tab, 0, sizeof prog_tab); memset(pipe_tab, 0, sizeof pipe_tab);
+    dispatch_suspend(early_queue);
+    early_frame();
+    ShaderKey live_vk, live_fk; prep_key_parse(recipe[@"program"][@"vkey"], &live_vk); prep_key_parse(recipe[@"program"][@"fkey"], &live_fk);
+    Prog *pending = get_program(&moved, &live_vk, &live_fk);
+    CHECK(pending && pending->early_pending && !pending->ready && [early_submitted containsObject:pending],
+          "first live use shares the in-flight early program instead of compiling twice");
+    dispatch_resume(early_queue);
+    CmdRec waiting = {.x = {0, 0, 3}};
+    CHECK(prog_ready_or_wait(pending, &waiting), "live wait publishes early program and PSOs without a frame-boundary deadlock");
+    early_frame();
+    CHECK(early_attempted.count == 2 && early_submitted.count == 1,
+          "metadata aliases never schedule concurrent native builds of the same program");
+    CHECK(pending->ready && !pending->early_pending, "completed program is published on renderer thread");
+    [cache removeAllObjects]; memset(prog_tab, 0, sizeof prog_tab); memset(pipe_tab, 0, sizeof pipe_tab);
+    unsigned hits = g_prep_program_hits, pipe_hits = g_prep_pipeline_hits;
+    st.program = &moved; fullscreen_draw(1); expect_rgba(&color, 0, 255, 0);
+    CHECK(g_prep_program_hits == hits + 1 && g_prep_pipeline_hits == pipe_hits + 1,
+          "moved live inputs reuse exact early program and pipeline with correct pixels");
+    early_recipes = @[recipe];
+    [early_attempted removeAllObjects]; [early_submitted removeAllObjects]; early_checked_revision = UINT64_MAX; early_frame();
+    CHECK(!early_inflight && !early_submitted.count, "already prepared/live variants never compile twice");
+    early_reset(); CHECK(!early_inputs.count && !early_inflight, "reset joins worker and clears input snapshots");
+    early_targets = nil; early_recipes = nil; early_group = nil; early_queue = nil;
+
+}
+
 static void shader_preparation(void) {
     CHECK(prep_worker_count(10, 113, NULL) == 10, "automatic preparation uses active CPUs");
     CHECK(prep_worker_count(10, 3, NULL) == 3, "worker count is bounded by program groups");
@@ -2390,6 +2470,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"ldc64-overlap", "sibling", ldc64_overlap},
     {"shader-preparation", "preparation", shader_preparation},
     {"recipe-catalog-refresh", "contributions", recipe_catalog_refresh},
+    {"early-snapshot", "early", shader_early_snapshot},
     {"program-readiness", "sibling", program_readiness},
     {"pipeline-archive", "sibling", pipeline_archive_reload},
     {"shadow-fallback", "sibling", shadow_fallback},

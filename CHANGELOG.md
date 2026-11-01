@@ -73,6 +73,10 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   press it, verifies its size, SHA-256 and schema, rebuilds the inputs from your own files and installs it atomically; the
   previous catalog stays if anything fails. Recipes the new catalog covers leave your pending list. The start screen shows
   whether your catalog is current. No catalog is published yet. Its text is the size of the Legal notice button's.
+- **Compile shaders early** (Shaders tab, off by default): when the game registers a shader a catalog or your own journal
+  knows, it is translated and compiled on background workers (sized to the CPU count) before its first draw, and the draw
+  shares that work if it comes first. Misses compile normally. Station test on an M5: the two uncatalogued programs were
+  ready earlier, but the residual hitch was unchanged, so this stays opt-in. `docs/shader-early-experiment.md`.
 - **Compute programs** join the rest: their pipelines go into the pipeline archive and their source into the warm-up cache,
   so later starts skip the compile; a compute recipe (shader hash, the five texture-type masks, workgroup size) is
   collected, exported, put in catalogs and prepared before the game asks for it. No count limit anywhere in the catalog,

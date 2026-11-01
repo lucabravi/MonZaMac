@@ -229,3 +229,6 @@ additional gameplay sweep. Earlier reports that this ~40 ms compilation was
 still unresolved described cold-cache experiments with catalog preparation
 turned off; they did not establish a missing recipe or a broken cache. No new
 rendering fix or extra early-worker feature is required for this covered case.
+
+The follow-up opt-in [early compilation experiment](shader-early-experiment.md)
+records the implementation limits and the single off/on station comparison.

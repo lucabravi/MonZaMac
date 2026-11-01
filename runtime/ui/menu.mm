@@ -696,6 +696,10 @@ static void tab_display(void) {
 static void tab_shaders(void) {
     opt_begin("##shaders", ImGui::GetFontSize() / 34);
     opt_section("Shader preparation");
+    opt_toggle("Compile shaders early", &g_settings.early_shaders, false,
+               "Compile learned shader variants in the background when the game registers them, before their first draw. "
+               "Uses available CPU workers and recipes from the installed catalog and local discoveries. "
+               "Unknown variants compile normally. New catalogs are read on the next app launch.");
     opt_toggle("Prepare known shaders", &g_settings.prepare_shaders, false,
                "Before starting, build the graphics pipelines in an installed shader catalog from your own game files. "
                "Reduces first-encounter stutter for covered effects. Takes extra time at startup; unseen variants still compile normally. "
