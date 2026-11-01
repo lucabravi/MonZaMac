@@ -193,11 +193,59 @@ static void prep_report(void) {
         LOG("[shader-prep] live reuse: %u program variants, %u pipeline lookups\n", g_prep_program_hits, g_prep_pipeline_hits);
 }
 
+// Translation and address-keyed caches stay on the render thread. Each worker
+// owns one translated program and all its PSOs; nothing escapes until the join.
+static unsigned prep_compile(NSDictionary *jobs, unsigned total, unsigned missed) {
+    const char *serial = getenv("LARECOMP_SHADER_PREP_WORKERS");
+    unsigned workers = serial && !strcmp(serial, "1") ? 1 : 2;
+    dispatch_semaphore_t slots = dispatch_semaphore_create(workers);
+    dispatch_group_t group = dispatch_group_create();
+    __block unsigned completed = missed, failures = missed, active = 0, peak = 0;
+    backend_shader_prepare_progress(completed, total);
+    pipeline_archive();
+    for (NSDictionary *job in jobs.allValues) {
+        dispatch_semaphore_wait(slots, DISPATCH_TIME_FOREVER);
+        dispatch_group_async(group, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ @autoreleasepool {
+            @synchronized(g_prep_pipelines) { if (++active > peak) peak = active; }
+            Prog *pr = job[@"program"];
+            compile_program(pr);
+            NSMutableDictionary *pipes = [NSMutableDictionary new];
+            for (NSDictionary *recipe in job[@"recipes"]) {
+                NSString *key = recipe[@"key"];
+                id<MTLRenderPipelineState> pipe = pipes[key];
+                if (!pipe && pr->ready && !pr->failed) {
+                    MTLRenderPipelineDescriptor *pd = prep_descriptor(recipe[@"descriptor"], pr);
+                    if (pd) {
+                        pipe = [dev newRenderPipelineStateWithDescriptor:pd error:nil];
+                        if (pipe) { pipes[key] = pipe; pipeline_archive_add([pd copy], pr); }
+                    }
+                }
+                @synchronized(g_prep_pipelines) {
+                    if (pipe) g_prep_pipelines[key] = pipe;
+                    else failures++;
+                    backend_shader_prepare_progress(++completed, total);
+                    if (completed % 32 == 0) LOG("[shader-prep] %u/%u recipes checked\n", completed, total);
+                }
+            }
+            @synchronized(g_prep_pipelines) { active--; }
+            dispatch_semaphore_signal(slots);
+        }});
+    }
+    dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
+    for (NSString *key in g_prep_programs.allKeys) {
+        Prog *pr = g_prep_programs[key];
+        if (!pr->ready || pr->failed) [g_prep_programs removeObjectForKey:key];
+    }
+    LOG("[shader-prep] native compilation: %u workers, %u peak active\n", workers, peak);
+    return failures;
+}
+
 static bool prep_run(NSString *path, NSString *dir) {
     if (g_prep_active) return false;
     NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil];
     if (!attrs || [attrs fileSize] > (16u << 20)) return false;
     NSData *manifest = [NSData dataWithContentsOfFile:path];
+    if (!manifest) return false;
     NSString *text = [[NSString alloc] initWithData:manifest encoding:NSUTF8StringEncoding];
     NSString *index_path = [dir stringByAppendingPathComponent:@"index.json"];
     attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:index_path error:nil];
@@ -208,7 +256,7 @@ static bool prep_run(NSString *path, NSString *dir) {
     if (![root isKindOfClass:NSDictionary.class] || ![root[@"version"] isEqual:@1] || ![root[@"shaders"] isKindOfClass:NSDictionary.class]) return false;
     NSDictionary *index = root[@"shaders"];
     g_prep_programs = [NSMutableDictionary new]; g_prep_pipelines = [NSMutableDictionary new];
-    NSMutableDictionary *inputs = [NSMutableDictionary new];
+    NSMutableDictionary *inputs = [NSMutableDictionary new], *jobs = [NSMutableDictionary new];
     unsigned missed = 0, seen = 0;
     size_t total_bytes = 0;
     double t0 = now_ms(), previous_ms = stat_compile_ms;
@@ -220,11 +268,11 @@ static bool prep_run(NSString *path, NSString *dir) {
     unsigned total = 0;
     for (NSString *line in lines) if (line.length && total < 1024) total++;
     backend_shader_prepare_progress(0, total);
-    g_prep_active = true;
+    g_prep_active = g_prep_translate_only = true;
     for (NSString *line in lines) { @autoreleasepool {
         if (!line.length) continue;
         if (seen == total) break;
-        backend_shader_prepare_progress(seen++, total);
+        seen++;
         id r = [NSJSONSerialization JSONObjectWithData:[line dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
         if (![r isKindOfClass:NSDictionary.class] || ![r[@"version"] isEqual:@1]) { missed++; continue; }
         NSDictionary *p = r[@"program"];
@@ -253,19 +301,17 @@ static bool prep_run(NSString *path, NSString *dir) {
         if (!ok) { missed++; continue; }
         Prog *pr = g_prep_programs[prep_program_id(p)];
         if (!pr) pr = get_program(&np, &vk, &fk);
-        if (!pr || !pr->ready || pr->failed || !pr->prep_id) { missed++; continue; }
+        if (!pr || pr->failed || !pr->prep_id) { missed++; continue; }
         g_prep_programs[pr->prep_id] = pr;
-        MTLRenderPipelineDescriptor *pd = prep_descriptor(r[@"pipeline"], pr);
-        NSString *key = prep_pipeline_id(pr, r[@"pipeline"]);
-        if (!g_prep_pipelines[key]) {
-            NSError *error = nil;
-            id<MTLRenderPipelineState> pipe = [dev newRenderPipelineStateWithDescriptor:pd error:&error];
-            if (!pipe) { missed++; continue; }
-            g_prep_pipelines[key] = pipe;
-            pipeline_archive(); pipeline_archive_add([pd copy], pr);
+        NSMutableDictionary *job = jobs[pr->prep_id];
+        if (!job) {
+            job = [@{@"program": pr, @"recipes": [NSMutableArray new]} mutableCopy];
+            jobs[pr->prep_id] = job;
         }
-        if (seen % 32 == 0) LOG("[shader-prep] %u recipes checked\n", seen);
+        [job[@"recipes"] addObject:@{@"key": prep_pipeline_id(pr, r[@"pipeline"]), @"descriptor": r[@"pipeline"]}];
     }}
+    g_prep_translate_only = false;
+    missed = prep_compile(jobs, total, missed);
     // Fake source addresses must not escape into the live address-keyed cache after inputs are released.
     memset(prog_tab, 0, sizeof prog_tab);
     for (id key in cache.allKeys) if (![old_keys containsObject:key]) [cache removeObjectForKey:key];
