@@ -82,7 +82,8 @@ def trinity_entries(root, decoder):
         e = p + 4 * i
         s = e + fb.u32(e)
         name = metadata[s + 4:s + 4 + fb.u32(s)].decode()
-        if 'shader' not in name.lower():
+        # UI archives and particle effects also contain BNSH programs.
+        if not any(marker in name.lower() for marker in ('shader', '.arc.', '.ptcl.')):
             continue
         h = 0xCBF29CE484222645  # Trinity's path hash seed
         for c in name.encode():

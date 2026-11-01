@@ -8,7 +8,8 @@ translated source or compiled pipeline is distributed.
 ## Behavior
 
 `tools/za/shader_inputs.py` indexes BNSH containers in the user's NSO images
-and, with an external developer decoder, shader-named Trinity packs. It writes
+and, with an external developer decoder, shader-named Trinity packs and UI
+`.arc` packs and particle `.ptcl` packs. It writes
 SHA-256-addressed `.bin` inputs plus `index.json` to the requested PRIVATE cache.
 The index keeps source fingerprints and executable/archive-entry offsets for
 provenance. The decoder is not linked into or bundled with the runtime.
@@ -80,7 +81,7 @@ normal first-use compilation statistics. With no preparation/recording
 variables, normal rendering and first-use compilation remain the default.
 
 **This does not give a fresh installation coverage for unobserved scenes.**
-It requires locally learned recipes, has no launcher progress/skip UI yet,
+It requires locally learned recipes, has no launcher setup/skip UI yet,
 and does not index every possible archive, mod or DLC source. Do not ship a
 maintainer-generated recipe/input cache as part of this prototype. Expanding
 coverage and a user-facing preparation flow are follow-up work.
@@ -159,3 +160,89 @@ retained. No unchanged all-scale or gameplay sweep was performed.
 - Full runtime build, independent code review and final station screenshots.
 - Only source, synthetic tests and this numeric report belong in Git. Private
   input blobs, manifests, logs, saves and screenshots stay outside the diff.
+
+## Follow-up: residual first-walk hitch
+
+A focused persistence investigation identified the 13 late construction
+operations: six graphics program builds and seven render pipeline builds.
+All nine distinct translated VS/FS source files were present and their FNV
+hashes matched their filenames. All seven pipelines were eligible for the
+archive. The same-cache second run recovered all seven from the archive.
+This workload therefore did not demonstrate unsavable shaders or a failed
+archive save.
+
+| Same 1.5x station walk | Reported compile time | Maximum gap |
+| --- | ---: | ---: |
+| Original index, fresh private cache | 42 ms | 63 ms |
+| Original index, same cache on restart | 1 ms | 19 ms |
+| Expanded index, fresh private cache | 0 ms | 19 ms |
+
+The first run's six program builds took 37.431 ms in total; one alone took
+36.897 ms. Seven pipeline builds took 4.535 ms. On restart, the six program
+lookups/constructions took 0.590 ms and seven archive hits took 0.516 ms.
+
+The indexer had filtered Trinity packs by `shader` in their names, excluding
+UI `.arc` archives. An offline scan found exact full-code/constant hash matches
+for all nine missing inputs in UI archives. These are valid source references,
+not proof that the game loaded those particular copies: shared shader binaries
+can appear in multiple archives. Including `.arc` packs adds 153 unique inputs,
+for 8,614 total. Source coverage becomes 137/150 observed references and
+141/149 complete pipeline recipes.
+
+One further cold run with the expanded index, a new entry-point salt and an
+empty private application cache prepared 108 programs and 141 pipelines in
+8,825 ms. The walk had **zero** program/pipeline compilation events and a
+19 ms maximum gap. Live reuse totals were 116 program-variant events and
+178 pipeline lookups. No new visible defect was observed in the station shot.
+Eight recipes remain unresolved elsewhere in this workload; this is not
+complete game-wide or fresh-install coverage.
+
+Only two persistence runs and this one targeted cold verification were made.
+The temporary metadata-only compile probe and raw logs remain private, and the
+probe was removed from runtime source afterward. The three synthetic input
+index tests passed. No renderer behavior was changed by the archive filter.
+The upstream typed-texture preparation fix supplied for comparison addresses
+stencil/integer sampler identity; this prototype already records those fields,
+so no corresponding key change was needed here.
+
+## Particle-effect input coverage
+
+Following the UI fix, an offline scan of the 260 particle `.ptcl` packs
+resolved nine more of the thirteen still-missing shader inputs. Those exact
+hash matches complete six additional observed pipeline recipes. Including
+particle packs yields 12,949 unique indexed inputs, an approximately 8 MB
+index, 146/150 observed input references and 147/149 complete recipes.
+
+A short startup-only native validation successfully prepared 113 program
+variants and 147 pipelines, with two recipes unresolved. This used warmed
+Metal caches and is a correctness/coverage check, not a cold timing result.
+
+The two remaining recipes reference four inputs. A short, visible startup
+probe captured only those four inputs locally at frame 461. They did not
+match whole spans in the decoded NSO images or complete instruction spans
+in the examined shader/UI/particle archive entries. This does not prove
+runtime generation: unindexed file types or load-time modifications remain
+possible. Similar-looking shader code is not substituted for an exact match.
+The origin probe was removed from runtime source and all captures stay private.
+
+This extends source coverage, not game-wide recipe coverage. A previously
+unrecorded particle effect can still compile at its first use; avoiding that
+requires its exact variant to be known and prepared before it appears.
+
+## Preparation progress page (local follow-up)
+
+When preparation is enabled with the two environment variables above, a native
+page replaces the black game window. It shows the number of recipes checked
+and a percentage; skipped/missing recipes count as checked, not successfully
+compiled. The main UI thread owns the page, so synchronous Metal compilation
+cannot block its redraws or window-close handling. Gameplay input is modal
+while the page is shown. The page is removed when preparation finishes, and
+ordinary first-use compilation remains the fallback. No Metal drawable or
+shared ImGui context is used to render the page.
+
+Validation on Apple M5: runtime build, both focused `CASE=preparation` tests,
+and one bounded visible launch using private inputs passed. The native page
+was observed at 35/149 recipes, and disappeared before the station rendered;
+113 programs/147 pipelines were prepared, with two recipes unresolved. The
+19.5-second preparation used a new compiler entry-point salt; this UI check is
+not a controlled performance comparison. The test instance was stopped.
