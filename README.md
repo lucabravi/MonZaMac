@@ -70,7 +70,10 @@ You need a Mac with Apple Silicon (macOS 15 or later) and **your own copy of the
    `~/Library/Application Support/com.monzamac.app`, and stay there when you update the app.
 
 **Saves.** The start screen shows the save you played last. **SAVES** lists them all: pick one, start a new one, copy
-(a handy backup before trying something), rename or delete. A save you already had is the first one in the list, called "Main save" until you rename it.
+(a handy backup before trying something), rename, delete, **export** one as a .zip, or **import** a .zip or a folder
+with a Z-A save (a JKSV backup, a copy from a console) as a new save. In the game, **F1 > Saves** shows the save you are
+playing and the others, and can switch to another one. A save you already had is the first one in the list, called
+"Main save" until you rename it.
 
 A new install starts with fullscreen, a dynamic-resolution preset capped at 1080p, 60 fps, SMAA, the original 16:9
 picture and anisotropic filtering. **1080p is the initial preset, not the maximum supported resolution.** Choose
