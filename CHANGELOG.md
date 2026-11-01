@@ -3,7 +3,38 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
-## Unreleased
+## 0.1.5
+
+### Shaders
+Fewer stalls the first time you see a scene. Nothing here uploads anything; everything is rebuilt on your Mac from your own
+game files.
+- **Prepare all shaders**: the **All shaders** badge at the top right of the start screen (green check when done and
+  current, yellow triangle when not done or out of date) explains the cost and offers **Compile all shaders** or Cancel.
+  Compiling starts the game, which reads every shader from your game files (about 40 s), translates them with their usual
+  settings and compiles their Metal libraries on all cores (about 4.5 minutes on a 10-core M5), behind a progress page with
+  a Stop button; what was compiled is kept. It leaves about 370 MB in Metal's shader cache and deletes its 115 MB of
+  temporary files. A stamp records the precompile version, macOS, the GPU and the game files, so the badge turns yellow when
+  any of them changes. Cold-cache station walk on an M5, nothing else: the worst frame while entering the station went from
+  about 16 s to 0.57 s. See `docs/shader-precompile.md`.
+- **Compile shaders early** (Shaders tab, on by default): when the game registers a shader that a catalog or your own
+  recipe journal knows, it is translated and compiled on background workers before its first draw, and the draw shares that
+  work if it comes first. Misses compile normally. Cold station walk with a catalog: the worst frame entering the station
+  fell from about 8 s to 1.4 s and the walk compiled nothing. `docs/shader-early-experiment.md`.
+- **Prepare known shaders** (Shaders tab, off by default, needs a catalog): before the game starts, rebuilds the shaders a
+  catalog lists (hashes and offsets, never code) from your game files and builds their pipelines, on workers sized to the CPU
+  count behind a progress page. With the precompile done it takes 1.3 s instead of 9 s. A small native decoder
+  (`oozextract`, MIT; notices packaged) reads the game's compressed archives. `docs/shader-first-install.md`.
+- **Collect new shader recipes** (Shaders tab, on by default, local): the pipelines the game builds that no catalog covers
+  are saved as hashes and numbers in `cache/shader-recipes/recipes.jsonl`, written off the render thread, no limit on how
+  many (100 MiB of file). **Export shader recipes** writes a metadata-only JSON to share by hand; **Contribute recipes on
+  GitHub** opens the issue form. See `docs/shader-recipe-contributions.md`.
+- **Update shader catalog** (Shaders tab) checks the project's official releases for a `shader-catalog.json` asset only when
+  you press it, verifies size, SHA-256 and schema, rebuilds the inputs from your files and installs it atomically (the
+  previous one stays if anything fails). The **Shader catalog** badge on the start screen shows whether yours is current and
+  stays hidden until a catalog is published. No catalog is published yet.
+- **Compute programs** join the rest: their pipelines go into the pipeline archive and their source into the warm-up cache,
+  and compute recipes (shader hash, texture-type masks, workgroup size) are collected, exported, put in catalogs and
+  prepared. No count limit in the catalog, the preparation or the journal.
 
 ### Fixes
 - Ansha's donuts show up: `std::chrono::system_clock::now` answers from the Mac's clock. The SDK's own path read ~0,
@@ -13,102 +44,48 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 - The Royale profile photo is no longer black: `nvnTextureReadTexels[Strided]` read the texture back, and a copy into a
   pitch-linear texture also reaches guest memory (the game reads that memory and encodes the photo itself). After the fix in
   PokeZ-ARecomp by [Hexveil404](https://github.com/Hexveil404).
-- Indirect draws with parameters no draw can have (a count over 4M, a base instance past an instance buffer) are
-  skipped instead of drawn (`LARECOMP_IB_GUARD=0` draws them): on Vulkan these came before GPU stops and device losses. After the same fix in
-  PokeZ-ARecomp by [Hexveil404](https://github.com/Hexveil404).
-
-- The shader preparation page lays itself out with the window instead of constraining it, so the game is no longer left
-  pinned to the left of a fullscreen window afterwards.
+- Indirect draws with parameters no draw can have (a count over 4M, a base instance past an instance buffer) are skipped
+  instead of drawn (`LARECOMP_IB_GUARD=0` draws them). After the same fix in PokeZ-ARecomp by
+  [Hexveil404](https://github.com/Hexveil404).
 - Playing another save from the in-game menu, or going back to the start screen, no longer aborts the game: the reboot
   freed a CPU state that belonged to a thread.
 - Pipeline archive (Metal): a new archive is built after each save, and the archive stays off after a save that crashed
   inside Metal (issue #101). The first save of a session was always fine; the next one crashed on some Macs.
-
-### Menu
-- Moving the cursor onto a tab with the keyboard or a pad opens it, like L / R and Q / E already did. The mouse still
-  needs a click.
-
-### Shaders
-- **Prepare all shaders** (start screen: the **All shaders** badge at the top right, below Legal notice and Shader catalog;
-  green check when done and current, yellow triangle when not done or out of date). Clicking it explains the cost and offers
-  **Compile all shaders** or Cancel. Compiling starts the game, which reads every shader from your own game files (about
-  40 s), translates them with their usual settings and compiles their Metal libraries on all cores (about 4.5 minutes on a
-  10-core M5), with a progress page and a Stop button; what was compiled is kept. It leaves about 370 MB in Metal's shader
-  cache and deletes its 115 MB of temporary files. A stamp records the precompile version, macOS, the GPU and the game
-  files, so the badge turns yellow when any of them changes. Cold-cache station walk on an M5 with nothing else (no
-  catalog, no recipes): the worst frame while entering the station went from about 16 s to 0.57 s. Details in
-  `docs/shader-precompile.md`.
-
-### Developer tools
-- **Shader diagnostics** (off unless `LARECOMP_SHADER_TRACE=<new directory>`): records, as metadata only, each registered shader's
-  content hash, stage, where it was read from, when it was registered and when it was compiled, to investigate first-use
-  hitches and shaders whose origin is unknown. Shader dumps need a separate opt-in and are never distributable. See
-  `docs/shader-diagnostics.md`.
-
-### Settings
-- **Resolution mode** (Fixed / Dynamic) is its own choice, above Internal resolution. Dynamic goes **up to 1080p**,
-  **up to 1620p** or **up to match display** (was "Dynamic" and "Dynamic 1.5x" among the fixed sizes; up to 1080p is new,
-  `resolution = dynamic 1x`). Both name sizes the same way: 1080p, 1620p, 2160p... (was 1x, 1.5x, 2x...; 720p and up in
-  handheld mode). Match display shows its lines too ("Match display (1800p)"), and each list is in order of lines.
-- **25% / 50% / 75%** are shares of the game's own 1080p (270p / 540p / 810p; was of the display's resolution, so
-  "75%" on a 1800p screen drew 1350p). Existing `larecomp.ini` values keep working.
-- New installs start at **Dynamic, up to 1080p** (was up to the display's own resolution).
+- The shader preparation page lays itself out with the window, so the game is no longer left pinned to the left of a
+  fullscreen window afterwards.
 
 ### Start screen and saves
-- **Import and export saves** (SAVES page): Export makes a .zip of the selected save, named after the save, its play time and the day
-  (`Main save - 12h34 - 2026-10-31.zip`); Import takes a .zip or a folder
-  (our export, a JKSV backup, a copy from a console), shows whose save it is (trainer, play time, money, team) and adds
-  it as a new save: one of our exports gets its old name back, anything else "<trainer> - <play time> - <file name>". Nothing existing is replaced; Copy duplicates a save as before, now with a name offered
-  ("Trainer - 12h34").
-- **Saves tab in the in-game menu:** the save being played (trainer, play time, coins, team), with Copy and Export;
-  every other save, each with a window to **play it** (after a yes, the game restarts with it), copy, export, rename or
-  delete it; Import, and a New game in a new save. A reboot into the game now keeps the save it was playing (it fell
-  back to `save/`).
-- **Legal notice** button at the top right of the start screen: MonZaMac is independent and unofficial, you need your own
-  copy of the game and the right to use the files and keys you provide, and no game files or keys come with the app.
+- **Import and export saves** (SAVES page): Export makes a .zip of the selected save, named after the save, its play time
+  and the day (`Main save - 12h34 - 2026-10-31.zip`); Import takes a .zip or a folder (our export, a JKSV backup, a copy from
+  a console), shows whose save it is (trainer, play time, money, team) and adds it as a new save: one of our exports gets its
+  old name back, anything else "<trainer> - <play time> - <file name>". Nothing existing is replaced; Copy duplicates a save.
+- **Saves tab in the in-game menu:** the save being played (trainer, play time, coins, team), with Copy and Export; every
+  other save, each with a window to **play it** (after a yes, the game restarts with it), copy, export, rename or delete it;
+  Import, and a New game in a new save. A reboot into the game keeps the save it was playing.
+- **Legal notice** button at the top right: MonZaMac is independent and unofficial, you need your own copy of the game and
+  the right to use the files and keys you provide, and no game files or keys come with the app.
+
+### Settings and menu
+- **Resolution mode** (Fixed / Dynamic) is its own choice, above Internal resolution. Dynamic goes **up to 1080p**,
+  **up to 1620p** or **up to match display** (up to 1080p is new, `resolution = dynamic 1x`). Sizes are named in lines:
+  1080p, 1620p, 2160p... (720p and up in handheld mode); Match display shows its lines too; every list is in order of lines.
+- **25% / 50% / 75%** are shares of the game's own 1080p (270p / 540p / 810p; before, of the display's resolution).
+  Existing `larecomp.ini` values keep working. New installs start at Dynamic, up to 1080p.
+- Moving the cursor onto a menu tab with the keyboard or a pad opens it, like L / R and Q / E. The mouse still needs a click.
 
 ### Rendering
-- **Shader preparation prototype (developer, off unless `LARECOMP_SHADER_PREP` / `LARECOMP_SHADER_INPUTS` are set):**
-  records the exact programs and pipeline states a session needs as hashes and numbers only, rebuilds the programs from an
-  index of your own game files and builds those pipelines before the game asks for them. Station entry on an M5 at 1.5x:
-  the largest present gap fell from 6.4 s to 0.34 s, at the price of about 8 s of preparation before play. See
-  `docs/performance-shader-preparation.md`.
-- **Prepare known shaders** (menu, off by default, needs a shader catalog): before the game starts it rebuilds, from your
-  own game files, the shaders a catalog lists (hashes and offsets only, never code) and builds their pipelines, with a
-  progress page. Workers follow the CPU count. No catalog ships with the app yet; `docs/shader-first-install.md` explains
-  the format and how one is built. A small native decoder (`oozextract`, MIT; its notices are packaged) reads the
-  game's compressed archives.
-- **Shaders tab in the menu** groups Prepare known shaders, Collect new shader recipes, Export shader recipes, Contribute
-  recipes on GitHub (opens the project's issue form: attach the exported JSON yourself), Update shader catalog and Wait for
-  shaders. **Update shader catalog** checks the project's official releases for a `shader-catalog.json` asset only when you
-  press it, verifies its size, SHA-256 and schema, rebuilds the inputs from your own files and installs it atomically; the
-  previous catalog stays if anything fails. Recipes the new catalog covers leave your pending list. The start screen shows
-  whether your catalog is current, and stays hidden until the project has published one. No catalog is published yet. Its text is the size of the Legal notice button's.
-- **Compile shaders early** (Shaders tab, **on by default**, can be turned off): when the game registers a shader a catalog or your own journal
-  knows, it is translated and compiled on background workers (sized to the CPU count) before its first draw, and the draw
-  shares that work if it comes first. Misses compile normally. Cold-cache station walk on an M5 with a catalog (two rounds,
-  Metal cache cleared before each run): the worst frame while entering the station fell from about 8 s to 1.4 s and the
-  walk no longer compiles anything (57 -> 38-44 ms worst frame). Startup preparation still does better (0.3 s) but waits
-  about 5.7 s before the game starts; with both on, early has nothing left to do. `docs/shader-early-experiment.md`.
-- **Compute programs** join the rest: their pipelines go into the pipeline archive and their source into the warm-up cache,
-  so later starts skip the compile; a compute recipe (shader hash, the five texture-type masks, workgroup size) is
-  collected, exported, put in catalogs and prepared before the game asks for it. No count limit anywhere in the catalog,
-  the preparation or the journal. In an 8-minute session with a catalog of the recorded variants, 8 compute programs
-  came prepared instead of compiling when asked. `tools/shader_catalog_from_journal.sh` grows a local catalog from the journal after each session.
-- **Collect new shader recipes** (Shaders tab, on by default, can be turned off): the pipelines the game builds that no
-  catalog covers are saved as hashes and numbers in `cache/shader-recipes/recipes.jsonl`, written off the render thread,
-  with no limit on how many (100 MiB of file). **Export shader recipes** writes a metadata-only JSON you can share by hand
-  to grow the catalog; nothing is uploaded. See `docs/shader-recipe-contributions.md`.
-- Shader preparation compiles on up to two native workers (`LARECOMP_SHADER_PREP_WORKERS=1` for one) while the render
-  thread keeps the translator and caches; the progress page is a native window that keeps redrawing during long
-  compiles. Same 113 programs and 147 pipelines on an M5: 19.2 s with one worker, 9.6 s with two.
-- Fragment programs that only branch forward (no jump tables) now also run as structured code instead of the
-  `switch (pc)` loop: 63.2 -> 64.7 fps (+2.4%) uncapped in the starting scene at 1.5x (4 off/on pairs,
-  one Mac, one scene). Programs that read the facing flag keep the loop (Metal's compiler cannot build them).
-- Texture change checks hash in four parallel chains: about 1.1 ms less CPU per frame (2.2 -> 1.1 ms measured at 1.5x);
-  64.7 -> 65.2 fps uncapped in the same scene (the frame is GPU bound there).
-- The uniform snapshot cache holds 4096 entries instead of 128: ~2300 indexed constant buffers are bound a frame, so
-  the small cache kept evicting them; bytes copied fell 57%. Uncapped: 99.0 -> 100.4 fps at 1x, 65.0 -> 65.6 at 1.5x.
+- Fragment programs that only branch forward (no jump tables) run as structured code instead of the `switch (pc)` loop:
+  63.2 -> 64.7 fps (+2.4%) uncapped in the starting scene at 1.5x. Programs that read the facing flag keep the loop.
+- Texture change checks hash in four parallel chains: about 1.1 ms less CPU per frame at 1.5x (65.2 fps uncapped).
+- The uniform snapshot cache holds 4096 entries instead of 128: bytes copied fell 57%. Uncapped: 99.0 -> 100.4 fps at 1x,
+  65.0 -> 65.6 at 1.5x.
+
+### Developer tools
+- **Shader diagnostics** (off unless `LARECOMP_SHADER_TRACE=<new directory>`): metadata only, each registered shader's hash,
+  stage, where it was read from, and when it was registered and compiled. Shader dumps need a separate opt-in. See
+  `docs/shader-diagnostics.md`.
+- The shader preparation prototype (`LARECOMP_SHADER_PREP` / `LARECOMP_SHADER_INPUTS`) and
+  `tools/shader_catalog_from_journal.sh`, which grows a local catalog from the journal after each session.
 
 ## 0.1.4
 
