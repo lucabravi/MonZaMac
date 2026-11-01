@@ -1336,6 +1336,10 @@ void backend_shader_prepare_progress(unsigned done, unsigned total) {
     atomic_store(&prep_progress, total ? ((uint64_t)total << 32) | (done > total ? total : done) : 0);
 }
 
+void backend_shader_prepare_inputs(unsigned done, unsigned total) {
+    atomic_store(&prep_progress, (1ull << 63) | ((uint64_t)(total ? total : 1) << 32) | (done > total ? total : done));
+}
+
 static bool ui_preparation_update(void) {
     static NSView *page;
     static NSProgressIndicator *bar;
@@ -1396,9 +1400,11 @@ static bool ui_preparation_update(void) {
             [bar.widthAnchor constraintEqualToAnchor:stack.widthAnchor]
         ]];
     }
-    unsigned total = (unsigned)(progress >> 32), done = (unsigned)progress;
+    bool inputs = progress >> 63;
+    unsigned total = (unsigned)((progress >> 32) & 0x7fffffff), done = (unsigned)progress;
     bar.doubleValue = (double)done / total;
-    count.stringValue = [NSString stringWithFormat:@"%u / %u pipelines checked  ·  %u%%", done, total, done * 100 / total];
+    count.stringValue = [NSString stringWithFormat:@"%u / %u %@  ·  %u%%", done, total,
+        inputs ? @"shader inputs verified" : @"pipelines checked", done * 100 / total];
     return true;
 }
 

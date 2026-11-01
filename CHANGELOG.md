@@ -54,6 +54,11 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   index of your own game files and builds those pipelines before the game asks for them. Station entry on an M5 at 1.5x:
   the largest present gap fell from 6.4 s to 0.34 s, at the price of about 8 s of preparation before play. See
   `docs/performance-shader-preparation.md`.
+- **Prepare known shaders** (menu, off by default, needs a shader catalog): before the game starts it rebuilds, from your
+  own game files, the shaders a catalog lists (hashes and offsets only, never code) and builds their pipelines, with a
+  progress page. Workers follow the CPU count. No catalog ships with the app yet; `docs/shader-first-install.md` explains
+  the format and how one is built. A small native decoder (`oozextract`, MIT; its notices are packaged) reads the
+  game's compressed archives.
 - Shader preparation compiles on up to two native workers (`LARECOMP_SHADER_PREP_WORKERS=1` for one) while the render
   thread keeps the translator and caches; the progress page is a native window that keeps redrawing during long
   compiles. Same 113 programs and 147 pipelines on an M5: 19.2 s with one worker, 9.6 s with two.
