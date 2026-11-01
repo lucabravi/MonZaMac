@@ -49,6 +49,11 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   copy of the game and the right to use the files and keys you provide, and no game files or keys come with the app.
 
 ### Rendering
+- **Shader preparation prototype (developer, off unless `LARECOMP_SHADER_PREP` / `LARECOMP_SHADER_INPUTS` are set):**
+  records the exact programs and pipeline states a session needs as hashes and numbers only, rebuilds the programs from an
+  index of your own game files and builds those pipelines before the game asks for them. Station entry on an M5 at 1.5x:
+  the largest present gap fell from 6.4 s to 0.34 s, at the price of about 8 s of preparation before play. See
+  `docs/performance-shader-preparation.md`.
 - Fragment programs that only branch forward (no jump tables) now also run as structured code instead of the
   `switch (pc)` loop: 63.2 -> 64.7 fps (+2.4%) uncapped in the starting scene at 1.5x (4 off/on pairs,
   one Mac, one scene). Programs that read the facing flag keep the loop (Metal's compiler cannot build them).
