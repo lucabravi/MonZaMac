@@ -85,7 +85,11 @@ the numeric keypad controls the camera. Launcher/menu navigation uses Enter to c
 Bindings can be changed in **SETTINGS > Controls**.
 
 Shaders and pipelines compile as needed. A new scene or an update can cause brief first-use stutter; subsequent
-visits benefit from the local cache.
+visits benefit from the local cache. The **Shaders** tab of the menu can prepare the ones a catalog knows before the
+game starts (**Prepare known shaders**), saves the ones the game had to build as hashes and numbers (**Collect new
+shader recipes**; nothing is uploaded) so you can share them by hand with **Export shader recipes** and the
+**Contribute recipes on GitHub** form, and fetches the official catalog only when you press **Update shader catalog**.
+No catalog is published yet.
 
 Building from source and the developer tools are in [docs/development.md](docs/development.md).
 

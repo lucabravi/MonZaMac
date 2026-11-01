@@ -90,6 +90,8 @@ static const uint8_t BUILD_ID[8] = {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x
 // it): v<major>.<minor>.<patch>, 0.x until 1.0.
 #define LARECOMP_VERSION "v0.1.4"
 
+#include "menu.h"
+
 // ------------------------------------------------------------------ update check
 // The start screen asks GitHub for the project's releases once per launch (a background curl, which macOS and
 // Windows 10+ ship) and offers the best one if it outranks this build: v<major>.<minor>.<patch> tags by version;
@@ -660,6 +662,57 @@ static float g_menu_gap = 0.35f;  // space under each item, in line heights
 
 // Informational access to the same ownership rules used by game-file setup.
 static bool g_legal_test;  // LARECOMP_LAUNCHER_SHOT=<frame>:legal
+static void shader_catalog_badge(float s) {
+#ifdef __APPLE__
+    static bool checked;
+    const char *test = getenv("LARECOMP_CATALOG_STATUS_TEST");
+    if (!checked && !test && !getenv("LARECOMP_NO_UPDATE_CHECK")) checked = menu_catalog_check();
+    int state = menu_catalog_status();
+    if (test) {
+        if (!strcmp(test, "available")) state = CATALOG_AVAILABLE;
+        else if (!strcmp(test, "current")) state = CATALOG_CURRENT;
+        else if (!strcmp(test, "unpublished")) state = CATALOG_UNPUBLISHED;
+        else if (!strcmp(test, "checking")) state = CATALOG_CHECKING;
+        else state = CATALOG_ERROR;
+    }
+    const char *status = "Not checked";
+    switch (state) {
+    case CATALOG_CHECKING: status = "Checking..."; break;
+    case CATALOG_CURRENT: status = "Up to date"; break;
+    case CATALOG_AVAILABLE: status = "Update available"; break;
+    case CATALOG_UNPUBLISHED: status = "Not published yet"; break;
+    case CATALOG_ERROR: status = "Unable to check"; break;
+    case CATALOG_UPDATING: status = "Updating..."; break;
+    case CATALOG_UPDATE_ERROR: status = "Update failed"; break;
+    }
+    bool action = state == CATALOG_AVAILABLE || state == CATALOG_UPDATE_ERROR || state == CATALOG_UNKNOWN || state == CATALOG_ERROR;
+    ImVec2 ds = ImGui::GetIO().DisplaySize, saved = ImGui::GetCursorScreenPos();
+    ImFont *font = g_font_small;
+    float w = font->CalcTextSizeA(18 * s, FLT_MAX, 0, "Legal notice").x + 56 * s;
+    ImVec2 p(ds.x - w - 18 * s, 64 * s), q(p.x + w, p.y + (action ? 102 : 64) * s);
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p, q, IM_COL32(8, 18, 35, 225), 9 * s);
+    dl->AddRect(p, q, IM_COL32(76, 100, 137, 180), 9 * s);
+    dl->AddText(font, 14 * s, ImVec2(p.x + 10 * s, p.y + 9 * s), IM_COL32(238, 244, 255, 255), "Shader catalog");
+    ImU32 color = state == CATALOG_CURRENT ? IM_COL32(125, 229, 165, 255) :
+                  state == CATALOG_AVAILABLE ? IM_COL32(255, 201, 100, 255) : IM_COL32(166, 185, 207, 255);
+    dl->AddText(font, 12 * s, ImVec2(p.x + 10 * s, p.y + 34 * s), color, status);
+    if (action) {
+        ImVec2 a(p.x + 10 * s, p.y + 61 * s), b(q.x - 10 * s, p.y + 92 * s);
+        ImGui::SetCursorScreenPos(a);
+        bool click = ImGui::InvisibleButton("##catalog-quick-action", ImVec2(b.x-a.x, b.y-a.y), ImGuiButtonFlags_EnableNav);
+        bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
+        dl->AddRectFilled(a, b, hot ? IM_COL32(32, 86, 121, 255) : IM_COL32(24, 52, 82, 255), 5 * s);
+        const char *label = (state == CATALOG_AVAILABLE || state == CATALOG_UPDATE_ERROR) ? "Update now" : "Check now";
+        ImVec2 text = font->CalcTextSizeA(13 * s, FLT_MAX, 0, label);
+        dl->AddText(font, 13 * s, ImVec2((a.x+b.x-text.x)*0.5f, (a.y+b.y-text.y)*0.5f), IM_COL32(238, 244, 255, 255), label);
+        if (click) { if (state == CATALOG_AVAILABLE || state == CATALOG_UPDATE_ERROR) menu_catalog_update(); else checked = menu_catalog_check(); }
+        if (hot) ImGui::SetTooltip("Official shader recipe catalog. No game data is uploaded. Compilation runs at game start or when shaders are registered.");
+    }
+    ImGui::SetCursorScreenPos(saved);
+#endif
+}
+
 static void legal_notice(float s) {
     ImVec2 ds = ImGui::GetIO().DisplaySize, saved = ImGui::GetCursorScreenPos();
     ImFont *font = g_font_small;
@@ -1344,6 +1397,7 @@ extern "C" void launcher_run(const char *root) {
                 }
                 if (menu_tip(s)) play = true;
                 legal_notice(s);
+                shader_catalog_badge(s);
             } else if (page == SAVES) {
                 ImGui::PushFont(g_font_menu);
                 int pick = saves_screen_draw(ds.y / 1080.0f, g_font_menu, g_font_small);

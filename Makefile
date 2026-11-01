@@ -213,5 +213,6 @@ build/shader-decode/release/monzamac-shader-decode: tools/shader_decode/Cargo.to
 .PHONY: test-shader-catalog
 test-shader-catalog:
 	$(or $(PY),python3) tools/test_shader_catalog.py
+	$(or $(PY),python3) tools/test_shader_catalog_update.py
 	$(or $(PY),python3) tools/test_shader_inputs.py
 	$(or $(PY),python3) tools/test_shader_decoder.py build/shader-decode/release/monzamac-shader-decode

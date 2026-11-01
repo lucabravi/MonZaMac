@@ -83,11 +83,12 @@ static NSData *recipe_read(NSString *path, bool *bad) {
     close(fd);
     return *bad ? nil : data;
 }
-static void recipe_load_known(void) {  // writer queue, once
+static void recipe_load_known(void) {  // writer queue; reload after catalog changes
     recipe_known = [NSMutableSet new];
     char resource[1100];
     const char *override = getenv("LARECOMP_SHADER_CATALOG");
     NSString *path = override && *override ? @(override) :
+        !access("cache/shader-preparation/catalog.json", R_OK) ? @"cache/shader-preparation/catalog.json" :
         rt_resource("shader-catalog.json", NULL, resource, sizeof resource) ? @(resource) : @"cache/shader-preparation/catalog.json";
     bool bad = false; NSData *data = recipe_read(path, &bad);
     id c = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
@@ -178,6 +179,21 @@ void renderer_recipe_flush(void) {
     unsigned dropped = __atomic_exchange_n(&recipe_dropped, 0, __ATOMIC_RELAXED);
     if (dropped) LOG("[shader-recipes] %u records skipped (queue/file limit or write error)\n", dropped);
 }
+static void recipe_refresh_known(void) {
+    recipe_queue();
+    dispatch_sync(recipe_q, ^{
+        recipe_load_known();
+        RecipeJournal *j = recipe_file(recipe_default_path);
+        if (j->failed) return;
+        for (NSString *row in j->rows.array) if ([recipe_known containsObject:row]) {
+            [j->rows removeObject:row]; j->dirty = true;
+        }
+        j->bytes = [[j->rows.array componentsJoinedByString:@"\n"] lengthOfBytesUsingEncoding:NSUTF8StringEncoding] + j->rows.count;
+        __atomic_store_n(&recipe_count, (unsigned)j->rows.count, __ATOMIC_RELAXED);
+        recipe_save(j);
+    });
+}
+
 static void recipe_enqueue(NSDictionary *record, NSString *path) {
     recipe_queue();
     if (__atomic_fetch_add(&recipe_pending, 1, __ATOMIC_RELAXED) >= 128) {
@@ -213,8 +229,30 @@ static void prep_record_pipeline(Prog *pr, MTLRenderPipelineDescriptor *pd, bool
     recipe_enqueue(@{@"version": @1, @"program": pr->prep_record, @"pipeline": prep_descriptor_dict(pd)}, path);
 }
 
+static int recipe_helper_run(const char **args, NSString *log, double timeout_ms) {
+    pthread_mutex_lock(&recipe_export_lock);
+    if (!recipe_stopping && !recipe_export_child) recipe_export_child = plat_spawn(args, log.fileSystemRepresentation, false);
+    else { pthread_mutex_unlock(&recipe_export_lock); return 1; }
+    bool ok = recipe_export_child != 0;
+    pthread_mutex_unlock(&recipe_export_lock);
+    double started = now_ms(); int result = -1;
+    while (ok && result < 0) {
+        pthread_mutex_lock(&recipe_export_lock);
+        if (g_rt_unwind || now_ms() - started > timeout_ms) {
+            if (recipe_export_child) plat_proc_kill(recipe_export_child);
+            recipe_export_child = 0; result = 1;
+        } else if (recipe_export_child) {
+            result = plat_proc_wait(recipe_export_child, false);
+            if (result >= 0) recipe_export_child = 0;
+        } else result = 1;
+        pthread_mutex_unlock(&recipe_export_lock);
+        if (result < 0) usleep(10000);
+    }
+    return ok ? result : 1;
+}
+
 bool renderer_export_recipes(const char *destination, char *error, size_t cap) {  // background caller only
-    recipe_queue();
+    recipe_refresh_known();
     __block NSData *snapshot = nil;
     dispatch_sync(recipe_q, ^{
         RecipeJournal *j = recipe_file(recipe_default_path); recipe_save(j);
@@ -231,26 +269,67 @@ bool renderer_export_recipes(const char *destination, char *error, size_t cap) {
     args[n++] = helper; if (*script) args[n++] = script;
     args[n++] = "shader-catalog"; args[n++] = "contribute"; args[n++] = source.fileSystemRepresentation; args[n++] = destination; args[n] = NULL;
     NSString *log = [@(temp) stringByAppendingPathComponent:@"helper.log"];
-    pthread_mutex_lock(&recipe_export_lock);
-    if (ok && !recipe_stopping && !recipe_export_child) recipe_export_child = plat_spawn(args, log.fileSystemRepresentation, false);
-    else ok = false;
-    if (!recipe_export_child) ok = false;
-    pthread_mutex_unlock(&recipe_export_lock);
-    double started = now_ms(); int result = -1;
-    while (ok && result < 0) {
-        pthread_mutex_lock(&recipe_export_lock);
-        if (g_rt_unwind || now_ms() - started > 30000) {
-            if (recipe_export_child) plat_proc_kill(recipe_export_child);
-            recipe_export_child = 0; result = 1;
-        } else if (recipe_export_child) {
-            result = plat_proc_wait(recipe_export_child, false);
-            if (result >= 0) recipe_export_child = 0;
-        } else result = 1;
-        pthread_mutex_unlock(&recipe_export_lock);
-        if (result < 0) usleep(10000);
-    }
+    int result = ok ? recipe_helper_run(args, log, 30000) : 1;
     ok = ok && result == 0;
     if (ok) { unlink(source.fileSystemRepresentation); unlink(log.fileSystemRepresentation); rmdir(temp); }
     else snprintf(error, cap, "Export failed or was cancelled. Details: %s/helper.log", temp);
     return ok;
+}
+
+// Explicit user action; the helper downloads metadata only from official releases.
+bool renderer_update_catalog(char *error, size_t cap) {
+    recipe_queue();
+    char helper[1100], script[1100] = {0}, decoder[1100] = {0};
+    if (!prep_find_helper(helper, script)) { snprintf(error, cap, "Catalog helper is missing."); return false; }
+    mkdir("cache/shader-preparation", 0755);
+    char temp[] = "cache/shader-preparation/update-XXXXXX";
+    if (!mkdtemp(temp)) { snprintf(error, cap, "Couldn't create catalog update storage."); return false; }
+    extern const char *g_romfs_dir;
+    NSString *game = g_romfs_dir ? [@(g_romfs_dir) stringByDeletingLastPathComponent] : [@(rt_data_root()) stringByAppendingPathComponent:@"extracted"];
+    renderer_recipe_flush();
+    const char *args[12]; int n = 0;
+    args[n++] = helper; if (*script) args[n++] = script;
+    args[n++] = "shader-catalog"; args[n++] = "update"; args[n++] = game.fileSystemRepresentation;
+    args[n++] = "cache/shader-preparation/catalog.json";
+    if (rt_resource("lasgen/monzamac-shader-decode", "build/shader-decode/release/monzamac-shader-decode", decoder, sizeof decoder)) {
+        args[n++] = "--decoder"; args[n++] = decoder;
+    }
+    if (!access(recipe_default_path.fileSystemRepresentation, R_OK)) {
+        args[n++] = "--recipes"; args[n++] = recipe_default_path.fileSystemRepresentation;
+    }
+    args[n] = NULL;
+    NSString *log = [@(temp) stringByAppendingPathComponent:@"helper.log"];
+    int result = recipe_helper_run(args, log, 120000);
+    if (!result) { recipe_refresh_known(); unlink(log.fileSystemRepresentation); rmdir(temp); return true; }
+    if (result == 2) snprintf(error, cap, "No published shader catalog is available yet.");
+    else snprintf(error, cap, "Catalog update failed or was cancelled; previous catalog kept. Details: %s/helper.log", temp);
+    return false;
+}
+
+// Metadata-only release lookup; no assets, game inputs or native shaders are downloaded.
+int renderer_check_catalog(void) {
+    recipe_queue();
+    char helper[1100], script[1100] = {0}, catalog[1100] = "cache/shader-preparation/catalog.json", bundled[1100];
+    if (!prep_find_helper(helper, script)) return -1;
+    const char *override = getenv("LARECOMP_SHADER_CATALOG");
+    if (override && *override) snprintf(catalog, sizeof catalog, "%s", override);
+    else if (access(catalog, R_OK) && rt_resource("shader-catalog.json", NULL, bundled, sizeof bundled)) snprintf(catalog, sizeof catalog, "%s", bundled);
+    mkdir("cache/shader-preparation", 0755);
+    char temp[] = "cache/shader-preparation/check-XXXXXX";
+    if (!mkdtemp(temp)) return -1;
+    NSString *log = [@(temp) stringByAppendingPathComponent:@"helper.log"];
+    const char *args[8]; int n = 0;
+    args[n++] = helper; if (*script) args[n++] = script;
+    args[n++] = "shader-catalog"; args[n++] = "status"; args[n++] = catalog; args[n] = NULL;
+    int result = recipe_helper_run(args, log, 35000), state = -1;
+    if (result == 2) state = 2;
+    else if (!result) {
+        bool bad = false; NSData *data = recipe_read(log, &bad);
+        id row = data && data.length <= 4096 ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+        if ([row isKindOfClass:NSDictionary.class]) {
+            if ([row[@"state"] isEqual:@"current"]) state = 0;
+            else if ([row[@"state"] isEqual:@"available"]) state = 1;
+        }
+    }
+    unlink(log.fileSystemRepresentation); rmdir(temp); return state;
 }

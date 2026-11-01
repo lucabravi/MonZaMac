@@ -53,3 +53,7 @@ bool input_user_blocked(const SDL_Event *e);
 unsigned renderer_recipe_count(void);
 void renderer_recipe_flush(void);
 bool renderer_export_recipes(const char *destination, char *error, size_t cap);
+
+bool renderer_update_catalog(char *error, size_t cap); // explicit background update, metadata only
+
+int renderer_check_catalog(void); // 0 current, 1 available, 2 not published, -1 check failed

@@ -1,6 +1,6 @@
 # Local shader recipes and voluntary contributions
 
-**Video > Collect new shader recipes** is on by default and can be switched off.
+**Shaders > Collect new shader recipes** is on by default and can be switched off.
 It records successful graphics/transform-feedback pipelines missing from the
 prepared catalog, including pipelines recovered from the native cache. Compute
 pipelines are not covered. Enabling collection after programs are already loaded
@@ -25,7 +25,7 @@ contributed recipes known and remove them from the in-memory pending set.
 
 ## Export and sharing
 
-**Video > Export shader recipes** opens a native Save dialog and shows the local
+**Shaders > Export shader recipes** opens a native Save dialog and shows the local
 recipe count. It creates a JSON contribution with only:
 
 - `type: "shader-recipes"`, format version;
@@ -64,8 +64,8 @@ preparation so it cannot disable the valid installed catalog. The packaged base
 catalog is never rewritten automatically.
 
 This makes local discovery/preparation dynamic; the shared catalog still needs
-review and inclusion in a later build. There is no server, automatic submission,
-or silent download of someone else's contribution.
+review and inclusion in a later build. There is no server or automatic submission. Official metadata catalog downloads
+require an explicit action; individual contributions are reviewed first.
 
 ## Validation on Apple M5, 2026-11-01
 
@@ -100,3 +100,84 @@ snapshotted the journal and produced the validated JSON contribution. The new
 Video settings and 145-row count were observed in the launcher. Automated
 interaction with the Save panel was inconclusive; the native export/backend
 path and helper were verified separately. No file was sent anywhere.
+
+## Community contributions and explicit catalog updates
+
+**Shaders > Contribute recipes on GitHub** opens the project's contribution form.
+First use Export, then attach that JSON yourself. The app never uploads the
+journal or attaches anything automatically. Maintainers validate contributions,
+resolve input references against their own private index, deduplicate recipes,
+and leave unknown origins pending. The issue form explicitly excludes game
+files, keys, saves, shader dumps, translated source and native caches.
+
+**Shaders > Update shader catalog** explicitly checks the latest 20 official
+MonZaMac GitHub releases for a stable `shader-catalog.json` asset. It downloads
+only metadata from the fixed official repository, checks the GitHub asset's
+SHA-256 and byte count, rejects unsupported schema/extra code fields, and
+reconstructs the inputs from the user's own files before installing the new
+base. The request and verification run off the render thread; shutdown or a
+120-second deadline cancels the helper. Offline errors, absent catalogs and
+verification failures retain the previous catalog. No periodic catalog polling
+or automatic upload is added.
+
+The official downloaded base lives at `cache/shader-preparation/catalog.json`
+and takes priority over the bundled base on the next game start. **Local
+recipes are merged, not replaced:** the independent journal is preserved, known
+compatible variants join the effective preparation catalog, and unknown input
+origins remain pending. Invalid local journals cannot disable a valid official
+update. Old official releases are not blindly unioned, so corrections can
+replace outdated base entries. Downloaded catalogs trust the official GitHub
+release publisher and HTTPS; the asset digest is an integrity check, not an
+independent publisher signature or a legal clearance.
+
+Maintainer flow (manual and separately authorized): validate a reviewed v2
+catalog with `lasgen shader-catalog check --for-distribution`, then attach it as
+`shader-catalog.json` to an official stable release. The release asset must
+expose its GitHub SHA-256 digest. The updater accepts no arbitrary download URL.
+The normal app version check ignores non-semver catalog-only release tags.
+No catalog is published by this implementation. Until one is released, the
+button reports that no published shader catalog is available.
+
+Synthetic tests cover verified updates, merging/preserving local discoveries,
+unknown input origins, malformed local journals, absent assets, draft/prerelease
+exclusion, hostile asset IDs, digest/schema/game incompatibility, byte limits,
+symlink destinations and preservation of the previous catalog.
+
+Local validation for this change: 10 synthetic updater tests, 15 catalog tests
+and three input-index tests passed. The runtime and standalone PyInstaller
+helper built. The focused Metal Validation preparation test passed with the
+native background-export/helper round trip enabled. A real official GitHub
+check through the packaged helper returned the expected no-catalog exit code
+and preserved a pre-existing destination byte for byte. Launcher settings
+rendered and exited in a bounded smoke test; the two new actions were not
+clicked end to end through the graphical UI. A read-only review reported no
+P1/P2 findings. A successful real public-catalog download remains untested
+because no catalog has been published. All generated artifacts remain local.
+
+After a catalog update, the pending contribution view is refreshed immediately
+on its serial writer queue. Recipes now covered by the official base leave the
+pending journal, while still-unknown recipes remain. Export refreshes that view
+as well. The downloaded catalog has the same priority for collection and
+preparation, so a stale bundled base cannot cause redundant contributions.
+A focused native regression verifies catalog refresh, pending-file pruning and
+not recording a now-covered row again. Manual export still does not mark rows
+as delivered: only a reviewed official catalog proves they have been adopted.
+
+## Homepage catalog status
+
+The home screen shows **Shader catalog** directly beneath Legal notice. Once
+per app launch it checks official GitHub release metadata in the background;
+it does not download the catalog asset, reconstruct game inputs or compile
+anything during this check. A digest match with the installed downloaded or
+bundled base displays **Up to date**. A different or missing base displays
+**Update available** and **Update now**, using the same explicit safe update
+as Settings → Shaders. Checking/updating, unpublished catalog, failed check and
+failed update have separate states; errors never claim the catalog is current.
+`LARECOMP_NO_UPDATE_CHECK=1` also disables this automatic metadata check.
+
+Validation: 12 updater/status synthetic tests pass; current/available checks
+fetch only release metadata and leave preparation files untouched. The runtime
+and packaged helper build, both homepage states were rendered and inspected
+using screenshot-only state fixtures, and a real packaged-helper metadata
+request returned the expected unpublished-catalog result. Read-only review
+reported no P1/P2 findings. A public catalog still has to be released separately.

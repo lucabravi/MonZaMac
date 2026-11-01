@@ -61,7 +61,13 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   progress page. Workers follow the CPU count. No catalog ships with the app yet; `docs/shader-first-install.md` explains
   the format and how one is built. A small native decoder (`oozextract`, MIT; its notices are packaged) reads the
   game's compressed archives.
-- **Collect new shader recipes** (Graphics, on by default, can be turned off): the pipelines the game builds that no
+- **Shaders tab in the menu** groups Prepare known shaders, Collect new shader recipes, Export shader recipes, Contribute
+  recipes on GitHub (opens the project's issue form: attach the exported JSON yourself), Update shader catalog and Wait for
+  shaders. **Update shader catalog** checks the project's official releases for a `shader-catalog.json` asset only when you
+  press it, verifies its size, SHA-256 and schema, rebuilds the inputs from your own files and installs it atomically; the
+  previous catalog stays if anything fails. Recipes the new catalog covers leave your pending list. The start screen shows
+  whether your catalog is current. No catalog is published yet.
+- **Collect new shader recipes** (Shaders tab, on by default, can be turned off): the pipelines the game builds that no
   catalog covers are saved as hashes and numbers in `cache/shader-recipes/recipes.jsonl`, written off the render thread,
   with no limit on how many (100 MiB of file). **Export shader recipes** writes a metadata-only JSON you can share by hand
   to grow the catalog; nothing is uploaded. See `docs/shader-recipe-contributions.md`.
