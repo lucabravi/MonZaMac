@@ -36,6 +36,8 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   every other save, each with a window to **play it** (after a yes, the game restarts with it), copy, export, rename or
   delete it; Import, and a New game in a new save. A reboot into the game now keeps the save it was playing (it fell
   back to `save/`).
+- **Legal notice** button at the top right of the start screen: MonZaMac is independent and unofficial, you need your own
+  copy of the game and the right to use the files and keys you provide, and no game files or keys come with the app.
 
 ### Rendering
 - Fragment programs that only branch forward (no jump tables) now also run as structured code instead of the
