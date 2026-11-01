@@ -202,7 +202,9 @@ static bool prep_run(NSString *path, NSString *dir) {
     NSString *index_path = [dir stringByAppendingPathComponent:@"index.json"];
     attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:index_path error:nil];
     if (!text || !attrs || [attrs fileSize] > (16u << 20)) return false;
-    id root = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:index_path] options:0 error:nil];
+    NSData *index_data = [NSData dataWithContentsOfFile:index_path];
+    if (!index_data) return false;
+    id root = [NSJSONSerialization JSONObjectWithData:index_data options:0 error:nil];
     if (![root isKindOfClass:NSDictionary.class] || ![root[@"version"] isEqual:@1] || ![root[@"shaders"] isKindOfClass:NSDictionary.class]) return false;
     NSDictionary *index = root[@"shaders"];
     g_prep_programs = [NSMutableDictionary new]; g_prep_pipelines = [NSMutableDictionary new];
@@ -214,10 +216,15 @@ static bool prep_run(NSString *path, NSString *dir) {
     static bool report_registered;
     if (!report_registered) { atexit(prep_report); report_registered = true; }
     NSSet *old_keys = [NSSet setWithArray:cache.allKeys];
+    NSArray<NSString *> *lines = [text componentsSeparatedByString:@"\n"];
+    unsigned total = 0;
+    for (NSString *line in lines) if (line.length && total < 1024) total++;
+    backend_shader_prepare_progress(0, total);
     g_prep_active = true;
-    for (NSString *line in [text componentsSeparatedByString:@"\n"]) { @autoreleasepool {
+    for (NSString *line in lines) { @autoreleasepool {
         if (!line.length) continue;
-        if (++seen > 1024) break;
+        if (seen == total) break;
+        backend_shader_prepare_progress(seen++, total);
         id r = [NSJSONSerialization JSONObjectWithData:[line dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
         if (![r isKindOfClass:NSDictionary.class] || ![r[@"version"] isEqual:@1]) { missed++; continue; }
         NSDictionary *p = r[@"program"];
@@ -263,6 +270,7 @@ static bool prep_run(NSString *path, NSString *dir) {
     memset(prog_tab, 0, sizeof prog_tab);
     for (id key in cache.allKeys) if (![old_keys containsObject:key]) [cache removeObjectForKey:key];
     g_prep_active = false;
+    backend_shader_prepare_progress(0, 0);
     stat_compile_ms = previous_ms; stat_compiles = previous_compiles;
     LOG("[shader-prep] prepared %lu programs, %lu pipelines, %u missing/invalid in %.0f ms\n",
         (unsigned long)g_prep_programs.count, (unsigned long)g_prep_pipelines.count, missed, now_ms() - t0);

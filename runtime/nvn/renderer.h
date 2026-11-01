@@ -13,6 +13,8 @@ extern id<MTLBuffer> g_guest_buffer;
 extern uint64_t g_guest_buffer_base;
 extern uint64_t g_gwin_base, g_gwin_max;  // guest memory window g_guest_buffer wraps (see backend_gwin_pick)
 void backend_gwin_pick(void);
+// Render thread publishes recipe progress; total == 0 dismisses the main-thread page.
+void backend_shader_prepare_progress(unsigned done, unsigned total);
 #endif
 #include <SDL3/SDL_events.h>
 

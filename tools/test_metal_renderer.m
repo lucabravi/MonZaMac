@@ -6,6 +6,7 @@ static double gpu_interval_union_ms(const double *intervals, size_t count, doubl
 #import <ImageIO/ImageIO.h>
 
 void metal_test_bootstrap(void);
+void metal_test_preparation_page(void);
 void metal_test_texture_dump(void);
 void metal_test_next_texture_frame(void);
 void renderer_set_scale(float sx, float sy);
@@ -2230,6 +2231,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"feedback-mip-color", "feedback", feedback_mip_color},
     {"feedback-mip-depth", "feedback", feedback_mip_depth},
     {"feedback-base-alias", "feedback", feedback_base_alias},
+    {"preparation-page", "preparation", metal_test_preparation_page},
 };
 
 int metal_renderer_test_main(int argc, char **argv) { @autoreleasepool {
