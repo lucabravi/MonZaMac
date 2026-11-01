@@ -1857,7 +1857,7 @@ static void pipeline_archive_add(MTLRenderPipelineDescriptor *pd, Prog *pr) {
     });
 }
 
-static bool g_prep_active;
+static bool g_prep_active, g_prep_translate_only;
 static bool sync_shaders(void) {  // LARECOMP_SYNC_SHADERS or the "Wait for shaders" setting: compile on first use, blocking
     static int v = -1;
     if (v < 0) v = getenv("LARECOMP_SYNC_SHADERS") != NULL;
@@ -2013,6 +2013,7 @@ static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
         pr->fi = calloc(1, sizeof *pr->fi);
         pr->fi->stage = STAGE_FRAGMENT;
         shader_cache_note(pr->vi->msl, "");
+        if (g_prep_translate_only) return pr;
         if (sync_shaders()) { compile_program(pr); return pr->failed ? nil : pr; }
         static dispatch_queue_t xq;
         if (!xq) xq = dispatch_queue_create("larecomp.shaders.xfb", DISPATCH_QUEUE_CONCURRENT);
@@ -2073,6 +2074,7 @@ static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
         }
     }
     shader_cache_note(pr->vi->msl, pr->fi->msl);
+    if (g_prep_translate_only) return pr;
     if (sync_shaders()) {
         compile_program(pr);
         return pr->failed ? nil : pr;

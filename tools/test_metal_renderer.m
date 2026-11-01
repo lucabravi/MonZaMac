@@ -1562,6 +1562,14 @@ static void shader_preparation(void) {
     renderer_reset();
     CHECK(prep_run(@"recipes.jsonl", @"inputs"), "prepare exact variants from synthetic input references");
     CHECK(g_prep_programs.count == 2 && g_prep_pipelines.count == 2, "preparation covers vertex-only XFB without active live XFB state");
+    CHECK(!g_prep_active, "preparation joins workers before handing state back to draws");
+    NSString *recipes = [NSString stringWithContentsOfFile:@"recipes.jsonl" encoding:NSUTF8StringEncoding error:nil];
+    NSString *mixed = [NSString stringWithFormat:@"invalid JSON\n%@%@", recipes, recipes];
+    CHECK([mixed writeToFile:@"mixed.jsonl" atomically:YES encoding:NSUTF8StringEncoding error:nil], "write mixed duplicate recipes");
+    int before_compiles = stat_compiles;
+    CHECK(prep_run(@"mixed.jsonl", @"inputs"), "invalid and duplicate recipes do not prevent valid preparation");
+    CHECK(g_prep_programs.count == 2 && g_prep_pipelines.count == 2 && stat_compiles == before_compiles,
+          "duplicate identities retain one complete prepared result per variant and restore draw statistics");
     unsigned before_programs = g_prep_program_hits, before_pipelines = g_prep_pipeline_hits;
     stat_compiles = 0;
     bind_targets(&color, NULL, NULL); prepare_draw(); fullscreen_draw(1); expect_rgba(&color, 0, 255, 0);

@@ -31,7 +31,7 @@ requires matching shader content, specialization and descriptor state. The
 selected guest-memory window is included in in-process program identity.
 Unknown or changed variants retain normal first-use compilation.
 
-Preparation is serialized with translation/drawing. It uses the current
+Preparation is serialized with drawing. Translation/cache access stays on the render thread; native Metal compilation runs in up to two workers. It uses the current
 translator and compiler options, rather than loading translated code from a
 previous build. It does not move guest pointers onto a background worker.
 Shader overrides/debug probes disable the preparation path. In-place reboot
@@ -246,3 +246,39 @@ was observed at 35/149 recipes, and disappeared before the station rendered;
 113 programs/147 pipelines were prepared, with two recipes unresolved. The
 19.5-second preparation used a new compiler entry-point salt; this UI check is
 not a controlled performance comparison. The test instance was stopped.
+
+## Responsive progress and bounded parallel compilation (local follow-up)
+
+Preparation now shows a native main-thread page with a progress bar, percentage
+and checked-recipe count. Missing/invalid recipes count as checked; queued
+compilations do not. The page uses no shared ImGui context or Metal drawable,
+so long native compiles cannot block its redraws. Gameplay input is modal,
+while window close and gamepad connect/disconnect handling remain available.
+Keyboard state is cleared when the page gains/loses focus.
+
+Programs are translated and grouped by exact identity on the renderer thread.
+At most two workers compile independent programs and their pipeline variants;
+each program has one owner. Completed pipeline results and progress are
+published under a lock, and every worker joins before temporary inputs/cache
+entries are released, draw statistics restored, or rendering resumes. Duplicate
+recipes reuse a group's pipeline instead of compiling it again. Failures still
+fall back to normal first-use compilation. `LARECOMP_SHADER_PREP_WORKERS=1`
+selects serial native compilation for developer comparisons/rollback; otherwise
+the fixed limit is two, to bound CPU/compiler memory pressure.
+
+One controlled Apple M5 pair (fresh private application caches and distinct
+entry-point salts) prepared the same 113 programs and 147 pipelines, with the
+same two unresolved recipes:
+
+| Native preparation workers | Total preparation time | Observed peak workers |
+| --- | ---: | ---: |
+| 1 | 19,194 ms | 1 |
+| 2 | 9,628 ms | 2 |
+
+This single pair shows a 49.8% reduction for the recorded station workload,
+not a universal speedup. Both bounded runs entered the station; the parallel
+page was visibly advancing and disappeared before gameplay. The runtime and
+focused preparation tests passed; 88 native renderer tests passed with Metal
+Validation on Apple M5. Other Macs, prolonged sessions and game-wide recipe
+coverage were not tested. All test instances were stopped. Inputs, recipes,
+raw logs and screenshots remain private; no push/PR update was performed.

@@ -1330,6 +1330,7 @@ void backend_present(NvnTexture *t) {
 
 // Native views keep preparation responsive even while a synchronous Metal compile
 // blocks the render thread. No drawable or shared ImGui context is used here.
+void input_reset(void);  // runtime/hle/input.c: held keys must not leak through a modal page
 static atomic_uint_fast64_t prep_progress;
 void backend_shader_prepare_progress(unsigned done, unsigned total) {
     atomic_store(&prep_progress, total ? ((uint64_t)total << 32) | (done > total ? total : done) : 0);
@@ -1341,6 +1342,7 @@ static bool ui_preparation_update(void) {
     static NSTextField *count;
     uint64_t progress = atomic_load(&prep_progress);
     if (!progress) {
+        if (page) input_reset();
         [page removeFromSuperview];
         page = nil; bar = nil; count = nil;
         return false;
@@ -1350,6 +1352,7 @@ static bool ui_preparation_update(void) {
             SDL_GetWindowProperties(window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
         if (!native) return true;
         NSView *content = native.contentView;
+        input_reset();
         page = [[NSView alloc] initWithFrame:content.bounds];
         page.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         page.wantsLayer = YES;
@@ -1450,7 +1453,11 @@ int ui_run(void) {
         SDL_Event e;
         while (SDL_WaitEventTimeout(&e, 16)) {
             if (e.type == SDL_EVENT_QUIT) { LOG("window closed\n"); return RT_REBOOT_NONE; }
-            if (ui_preparation_update()) continue;  // modal; window close above remains available
+            if (ui_preparation_update()) {
+                // Device lifecycle still reaches input handling; gameplay events remain modal.
+                if (e.type == SDL_EVENT_GAMEPAD_ADDED || e.type == SDL_EVENT_GAMEPAD_REMOVED) input_handle_event(&e);
+                continue;
+            }
             if (input_user_blocked(&e)) continue;  // scripted test runs: the real keyboard / mouse / pads do nothing
             if (menu_handle_event(&e)) continue;
             input_handle_event(&e);

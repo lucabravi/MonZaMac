@@ -54,6 +54,9 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   index of your own game files and builds those pipelines before the game asks for them. Station entry on an M5 at 1.5x:
   the largest present gap fell from 6.4 s to 0.34 s, at the price of about 8 s of preparation before play. See
   `docs/performance-shader-preparation.md`.
+- Shader preparation compiles on up to two native workers (`LARECOMP_SHADER_PREP_WORKERS=1` for one) while the render
+  thread keeps the translator and caches; the progress page is a native window that keeps redrawing during long
+  compiles. Same 113 programs and 147 pipelines on an M5: 19.2 s with one worker, 9.6 s with two.
 - Fragment programs that only branch forward (no jump tables) now also run as structured code instead of the
   `switch (pc)` loop: 63.2 -> 64.7 fps (+2.4%) uncapped in the starting scene at 1.5x (4 off/on pairs,
   one Mac, one scene). Programs that read the facing flag keep the loop (Metal's compiler cannot build them).
