@@ -1328,6 +1328,77 @@ void backend_present(NvnTexture *t) {
     renderer_debug_frame_boundary(total_frames);
 }
 
+// Native views keep preparation responsive even while a synchronous Metal compile
+// blocks the render thread. No drawable or shared ImGui context is used here.
+static atomic_uint_fast64_t prep_progress;
+void backend_shader_prepare_progress(unsigned done, unsigned total) {
+    atomic_store(&prep_progress, total ? ((uint64_t)total << 32) | (done > total ? total : done) : 0);
+}
+
+static bool ui_preparation_update(void) {
+    static NSView *page;
+    static NSProgressIndicator *bar;
+    static NSTextField *count;
+    uint64_t progress = atomic_load(&prep_progress);
+    if (!progress) {
+        [page removeFromSuperview];
+        page = nil; bar = nil; count = nil;
+        return false;
+    }
+    if (!page) {
+        NSWindow *native = (__bridge NSWindow *)SDL_GetPointerProperty(
+            SDL_GetWindowProperties(window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
+        if (!native) return true;
+        NSView *content = native.contentView;
+        page = [[NSView alloc] initWithFrame:content.bounds];
+        page.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        page.wantsLayer = YES;
+        page.layer.backgroundColor = [NSColor colorWithRed:0.04 green:0.07 blue:0.14 alpha:1].CGColor;
+        page.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+        [content addSubview:page positioned:NSWindowAbove relativeTo:nil];
+
+        NSTextField *brand = [NSTextField labelWithString:@"MonZaMac"];
+        brand.font = [NSFont systemFontOfSize:16 weight:NSFontWeightSemibold];
+        brand.textColor = [NSColor colorWithRed:0.28 green:0.84 blue:1 alpha:1];
+        NSTextField *title = [NSTextField labelWithString:@"Preparing shaders"];
+        title.font = [NSFont systemFontOfSize:28 weight:NSFontWeightSemibold];
+        title.textColor = NSColor.whiteColor;
+        NSTextField *detail = [NSTextField wrappingLabelWithString:
+            @"Compiling graphics pipelines on your Mac to reduce stutter during play. This can take a little while."];
+        detail.font = [NSFont systemFontOfSize:15];
+        detail.textColor = [NSColor colorWithRed:0.58 green:0.64 blue:0.74 alpha:1];
+        detail.alignment = NSTextAlignmentCenter;
+        bar = [NSProgressIndicator new];
+        bar.style = NSProgressIndicatorStyleBar;
+        bar.indeterminate = NO;
+        bar.minValue = 0; bar.maxValue = 1;
+        bar.accessibilityLabel = @"Shader preparation progress";
+        count = [NSTextField labelWithString:@""];
+        count.font = [NSFont monospacedDigitSystemFontOfSize:14 weight:NSFontWeightRegular];
+        count.textColor = detail.textColor;
+        NSStackView *stack = [NSStackView stackViewWithViews:@[brand, title, detail, bar, count]];
+        stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+        stack.alignment = NSLayoutAttributeCenterX;
+        stack.spacing = 18;
+        stack.translatesAutoresizingMaskIntoConstraints = NO;
+        [page addSubview:stack];
+        NSLayoutConstraint *width = [stack.widthAnchor constraintEqualToAnchor:page.widthAnchor multiplier:0.8];
+        width.priority = NSLayoutPriorityDefaultHigh;
+        [NSLayoutConstraint activateConstraints:@[
+            [stack.centerXAnchor constraintEqualToAnchor:page.centerXAnchor],
+            [stack.centerYAnchor constraintEqualToAnchor:page.centerYAnchor],
+            [stack.widthAnchor constraintLessThanOrEqualToConstant:560],
+            width,
+            [detail.widthAnchor constraintEqualToAnchor:stack.widthAnchor],
+            [bar.widthAnchor constraintEqualToAnchor:stack.widthAnchor]
+        ]];
+    }
+    unsigned total = (unsigned)(progress >> 32), done = (unsigned)progress;
+    bar.doubleValue = (double)done / total;
+    count.stringValue = [NSString stringWithFormat:@"%u / %u pipelines checked  ·  %u%%", done, total, done * 100 / total];
+    return true;
+}
+
 // ================================================================== UI thread
 // The window + Metal layer, created once: by the launcher (runtime/ui/launcher.mm, start screen before the game
 // boots) or by ui_run; the game reuses the launcher's window.
@@ -1379,11 +1450,12 @@ int ui_run(void) {
         SDL_Event e;
         while (SDL_WaitEventTimeout(&e, 16)) {
             if (e.type == SDL_EVENT_QUIT) { LOG("window closed\n"); return RT_REBOOT_NONE; }
+            if (ui_preparation_update()) continue;  // modal; window close above remains available
             if (input_user_blocked(&e)) continue;  // scripted test runs: the real keyboard / mouse / pads do nothing
             if (menu_handle_event(&e)) continue;
             input_handle_event(&e);
         }
-        input_mouse_update(window);  // (Mouse camera "No button": the cursor held in the window)
+        if (!ui_preparation_update()) input_mouse_update(window);  // (Mouse camera "No button": the cursor held in the window)
         menu_apply_window_requests(window);
         int w, h;
         SDL_GetWindowSizeInPixels(window, &w, &h);

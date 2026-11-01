@@ -1,5 +1,6 @@
 // Executes recorded NVN command lists with Metal.
 #include <pthread.h>
+#include <CommonCrypto/CommonDigest.h>
 #include <dirent.h>
 #include <unistd.h>
 #import <Metal/Metal.h>
@@ -1415,6 +1416,8 @@ static int cbuf_base = 3, tex_base = 8;
     _Atomic bool ready;  // functions compiled (async compile: draws are skipped until then)
     bool ov_active;      // live shader override applied (build/dbgcmd): ov_path is the source to reload
     char ov_path[256];
+    NSString *prep_id;
+    NSDictionary *prep_record;
 }
 @end
 @implementation Prog
@@ -1782,7 +1785,11 @@ static void pipeline_archive_save(void) {  // on g_archive_q
     g_archive_dirty = 0;
 }
 
-void renderer_save_pipeline_archive(void) { if (g_archive_q) dispatch_sync(g_archive_q, ^{ pipeline_archive_save(); }); }
+static void prep_report(void);
+void renderer_save_pipeline_archive(void) {
+    if (g_archive_q) dispatch_sync(g_archive_q, ^{ pipeline_archive_save(); });
+    prep_report();
+}
 
 static id<MTLBinaryArchive> pipeline_archive(void) {
     static dispatch_once_t once;
@@ -1850,10 +1857,11 @@ static void pipeline_archive_add(MTLRenderPipelineDescriptor *pd, Prog *pr) {
     });
 }
 
+static bool g_prep_active;
 static bool sync_shaders(void) {  // LARECOMP_SYNC_SHADERS or the "Wait for shaders" setting: compile on first use, blocking
     static int v = -1;
     if (v < 0) v = getenv("LARECOMP_SYNC_SHADERS") != NULL;
-    return v || g_settings.wait_shaders;
+    return g_prep_active || v || g_settings.wait_shaders;
 }
 
 // Native shader arguments must match the effective view's scalar type; integer/stencil reads return raw bits.
@@ -1896,23 +1904,37 @@ static NvnProgram g_comp_prog;  // the stages bound so far (a game may bind them
 static void compile_program(Prog *pr) {
     NSError *err = nil;
     double t0 = now_ms();
-    // LARECOMP_SHADER_SALT=<text>: tag sources so Metal's disk cache misses (measure cold first-use compiles)
-    NSString *salt = getenv("LARECOMP_SHADER_SALT") ? [NSString stringWithFormat:@"\n// %s\n", getenv("LARECOMP_SHADER_SALT")] : @"";
-    id<MTLLibrary> vl = [dev newLibraryWithSource:[@(pr->vi->msl) stringByAppendingString:salt] options:game_shader_opts(true) error:&err];
+    // A distinct entry-point name makes cold A/B runs miss GPU function caches too, not just source caches.
+    const char *salt = getenv("LARECOMP_SHADER_SALT");
+    NSString *name = salt ? [NSString stringWithFormat:@"main0_%016llx", (unsigned long long)fnv64(salt)] : @"main0";
+    NSString *vsrc = @(pr->vi->msl), *fsrc = pr->fi->msl ? @(pr->fi->msl) : nil;
+    if (salt) {
+        NSString *entry = [name stringByAppendingString:@"("];
+        vsrc = [vsrc stringByReplacingOccurrencesOfString:@"main0(" withString:entry];
+        fsrc = [fsrc stringByReplacingOccurrencesOfString:@"main0(" withString:entry];
+    }
+    id<MTLLibrary> vl = [dev newLibraryWithSource:vsrc options:game_shader_opts(true) error:&err];
     if (!vl) { LOG("[shader] VS compile failed (%llx): %s\n%s\n", pr->vs_addr, err.localizedDescription.UTF8String, pr->vi->msl); pr->failed = true; return; }
-    id<MTLLibrary> fl = pr->fi->msl ? [dev newLibraryWithSource:[@(pr->fi->msl) stringByAppendingString:salt] options:game_shader_opts(false) error:&err] : nil;
-    if (!fl && pr->fi->msl) { LOG("[shader] FS compile failed (%llx): %s\n%s\n", pr->fs_addr, err.localizedDescription.UTF8String, pr->fi->msl); pr->failed = true; return; }
-    pr->vs = [vl newFunctionWithName:@"main0"];
-    pr->fs = fl ? [fl newFunctionWithName:@"main0"] : nil;
+    id<MTLLibrary> fl = fsrc ? [dev newLibraryWithSource:fsrc options:game_shader_opts(false) error:&err] : nil;
+    if (!fl && fsrc) { LOG("[shader] FS compile failed (%llx): %s\n%s\n", pr->fs_addr, err.localizedDescription.UTF8String, pr->fi->msl); pr->failed = true; return; }
+    pr->vs = [vl newFunctionWithName:name];
+    pr->fs = fl ? [fl newFunctionWithName:name] : nil;
+    if (!pr->vs || (fl && !pr->fs)) { pr->failed = true; return; }
     __atomic_fetch_add(&stat_compiles, 1, __ATOMIC_RELAXED);
     double dt = now_ms() - t0;
     @synchronized(cache) { stat_compile_ms += dt; }
     pr->ready = true;
 }
 
+#include "shader_prepare.inc"
+
 static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
+    if (!g_prep_started) {
+        if (getenv("LARECOMP_SHADER_PREP")) backend_gwin_pick();
+        prep_once();
+    }
     shader_cache_warm();
-    if (!(p->stage_mask & 1) || (!(p->stage_mask & 2) && !g_xfb_on)) return nil;
+    if (!(p->stage_mask & 1) || (!(p->stage_mask & 2) && !g_xfb_on && !(g_prep_active && vkey->xfb_void))) return nil;
     // fast path: hash of the code addresses and keys
     uint64_t h = 0xcbf29ce484222325ull;
     for (int i = 0; i < 2; i++) { uint64_t a = p->stages[i].code_addr; for (int k = 0; k < 8; k++) { h ^= (a >> (k * 8)) & 0xFF; h *= 0x100000001B3ull; } }
@@ -1937,13 +1959,24 @@ static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
         prog_tab[slot].value = (__bridge void *)pr;
         return pr->failed ? nil : pr;
     }
+    if (prep_enabled()) backend_gwin_pick();
+    NSDictionary *record = prep_enabled() ? prep_program_record(p, vkey, fkey) : nil;
+    NSString *identity = record ? prep_program_id(record) : nil;
+    pr = identity && !g_prep_active ? g_prep_programs[identity] : nil;
+    if (pr) {
+        cache[key] = pr; prog_tab[slot].key = h; prog_tab[slot].value = (__bridge void *)pr;
+        g_prep_program_hits++;
+        pr->vs_addr = p->stages[0].code_addr; pr->fs_addr = p->stages[1].code_addr;
+        return pr;
+    }
     pr = [Prog new];
+    pr->prep_record = record; pr->prep_id = identity;
     pr->vs_addr = p->stages[0].code_addr;
     pr->fs_addr = p->stages[1].code_addr;
     cache[key] = pr;
     prog_tab[slot].key = h;
     prog_tab[slot].value = (__bridge void *)pr;  // retained by the cache dictionary
-    dump_program(p);
+    if (!g_prep_active) dump_program(p);
     backend_gwin_pick();
     maxwell_gmem_base = g_gwin_base;
     maxwell_gmem_size = g_gwin_max;
@@ -1970,8 +2003,8 @@ static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
         LOG("[shader] VS translate failed: %s (code %llx)\n", pr->vi->error, p->stages[0].code_addr);
         char path[128];
         snprintf(path, sizeof path, "build/shaders/fail_%llx_s0_code.bin", p->stages[0].code_addr);
-        FILE *f = fopen(path, "wb");
-        if (f) { fwrite((void *)(uintptr_t)p->stages[0].code_addr, 1, 0x4000, f); fclose(f); }
+        FILE *f = g_prep_active ? NULL : fopen(path, "wb");
+        if (f) { fwrite((void *)(uintptr_t)p->stages[0].code_addr, 1, vmax < 0x4000 ? vmax : 0x4000, f); fclose(f); }
         pr->failed = true;
         return nil;
     }
@@ -3618,7 +3651,8 @@ static void draw(CmdRec *r, bool indexed) {
         [pk appendFormat:@" l%lu/%lu/%lu", (unsigned long)vd.layouts[s].stride, (unsigned long)vd.layouts[s].stepFunction, (unsigned long)vd.layouts[s].stepRate];
     [pk appendFormat:@" s%lu a%d", (unsigned long)pd.rasterSampleCount, pd.alphaToCoverageEnabled];
     if (!pd.rasterizationEnabled) [pk appendString:@" nr"];
-    id pobj = cache[pk];
+    id prepared = prep_pipeline(pr, pd);
+    id pobj = prepared ?: cache[pk];
     NSMutableDictionary *ready_pipes = g_ready_pipes;  // async pipeline builds finished on Metal's threads
     static id pending;
     if (!ready_pipes) { ready_pipes = g_ready_pipes = [NSMutableDictionary new]; pending = [NSObject new]; }
@@ -4800,6 +4834,7 @@ void renderer_reset(void) {
     memset(prog_tab, 0, sizeof prog_tab);
     memset(pipe_tab, 0, sizeof pipe_tab);
     [cache removeAllObjects];
+    prep_reset();
     [g_cs_progs removeAllObjects];
     @synchronized(g_ready_pipes) { [g_ready_pipes removeAllObjects]; }
     g_pipeline_gen++;

@@ -186,7 +186,8 @@ METAL_TEST_OBJS := $(filter-out $(B)/rt/nvn/metal.o $(B)/rt/nvn/renderer.o,$(RT_
 $(B)/tests/metal_backend.o: tools/test_metal_backend.m runtime/nvn/metal.m $(RT_HDRS)
 	@mkdir -p $(dir $@)
 	$(CC) $(RTFLAGS) -fobjc-arc -ftrivial-auto-var-init=pattern -c $< -o $@
-$(B)/tests/metal_renderer.o: tools/test_metal_renderer.m runtime/nvn/renderer.m $(RT_HDRS)
+$(B)/rt/nvn/renderer.o: runtime/nvn/shader_prepare.inc
+$(B)/tests/metal_renderer.o: tools/test_metal_renderer.m runtime/nvn/renderer.m runtime/nvn/shader_prepare.inc $(RT_HDRS)
 	@mkdir -p $(dir $@)
 	$(CC) $(RTFLAGS) -fobjc-arc -c $< -o $@
 $(B)/test_metal_renderer: $(METAL_TEST_OBJS) $(B)/tests/metal_backend.o $(B)/tests/metal_renderer.o

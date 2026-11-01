@@ -79,3 +79,37 @@ void metal_test_bootstrap(void) {
 
 // Advance only the upload-cache frame for ownership regressions; no window or fake renderer is needed.
 void metal_test_next_texture_frame(void) { g_frame_counter++; }
+
+// A native page must not need a Metal present or touch the overlay's ImGui context.
+void metal_test_preparation_page(void) {
+    setenv("LARECOMP_HIDDEN", "1", 1);
+    ui_window_init();
+    NSWindow *native = (__bridge NSWindow *)SDL_GetPointerProperty(
+        SDL_GetWindowProperties(window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
+    assert(native);
+    NSUInteger baseline = native.contentView.subviews.count;
+    assert(!ui_preparation_update());
+    backend_shader_prepare_progress(0, 4);
+    assert(ui_preparation_update());
+    assert(native.contentView.subviews.count == baseline + 1);
+    NSView *page = native.contentView.subviews.lastObject;
+    NSStackView *stack = (NSStackView *)page.subviews.firstObject;
+    NSProgressIndicator *bar = (NSProgressIndicator *)stack.arrangedSubviews[3];
+    NSTextField *count = (NSTextField *)stack.arrangedSubviews[4];
+    assert(bar.doubleValue == 0);
+    backend_shader_prepare_progress(2, 4);
+    assert(ui_preparation_update());
+    assert(bar.doubleValue == 0.5 && [count.stringValue containsString:@"2 / 4"]);
+    [page layoutSubtreeIfNeeded];
+    assert(stack.frame.size.width <= 560 && bar.frame.size.width > 100);
+    backend_shader_prepare_progress(9, 4);
+    assert(ui_preparation_update() && bar.doubleValue == 1);
+    backend_shader_prepare_progress(0, 0);
+    assert(!ui_preparation_update() && native.contentView.subviews.count == baseline);
+    // A second preparation (save switch/reboot) owns a fresh page.
+    backend_shader_prepare_progress(0, 1);
+    assert(ui_preparation_update());
+    backend_shader_prepare_progress(0, 0);
+    assert(!ui_preparation_update() && native.contentView.subviews.count == baseline);
+    SDL_DestroyWindow(window); window = NULL;
+}
