@@ -4,15 +4,19 @@
 // render thread inside backend_present, after the game image, into the same drawable.
 #ifdef __APPLE__
 #import <Metal/Metal.h>
+#import <AppKit/AppKit.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #endif
 #include <SDL3/SDL.h>
 #include <math.h>
 #include <pthread.h>
 #include <atomic>
 #include <vector>
+#include <string>
 
 #include "imgui.h"
 #include "option_rows.h"
+#include "menu.h"
 #include "imgui_internal.h"  // (NavCursorVisible)
 #include "osk.h"
 #include "../services/am.h"
@@ -33,6 +37,7 @@ void input_reset(void);
 void controls_bindings_draw(float scale);  // controls_ui.mm
 #include "../input_bind.h"
 #include "../paths.h"
+extern "C" SDL_Window *ui_window(void);  // (runtime/nvn/metal.m)
 }
 
 // ------------------------------------------------------------------ state shared with the main thread
@@ -40,6 +45,65 @@ static std::atomic<bool> g_open{false};
 static std::atomic<bool> g_stats{false};  // F3: fps and the render resolution on screen, for this run (not saved)
 static std::atomic<bool> g_text_busy{false};  // a text field / the on-screen keyboard has the keys (render thread: ui_text_busy)
 static std::atomic<bool> g_want_fullscreen_apply{false};
+
+#ifdef __APPLE__
+extern "C" unsigned renderer_recipe_count(void);
+extern "C" bool renderer_export_recipes(const char *, char *, size_t);
+extern "C" bool renderer_update_catalog(char *, size_t);
+extern "C" int renderer_check_catalog(void);
+static std::atomic<int> g_catalog_status{CATALOG_UNKNOWN};
+static std::atomic<bool> g_catalog_update_request{false}, g_recipe_contribute_request{false};
+static std::atomic<bool> g_recipe_export_request{false}, g_recipe_export_busy{false};
+static pthread_mutex_t recipe_message_lock = PTHREAD_MUTEX_INITIALIZER;
+static char recipe_export_message[320];
+extern "C" int menu_catalog_status(void) { return g_catalog_status.load(); }
+extern "C" void menu_catalog_update(void) { g_catalog_update_request = true; }
+extern "C" bool menu_catalog_check(void) {
+    if (g_recipe_export_busy.exchange(true)) return false;
+    g_catalog_status = CATALOG_CHECKING;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ @autoreleasepool {
+        int result = renderer_check_catalog();
+        g_catalog_status = result == 0 ? CATALOG_CURRENT : result == 1 ? CATALOG_AVAILABLE : result == 2 ? CATALOG_UNPUBLISHED : CATALOG_ERROR;
+        g_recipe_export_busy = false;
+    }});
+    return true;
+}
+static void catalog_update_start(void) {
+    if (g_recipe_export_busy.exchange(true)) return;
+    g_catalog_status = CATALOG_UPDATING;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ @autoreleasepool {
+        char error[256] = {0}; bool ok = renderer_update_catalog(error, sizeof error);
+        pthread_mutex_lock(&recipe_message_lock);
+        snprintf(recipe_export_message, sizeof recipe_export_message, "%s", ok ? "Catalog verified and installed. Applies at the next game start." : error);
+        pthread_mutex_unlock(&recipe_message_lock);
+        g_catalog_status = ok ? CATALOG_CURRENT : strstr(error, "No published shader catalog") ? CATALOG_UNPUBLISHED : CATALOG_UPDATE_ERROR;
+        g_recipe_export_busy = false;
+    }});
+}
+static void recipe_export_dialog(void) {  // main thread; the game never uploads this file
+    if (g_recipe_export_busy.exchange(true)) return;
+    input_reset();
+    NSSavePanel *panel = [NSSavePanel savePanel];
+    panel.title = @"Export shader recipes";
+    panel.message = @"Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.";
+    panel.prompt = @"Export";
+    panel.allowedContentTypes = @[ UTTypeJSON ];
+    panel.nameFieldStringValue = @"MonZaMac-shader-recipes.json";
+    [panel beginWithCompletionHandler:^(NSModalResponse response) {
+        if (response != NSModalResponseOK || !panel.URL) { g_recipe_export_busy = false; return; }
+        NSURL *destination = panel.URL;
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ @autoreleasepool {
+            char error[256] = {0};
+            bool ok = renderer_export_recipes(destination.fileSystemRepresentation, error, sizeof error);
+            pthread_mutex_lock(&recipe_message_lock);
+            if (ok) snprintf(recipe_export_message, sizeof recipe_export_message, "Exported %s. Nothing was uploaded.", destination.lastPathComponent.UTF8String);
+            else snprintf(recipe_export_message, sizeof recipe_export_message, "%s", error);
+            pthread_mutex_unlock(&recipe_message_lock);
+            g_recipe_export_busy = false;
+        }});
+    }];
+}
+#endif
 
 struct QEvent {
     enum { KEY, ANALOG, MOUSE_POS, MOUSE_BUTTON, WHEEL, TEXT } kind;
@@ -269,6 +333,11 @@ bool menu_handle_event(const SDL_Event *e) {
 
 void menu_apply_window_requests(void *win) {
     SDL_Window *w = (SDL_Window *)win;
+#ifdef __APPLE__
+    if (g_recipe_export_request.exchange(false)) recipe_export_dialog();
+    if (g_catalog_update_request.exchange(false)) catalog_update_start();
+    if (g_recipe_contribute_request.exchange(false)) SDL_OpenURL("https://github.com/lucabravi/MonZaMac/issues/new?template=shader-recipes.yml");
+#endif
     g_pixel_density = SDL_GetWindowPixelDensity(w);
     static bool text_input;
     bool want_text = capturing();
@@ -289,6 +358,7 @@ static bool g_inited;
 static ImGuiContext *g_ctx;  // ours: the start screen (back to it after a reboot) has its own context
 static ImFont *g_font, *g_font_big;
 static ImFont *g_menu_font, *g_menu_font_big;  // the menu window (Baloo 2); everything else keeps g_font
+static int g_tab_request_next = -2;  // (set while the tab bar is drawn: the tab the cursor moved onto)
 static int g_tab, g_tab_request = -2;  // (-2: no request; -1 is the Prelaunch tab)
 static int g_focus_tab = -99;  // put the nav cursor on this tab next frame (-100: the selected one; -99: none)
 static int g_focus_frames;
@@ -492,27 +562,73 @@ static void tab_display(void) {
     }
 
     opt_section("Rendering");
-    // display order -> RES_* (the ini / enum order predates the menu order)
-    // (up to 4x: 7680 x 4320, 8K - more only ran out of GPU memory, and sat next to 75% in the list)
-    // (Match display in the middle: left from it 75% / 50% / 25%, right Dynamic then 1x-4x; user 2026-10-11)
-    static const char *res[] = {"25%", "50%", "75%", "Match display", "Dynamic", "Dynamic 1.5x", "1x", "1.5x", "2x", "3x", "4x"};
-    static const int res_mode[] = {RES_Q25, RES_Q50, RES_Q75, RES_MATCH, RES_DYNAMIC, RES_DYNAMIC_X15, 1, RES_X15, 2, 3, 4};
-    enum { RES_MATCH_AT = 3, RES_1X_AT = 6 };
-    enum { NRES = sizeof res_mode / sizeof res_mode[0] };
+    // Two choices: Fixed or Dynamic, then the resolution - for Dynamic how far up it may go (it's lowered while the GPU
+    // can't hold the frame rate). Display order -> RES_* (the ini / enum order predates the menu order).
+    // (Fixed: Match display in the middle, left from it 75% / 50% / 25%, right 1x-4x; user 2026-10-11)
+    // (the same names in both: lines of the game's image - 1080p docked, 720p handheld - N times, or the display's own)
+    // (the same names in both: lines of the game's image - 1080p docked, 720p handheld - N times, or the display's own;
+    // each list in order of lines, Match display and the shares of it where the window puts them)
+    static char lines[5][16], up[2][24], match[32], up_match[40], share[3][24];
+    int base = g_settings.handheld ? 720 : 1080;
+    const double mul[5] = {1, 1.5, 2, 3, 4};
+    for (int i = 0; i < 5; i++) snprintf(lines[i], sizeof lines[i], "%dp", (int)(base * mul[i]));
+    for (int i = 0; i < 2; i++) snprintf(up[i], sizeof up[i], "Up to %s", lines[i]);
+    int ww = 0, wh = 0;
+    if (ui_window()) SDL_GetWindowSizeInPixels(ui_window(), &ww, &wh);
+    int ml = ww > 0 && wh > 0 ? (int)lround(fmin(ww / 1920.0, wh / 1080.0) * 1080.0) : 0;  // (as output_scale: 16:9 fitted)
+    const int pct[3] = {25, 50, 75};  // (of the game's own image)
+    for (int i = 0; i < 3; i++) snprintf(share[i], sizeof share[i], "%dp (%d%%)", base * pct[i] / 100, pct[i]);
+    if (ml) snprintf(match, sizeof match, "Match display (%dp)", ml), snprintf(up_match, sizeof up_match, "Up to match display (%dp)", ml);
+    else snprintf(match, sizeof match, "Match display"), snprintf(up_match, sizeof up_match, "Up to match display");
+    struct Res { const char *name; int mode, lines; };
+    Res fr[] = {{share[0], RES_Q25, base / 4}, {share[1], RES_Q50, base / 2}, {share[2], RES_Q75, base * 3 / 4}, {match, RES_MATCH, ml},
+                {lines[0], 1, base}, {lines[1], RES_X15, base * 3 / 2}, {lines[2], 2, base * 2}, {lines[3], 3, base * 3},
+                {lines[4], 4, base * 4}};
+    Res dr[] = {{up[0], RES_DYNAMIC_X1, base}, {up[1], RES_DYNAMIC_X15, base * 3 / 2}, {up_match, RES_DYNAMIC, ml}};
+    enum { NFIXED = sizeof fr / sizeof fr[0], NDYN = sizeof dr / sizeof dr[0] };
+    auto by_lines = [&](Res *r, int n) {  // (stable: equal lines keep the order above; no window yet: as listed)
+        for (int a = 1; ml && a < n; a++)
+            for (int b = a; b > 0 && r[b].lines < r[b - 1].lines; b--) std::swap(r[b], r[b - 1]);
+    };
+    by_lines(fr, NFIXED), by_lines(dr, NDYN);
+    const char *fixed[NFIXED], *dyn[NDYN];
+    int fixed_mode[NFIXED], dyn_mode[NDYN], fixed_def = 0, dyn_def = 0;
+    for (int i = 0; i < NFIXED; i++) { fixed[i] = fr[i].name, fixed_mode[i] = fr[i].mode; if (fr[i].mode == 1) fixed_def = i; }
+    for (int i = 0; i < NDYN; i++) { dyn[i] = dr[i].name, dyn_mode[i] = dr[i].mode; if (dr[i].mode == RES_DYNAMIC_X1) dyn_def = i; }
     {
-        int ri = RES_MATCH_AT;
-        for (int i = 0; i < NRES; i++) if (res_mode[i] == g_settings.res_mode) ri = i;
+        bool is_dyn = res_is_dynamic(g_settings.res_mode);
         float sx, sy;
         renderer_get_scale(&sx, &sy);
         char d[640];
-        int n = snprintf(d, sizeof d, "How sharp the 3D image is. Match display: your screen's own resolution. Dynamic: "
-                                      "as sharp as your GPU keeps at full speed. Dynamic 1.5x: 1.5x while your GPU keeps "
-                                      "the frame rate, lower when it can't. 1x-4x: the Switch's 1080p times that. "
-                                      "75%% / 50%% / 25%%: a share of the display, for slower machines.\n\nRendering at "
-                                      "%.0f x %.0f.", 1920.0 * sx, 1080.0 * sy);
-        if (g_settings.res_mode == RES_DYNAMIC || g_settings.res_mode == RES_DYNAMIC_X15)
-            snprintf(d + n, sizeof d - n, " Dynamic: %.0f%% of its top resolution right now.", output_scale_dynamic_factor() * 100);
-        if (opt_choice("Internal resolution", &ri, res, NRES, RES_1X_AT, d, false)) g_settings.res_mode = res_mode[ri];
+        int n = snprintf(d, sizeof d, "Fixed: always the resolution you choose. Dynamic: as sharp as your GPU can draw while "
+                                      "keeping the frame rate, lowered when it can't, up to the resolution you choose.\n\n"
+                                      "Rendering at %.0f x %.0f.", 1920.0 * sx, 1080.0 * sy);
+        if (is_dyn) snprintf(d + n, sizeof d - n, " Dynamic: %.0f%% of its top resolution right now.", output_scale_dynamic_factor() * 100);
+        static const char *modes[] = {"Fixed", "Dynamic"};
+        int mi = is_dyn;
+        if (opt_choice("Resolution mode", &mi, modes, 2, 1, d, false) && mi != (int)is_dyn) {
+            // the nearest of the other kind: Match display <-> this screen, 1x and below <-> 1080p, above <-> 1620p
+            int m = g_settings.res_mode;
+            if (mi) g_settings.res_mode = m == RES_MATCH ? RES_DYNAMIC : (m == 1 || m == RES_Q25 || m == RES_Q50 || m == RES_Q75) ? RES_DYNAMIC_X1 : RES_DYNAMIC_X15;
+            else g_settings.res_mode = m == RES_DYNAMIC ? RES_MATCH : m == RES_DYNAMIC_X1 ? 1 : RES_X15;
+            is_dyn = mi;
+        }
+        char d2[480];
+        if (is_dyn) {
+            snprintf(d2, sizeof d2, "The sharpest the dynamic resolution goes: the game's own %s, %s (1.5x), or your "
+                                    "display's own resolution. It's lowered from there while your GPU can't keep the frame rate.",
+                     lines[0], lines[1]);
+            int ri = dyn_def;
+            for (int i = 0; i < NDYN; i++) if (dyn_mode[i] == g_settings.res_mode) ri = i;
+            if (opt_choice("Internal resolution", &ri, dyn, NDYN, dyn_def, d2, false)) g_settings.res_mode = dyn_mode[ri];
+        } else {
+            snprintf(d2, sizeof d2, "How sharp the 3D image is. Match display: your display's own resolution. %s: the game's "
+                                    "own image (%s mode), %s-%s: 1.5x to 4x that. The percentages: a share of the game's own image, "
+                                    "for slower Macs.", lines[0], g_settings.handheld ? "handheld" : "docked", lines[1], lines[4]);
+            int ri = fixed_def;
+            for (int i = 0; i < NFIXED; i++) if (fixed_mode[i] == g_settings.res_mode) ri = i;
+            if (opt_choice("Internal resolution", &ri, fixed, NFIXED, fixed_def, d2, false)) g_settings.res_mode = fixed_mode[ri];
+        }
     }
     {   // each OS's own upscaler next to bilinear (UPSCALE_SHARP: MetalFX on macOS, AMD FSR 1 on Windows)
 #ifdef __APPLE__
@@ -537,10 +653,6 @@ static void tab_display(void) {
     opt_choice("Anti-aliasing", &g_settings.antialias, aa, 2, AA_SMAA,
                "Smooths jagged edges of the game image before it is scaled to the window. SMAA: finds the edges and "
                "blends only along them, so textures stay sharp. Most useful at a lower internal resolution.");
-    opt_toggle("Wait for shaders", &g_settings.wait_shaders, false,
-               "A shader or pipeline the game needs for the first time is compiled on the spot, and the game waits: a short "
-               "stutter, but nothing is missing from the picture. Off: it compiles in the background and the objects that "
-               "need it are left out of the picture until it is ready (the pipelines saved from earlier runs are quick).");
     {   // Pokémon Z-A's own effects (runtime/hle/za_mods.c): the same patch build as the frame mode
         if (za_rows()) {
             opt_toggle("Game FXAA", &g_settings.fxaa, true,
@@ -578,6 +690,51 @@ static void tab_display(void) {
         }
     }
 
+    opt_end();
+}
+
+static void tab_shaders(void) {
+    opt_begin("##shaders", ImGui::GetFontSize() / 34);
+    opt_section("Shader preparation");
+    opt_toggle("Compile shaders early", &g_settings.early_shaders, true,
+               "Compile learned shader variants in the background when the game registers them, before their first draw. "
+               "Uses available CPU workers and recipes from the installed catalog and local discoveries. "
+               "Unknown variants compile normally. New catalogs are read on the next app launch.");
+    opt_toggle("Prepare known shaders", &g_settings.prepare_shaders, false,
+               "Before starting, build the graphics pipelines in an installed shader catalog from your own game files. "
+               "Reduces first-encounter stutter for covered effects. Takes extra time at startup; unseen variants still compile normally. "
+               "Requires a compatible catalog. Changes apply on the next game start.");
+#ifdef __APPLE__
+    opt_section("Catalog and contributions");
+    opt_toggle("Collect new shader recipes", &g_settings.collect_shader_recipes, true,
+               "Locally records only new graphics pipeline recipes missing from the prepared catalog. Metadata is deduplicated "
+               "and saved in the background; game code, keys and saves are not included. Nothing is uploaded. "
+               "New shader programs are collected from the next game start.");
+    unsigned recipes = renderer_recipe_count();
+    char value[48]; snprintf(value, sizeof value, g_recipe_export_busy.load() ? "Working..." : "%u recipes", recipes);
+    std::string description = "Save a metadata-only JSON contribution for manual review and sharing. "
+                              "Export does not submit it anywhere. Recipes with unknown source locations still need investigation.";
+    pthread_mutex_lock(&recipe_message_lock);
+    if (*recipe_export_message) { description += "\n\n"; description += recipe_export_message; }
+    pthread_mutex_unlock(&recipe_message_lock);
+    if (!recipes || g_recipe_export_busy.load()) opt_disable_next();
+    if (opt_action("Export shader recipes", value, description.c_str())) g_recipe_export_request = true;
+    if (g_recipe_export_busy.load()) opt_disable_next();
+    if (opt_action("Contribute recipes on GitHub", "Open form",
+                   "First export your recipes above, then attach that JSON file to the GitHub form. "
+                   "Opens your browser; no file or game data is uploaded by the app.")) g_recipe_contribute_request = true;
+    if (g_recipe_export_busy.load()) opt_disable_next();
+    std::string catalog_description = "Download a metadata catalog from official MonZaMac GitHub releases and verify it against your own game files. "
+                                      "Nothing is uploaded. Your previous catalog is kept if verification fails. Applies on the next game start.";
+    pthread_mutex_lock(&recipe_message_lock);
+    if (*recipe_export_message) { catalog_description += "\n\n"; catalog_description += recipe_export_message; }
+    pthread_mutex_unlock(&recipe_message_lock);
+    if (opt_action("Update shader catalog", g_recipe_export_busy.load() ? "Working..." : "Check now", catalog_description.c_str())) g_catalog_update_request = true;
+#endif
+    opt_toggle("Wait for shaders", &g_settings.wait_shaders, false,
+               "A shader or pipeline the game needs for the first time is compiled on the spot, and the game waits: a short "
+               "stutter, but nothing is missing from the picture. Off: it compiles in the background and the objects that "
+               "need it are left out of the picture until it is ready (the pipelines saved from earlier runs are quick).");
     opt_end();
 }
 
@@ -814,13 +971,13 @@ extern "C" int menu_keyboard_run(const char *initial, int max_len, char *out, in
 static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
     // (id: the page; -1 = Prelaunch)
     struct Tab { const char *name; int id; bool on; };
-    Tab tabs[6];
+    Tab tabs[8];
     int ntabs = 0;
     if (prelaunch) tabs[ntabs++] = {"Prelaunch", -1, true};
-    static const char *names[] = {"Video", "Audio", "", "", "", "", "", "", "Controls", "Quit", "Developer"};
-    static const int order[] = {8, 0, 1, 9};  // Controls, Video, Audio, Quit (ids stay: test hooks)
-    for (int i : order)  // (Quit: in game only - the start screen has its own QUIT)
-        if (i != 9 || !prelaunch) tabs[ntabs++] = {names[i], i, true};
+    static const char *names[] = {"Video", "Audio", "", "", "", "", "", "", "Controls", "Quit", "Developer", "Saves", "Shaders"};
+    static const int order[] = {8, 0, 12, 1, 11, 9};  // Controls, Video, Shaders, Audio, Saves, Quit (ids stay: test hooks)
+    for (int i : order)  // (Saves and Quit: in game only - the start screen has its own SAVES and QUIT)
+        if ((i != 9 && i != 11) || !prelaunch) tabs[ntabs++] = {names[i], i, true};
     if (g_settings.developer || getenv("LARECOMP_DEVELOPER")) tabs[ntabs++] = {names[10], 10, true};
     int cur = 0;  // g_tab / g_tab_request hold ids
     for (int i = 0; i < ntabs; i++) if (tabs[i].id == g_tab) cur = i;
@@ -879,7 +1036,13 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
                 ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(a.x + 2, b.y - h), ImVec2(b.x - 2, b.y),
                                                           IM_COL32(72, 214, 255, 255));  // (the menu's gold)
             }
-            if (ImGui::IsItemFocused()) focused_tab = t.id;
+            if (ImGui::IsItemFocused()) {
+                focused_tab = t.id;
+                // keyboard / controller: the cursor moving onto a tab opens it, as L/R do (the mouse still clicks)
+                ImGuiContext &g = *ImGui::GetCurrentContext();
+                if (t.on && t.id != g_tab && g.NavCursorVisible && g.NavInputSource != ImGuiInputSource_Mouse && !any_popup)
+                    g_tab_request_next = t.id;
+            }
             else if (focused_tab == t.id) focused_tab = -99;
             ImGui::EndDisabled();
             if (open) {
@@ -898,9 +1061,15 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
                 case -1: prelaunch(scale); break;
                 case 0: tab_display(); break;
                 case 1: tab_audio(); break;
+                case 12: tab_shaders(); break;
                 case 8: tab_about(); break;
                 case 9: tab_quit(scale, in_game); break;
                 case 10: tab_developer(); break;
+                case 11: {  // (true: the game restarts with another save)
+                    bool saves_ingame_tab(float, ImFont *, ImFont *);
+                    if (saves_ingame_tab(scale, g_font_big, g_font)) set_open(false);
+                    break;
+                }
                 }
                 static const char *scroll_test = getenv("LARECOMP_MENU_SCROLL");  // test hook: page scroll, 0..1
                 if (scroll_test) ImGui::SetScrollY(ImGui::GetScrollMaxY() * (float)atof(scroll_test));
@@ -908,7 +1077,7 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
                 ImGui::EndTabItem();
             }
         }
-        g_tab_request = -2;
+        g_tab_request = g_tab_request_next, g_tab_request_next = -2;
         opt_focus_first(false);  // (a page without option rows: nothing took it)
         ImGui::EndTabBar();
     }
@@ -993,7 +1162,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
             extern bool g_za_frame_hook;
             bool hh = g_za_frame_hook && am_handheld();  // (the game's own size: handheld renders for 1280x720)
             ImGui::Text("render %.0f x %.0f%s", (hh ? 1280.0 : 1920.0) * sx, (hh ? 720.0 : 1080.0) * sy, hh ? " (handheld)" : "");
-            if (g_settings.res_mode == RES_DYNAMIC || g_settings.res_mode == RES_DYNAMIC_X15) {
+            if (res_is_dynamic(g_settings.res_mode)) {
                 double fm, gm;
                 bool gok = output_scale_dynamic_stats(&fm, &gm);
                 ImGui::Text("dynamic %.0f%%  (frame %.1f ms, gpu %.1f ms%s)", output_scale_dynamic_factor() * 100, fm, gm, gok ? "" : ", not used");

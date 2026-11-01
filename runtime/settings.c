@@ -16,6 +16,8 @@ static const char *settings_file(void) {
 }
 
 Settings g_settings = {
+    .collect_shader_recipes = true,
+    .early_shaders = true,
     .aspect = ASPECT_ORIGINAL,
     // the defaults of a new player (an existing larecomp.ini keeps its own): fullscreen, dynamic resolution, 60 fps, SMAA,
     // authentic 16:9, sharper textures (anisotropic filtering)
@@ -23,7 +25,7 @@ Settings g_settings = {
     .mouse_speed = 1.0f,
     .mouse_camera = MOUSE_CAM_HOLD,
     .mouse_camera_button = MOUSE_BTN_RIGHT,
-    .res_mode = RES_DYNAMIC,
+    .res_mode = RES_DYNAMIC_X1,  // (dynamic up to the game's own 1080p: holds the frame rate on most Macs)
     .fps60 = true,
     .antialias = AA_SMAA,
     .volume = 1.0f,
@@ -106,6 +108,9 @@ void settings_load(void) {
         else if (!strcmp(key, "fps60")) g_settings.fps60 = atoi(val) != 0;
         else if (!strcmp(key, "fps60_steady")) {}  // retired: fps60 alone selects the dynamic 60 fps mode
         else if (!strcmp(key, "game_mode")) g_settings.handheld = !strcmp(val, "handheld");
+        else if (!strcmp(key, "collect_shader_recipes")) g_settings.collect_shader_recipes = atoi(val) != 0;
+        else if (!strcmp(key, "early_shaders")) g_settings.early_shaders = atoi(val) != 0;
+        else if (!strcmp(key, "prepare_shaders")) g_settings.prepare_shaders = atoi(val) != 0;
         else if (!strcmp(key, "wait_for_shaders")) g_settings.wait_shaders = atoi(val) != 0;
         else if (!strcmp(key, "gpu_overlap")) g_settings.gpu_overlap = atoi(val) != 0;
         else if (!strcmp(key, "xfb_barrier")) g_settings.xfb_barrier = atoi(val) != 0;
@@ -124,7 +129,7 @@ void settings_load(void) {
         else if (!strcmp(key, "shadow_sharpness")) { int v = atoi(val); g_settings.shadow_sharp = v < 1 ? 1 : v > 4 ? 4 : v; shadow_key = true; }
         else if (!strcmp(key, "resolution")) {
             int n = atoi(val);
-            g_settings.res_mode = !strcmp(val, "1.5x") ? RES_X15 : !strcmp(val, "dynamic 1.5x") ? RES_DYNAMIC_X15 :
+            g_settings.res_mode = !strcmp(val, "1.5x") ? RES_X15 : !strcmp(val, "dynamic 1.5x") ? RES_DYNAMIC_X15 : !strcmp(val, "dynamic 1x") ? RES_DYNAMIC_X1 :
                                   !strcmp(val, "dynamic") ? RES_DYNAMIC : (!strcmp(val, "75%") || !strcmp(val, "67%")) ? RES_Q75 :
                                   !strcmp(val, "50%") ? RES_Q50 : !strcmp(val, "25%") ? RES_Q25 :
                                   (n >= 1 && n <= 4) ? n : n > 4 ? 4 : RES_MATCH;  // (5x-8x were removed)
@@ -183,6 +188,9 @@ void settings_save(void) {
     fprintf(f, "show_fps = %d\n", g_settings.show_fps);
     fprintf(f, "fps60 = %d\n", g_settings.fps60);
     fprintf(f, "game_mode = %s\n", g_settings.handheld ? "handheld" : "docked");
+    fprintf(f, "collect_shader_recipes = %d\n", g_settings.collect_shader_recipes);
+    fprintf(f, "early_shaders = %d\n", g_settings.early_shaders);
+    fprintf(f, "prepare_shaders = %d\n", g_settings.prepare_shaders);
     fprintf(f, "wait_for_shaders = %d\n", g_settings.wait_shaders);
     fprintf(f, "gpu_overlap = %d\n", g_settings.gpu_overlap);
     fprintf(f, "xfb_barrier = %d\n", g_settings.xfb_barrier);
@@ -205,6 +213,7 @@ void settings_save(void) {
     else if (g_settings.res_mode == RES_Q50) fprintf(f, "resolution = 50%%\n");
     else if (g_settings.res_mode == RES_X15) fprintf(f, "resolution = 1.5x\n");
     else if (g_settings.res_mode == RES_DYNAMIC_X15) fprintf(f, "resolution = dynamic 1.5x\n");
+    else if (g_settings.res_mode == RES_DYNAMIC_X1) fprintf(f, "resolution = dynamic 1x\n");
     else if (g_settings.res_mode >= 1 && g_settings.res_mode <= 8) fprintf(f, "resolution = %dx\n", g_settings.res_mode);
     else fprintf(f, "resolution = match\n");
     fprintf(f, "dpad_move = %d\n", g_settings.dpad_move);

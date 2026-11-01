@@ -5,8 +5,10 @@
 #include "../kernel.h"
 #include "../settings.h"
 #include "nvn.h"
+#include "shader_trace.h"
 
 void renderer_sync(void);
+void renderer_shader_registered(const NvnShaderStage *stage);
 
 static uint64_t next_debug_id = 1;
 
@@ -511,8 +513,24 @@ NVN(nvnTextureWriteTexels) {
     }
 }
 NVN(nvnTextureWriteTexelsStrided) { LOG("[nvn] WriteTexelsStrided not implemented\n"); (void)c; }
-NVN(nvnTextureReadTexels) { LOG("[nvn] ReadTexels not implemented\n"); (void)c; }
-NVN(nvnTextureReadTexelsStrided) { (void)c; static int seen_; if (!seen_++ && getenv("LARECOMP_LOG_NOOP")) LOG("[nvn] no-op called: nvnTextureReadTexelsStrided\n"); }
+// The CPU reading a texture: Royale Z-A's profile photo stayed black - a picture the game draws and then reads back to
+// keep; both calls were no-ops. The contents live in the Metal texture, not in the pool memory: read there, after the
+// work recorded so far (the game waits for its GPU work before reading).
+static void texture_read(uint64_t tex, uint64_t view, uint64_t region, uint64_t data, uint64_t row, uint64_t img, const char *fn) {
+    NvnTexture *t = tex ? HOST(NvnTexture, tex) : NULL;
+    if (!t || !data) return;
+    int32_t rg[6] = {0};
+    if (region) memcpy(rg, (const void *)(uintptr_t)region, sizeof rg);
+    static int nlog;
+    if (nlog++ < 8)
+        LOG("[nvn] %s: %ux%u fmt %#x, region %d,%d %dx%d, strides %llu / %llu\n", fn, t->width, t->height, t->format, rg[0],
+            rg[1], rg[3], rg[4], (unsigned long long)row, (unsigned long long)img);
+    exec_lock_take();
+    backend_texture_read(t, view ? (const void *)(uintptr_t)view : NULL, rg, (void *)(uintptr_t)data, row, img);
+    exec_lock_give();
+}
+NVN(nvnTextureReadTexels) { texture_read(A(0), A(1), A(2), A(3), 0, 0, "ReadTexels"); }
+NVN(nvnTextureReadTexelsStrided) { texture_read(A(0), A(1), A(2), A(3), A(4), A(5), "ReadTexelsStrided"); }
 
 // ================================================================== samplers
 // SamplerBuilder: device@0 then an NvnSamplerDesc at 8
@@ -669,6 +687,8 @@ static void set_shaders(Cpu *c, int stride) {
         p->stages[stage].const_offset = *(const uint32_t *)(control + 0x700);
         p->stages[stage].const_size = *(const uint32_t *)(control + 0x6FC);
         p->stage_mask |= 1u << stage;
+        if (shader_trace_enabled()) shader_trace_stage(c, &p->stages[stage], A(0));
+        renderer_shader_registered(&p->stages[stage]);
     }
     RET(1);
 }

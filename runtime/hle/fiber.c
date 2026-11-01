@@ -45,6 +45,7 @@ typedef struct Co {
     void *stack;
 #endif
     Cpu *cpu;
+    bool own_cpu;  // allocated here (else a thread's, which isn't ours to free)
     int started;
     atomic_int busy;  // a host thread runs on this fiber (or is still leaving it)
 } Co;
@@ -85,7 +86,7 @@ RT_ON_RESET(fiber_reset) {
 #else
         if (fibers[i]->stack) munmap(fibers[i]->stack, CO_STACK);
 #endif
-        free(fibers[i]->cpu);
+        if (fibers[i]->own_cpu) free(fibers[i]->cpu);
         free(fibers[i]);
     }
     ncos = 0;
@@ -156,10 +157,12 @@ HLE_FUNC("_ZN2nn2os6detail20DispatchFiberContextEPPNS1_22FiberContextForHorizonE
     ST64(from, sp);
     pthread_mutex_lock(&co_lock);
     Co *me = co_get(from), *dst = co_get(to);
+    if (me->cpu != c) me->own_cpu = false;
     me->cpu = c;  // (whatever runs now: a fiber's own Cpu, or the thread's on its first switch)
     me->started = 1;
     atomic_store(&me->busy, 1);  // (running on it: already so when we got here through a trampoline)
     if (!dst->cpu) {
+        dst->own_cpu = true;
         dst->cpu = calloc(1, sizeof(Cpu));  // (16-byte aligned on the 64-bit hosts)
     }
     identity(dst->cpu, c);

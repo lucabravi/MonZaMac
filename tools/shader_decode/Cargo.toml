@@ -1,0 +1,9 @@
+[package]
+name = "monzamac-shader-decode"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[dependencies]
+oozextract = { version = "=0.5.7", default-features = false }

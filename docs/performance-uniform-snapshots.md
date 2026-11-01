@@ -51,6 +51,22 @@ percentages; the repeated A/B runs above provide the frame-rate evidence.
 The prior `develop-update.log` also contained a `fiber_reset` crash during in-place reboot. That separate correctness
 issue was recorded; it was not involved in these isolated normal-quit benchmark runs.
 
+## Cache size (2026-10-31)
+
+At 1x in the starting scene a frame binds ~2300 indexed constant buffers (14.8 MB, copied whole: the shader indexes
+them with a register) and ~5600 fixed ones (3.3 MB). With 128 direct-mapped slots they evicted each other: per 2 s,
+1.61 GB copied / 2.85 GB reused. 4096 slots (128 KB): 0.70 GB copied / 3.93 GB reused. Uncapped, four alternating
+pairs: 99.0 -> 100.4 fps at 1x (CPU 9.2 -> 9.0 ms), 65.0 -> 65.6 at 1.5x. Same rules: a hit still compares every
+byte, a ring reset still invalidates every entry. Reading indexed buffers in place instead (no snapshot) would remove
+the remaining traffic but lets a CPU write reach a draw still on the GPU: it is an experimental switch,
+`LARECOMP_CBUF_INPLACE=1`, off by default. Same scene, 1x, uncapped, four pairs: CPU 9.00 -> 8.73 ms (-3%), GPU
+7.90 -> 7.97 ms; captures at the same frame with the frame rate capped were identical (uncapped captures differ only
+by the time of day, which runs at another speed). A standing scene does not show the risky case (a buffer rewritten
+while a draw that reads it is still on the GPU): it needs play-testing - battles, running, cutscenes - before it can
+be on by default. At 1.5x (4K shadows, GPU bound) it costs: four pairs, GPU 15.24 -> 15.76 ms,
+65.6 -> 63.4 fps (-3.3%) - the GPU reads the indexed buffers worse from the guest heap than from the ring of
+snapshots. Worth it only where the CPU is the limit (1x, slower CPUs), so it stays off. 8192 cache entries instead of 4096: copied bytes -1.5%, CPU 9.00 vs 8.97 ms (no difference).
+
 ## Correctness checks
 
 The native `uniform-snapshots` fixture checks unchanged reuse and changed data, then executes GPU reads of all

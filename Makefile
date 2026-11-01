@@ -166,9 +166,12 @@ dmg: app
 
 # The game code generator, the same way (tools/lasgen.spec): build/helper/lasgen/, shipped as lasgen/ next to the exe or
 # in Contents/Resources. The start screen's setup runs it on the player's own game files (runtime/gamebuild.c).
-gen-helper: build/helper-venv/.ok
+gen-helper: build/helper-venv/.ok build/shader-decode/release/monzamac-shader-decode
 	build/helper-venv/bin/python -m PyInstaller --noconfirm --clean --log-level WARN --distpath build/helper \
 	    --workpath build/pyinstaller tools/lasgen.spec
+	cp build/shader-decode/release/monzamac-shader-decode build/helper/lasgen/
+	build/helper-venv/bin/python tools/shader_decoder_notices.py --deps build/shader-decode/release/deps \
+	    --lock tools/shader_decode/Cargo.lock --manifest tools/shader_decode/Cargo.toml --output build/helper/lasgen/shader-decoder-licenses
 	@du -sh build/helper/lasgen
 
 build/helper-venv/.ok:
@@ -186,7 +189,8 @@ METAL_TEST_OBJS := $(filter-out $(B)/rt/nvn/metal.o $(B)/rt/nvn/renderer.o,$(RT_
 $(B)/tests/metal_backend.o: tools/test_metal_backend.m runtime/nvn/metal.m $(RT_HDRS)
 	@mkdir -p $(dir $@)
 	$(CC) $(RTFLAGS) -fobjc-arc -ftrivial-auto-var-init=pattern -c $< -o $@
-$(B)/tests/metal_renderer.o: tools/test_metal_renderer.m runtime/nvn/renderer.m $(RT_HDRS)
+$(B)/rt/nvn/renderer.o: runtime/nvn/shader_prepare.inc runtime/nvn/shader_recipe_record.inc runtime/nvn/shader_early.inc
+$(B)/tests/metal_renderer.o: tools/test_metal_renderer.m runtime/nvn/renderer.m runtime/nvn/shader_prepare.inc runtime/nvn/shader_recipe_record.inc runtime/nvn/shader_early.inc $(RT_HDRS)
 	@mkdir -p $(dir $@)
 	$(CC) $(RTFLAGS) -fobjc-arc -c $< -o $@
 $(B)/test_metal_renderer: $(METAL_TEST_OBJS) $(B)/tests/metal_backend.o $(B)/tests/metal_renderer.o
@@ -194,3 +198,25 @@ $(B)/test_metal_renderer: $(METAL_TEST_OBJS) $(B)/tests/metal_backend.o $(B)/tes
 .PHONY: test-metal-renderer
 test-metal-renderer: $(B)/test_metal_renderer
 	$(B)/test_metal_renderer $(or $(CASE),all)
+
+$(B)/test_saves_io: tools/test_saves_io.c runtime/saves.c runtime/saves.h
+	@mkdir -p $(dir $@)
+	$(CC) -O1 -Wall -Iruntime -o $@ tools/test_saves_io.c runtime/saves.c
+.PHONY: test-saves-io
+test-saves-io: $(B)/test_saves_io
+	$(B)/test_saves_io
+
+# Native bounded shader decoder: developer build dependency only; players get the helper.
+build/shader-decode/release/monzamac-shader-decode: tools/shader_decode/Cargo.toml tools/shader_decode/Cargo.lock tools/shader_decode/src/main.rs
+	MACOSX_DEPLOYMENT_TARGET=$(or $(MACOS_MIN),15.0) CARGO_TARGET_DIR=$(CURDIR)/build/shader-decode cargo build --locked --release --manifest-path tools/shader_decode/Cargo.toml
+
+.PHONY: test-shader-catalog
+test-shader-catalog:
+	$(or $(PY),python3) tools/test_shader_catalog.py
+	$(or $(PY),python3) tools/test_shader_catalog_update.py
+	$(or $(PY),python3) tools/test_shader_inputs.py
+	$(or $(PY),python3) tools/test_shader_decoder.py build/shader-decode/release/monzamac-shader-decode
+
+.PHONY: test-shader-trace
+test-shader-trace:
+	python3 tools/test_shader_trace.py

@@ -243,7 +243,10 @@ int main(int argc, char **argv) {
             kernel_stop_threads(NULL);  // stop producing GPU work before atexit saves the pipeline archive
             return 0;
         }
+        extern const char *g_save_dir;  // runtime/services/fs.c
+        const char *save_dir = g_save_dir;  // (a static buffer of saves.c, a literal or the environment's: outlives teardown)
         teardown();
         title = kind == RT_REBOOT_TITLE;
+        if (!title) g_save_dir = save_dir;  // a reboot into the game keeps the save it had or was switched to (the Saves tab)
     }
 }

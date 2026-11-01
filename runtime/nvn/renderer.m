@@ -1,9 +1,11 @@
 // Executes recorded NVN command lists with Metal.
 #include <pthread.h>
+#include <CommonCrypto/CommonDigest.h>
 #include <dirent.h>
 #include <unistd.h>
 #import <Metal/Metal.h>
 #include <mach/mach_time.h>
+#include <mach/mach_vm.h>
 #include <stdlib.h>
 #include <string.h>
 #include <float.h>
@@ -13,8 +15,11 @@
 
 #include "maxwell/shader.h"
 #include "cache_probe.h"
+#include "shader_trace.h"
 #include "nvn.h"
 #include "renderer.h"
+#include "../paths.h"
+#include "../platform.h"
 #include "../settings.h"  // (g_settings.game_drs)
 
 static id<MTLDevice> dev;
@@ -106,7 +111,7 @@ static unsigned g_pt_frames, g_pt_pending, g_pt_total, g_pt_n;
 static int g_pt_cur = -1;
 static uint64_t g_pt_draws;
 static struct { int w, h, colors; bool depth; uint64_t draws0, draws, fs; } g_pt_meta[PT_MAX];  // fs: the first draw's fragment program
-static struct { double ticks; unsigned frames; } g_pt_sum[PT_MAX];
+static struct { double ticks, idle; unsigned frames; } g_pt_sum[PT_MAX];  // idle: of ticks, the GPU had no earlier pass running
 static unsigned g_pt_maxn;
 static double g_pt_span_sum;  // sum over frames of (last pass end - first pass start), in the counter's ticks
 static unsigned g_pt_span_n;
@@ -169,6 +174,7 @@ static void pass_timing_frame_end(void) {  // (the frame's work is complete)
                 uint64_t end = r[2 * i + 1].timestamp;
                 if (r[2 * i].timestamp == MTLCounterErrorValue || end == MTLCounterErrorValue) continue;
                 g_pt_sum[i].ticks += end > prev ? (double)(end - prev) : 0;
+                g_pt_sum[i].idle += r[2 * i].timestamp > prev ? (double)(r[2 * i].timestamp - prev) : 0;  // started after the previous ended
                 g_pt_sum[i].frames++;
                 if (end > prev) prev = end;
                 if (end > last) last = end;
@@ -192,18 +198,26 @@ static void pass_timing_report(void) {
         for (unsigned b = a; b > 0 && g_pt_sum[order[b]].ticks / g_pt_sum[order[b]].frames > g_pt_sum[order[b - 1]].ticks / g_pt_sum[order[b - 1]].frames; b--) {
             unsigned t = order[b]; order[b] = order[b - 1]; order[b - 1] = t;
         }
-    LOG("[gpupass] %u passes a frame, over %u frames: first start to last end %.0f ticks (~%.2f ms GPU busy per the F3 stats); mean cost of each pass (the time between the previous pass's end and its own) as a share of it, adding up to 100%%; slowest:\n",
+    LOG("[gpupass] %u passes a frame, over %u frames: first start to last end %.0f ticks (~%.2f ms GPU busy per the F3 stats); mean cost of each pass (the time between the previous pass's end and its own) as a share of it, adding up to 100%%, and of that the idle part (before the pass started: the GPU waiting for work, e.g. for the CPU to submit it); slowest:\n",
         g_pt_maxn, g_pt_total, frame_span, g_stat_gpu_ms);
     for (unsigned j = 0; j < k && j < 25; j++) {
         unsigned i = order[j];
         double ticks = g_pt_sum[i].ticks / g_pt_sum[i].frames;
-        LOG("[gpupass] #%u %5.1f%%  ~%.3f ms  %dx%d colors=%d depth=%d draws=%llu fs=%llx\n", i, frame_span > 0 ? 100 * ticks / frame_span : 0,
-            ticks * ms_per_tick, g_pt_meta[i].w, g_pt_meta[i].h, g_pt_meta[i].colors, g_pt_meta[i].depth, (unsigned long long)g_pt_meta[i].draws,
+        LOG("[gpupass] #%u %5.1f%%  ~%.3f ms (idle %.3f)  %dx%d colors=%d depth=%d draws=%llu fs=%llx\n", i, frame_span > 0 ? 100 * ticks / frame_span : 0,
+            ticks * ms_per_tick, g_pt_sum[i].idle / g_pt_sum[i].frames * ms_per_tick, g_pt_meta[i].w, g_pt_meta[i].h, g_pt_meta[i].colors, g_pt_meta[i].depth, (unsigned long long)g_pt_meta[i].draws,
             (unsigned long long)g_pt_meta[i].fs);
     }
 }
 
+static bool early_enabled(void);
+static void early_frame(void);
+static void early_publish(void);
+static void early_reset(void);
+static void early_live_hit(NSString *identity);
+
 void renderer_debug_frame_boundary(uint64_t frame) {
+    early_frame();
+    shader_trace_frame(frame);
     if (g_pt_frames) {  // the frame's passes are done: wait for them, read their timestamps
         renderer_flush_reason("debug-readback");
         pass_timing_frame_end();
@@ -1412,8 +1426,11 @@ static int cbuf_base = 3, tex_base = 8;
     uint64_t vs_addr, fs_addr;  // guest shader code addresses, for failure logs
     _Atomic bool failed;  // published by async compilation, read by get_program and draw waits
     _Atomic bool ready;  // functions compiled (async compile: draws are skipped until then)
+    bool early_pending; // renderer-owned: native early results not yet published
     bool ov_active;      // live shader override applied (build/dbgcmd): ov_path is the source to reload
     char ov_path[256];
+    NSString *prep_id;
+    NSDictionary *prep_record;
 }
 @end
 @implementation Prog
@@ -1443,12 +1460,12 @@ static void ring_reset(void) { ring_off = 0; ring_epoch++; }
 // Uniforms must remain snapshots even if guest memory changes before the GPU reads them. Reuse a snapshot only
 // after comparing all bytes; reset/reallocation invalidates offsets so new allocations cannot overwrite a reuse.
 static uint64_t ring_snapshot(const void *data, uint64_t size) {
-    static struct { const void *source; uint64_t size, offset, epoch; } recent[128];
+    static struct { const void *source; uint64_t size, offset, epoch; } recent[4096];
     static int disabled = -1;
     if (disabled < 0) disabled = getenv("LARECOMP_NO_UNIFORM_CACHE") != NULL;
     if (disabled) { stat_uniform_copied += size; return ring_alloc(data, size); }
     uint64_t h = (uintptr_t)data ^ (size * 0x9e3779b97f4a7c15ull);
-    unsigned slot = (h ^ (h >> 33)) & 127;
+    unsigned slot = (h ^ (h >> 33)) & 4095;
     if (ring && recent[slot].epoch == ring_epoch && recent[slot].source == data &&
         recent[slot].size == size && !memcmp(ring_data + recent[slot].offset, data, size)) {
         stat_uniform_reused += size;
@@ -1704,18 +1721,25 @@ void shader_cache_warm(void) {
 // this run's pipelines (hits included) go into a new one, written on a background queue, which then replaces the file
 // (on the Mac, saving an archive loaded from a file failed with "Invalid URL").
 // LARECOMP_NO_PIPELINE_ARCHIVE=1 turns it off (A/B); delete cache/ to reset it.
+// Metal's serializeToURL: has crashed inside Metal (EXC_BAD_ACCESS, no error returned) on some Macs. A save leaves
+// cache/pipelines.saving while it runs; finding it at the next start means that save killed the game, so the archive
+// stays off from then on (cache/pipelines.crashed), instead of crashing every session.
 static id<MTLBinaryArchive> g_archive;       // this run's pipelines, saved to the file (on g_archive_q only)
 static id<MTLBinaryArchive> g_archive_read;  // the last run's file, only looked up (render thread)
 static dispatch_queue_t g_archive_q;
 static int g_archive_dirty;  // pipelines added since the last save (on g_archive_q)
-static NSMutableArray<MTLRenderPipelineDescriptor *> *g_archive_saved, *g_archive_new;  // in the last save / since (on g_archive_q)
+static NSMutableArray<id> *g_archive_saved, *g_archive_new;  // render and compute descriptors  // in the last save / since (on g_archive_q)
 static int g_archive_hits;   // pipelines found in the archive this run (render thread)
 static NSURL *g_archive_url; // absolute, fixed at open: the working directory may be gone at exit (the tests delete it)
 
 // A failed save leaves the archive empty ("Nothing to serialize"): build it again from the pipelines given
-static void pipeline_archive_rebuild(NSArray<MTLRenderPipelineDescriptor *> *with) {  // on g_archive_q
+static BOOL pipeline_archive_add_desc(id pd, NSError **err) {  // on g_archive_q
+    return [pd isKindOfClass:MTLComputePipelineDescriptor.class] ? [g_archive addComputePipelineFunctionsWithDescriptor:pd error:err]
+                                                                 : [g_archive addRenderPipelineFunctionsWithDescriptor:pd error:err];
+}
+static void pipeline_archive_rebuild(NSArray<id> *with) {  // on g_archive_q
     g_archive = [dev newBinaryArchiveWithDescriptor:[MTLBinaryArchiveDescriptor new] error:nil];
-    for (MTLRenderPipelineDescriptor *pd in with) [g_archive addRenderPipelineFunctionsWithDescriptor:pd error:nil];
+    for (id pd in with) pipeline_archive_add_desc(pd, nil);
 }
 
 // What a pipeline is made of, for the log line of one the archive leaves out: the pattern of those is what is missing to
@@ -1737,6 +1761,8 @@ static void pipeline_archive_save(void) {  // on g_archive_q
     // write next to the file and rename: the archive being looked up still reads the old one
     NSURL *tmp = [g_archive_url URLByAppendingPathExtension:@"tmp"];
     NSError *err;
+    int mk = open("cache/pipelines.saving", O_CREAT | O_WRONLY, 0644);
+    if (mk >= 0) close(mk);
     if (![g_archive serializeToURL:tmp error:&err]) {
         // Some pipelines save alone but not next to others ("expecting 'fragment' stage in pipeline no. N", where N is
         // not the order they were added in): start again from the last saved set and add the new ones one at a time,
@@ -1744,35 +1770,55 @@ static void pipeline_archive_save(void) {  // on g_archive_q
         LOG("[shader] pipeline archive save failed (%s): finding the pipelines that break it\n", err.localizedDescription.UTF8String);
         NSArray *fresh = [g_archive_new copy];
         pipeline_archive_rebuild(g_archive_saved);
-        for (MTLRenderPipelineDescriptor *pd in fresh) {
-            if ([g_archive addRenderPipelineFunctionsWithDescriptor:pd error:nil] && [g_archive serializeToURL:tmp error:&err]) {
+        for (id pd in fresh) {
+            if (pipeline_archive_add_desc(pd, nil) && [g_archive serializeToURL:tmp error:&err]) {
                 [g_archive_saved addObject:pd];
                 continue;
             }
-            LOG("[shader] pipeline archive: %s left out: %s | %s\n", pd.label.UTF8String, err.localizedDescription.UTF8String,
-                pipeline_describe(pd).UTF8String);
+            LOG("[shader] pipeline archive: %s left out: %s | %s\n", [pd label].UTF8String, err.localizedDescription.UTF8String,
+                ([pd isKindOfClass:MTLRenderPipelineDescriptor.class] ? pipeline_describe(pd) : @"compute").UTF8String);
             pipeline_archive_rebuild(g_archive_saved);
         }
         [g_archive_new removeAllObjects];
-        if (![g_archive serializeToURL:tmp error:&err]) { LOG("[shader] pipeline archive save failed: %s\n", err.localizedDescription.UTF8String); return; }
+        if (![g_archive serializeToURL:tmp error:&err]) {
+            LOG("[shader] pipeline archive save failed: %s\n", err.localizedDescription.UTF8String);
+            unlink("cache/pipelines.saving");
+            return;
+        }
     }
+    unlink("cache/pipelines.saving");
     if (rename(tmp.fileSystemRepresentation, g_archive_url.fileSystemRepresentation) != 0) {
         LOG("[shader] pipeline archive save failed: %s\n", strerror(errno));
         return;
     }
     [g_archive_saved addObjectsFromArray:g_archive_new];
     [g_archive_new removeAllObjects];
-    LOG("[shader] pipeline archive saved (%d new, %d found in it this run)\n", g_archive_dirty, g_archive_hits);
+    // A serialized archive is not added to or saved again: Metal crashed on the next save of the same one (issue 101;
+    // probes: 1 crash in 111 saves reusing it, 0 in 118 with a new archive per save)
+    double t0 = CFAbsoluteTimeGetCurrent();
+    pipeline_archive_rebuild(g_archive_saved);
+    LOG("[shader] pipeline archive saved (%d new, %d found in it this run; fresh archive in %.0f ms)\n", g_archive_dirty,
+        g_archive_hits, (CFAbsoluteTimeGetCurrent() - t0) * 1000);
     g_archive_dirty = 0;
 }
 
-void renderer_save_pipeline_archive(void) { if (g_archive_q) dispatch_sync(g_archive_q, ^{ pipeline_archive_save(); }); }
+static void prep_report(void);
+void renderer_save_pipeline_archive(void) {
+    renderer_recipe_flush();
+    if (g_archive_q) dispatch_sync(g_archive_q, ^{ pipeline_archive_save(); });
+    prep_report();
+}
 
 static id<MTLBinaryArchive> pipeline_archive(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         if (getenv("LARECOMP_NO_PIPELINE_ARCHIVE") && atoi(getenv("LARECOMP_NO_PIPELINE_ARCHIVE"))) return;
         mkdir("cache", 0755);
+        if (access("cache/pipelines.saving", F_OK) == 0) {  // the last run died while saving (see above)
+            rename("cache/pipelines.saving", "cache/pipelines.crashed");
+            LOG("[shader] the last pipeline archive save crashed: the archive is off (delete cache/ to try again)\n");
+        }
+        if (access("cache/pipelines.crashed", F_OK) == 0) return;
         g_archive_url = [NSURL fileURLWithPath:@"cache/pipelines.bin"].absoluteURL;
         MTLBinaryArchiveDescriptor *ad = [MTLBinaryArchiveDescriptor new];
         NSError *err;
@@ -1829,10 +1875,11 @@ static void pipeline_archive_add(MTLRenderPipelineDescriptor *pd, Prog *pr) {
     });
 }
 
+static bool g_prep_active, g_prep_translate_only;
 static bool sync_shaders(void) {  // LARECOMP_SYNC_SHADERS or the "Wait for shaders" setting: compile on first use, blocking
     static int v = -1;
     if (v < 0) v = getenv("LARECOMP_SYNC_SHADERS") != NULL;
-    return v || g_settings.wait_shaders;
+    return g_prep_active || v || g_settings.wait_shaders;
 }
 
 // Native shader arguments must match the effective view's scalar type; integer/stencil reads return raw bits.
@@ -1872,26 +1919,132 @@ static uint64_t g_xfb_addr[4], g_xfb_size[4];
 static uint64_t g_ind_off = UINT64_MAX;  // an indirect draw whose arguments the GPU fills in (offset in the gmem window)
 static NvnProgram g_comp_prog;  // the stages bound so far (a game may bind them from several programs)
 
+static void trace_compile(const char *kind, Prog *pr, MTLRenderPipelineDescriptor *pd, double ms) {
+    if (!shader_trace_enabled()) return;
+    shader_trace_compile(kind, ms, pr->vs_addr, pr->fs_addr,
+        pr->vi && pr->vi->msl ? fnv64(pr->vi->msl) : 0,
+        pr->fi && pr->fi->msl ? fnv64(pr->fi->msl) : 0, pd ? pipeline_archivable(pd, pr) : -1);
+    // Hash/state only, bounded per process; makes copied upload aliases traceable
+    // to the exact catalog variant without recording any shader bytes.
+    static unsigned variants;
+    if (!strcmp(kind, "program") && pr->prep_record && __atomic_fetch_add(&variants, 1, __ATOMIC_RELAXED) < 1024) {
+        NSDictionary *row = @{@"program": pr->prep_record,
+            @"vs_msl": [NSString stringWithFormat:@"%016llx", (unsigned long long)(pr->vi && pr->vi->msl ? fnv64(pr->vi->msl) : 0)],
+            @"fs_msl": [NSString stringWithFormat:@"%016llx", (unsigned long long)(pr->fi && pr->fi->msl ? fnv64(pr->fi->msl) : 0)]};
+        NSData *json = [NSJSONSerialization dataWithJSONObject:row options:NSJSONWritingSortedKeys error:nil];
+        if (json) LOG("[shader-variant] %s\n", [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding].UTF8String);
+    }
+}
+
 static void compile_program(Prog *pr) {
     NSError *err = nil;
     double t0 = now_ms();
-    // LARECOMP_SHADER_SALT=<text>: tag sources so Metal's disk cache misses (measure cold first-use compiles)
-    NSString *salt = getenv("LARECOMP_SHADER_SALT") ? [NSString stringWithFormat:@"\n// %s\n", getenv("LARECOMP_SHADER_SALT")] : @"";
-    id<MTLLibrary> vl = [dev newLibraryWithSource:[@(pr->vi->msl) stringByAppendingString:salt] options:game_shader_opts(true) error:&err];
+    // A distinct entry-point name makes cold A/B runs miss GPU function caches too, not just source caches.
+    const char *salt = getenv("LARECOMP_SHADER_SALT");
+    NSString *name = salt ? [NSString stringWithFormat:@"main0_%016llx", (unsigned long long)fnv64(salt)] : @"main0";
+    NSString *vsrc = @(pr->vi->msl), *fsrc = pr->fi->msl ? @(pr->fi->msl) : nil;
+    if (salt) {
+        NSString *entry = [name stringByAppendingString:@"("];
+        vsrc = [vsrc stringByReplacingOccurrencesOfString:@"main0(" withString:entry];
+        fsrc = [fsrc stringByReplacingOccurrencesOfString:@"main0(" withString:entry];
+    }
+    id<MTLLibrary> vl = [dev newLibraryWithSource:vsrc options:game_shader_opts(true) error:&err];
     if (!vl) { LOG("[shader] VS compile failed (%llx): %s\n%s\n", pr->vs_addr, err.localizedDescription.UTF8String, pr->vi->msl); pr->failed = true; return; }
-    id<MTLLibrary> fl = pr->fi->msl ? [dev newLibraryWithSource:[@(pr->fi->msl) stringByAppendingString:salt] options:game_shader_opts(false) error:&err] : nil;
-    if (!fl && pr->fi->msl) { LOG("[shader] FS compile failed (%llx): %s\n%s\n", pr->fs_addr, err.localizedDescription.UTF8String, pr->fi->msl); pr->failed = true; return; }
-    pr->vs = [vl newFunctionWithName:@"main0"];
-    pr->fs = fl ? [fl newFunctionWithName:@"main0"] : nil;
+    id<MTLLibrary> fl = fsrc ? [dev newLibraryWithSource:fsrc options:game_shader_opts(false) error:&err] : nil;
+    if (!fl && fsrc) { LOG("[shader] FS compile failed (%llx): %s\n%s\n", pr->fs_addr, err.localizedDescription.UTF8String, pr->fi->msl); pr->failed = true; return; }
+    pr->vs = [vl newFunctionWithName:name];
+    pr->fs = fl ? [fl newFunctionWithName:name] : nil;
+    if (!pr->vs || (fl && !pr->fs)) { pr->failed = true; return; }
     __atomic_fetch_add(&stat_compiles, 1, __ATOMIC_RELAXED);
     double dt = now_ms() - t0;
     @synchronized(cache) { stat_compile_ms += dt; }
+    trace_compile("program", pr, nil, dt);
     pr->ready = true;
 }
 
+// Compute programs: translated once per code address and sampled-texture types, then built as a pipeline. The two steps
+// are split so preparation can translate on the render thread and build on workers.
+typedef struct { id<MTLComputePipelineState> pipe; ShaderInfo *si; uint32_t local[3]; bool failed; } CsProg;
+static NSMutableDictionary *g_cs_progs;  // code address + sampled texture types -> CsProg
+static NSMutableDictionary<NSString *, NSValue *> *g_prep_cs;  // prepared compute programs by recipe identity -> CsProg *
+static unsigned g_prep_cs_hits;
+
+static bool cs_translate(CsProg *cp, const NvnShaderStage *ss, const ShaderKey *k, const uint32_t local[3]) {
+    backend_gwin_pick();
+    maxwell_gmem_base = g_gwin_base;
+    maxwell_gmem_size = g_gwin_max;
+    cp->si = maxwell_translate_with_constants((const uint8_t *)(uintptr_t)ss->code_addr,
+        ss->const_offset ? ss->const_offset : 0x10000, STAGE_COMPUTE, k,
+        (const uint8_t *)(uintptr_t)(ss->code_addr + ss->const_offset), ss->const_offset ? ss->const_size : 0);
+    if (!cp->si->msl) { LOG("[compute] translate failed: %s (code %llx)\n", cp->si->error, ss->code_addr); cp->failed = true; return false; }
+    for (int i = 0; i < 3; i++) cp->local[i] = local[i] ? local[i] : 1;
+    if (getenv("LARECOMP_SAVE_MSL")) {
+        mkdir("build/msl", 0755);
+        char path[256];
+        snprintf(path, sizeof path, "build/msl/%llx_cs.metal", ss->code_addr);
+        FILE *f = fopen(path, "w"); if (f) { fputs(cp->si->msl, f); fclose(f); }
+    }
+    shader_cache_note(NULL, cp->si->msl);  // (warm-up compiles it at the next start, like the other shaders)
+    return true;
+}
+
+static void cs_archive_add(MTLComputePipelineDescriptor *cd) {
+    if (!g_archive) return;
+    dispatch_async(g_archive_q, ^{
+        NSError *err;
+        cd.binaryArchives = nil;
+        if (![g_archive addComputePipelineFunctionsWithDescriptor:cd error:&err]) {
+            static int n;
+            if (n++ < 10) LOG("[shader] pipeline archive add failed (compute): %s\n", err.localizedDescription.UTF8String);
+            return;
+        }
+        [g_archive_new addObject:cd];
+        if (g_archive_dirty++ == 0)
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC), g_archive_q, ^{ pipeline_archive_save(); });
+    });
+}
+
+// Library + pipeline, from the last run's archive when it has the pipeline. Safe on a worker thread.
+static bool cs_compile(CsProg *cp, uint64_t trace_addr) {
+    NSError *err = nil;
+    double trace_start = now_ms();
+    id<MTLLibrary> lib = TIMED_COMPILE([dev newLibraryWithSource:@(cp->si->msl) options:game_shader_opts(false) error:&err]);
+    if (shader_trace_enabled()) shader_trace_compile("compute-library", now_ms() - trace_start, trace_addr, 0, fnv64(cp->si->msl), 0, -1);
+    id<MTLFunction> f = lib ? [lib newFunctionWithName:@"main0"] : nil;
+    if (f) {
+        MTLComputePipelineDescriptor *cd = [MTLComputePipelineDescriptor new];
+        cd.computeFunction = f;
+        cd.label = [NSString stringWithFormat:@"cs %016llx", (unsigned long long)fnv64(cp->si->msl)];
+        trace_start = now_ms();
+        pipeline_archive();
+        if (g_archive_read) {
+            cd.binaryArchives = @[g_archive_read];
+            cp->pipe = [dev newComputePipelineStateWithDescriptor:cd options:MTLPipelineOptionFailOnBinaryArchiveMiss reflection:nil error:nil];
+            cd.binaryArchives = nil;
+            if (cp->pipe) __atomic_fetch_add(&g_archive_hits, 1, __ATOMIC_RELAXED);
+        }
+        if (!cp->pipe) cp->pipe = TIMED_COMPILE([dev newComputePipelineStateWithDescriptor:cd options:MTLPipelineOptionNone reflection:nil error:&err]);
+        if (cp->pipe) cs_archive_add([cd copy]);
+        if (shader_trace_enabled()) shader_trace_compile("compute-pipeline", now_ms() - trace_start, trace_addr, 0, fnv64(cp->si->msl), 0, -1);
+    }
+    if (!cp->pipe) {
+        LOG("[compute] compile failed: %s\n%s\n", err.localizedDescription.UTF8String, cp->si->msl);
+        cp->failed = true;
+        return false;
+    }
+    return true;
+}
+
+#include "shader_prepare.inc"
+#include "shader_precompile.inc"
+
 static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
+    if (!g_prep_started) {
+        if (getenv("LARECOMP_SHADER_PREP") || g_settings.prepare_shaders) backend_gwin_pick();
+        prep_once();
+    }
     shader_cache_warm();
-    if (!(p->stage_mask & 1) || (!(p->stage_mask & 2) && !g_xfb_on)) return nil;
+    if (!(p->stage_mask & 1) || (!(p->stage_mask & 2) && !g_xfb_on && !(g_prep_active && vkey->xfb_void))) return nil;
     // fast path: hash of the code addresses and keys
     uint64_t h = 0xcbf29ce484222325ull;
     for (int i = 0; i < 2; i++) { uint64_t a = p->stages[i].code_addr; for (int k = 0; k < 8; k++) { h ^= (a >> (k * 8)) & 0xFF; h *= 0x100000001B3ull; } }
@@ -1916,13 +2069,25 @@ static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
         prog_tab[slot].value = (__bridge void *)pr;
         return pr->failed ? nil : pr;
     }
+    if (prep_enabled()) backend_gwin_pick();
+    NSDictionary *record = prep_enabled() ? prep_program_record(p, vkey, fkey) : nil;
+    NSString *identity = record ? prep_program_id(record) : nil;
+    pr = identity && !g_prep_active ? g_prep_programs[identity] : nil;
+    if (pr) {
+        cache[key] = pr; prog_tab[slot].key = h; prog_tab[slot].value = (__bridge void *)pr;
+        g_prep_program_hits++;
+        early_live_hit(identity);
+        if (!pr->early_pending) { pr->vs_addr = p->stages[0].code_addr; pr->fs_addr = p->stages[1].code_addr; }
+        return pr;
+    }
     pr = [Prog new];
+    pr->prep_record = record; pr->prep_id = identity;
     pr->vs_addr = p->stages[0].code_addr;
     pr->fs_addr = p->stages[1].code_addr;
     cache[key] = pr;
     prog_tab[slot].key = h;
     prog_tab[slot].value = (__bridge void *)pr;  // retained by the cache dictionary
-    dump_program(p);
+    if (!g_prep_active) dump_program(p);
     backend_gwin_pick();
     maxwell_gmem_base = g_gwin_base;
     maxwell_gmem_size = g_gwin_max;
@@ -1949,8 +2114,8 @@ static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
         LOG("[shader] VS translate failed: %s (code %llx)\n", pr->vi->error, p->stages[0].code_addr);
         char path[128];
         snprintf(path, sizeof path, "build/shaders/fail_%llx_s0_code.bin", p->stages[0].code_addr);
-        FILE *f = fopen(path, "wb");
-        if (f) { fwrite((void *)(uintptr_t)p->stages[0].code_addr, 1, 0x4000, f); fclose(f); }
+        FILE *f = g_prep_active ? NULL : fopen(path, "wb");
+        if (f) { fwrite((void *)(uintptr_t)p->stages[0].code_addr, 1, vmax < 0x4000 ? vmax : 0x4000, f); fclose(f); }
         pr->failed = true;
         return nil;
     }
@@ -1959,6 +2124,7 @@ static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
         pr->fi = calloc(1, sizeof *pr->fi);
         pr->fi->stage = STAGE_FRAGMENT;
         shader_cache_note(pr->vi->msl, "");
+        if (g_prep_translate_only) return pr;
         if (sync_shaders()) { compile_program(pr); return pr->failed ? nil : pr; }
         static dispatch_queue_t xq;
         if (!xq) xq = dispatch_queue_create("larecomp.shaders.xfb", DISPATCH_QUEUE_CONCURRENT);
@@ -2019,6 +2185,7 @@ static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
         }
     }
     shader_cache_note(pr->vi->msl, pr->fi->msl);
+    if (g_prep_translate_only) return pr;
     if (sync_shaders()) {
         compile_program(pr);
         return pr->failed ? nil : pr;
@@ -2030,6 +2197,8 @@ static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
     dispatch_async(q, ^{ compile_program(pr); });
     return pr;
 }
+
+#include "shader_early.inc"
 
 static id<MTLSamplerState> sampler_for(NvnSamplerDesc *d) {
     if (d->backend) return (__bridge id<MTLSamplerState>)d->backend;
@@ -2094,7 +2263,17 @@ static id<MTLSamplerState> default_sampler(void) {
     return s;
 }
 
-static uint64_t g_cur_fs_hash;
+// The hash of the current fragment shader's code (debug logs, LARECOMP_SKIP_FSHASH): worked out only when asked for,
+// as hashing 512 bytes at each program change was ~1% of the submitting thread
+static uint64_t g_fsh_addr, g_fsh;  // (the program it was worked out for; reset on reboot)
+static uint64_t cur_fs_hash(void) {
+    uint64_t fs = st.program ? st.program->stages[1].code_addr : 0;
+    if (fs != g_fsh_addr) {
+        g_fsh_addr = fs;
+        g_fsh = fs ? hmix(1469598103934665603ull, (const void *)(uintptr_t)(fs + 0x30), 0x200) : 0;
+    }
+    return g_fsh;
+}
 static id<MTLTexture> dummy_texture_ex(int type, int kind, bool image) {
     static id<MTLTexture> t[2][10][3];
     if (!t[image][type][kind]) {
@@ -2248,16 +2427,16 @@ static id<MTLTexture> sampled_texture_ex(NvnTexture *t, const NvnTextureView *v,
             tex = view_cached(src, 0x6000000000000000ull | 3, ^{ return [src newTextureViewWithPixelFormat:src.pixelFormat textureType:MTLTextureTypeCube levels:NSMakeRange(0, src.mipmapLevelCount) slices:NSMakeRange(0, 6)]; });
         else {
             static int nlog;
-            // Z-A (and Mario Kart 8, as nxnative found) binds a 2D texture, or a small 2D array, where a shader declares a cube:
+            // Z-A (and Mario Kart 8) binds a 2D texture, or a small 2D array, where a shader declares a cube:
             // a placeholder for an environment map, or an input a branch does not take. The zero cube below is what is
             // bound for it; that is not an error, so it is said apart from the real mismatches.
             bool cube_slot = (want == MTLTextureTypeCube || want == MTLTextureTypeCubeArray) &&
                              (tex.textureType == MTLTextureType2D || tex.textureType == MTLTextureType2DArray);
             if (nlog++ < 30 && cube_slot)
                 LOG("[tex] cube slot holds a 2D texture (a placeholder, or an input not taken): zero cube bound, fs %llx (%ux%u fmt %#x arr %lu)\n",
-                    (unsigned long long)g_cur_fs_hash, t->width, t->height, t->format, (unsigned long)tex.arrayLength);
+                    (unsigned long long)cur_fs_hash(), t->width, t->height, t->format, (unsigned long)tex.arrayLength);
             else if (nlog <= 30)
-                LOG("[tex] type mismatch: fs %llx want %lu have %lu (%ux%ux%u target %u fmt %#x arr %lu)\n", (unsigned long long)g_cur_fs_hash, (unsigned long)want,
+                LOG("[tex] type mismatch: fs %llx want %lu have %lu (%ux%ux%u target %u fmt %#x arr %lu)\n", (unsigned long long)cur_fs_hash(), (unsigned long)want,
                     (unsigned long)tex.textureType, t->width, t->height, t->depth, t->target, t->format, (unsigned long)tex.arrayLength);
             uint32_t format = has_view && (v->setmask & 4) ? v->format : t->format;
             return dummy_texture_ex(want_type, rt_kind(format), image);
@@ -2383,7 +2562,7 @@ static void resolve_feedback(Prog *pr) {
             if (logfb < 0) logfb = getenv("LARECOMP_LOG_FEEDBACK") != NULL;
             if (logfb && stat_feedback_copies % 50 == 1)
                 LOG("[feedback] copy %s %ux%u fmt %#x stage %d fs %016llx (last invalidated by %s) ds %d/%d/%d stencil %d ncolor %d c0 %ux%u fmt %#x mask %x\n", t == st.rt.depth ? "DEPTH" : "COLOR",
-                    t->width, t->height, t->format, sg, (unsigned long long)g_cur_fs_hash, si >= 0 ? snap_why[si] : "new",
+                    t->width, t->height, t->format, sg, (unsigned long long)cur_fs_hash(), si >= 0 ? snap_why[si] : "new",
                     st.ds[0], st.ds[1], st.ds[2], st.ds[3], st.rt.ncolor, st.rt.ncolor && st.rt.color[0] ? st.rt.color[0]->width : 0,
                     st.rt.ncolor && st.rt.color[0] ? st.rt.color[0]->height : 0, st.rt.ncolor && st.rt.color[0] ? st.rt.color[0]->format : 0, st.channel_mask);
             end_pass("feedback");
@@ -2738,6 +2917,16 @@ static void bind_cbufs(int stage, ShaderInfo *si) {
             continue;
         }
         if ((si->cbuf_dynamic & (1u << k)) && r.size) size = r.size > 0x10000 ? 0x10000 : r.size;  // indexed: whole buffer
+        {   // LARECOMP_CBUF_INPLACE=1 (experimental, off): indexed buffers read where they are in guest memory, no snapshot.
+            // -3% CPU at 1x in the starting scene, same frame on screen; the risk is a CPU write reaching a draw still on the GPU.
+            static int inplace = -1;
+            if (inplace < 0) inplace = getenv("LARECOMP_CBUF_INPLACE") != NULL;
+            if (inplace && (si->cbuf_dynamic & (1u << k)) && r.addr >= g_gwin_base && r.addr + size <= g_gwin_base + g_gwin_max && !(r.addr & 15)) {
+                if (stage == 0) [enc setVertexBuffer:g_guest_buffer offset:r.addr - g_gwin_base atIndex:k];
+                else [enc setFragmentBuffer:g_guest_buffer offset:r.addr - g_gwin_base atIndex:k];
+                continue;
+            }
+        }
         if (size > r.size && r.size) size = r.size;
         if (size < 16) size = 16;
         uint64_t off = ring_snapshot((void *)(uintptr_t)r.addr, size);  // snapshot, as later CPU writes must not leak in
@@ -2751,9 +2940,6 @@ static void bind_cbufs(int stage, ShaderInfo *si) {
 // Compute driver constants (c0): 0x200 work group counts, 0x210 + 16*i uniform buffers (compute has
 // few hardware cbuf slots, so the compiler reads the rest through global memory), 0x310 + 16*i
 // storage buffers; each table entry is {addr_lo, addr_hi, size, 0}.
-typedef struct { id<MTLComputePipelineState> pipe; ShaderInfo *si; uint32_t local[3]; bool failed; } CsProg;
-static NSMutableDictionary *g_cs_progs;  // code address + sampled texture types -> CsProg
-
 static CsProg *compute_program(NvnProgram *p) {
     NvnShaderStage *ss = &p->stages[5];
     if (!ss->code_addr) return NULL;
@@ -2765,34 +2951,25 @@ static CsProg *compute_program(NvnProgram *p) {
     if (!progs) progs = g_cs_progs = [NSMutableDictionary new];
     NSValue *v = progs[key];
     if (v) { CsProg *cp = v.pointerValue; return cp->failed ? NULL : cp; }
+    uint32_t local[3];
+    for (int i = 0; i < 3; i++) {
+        local[i] = ss->control ? *(const uint32_t *)(ss->control + 0x748 + 4 * i) : 1;
+        if (!local[i]) local[i] = 1;
+    }
+    NSString *shader_hash = prep_enabled() && !g_prep_active ? prep_stage_hash(ss) : nil;
+    if (shader_hash) {  // a program prepared before the game asked for it (same code, texture types, workgroup, memory window)
+        NSDictionary *record = prep_compute_record(shader_hash, &k, local);
+        NSValue *prepared = g_prep_cs[prep_compute_id(record)];
+        if (prepared) {
+            g_prep_cs_hits++;
+            progs[key] = prepared;
+            return ((CsProg *)prepared.pointerValue)->failed ? NULL : prepared.pointerValue;
+        }
+    }
     CsProg *cp = calloc(1, sizeof *cp);
     progs[key] = [NSValue valueWithPointer:cp];
-    backend_gwin_pick();
-    maxwell_gmem_base = g_gwin_base;
-    maxwell_gmem_size = g_gwin_max;
-    cp->si = maxwell_translate_with_constants((const uint8_t *)(uintptr_t)ss->code_addr,
-        ss->const_offset ? ss->const_offset : 0x10000, STAGE_COMPUTE, &k,
-        (const uint8_t *)(uintptr_t)(ss->code_addr + ss->const_offset), ss->const_offset ? ss->const_size : 0);
-    if (!cp->si->msl) { LOG("[compute] translate failed: %s (code %llx)\n", cp->si->error, ss->code_addr); cp->failed = true; return NULL; }
-    for (int i = 0; i < 3; i++) {
-        cp->local[i] = ss->control ? *(const uint32_t *)(ss->control + 0x748 + 4 * i) : 1;
-        if (!cp->local[i]) cp->local[i] = 1;
-    }
-    if (getenv("LARECOMP_SAVE_MSL")) {
-        mkdir("build/msl", 0755);
-        char path[256];
-        snprintf(path, sizeof path, "build/msl/%llx_cs.metal", ss->code_addr);
-        FILE *f = fopen(path, "w"); if (f) { fputs(cp->si->msl, f); fclose(f); }
-    }
-    NSError *err = nil;
-    id<MTLLibrary> lib = TIMED_COMPILE([dev newLibraryWithSource:@(cp->si->msl) options:game_shader_opts(false) error:&err]);
-    id<MTLFunction> f = lib ? [lib newFunctionWithName:@"main0"] : nil;
-    cp->pipe = f ? TIMED_COMPILE([dev newComputePipelineStateWithFunction:f error:&err]) : nil;
-    if (!cp->pipe) {
-        LOG("[compute] compile failed: %s\n%s\n", err.localizedDescription.UTF8String, cp->si->msl);
-        cp->failed = true;
-        return NULL;
-    }
+    if (!cs_translate(cp, ss, &k, local) || !cs_compile(cp, ss->code_addr)) return NULL;
+    if (shader_hash) prep_record_compute(shader_hash, &k, local);
     LOG("[compute] program %llx: local size %ux%ux%u, %d cbufs mask %#x\n", ss->code_addr, cp->local[0], cp->local[1],
         cp->local[2], 0, cp->si->cbuf_mask);
     return cp;
@@ -3184,7 +3361,7 @@ static void debug_live_controls(void) {
                 int hit = 0;
                 for (id v in progs) if ([v isKindOfClass:[Prog class]]) {
                     Prog *pr = v;
-                    if (pr->fs_addr == addr && pr->ready) hit += live_override_fs(pr, path);
+                    if (pr->fs_addr == addr && pr->ready && !pr->early_pending) hit += live_override_fs(pr, path);
                 }
                 LOG("[dbgcmd] fs %llx <- %s: %d program(s)\n", addr, path, hit);
             }
@@ -3192,7 +3369,7 @@ static void debug_live_controls(void) {
             int hit = 0;
             for (id v in progs) if ([v isKindOfClass:[Prog class]]) {
                 Prog *pr = v;
-                if (pr->ov_active && pr->ready) hit += live_override_fs(pr, pr->ov_path);
+                if (pr->ov_active && pr->ready && !pr->early_pending) hit += live_override_fs(pr, pr->ov_path);
             }
             LOG("[dbgcmd] reload: %d program(s)\n", hit);
         } else if (!strcmp(cmd, "list")) {
@@ -3304,13 +3481,16 @@ static bool dbg_budget(int *n, uint64_t *frame, int limit) {
 // window image - whose program is still compiling is waited for (a few ms, once) rather than skipped: skipping one left
 // the whole frame black. Scene draws are still skipped until ready. (As ZA Recomp's Vulkan wait_built, 302bd07.)
 static bool prog_ready_or_wait(Prog *pr, const CmdRec *r) {
-    if (!pr || pr->ready) return pr != nil;
-    if (r->x[2] > 6) return false;
+    if (!pr || (pr->ready && !pr->early_pending)) return pr != nil;
+    if (r->x[2] > 6 && !sync_shaders()) return false;
     double t0 = now_ms();
-    while (!pr->ready && !pr->failed && now_ms() - t0 < 2000) usleep(1000);
+    while ((!pr->ready || pr->early_pending) && !pr->failed && now_ms() - t0 < 2000) {
+        early_publish(); // only publishes completed objects; never starts translation
+        if (!pr->ready || pr->early_pending) usleep(1000);
+    }
     static int n;
     if (n++ < 20) LOG("[metal] full-screen draw waited %.1f ms for its program\n", now_ms() - t0);
-    return pr->ready;
+    return pr->ready && !pr->early_pending;
 }
 
 // (diagnostics) classify a dropped draw. get_program returns nil both for a program missing a stage and for one whose
@@ -3414,13 +3594,10 @@ static void draw(CmdRec *r, bool indexed) {
             if (!prog_ready_or_wait(pr, r)) { prog_skip_stat(pr, st.program, r); return; }
         }
     }
-    {   // The hash of the current fragment shader's code (debug logs, LARECOMP_SKIP_FSHASH, g_cur_fs_hash)
-        static uint64_t last_fs, last_hash;
-        uint64_t fs = st.program->stages[1].code_addr;
-        if (fs != last_fs) {
-            last_fs = fs;
-            last_hash = fs ? hmix(1469598103934665603ull, (const void *)(uintptr_t)(fs + 0x30), 0x200) : 0;
-        }
+    {   // the fragment shader's code hash, for the debug switches below
+        static int need = -1;
+        if (need < 0) need = getenv("LARECOMP_LOG_FSHASH") || getenv("LARECOMP_SKIP_FSHASH") || getenv("LARECOMP_LOG_INDOOR");
+        uint64_t fs = st.program->stages[1].code_addr, last_hash = need ? cur_fs_hash() : 0;
         static uint64_t log_hash = 1;
         if (log_hash == 1) log_hash = getenv("LARECOMP_LOG_FSHASH") ? 0 : 2;
         if (!log_hash && g_debug_frame) LOG("[fshash] fs=%llx hash %016llx\n", fs, last_hash);
@@ -3451,7 +3628,6 @@ static void draw(CmdRec *r, bool indexed) {
                 for (int i = 0; i < naskip; i++) if (st.program && st.program->stages[1].code_addr == askip[i]) { stat_skipped++; return; }
             }
         }
-        g_cur_fs_hash = last_hash;
         if (last_hash == 0x71fe31bbf03c3515ull && ENV("LARECOMP_LOG_INDOOR")) {
             static uint64_t lf;
             extern uint64_t renderer_present_count(void);
@@ -3581,7 +3757,8 @@ static void draw(CmdRec *r, bool indexed) {
         [pk appendFormat:@" l%lu/%lu/%lu", (unsigned long)vd.layouts[s].stride, (unsigned long)vd.layouts[s].stepFunction, (unsigned long)vd.layouts[s].stepRate];
     [pk appendFormat:@" s%lu a%d", (unsigned long)pd.rasterSampleCount, pd.alphaToCoverageEnabled];
     if (!pd.rasterizationEnabled) [pk appendString:@" nr"];
-    id pobj = cache[pk];
+    id prepared = prep_pipeline(pr, pd);
+    id pobj = prepared ?: cache[pk];
     NSMutableDictionary *ready_pipes = g_ready_pipes;  // async pipeline builds finished on Metal's threads
     static id pending;
     if (!ready_pipes) { ready_pipes = g_ready_pipes = [NSMutableDictionary new]; pending = [NSObject new]; }
@@ -3595,17 +3772,21 @@ static void draw(CmdRec *r, bool indexed) {
     if (!pobj && pipeline_archive() && g_archive_read) {
         // in the last run's archive: built at once without compiling; a miss fails right away and goes the usual way
         pd.binaryArchives = @[g_archive_read];
+        double trace_start = now_ms();
         pobj = [dev newRenderPipelineStateWithDescriptor:pd options:MTLPipelineOptionFailOnBinaryArchiveMiss reflection:nil error:nil];
+        if (pobj) trace_compile("archive-hit", pr, pd, now_ms() - trace_start);
         pd.binaryArchives = nil;
         if (pobj) { cache[pk] = pobj; g_archive_hits++; pipeline_archive_add([pd copy], pr); }  // the new file keeps what is still used
     }
     if (!pobj) {
         if (sync_shaders() || r->x[2] <= 6) {  // a full-screen draw waits for its pipeline too, as for its program (prog_ready_or_wait)
             NSError *err;
+            double trace_start = now_ms();
             pobj = TIMED_COMPILE([dev newRenderPipelineStateWithDescriptor:pd error:&err]);
+            trace_compile("pipeline", pr, pd, now_ms() - trace_start);
             if (!pobj) {
                 static int n;
-                if (n++ < 10) LOG("[metal] pipeline failed: %s\n", err.localizedDescription.UTF8String);
+                if (n++ < 10) LOG("[metal] pipeline failed (vs %llx fs %llx): %s\n", (unsigned long long)pr->vs_addr, (unsigned long long)pr->fs_addr, err.localizedDescription.UTF8String);
                 pobj = [NSNull null];
             } else pipeline_archive_add([pd copy], pr);
             cache[pk] = pobj;
@@ -3615,9 +3796,10 @@ static void draw(CmdRec *r, bool indexed) {
             MTLRenderPipelineDescriptor *pdc = [pd copy];
             double t0 = now_ms();
             [dev newRenderPipelineStateWithDescriptor:pd completionHandler:^(id<MTLRenderPipelineState> ps, NSError *e) {
-                if (!ps) { static int n; if (n++ < 10) LOG("[metal] pipeline failed: %s\n", e.localizedDescription.UTF8String); }
+                if (!ps) { static int n; if (n++ < 10) LOG("[metal] pipeline failed (vs %llx fs %llx): %s\n", (unsigned long long)pr->vs_addr, (unsigned long long)pr->fs_addr, e.localizedDescription.UTF8String); }
                 else pipeline_archive_add(pdc, pr);
                 @synchronized(ready_pipes) { ready_pipes[k] = ps ? (id)ps : (id)[NSNull null]; }
+                trace_compile("pipeline-async", pr, pdc, now_ms() - t0);
                 @synchronized(cache) { stat_compile_ms += now_ms() - t0; }
                 __atomic_fetch_add(&stat_compiles, 1, __ATOMIC_RELAXED);
             }];
@@ -3628,6 +3810,7 @@ static void draw(CmdRec *r, bool indexed) {
         }
     }
     if (pobj == [NSNull null]) { stat_skipped++; dbg_skips++; return; }
+    prep_record_pipeline(pr, pd, prepared != nil);
     pipe = pobj;
     pipe_tab[pslot].key = phash;
     pipe_tab[pslot].value = (__bridge void *)pipe;  // retained by the cache dictionary
@@ -3920,6 +4103,32 @@ static void draw(CmdRec *r, bool indexed) {
     }
 }
 
+// Parameters no draw can have, in blocks the GPU reads in place: a count over 4M, or a base instance whose first element
+// already lies past a per-instance stream's buffer (the instance attributes would be read far beyond it). Seen on Vulkan
+// before 10 s GPU stops and device losses, where blocks held other data for frames on end. Checked as the CPU sees them
+// (the base instance is the CPU's) and skipped; LARECOMP_IB_GUARD=0 draws them.
+static bool ind_args_bad(const uint32_t *p, uint64_t pa, bool elements) {
+    static int on = -1;
+    if (on < 0) on = !getenv("LARECOMP_IB_GUARD") || atoi(getenv("LARECOMP_IB_GUARD")) != 0;
+    if (!on) return false;
+    uint32_t binst = elements ? p[4] : p[3];
+    const char *why = p[0] > (1u << 22) ? "count over 4M" : NULL;
+    for (int a = 0; a < st.nattrib && a < 16 && !why; a++) {
+        if (!(st.attrib[a] & 0xFF)) continue;
+        uint32_t s = st.attrib[a] >> 8 & 0x1F, off = st.attrib[a] >> 13;
+        if (s >= 16 || !st.stream[s][1] || !st.stream[s][0] || !st.vbuf[s].size) continue;
+        if ((uint64_t)binst * st.stream[s][0] + off + 4 > st.vbuf[s].size) why = "base instance past an instance stream";
+    }
+    if (!why) return false;
+    extern uint64_t renderer_present_count(void);
+    static int nlog;
+    if (nlog++ < 60)
+        LOG("[ibguard] frame %llu: skipped draw (%s): args %llx = %u %u %u %d %u\n", (unsigned long long)renderer_present_count(),
+            why, (unsigned long long)pa, p[0], p[1], p[2], (int)p[3], elements ? p[4] : 0);
+    stat_skipped++;
+    return true;
+}
+
 // Indirect draws (NVN DrawArrays / DrawElements Indirect, MultiDraw...IndirectCount). Z-A's culling compute fills in the
 // instance counts on the GPU, so arguments inside the gmem window are read by the GPU (Metal's indirect draw); the CPU
 // copy only sizes the index range. Arguments elsewhere are read here. (As vulkan/exec.c.)
@@ -3965,6 +4174,7 @@ static void draw_indirect(CmdRec *r) {
                     st.program ? (unsigned long long)st.program->stages[1].code_addr : 0ull);
             }
         }
+        if (ind_args_bad(p, pa, elements)) continue;
         if (gpu) {
             if (elements) { d.x[1] = r->x[1]; d.x[2] = p[0] + p[2]; d.x[3] = r->x[2]; d.x[4] = (uint64_t)(int64_t)(int32_t)p[3]; d.x[5] = p[4]; d.x[6] = 1; }
             else { d.x[1] = 0; d.x[2] = p[0] + p[2]; d.x[3] = p[3]; d.x[4] = 1; }
@@ -4156,7 +4366,53 @@ static void copy_texture_to_buffer(const TexRefRec *src, uint64_t dst) {
     renderer_flush_reason("cpu-read");  // the CPU may read the result right after the fence
 }
 
+// nvnTextureReadTexels[Strided] (objects.c, exec lock held): the readback a texture-to-buffer copy does (guest-sized
+// texels, a scaled target filtered down), with the call's strides, then waited for: the CPU reads data on return.
+void backend_texture_read(NvnTexture *t, const void *view, const int32_t region[6], void *data, uint64_t row, uint64_t img) {
+    TexRefRec ref = {.tex = (uint64_t)(uintptr_t)t};
+    if (view) { memcpy(&ref.view, view, sizeof ref.view); ref.has_view = 1; }
+    memcpy(ref.region, region, sizeof ref.region);
+    uint64_t saved_row = st.copy_row_stride, saved_img = st.copy_image_stride;
+    st.copy_row_stride = row; st.copy_image_stride = img;
+    const FormatInfo *fi;
+    int32_t rg[6];
+    int level;
+    uint64_t r, im, dst = (uint64_t)(uintptr_t)data;
+    copy_region_dims(t, &ref, &fi, rg, &level, &r, &im);
+    if (fi && dst >= g_gwin_base && dst + im * (uint64_t)rg[5] <= g_gwin_base + g_gwin_max) {
+        copy_texture_to_buffer(&ref, dst);
+        gpu_capture_drain();  // (a marker after it on the same queue: waits for the copy)
+    } else {
+        static int nlog;
+        if (nlog++ < 4) LOG("[nvn] ReadTexels into %llx: outside the GPU's window of guest memory, left as it was\n", dst);
+    }
+    st.copy_row_stride = saved_row; st.copy_image_stride = saved_img;
+}
+
+static void copy_texture_gpu(const TexRefRec *src, const TexRefRec *dst, uint64_t flags);
+// A copy into a pitch-linear texture (one with a stride: memory the CPU reads as it is) also lands in guest memory, read
+// back at the texture's own row pitch. Royale Z-A's profile photo: the frame is copied into a 1920x1080 linear RGBA8
+// texture, the CPU maps that memory, crops it and encodes it to BC1 itself (game fn 0x700189a880): with the copy only in
+// the Metal texture the CPU read zeros, a black photo. Rare (one copy per photo). LARECOMP_LINEAR_WRITEBACK=0: texture only.
 static void copy_texture(const TexRefRec *src, const TexRefRec *dst, uint64_t flags) {
+    copy_texture_gpu(src, dst, flags);
+    NvnTexture *dt = (NvnTexture *)(uintptr_t)dst->tex;
+    static int on = -1;
+    if (on < 0) on = !getenv("LARECOMP_LINEAR_WRITEBACK") || atoi(getenv("LARECOMP_LINEAR_WRITEBACK")) != 0;
+    if (!on || !dt || !dt->stride || dt->addr < GUEST_LO || (dst->has_view && (dst->view.setmask & 1) && dst->view.base_level))
+        return;
+    const FormatInfo *fi = nvn_format_info(dt->format);
+    if (!fi || fi->bw != 1 || fi->bh != 1 || !fi->bpb || fi->bpb == 3 || dt->stride < (uint64_t)dt->width * fi->bpb) return;
+    if (dt->addr + (uint64_t)dt->stride * dt->height > g_gwin_base + g_gwin_max) return;
+    TexRefRec whole = *dst;  // (the whole image: the rows the CPU sees, at the texture's pitch)
+    memset(whole.region, 0, sizeof whole.region);
+    uint64_t row = st.copy_row_stride, img = st.copy_image_stride;
+    st.copy_row_stride = dt->stride, st.copy_image_stride = (uint64_t)dt->stride * dt->height;
+    copy_texture_to_buffer(&whole, dt->addr);
+    st.copy_row_stride = row, st.copy_image_stride = img;
+}
+
+static void copy_texture_gpu(const TexRefRec *src, const TexRefRec *dst, uint64_t flags) {
     snap_reason = "tex2tex"; snapshots_invalidate(NULL);
     NvnTexture *st_ = (NvnTexture *)(uintptr_t)src->tex, *dt = (NvnTexture *)(uintptr_t)dst->tex;
     if (!st_ || !dt) return;
@@ -4675,6 +4931,7 @@ static void exec_list(uint64_t handle, int depth) {
 // everything keyed by guest addresses or guest-owned objects - programs (by code address), pipelines (by program),
 // views, snapshots, bound state - so the next boot can't hit a stale entry. Metal's own shader cache stays warm.
 void renderer_reset(void) {
+    early_reset();
     renderer_flush_reason("reset");
     gpu_profile_reset();
     renderer_gpu_timing_reset();
@@ -4690,6 +4947,8 @@ void renderer_reset(void) {
     memset(prog_tab, 0, sizeof prog_tab);
     memset(pipe_tab, 0, sizeof pipe_tab);
     [cache removeAllObjects];
+    prep_reset();
+    shader_trace_reset();
     [g_cs_progs removeAllObjects];
     @synchronized(g_ready_pipes) { [g_ready_pipes removeAllObjects]; }
     g_pipeline_gen++;
@@ -4698,7 +4957,7 @@ void renderer_reset(void) {
     memset(snap_ok, 0, sizeof snap_ok);
     for (int i = 0; i < 4; i++) { feedback_tex[i] = NULL; feedback_copy[i] = nil; }
     nfeedback = 0;
-    g_cur_fs_hash = 0;
+    g_fsh_addr = g_fsh = 0;
     last_bias_enc = nil;
     pthread_mutex_lock(&cb_lock);
     last_cb = nil;

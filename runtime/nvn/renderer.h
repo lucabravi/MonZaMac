@@ -2,6 +2,7 @@
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 #ifdef __OBJC__
 #import <Metal/Metal.h>
 void renderer_init(id<MTLDevice> dev);
@@ -13,6 +14,12 @@ extern id<MTLBuffer> g_guest_buffer;
 extern uint64_t g_guest_buffer_base;
 extern uint64_t g_gwin_base, g_gwin_max;  // guest memory window g_guest_buffer wraps (see backend_gwin_pick)
 void backend_gwin_pick(void);
+// Render thread publishes recipe progress; total == 0 dismisses the main-thread page.
+void backend_shader_prepare_progress(unsigned done, unsigned total);
+void backend_shader_prepare_inputs(unsigned done, unsigned total);
+// "Prepare all shaders": phase 0 reads the game files (no count), phase 1 compiles; the page has a Stop button.
+void backend_shader_precompile_progress(unsigned phase, unsigned done, unsigned total);
+bool backend_shader_prepare_cancelled(void);
 #endif
 #include <SDL3/SDL_events.h>
 
@@ -44,3 +51,12 @@ void renderer_mark_gpu_owned(NvnTexture *t);
 void input_handle_event(const SDL_Event *e);
 void input_mouse_update(SDL_Window *w);  // runtime/hle/input.c
 bool input_user_blocked(const SDL_Event *e);
+
+// Local metadata collection; export runs off the render/UI threads and sends nothing.
+unsigned renderer_recipe_count(void);
+void renderer_recipe_flush(void);
+bool renderer_export_recipes(const char *destination, char *error, size_t cap);
+
+bool renderer_update_catalog(char *error, size_t cap); // explicit background update, metadata only
+
+int renderer_check_catalog(void); // 0 current, 1 available, 2 not published, -1 check failed

@@ -6,6 +6,7 @@ static double gpu_interval_union_ms(const double *intervals, size_t count, doubl
 #import <ImageIO/ImageIO.h>
 
 void metal_test_bootstrap(void);
+void metal_test_preparation_page(void);
 void metal_test_texture_dump(void);
 void metal_test_next_texture_frame(void);
 void renderer_set_scale(float sx, float sy);
@@ -1529,6 +1530,246 @@ static void free_source_program(Prog *pr) {
     free(pr->vi->msl); free(pr->fi->msl); free(pr->vi); free(pr->fi);
 }
 
+static void shader_early_snapshot(void) {
+    CHECK(g_settings.early_shaders && early_enabled(), "early compilation is on without an ini key");
+    g_settings.early_shaders = false;
+    CHECK(!early_enabled(), "the setting turns early compilation off");
+    g_settings.early_shaders = true;
+    setenv("LARECOMP_SHADER_EARLY", "0", 1);
+    CHECK(!early_enabled(), "diagnostic disable takes precedence");
+    unsetenv("LARECOMP_SHADER_EARLY");
+    setenv("LARECOMP_SHADER_RECORD", "early-source.jsonl", 1);
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    bind_targets(&color, NULL, NULL); prepare_draw();
+    fullscreen_draw(1); expect_rgba(&color, 0, 255, 0);
+    renderer_recipe_flush();
+    NSString *text = [NSString stringWithContentsOfFile:@"early-source.jsonl" encoding:NSUTF8StringEncoding error:nil];
+    NSString *line = [[text componentsSeparatedByString:@"\n"] firstObject];
+    NSDictionary *recipe = [NSJSONSerialization JSONObjectWithData:[line dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+    CHECK(recipe[@"program"] != nil, "record a synthetic live specialization");
+    unsetenv("LARECOMP_SHADER_RECORD");
+    CHECK(prep_worker_count(10, 64, NULL) == 10 && prep_worker_count(12, 64, NULL) == 12 &&
+          prep_worker_count(6, 64, NULL) == 6 && prep_worker_count(10, 2, NULL) == 2 &&
+          prep_worker_count(10, 2, "1") == 1,
+          "early concurrency is CPU/job bounded with a serial comparison override");
+    NSMutableArray *loaded = [NSMutableArray new]; NSMutableSet *hashes = [NSMutableSet new], *seen = [NSMutableSet new];
+    NSDictionary *v2 = @{@"version": @2, @"profiles": @{@"vertex_keys": @[recipe[@"program"][@"vkey"]],
+        @"fragment_keys": @[recipe[@"program"][@"fkey"]], @"descriptors": @[recipe[@"pipeline"]]},
+        @"recipes": @[@{@"vs": recipe[@"program"][@"vs"], @"fs": recipe[@"program"][@"fs"], @"vertex_key": @0, @"fragment_key": @0, @"descriptor": @0}]};
+    [prep_json(v2) writeToFile:@"early-catalog.json" atomically:YES];
+    early_read(@"early-catalog.json", true, loaded, hashes, seen);
+    early_read(@"early-source.jsonl", false, loaded, hashes, seen);
+    CHECK(loaded.count == 1 && hashes.count == 2, "catalog profiles and local recipes normalize and deduplicate");
+    early_init();
+    NSMutableDictionary *alias = [recipe mutableCopy], *alias_program = [recipe[@"program"] mutableCopy];
+    NSMutableDictionary *alias_fkey = [alias_program[@"fkey"] mutableCopy];
+    NSMutableArray *alias_params = [alias_fkey[@"params"] mutableCopy];
+    alias_params[0] = @(![alias_params[0] boolValue]); alias_fkey[@"params"] = alias_params;
+    alias_program[@"fkey"] = alias_fkey; alias[@"program"] = alias_program;
+    early_limit = 2;
+    early_recipes = @[recipe, alias]; early_targets = [NSSet setWithArray:@[recipe[@"program"][@"vs"], recipe[@"program"][@"fs"]]];
+    early_inputs = [NSMutableDictionary new]; early_attempted = [NSMutableSet new]; early_submitted = [NSMutableSet new]; early_hits = [NSMutableSet new]; early_completed = [NSMutableArray new];
+    early_queue = dispatch_queue_create("test.early", DISPATCH_QUEUE_CONCURRENT); early_group = dispatch_group_create();
+    mach_vm_address_t address = GUEST_LO + 0x900000;
+    // The runtime constructor already reserves writable guest memory.
+    NvnProgram original = *st.program, moved = original;
+    for (int i = 0; i < 2; i++) {
+        NvnShaderStage stage = original.stages[i]; size_t n = stage.const_offset + stage.const_size;
+        CHECK(n < 0x2000, "synthetic stage fits its region");
+        memcpy((void *)(uintptr_t)(address + i * 0x2000), (void *)(uintptr_t)stage.code_addr, n);
+        stage.code_addr = address + i * 0x2000; renderer_shader_registered(&stage);
+        // The compiler must never read the registered guest buffer after return.
+        memset((void *)(uintptr_t)stage.code_addr, 0, n);
+        moved.stages[i].code_addr = address + 0x4000 + i * 0x2000;
+        memcpy((void *)(uintptr_t)moved.stages[i].code_addr, (void *)(uintptr_t)original.stages[i].code_addr, n);
+    }
+    CHECK(early_inputs.count == 2, "only selected full-hash stage snapshots are retained");
+    [cache removeAllObjects]; memset(prog_tab, 0, sizeof prog_tab); memset(pipe_tab, 0, sizeof pipe_tab);
+    dispatch_suspend(early_queue);
+    early_frame();
+    ShaderKey live_vk, live_fk; prep_key_parse(recipe[@"program"][@"vkey"], &live_vk); prep_key_parse(recipe[@"program"][@"fkey"], &live_fk);
+    Prog *pending = get_program(&moved, &live_vk, &live_fk);
+    CHECK(pending && pending->early_pending && !pending->ready && [early_submitted containsObject:pending],
+          "first live use shares the in-flight early program instead of compiling twice");
+    dispatch_resume(early_queue);
+    CmdRec waiting = {.x = {0, 0, 3}};
+    CHECK(prog_ready_or_wait(pending, &waiting), "live wait publishes early program and PSOs without a frame-boundary deadlock");
+    early_frame();
+    CHECK(early_attempted.count == 2 && early_submitted.count == 1,
+          "metadata aliases never schedule concurrent native builds of the same program");
+    CHECK(pending->ready && !pending->early_pending, "completed program is published on renderer thread");
+    [cache removeAllObjects]; memset(prog_tab, 0, sizeof prog_tab); memset(pipe_tab, 0, sizeof pipe_tab);
+    unsigned hits = g_prep_program_hits, pipe_hits = g_prep_pipeline_hits;
+    st.program = &moved; fullscreen_draw(1); expect_rgba(&color, 0, 255, 0);
+    CHECK(g_prep_program_hits == hits + 1 && g_prep_pipeline_hits == pipe_hits + 1,
+          "moved live inputs reuse exact early program and pipeline with correct pixels");
+    early_recipes = @[recipe];
+    [early_attempted removeAllObjects]; [early_submitted removeAllObjects]; early_checked_revision = UINT64_MAX; early_frame();
+    CHECK(!early_inflight && !early_submitted.count, "already prepared/live variants never compile twice");
+    early_reset(); CHECK(!early_inputs.count && !early_inflight, "reset joins worker and clears input snapshots");
+    early_targets = nil; early_recipes = nil; early_group = nil; early_queue = nil;
+
+}
+
+static void shader_preparation(void) {
+    CHECK(prep_worker_count(10, 113, NULL) == 10, "automatic preparation uses active CPUs");
+    CHECK(prep_worker_count(10, 3, NULL) == 3, "worker count is bounded by program groups");
+    CHECK(prep_worker_count(0, 113, NULL) == 1 && prep_worker_count(10, 0, NULL) == 1, "empty/unknown capacity stays safe");
+    CHECK(prep_worker_count(10, 113, "1") == 1 && prep_worker_count(10, 113, "2") == 2, "serial and baseline overrides work");
+    CHECK(prep_worker_count(10, 113, "40") == 10, "override cannot oversubscribe CPUs");
+    const char *invalid[] = {"", "0", "-2", "+2", "2x", "999999999999999999999999"};
+    for (unsigned i = 0; i < sizeof invalid / sizeof *invalid; i++)
+        CHECK(prep_worker_count(10, 113, invalid[i]) == 10, "malformed override falls back to automatic capacity");
+    MTLRenderPipelineDescriptor *a = [MTLRenderPipelineDescriptor new];
+    a.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
+    MTLRenderPipelineDescriptor *b = [a copy];
+    b.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+    b.colorAttachments[1].writeMask = MTLColorWriteMaskRed;
+    b.colorAttachments[1].blendingEnabled = YES;
+    CHECK([prep_descriptor_dict(a) isEqual:prep_descriptor_dict(b)], "inactive blend and absent-target state share one profile");
+    a.colorAttachments[0].blendingEnabled = b.colorAttachments[0].blendingEnabled = YES;
+    CHECK(![prep_descriptor_dict(a) isEqual:prep_descriptor_dict(b)], "active blend factors remain separate profiles");
+    ShaderKey original = {0}, decoded = {0};
+    original.uint_slots = 9; original.xfb_count[2] = 3; original.xfb_void = true;
+    CHECK(prep_key_parse(prep_key_dict(&original), &decoded) && !memcmp(&original, &decoded, sizeof original),
+          "specialization roundtrip preserves typed textures and transform feedback");
+    CHECK(!prep_key_parse(@{}, &decoded), "incomplete specialization is rejected");
+    CHECK(prep_descriptor(@{}, nil) == nil, "incomplete pipeline recipe is rejected");
+
+    mkdir("inputs", 0755);
+    setenv("LARECOMP_SHADER_RECORD", "recipes.jsonl", 1);
+    NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
+    bind_targets(&color, NULL, NULL); prepare_draw();
+    NSMutableDictionary *shaders = [NSMutableDictionary new];
+    for (int i = 0; i < 2; i++) {
+        NvnShaderStage *stage = &st.program->stages[i];
+        NSString *hash = prep_stage_hash(stage);
+        NSData *bytes = [NSData dataWithBytes:(void *)(uintptr_t)stage->code_addr length:stage->const_offset];
+        CHECK(([bytes writeToFile:[NSString stringWithFormat:@"inputs/%@.bin", hash] atomically:YES]), "write synthetic input");
+        shaders[hash] = @{@"stage": @(i), @"size": @(stage->const_offset), @"const_offset": @(stage->const_offset), @"const_size": @0};
+    }
+    CHECK(([[NSJSONSerialization dataWithJSONObject:@{@"version": @1, @"shaders": shaders} options:0 error:nil]
+           writeToFile:@"inputs/index.json" atomically:YES]), "write synthetic index");
+    fullscreen_draw(1); expect_rgba(&color, 0, 255, 0);
+    NvnProgram xfb = *st.program;
+    xfb.stage_mask = 1; st.program = &xfb; g_xfb_on = g_raster_discard = true;
+    fullscreen_draw(1); renderer_flush();
+    g_xfb_on = g_raster_discard = false;
+    renderer_recipe_flush();
+    CHECK(access("recipes.jsonl", R_OK) == 0, "live draw records a numeric/hash-only recipe");
+    unsetenv("LARECOMP_SHADER_RECORD");
+    renderer_reset();
+    CHECK(prep_run(@"recipes.jsonl", @"inputs"), "prepare exact variants from synthetic input references");
+    CHECK(g_prep_programs.count == 2 && g_prep_pipelines.count == 2, "preparation covers vertex-only XFB without active live XFB state");
+    CHECK(!g_prep_active, "preparation joins workers before handing state back to draws");
+    NSString *recipes = [NSString stringWithContentsOfFile:@"recipes.jsonl" encoding:NSUTF8StringEncoding error:nil];
+    recipes = [[recipes stringByReplacingOccurrencesOfString:@"true" withString:@"1"]
+               stringByReplacingOccurrencesOfString:@"false" withString:@"0"];
+    NSString *mixed = [NSString stringWithFormat:@"invalid JSON\n%@%@", recipes, recipes];
+    CHECK([mixed writeToFile:@"mixed.jsonl" atomically:YES encoding:NSUTF8StringEncoding error:nil], "write mixed duplicate recipes");
+    int before_compiles = stat_compiles;
+    CHECK(prep_run(@"mixed.jsonl", @"inputs"), "invalid and duplicate recipes do not prevent valid preparation");
+    CHECK(g_prep_programs.count == 2 && g_prep_pipelines.count == 2 && stat_compiles == before_compiles,
+          "duplicate identities retain one complete prepared result per variant and restore draw statistics");
+    NSString *first = [[recipes componentsSeparatedByString:@"\n"] firstObject];
+    NSDictionary *record = [NSJSONSerialization JSONObjectWithData:[first dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+    CHECK([[first stringByAppendingString:@"\n"] writeToFile:@"prior-recipes.jsonl" atomically:YES encoding:NSUTF8StringEncoding error:nil], "seed prior session metadata");
+    recipe_enqueue(record, @"prior-recipes.jsonl"); recipe_enqueue(record, @"prior-recipes.jsonl");
+    renderer_recipe_flush();
+    NSString *prior = [NSString stringWithContentsOfFile:@"prior-recipes.jsonl" encoding:NSUTF8StringEncoding error:nil];
+    CHECK([prior componentsSeparatedByString:@"\n"].count == 2, "journal deduplicates metadata loaded from a prior session");
+    recipe_enqueue(record, @"async-recipes.jsonl"); renderer_recipe_flush();
+    struct stat mode; CHECK(!stat("async-recipes.jsonl", &mode) && (mode.st_mode & 0777) == 0600, "new journal is owner-only");
+    CHECK([@"{" writeToFile:@"broken-recipes.jsonl" atomically:YES encoding:NSUTF8StringEncoding error:nil], "seed incomplete journal");
+    recipe_enqueue(record, @"broken-recipes.jsonl"); renderer_recipe_flush();
+    CHECK([[NSString stringWithContentsOfFile:@"broken-recipes.jsonl" encoding:NSUTF8StringEncoding error:nil] isEqual:@"{"], "invalid existing journal is preserved");
+    CHECK([@"private" writeToFile:@"private-target.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil] &&
+          !symlink("private-target.txt", "linked-recipes.jsonl"), "seed journal symlink");
+    recipe_enqueue(record, @"linked-recipes.jsonl"); renderer_recipe_flush();
+    CHECK([[NSString stringWithContentsOfFile:@"private-target.txt" encoding:NSUTF8StringEncoding error:nil] isEqual:@"private"], "journal symlinks never overwrite targets");
+    CHECK(!mkfifo("fifo-recipes.jsonl", 0600), "seed a non-regular journal");
+    recipe_enqueue(record, @"fifo-recipes.jsonl"); renderer_recipe_flush();
+    CHECK(!lstat("fifo-recipes.jsonl", &mode) && S_ISFIFO(mode.st_mode), "FIFO is rejected without blocking or replacing it");
+    dispatch_suspend(recipe_q);
+    for (unsigned i = 0; i < 200; i++) recipe_enqueue(record, @"bounded-recipes.jsonl");
+    unsigned queued = __atomic_load_n(&recipe_pending, __ATOMIC_RELAXED);
+    unsigned dropped = __atomic_load_n(&recipe_dropped, __ATOMIC_RELAXED);
+    dispatch_resume(recipe_q); renderer_recipe_flush();
+    CHECK(queued == 128 && dropped >= 72, "full background queue drops work without blocking the renderer");
+    unsigned before_recipes = renderer_recipe_count();
+    g_settings.collect_shader_recipes = true;
+    unsigned before_programs = g_prep_program_hits, before_pipelines = g_prep_pipeline_hits;
+    stat_compiles = 0;
+    bind_targets(&color, NULL, NULL); prepare_draw(); fullscreen_draw(1); expect_rgba(&color, 0, 255, 0);
+    CHECK(stat_compiles == 0 && g_prep_program_hits > before_programs && g_prep_pipeline_hits > before_pipelines,
+          "first live draw reuses prepared program and pipeline without compilation");
+    renderer_recipe_flush();
+    CHECK(renderer_recipe_count() == before_recipes, "prepared pipelines do not produce new contribution rows");
+    uint32_t original_mask = st.channel_mask;
+    st.channel_mask = 3;
+    fullscreen_draw(1); expect_rgba(&color, 0, 255, 0); renderer_recipe_flush();
+    CHECK(renderer_recipe_count() == before_recipes + 1, "a successful unprepared pipeline is collected automatically");
+    if (getenv("LARECOMP_TEST_RECIPE_EXPORT")) {
+        char here[4096]; CHECK(getcwd(here, sizeof here), "export fixture directory");
+        setenv("LARECOMP_DATA_ROOT", here, 1); rt_paths_init();
+        __block bool exported = false;
+        dispatch_semaphore_t finished = dispatch_semaphore_create(0);
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            char error[256] = {0};
+            exported = renderer_export_recipes("native-recipes.json", error, sizeof error);
+            dispatch_semaphore_signal(finished);
+        });
+        CHECK(dispatch_semaphore_wait(finished, dispatch_time(DISPATCH_TIME_NOW, 35 * NSEC_PER_SEC)) == 0 && exported,
+              "native snapshot and standalone helper export complete in the background");
+        id contribution = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:@"native-recipes.json"] options:0 error:nil];
+        CHECK([contribution[@"type"] isEqual:@"shader-recipes"] && [contribution[@"recipes"] count] == 1,
+              "native export contains a validated contribution, not shader bytes");
+    }
+    st.channel_mask = original_mask;
+    g_settings.collect_shader_recipes = false;
+    destroy_texture(&color);
+    NSMutableData *short_input = [NSMutableData dataWithLength:16];
+    NSString *hash = prep_digest(short_input);
+    CHECK(([short_input writeToFile:[NSString stringWithFormat:@"inputs/%@.bin", hash] atomically:YES]), "write truncated synthetic input");
+    shaders[hash] = @{@"stage": @0, @"size": @16, @"const_offset": @16, @"const_size": @0};
+    CHECK(([[NSJSONSerialization dataWithJSONObject:@{@"version": @1, @"shaders": shaders} options:0 error:nil]
+           writeToFile:@"inputs/index.json" atomically:YES]), "write malformed-input index");
+    NSString *line = [[[NSString stringWithContentsOfFile:@"recipes.jsonl" encoding:NSUTF8StringEncoding error:nil]
+                       componentsSeparatedByString:@"\n"] firstObject];
+    NSMutableDictionary *bad = [[NSJSONSerialization JSONObjectWithData:[line dataUsingEncoding:NSUTF8StringEncoding] options:NSJSONReadingMutableContainers error:nil] mutableCopy];
+    bad[@"program"][@"vs"] = hash;
+    CHECK(([prep_json(bad) writeToFile:@"bad.jsonl" atomically:YES]), "write malformed recipe");
+    mkdir("build", 0755); mkdir("build/shaders", 0755);
+    CHECK(!prep_run(@"bad.jsonl", @"inputs"), "truncated source falls back instead of becoming prepared");
+    CHECK([[NSFileManager defaultManager] contentsOfDirectoryAtPath:@"build/shaders" error:nil].count == 0,
+          "preparation errors never dump beyond bounded private inputs");
+}
+
+static void recipe_catalog_refresh(void) {
+    ShaderKey key = {0};
+    MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
+    pd.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
+    NSString *a = [@"" stringByPaddingToLength:64 withString:@"a" startingAtIndex:0];
+    NSString *b = [@"" stringByPaddingToLength:64 withString:@"b" startingAtIndex:0];
+    NSDictionary *program = @{@"vs": a, @"fs": b, @"vkey": prep_key_dict(&key), @"fkey": prep_key_dict(&key)};
+    NSDictionary *known = @{@"version": @1, @"program": program, @"pipeline": prep_descriptor_dict(pd)};
+    NSMutableDictionary *extra_program = [program mutableCopy];
+    extra_program[@"vs"] = [@"" stringByPaddingToLength:64 withString:@"c" startingAtIndex:0];
+    NSDictionary *pending = @{@"version": @1, @"program": extra_program, @"pipeline": prep_descriptor_dict(pd)};
+    unsigned before = renderer_recipe_count();
+    recipe_enqueue(known, recipe_default_path); recipe_enqueue(pending, recipe_default_path); renderer_recipe_flush();
+    CHECK(renderer_recipe_count() == before + 2, "seed two distinct pending contributions");
+    mkdir("cache/shader-preparation", 0755);
+    CHECK([prep_json(@{@"version": @1, @"recipes": @[known]}) writeToFile:@"cache/shader-preparation/catalog.json" atomically:YES], "install synthetic catalog update");
+    recipe_refresh_known();
+    CHECK(renderer_recipe_count() == before + 1, "updated catalog removes only now-covered contributions without restart");
+    recipe_enqueue(known, recipe_default_path); renderer_recipe_flush();
+    CHECK(renderer_recipe_count() == before + 1, "covered contribution is not recorded again");
+    NSString *journal = [NSString stringWithContentsOfFile:recipe_default_path encoding:NSUTF8StringEncoding error:nil];
+    CHECK(![journal containsString:recipe_line(known)] && [journal containsString:recipe_line(pending)], "persisted pending file keeps unresolved recipes and excludes covered ones");
+    unlink("cache/shader-preparation/catalog.json"); recipe_refresh_known();
+}
+
 static void program_readiness(void) {
     CmdRec r = {.op = CMD_DRAW_ARRAYS, .x = {4, 0, 7}};
     CHECK(!prog_ready_or_wait(nil, &r), "a missing program cannot draw");
@@ -1917,6 +2158,141 @@ static NvnProgram *compute_image_fixture(bool reduction, bool array) {
     return &programs[mode];
 }
 
+// A compute program is recorded as hash + texture masks + workgroup size, rebuilt from its input before it is asked for,
+// and found by the dispatch (no translation or compile at first use).
+static void compute_preparation(void) {
+    static uint64_t code[32]; static NvnProgram prog;
+    uint64_t ops[] = {0x010000000007f000ull | (4ull << 20) | 4};
+    compute_fixture(code, &prog, ops, 1);
+    st.program = &prog;
+    setenv("LARECOMP_SHADER_RECORD", "cs-recipes.jsonl", 1);
+    dispatch_compute(1, 1, 1); check_gpu(); renderer_recipe_flush();
+    unsetenv("LARECOMP_SHADER_RECORD");
+    NSString *line = [NSString stringWithContentsOfFile:@"cs-recipes.jsonl" encoding:NSUTF8StringEncoding error:nil];
+    CHECK(line && [line containsString:@"\"compute\""] && ![line containsString:@"msl"], "a live compute dispatch records a hash/state-only recipe");
+    mkdir("cs-inputs", 0755);
+    NvnShaderStage *stage = &prog.stages[5];
+    NSString *hash = prep_stage_hash(stage);
+    NSData *bytes = [NSData dataWithBytes:(void *)(uintptr_t)stage->code_addr length:stage->const_offset];
+    CHECK(([bytes writeToFile:[NSString stringWithFormat:@"cs-inputs/%@.bin", hash] atomically:YES]), "write synthetic compute input");
+    NSDictionary *shaders = @{hash: @{@"stage": @5, @"size": @(stage->const_offset), @"const_offset": @(stage->const_offset), @"const_size": @0}};
+    CHECK(([[NSJSONSerialization dataWithJSONObject:@{@"version": @1, @"shaders": shaders} options:0 error:nil]
+           writeToFile:@"cs-inputs/index.json" atomically:YES]), "write synthetic compute index");
+    renderer_reset();
+    CHECK(prep_run(@"cs-recipes.jsonl", @"cs-inputs"), "prepare the compute program from its input reference");
+    CHECK(g_prep_cs.count == 1, "preparation builds exactly the recorded compute program");
+    unsigned hits = g_prep_cs_hits;
+    st.program = &prog;
+    dispatch_compute(1, 1, 1); check_gpu();
+    CHECK(g_prep_cs_hits == hits + 1, "the dispatch finds the prepared compute program");
+}
+
+// Measurement, not a check (LARECOMP_BLIND_DIR=<shader index dir>): what translating and compiling every indexed shader
+// "blind" (default specialization, no pairing, no render state) costs and how often the result is the program the game
+// asks for. LARECOMP_BLIND_RECIPES=<recipes.jsonl> gives the programs the game really asked for; LARECOMP_BLIND_N limits.
+static void blind_libraries(void) {
+    const char *dirc = getenv("LARECOMP_BLIND_DIR");
+    if (!dirc) { fprintf(stderr, "blind-libraries: set LARECOMP_BLIND_DIR to measure\n"); return; }
+    NSString *dir = @(dirc);
+    NSData *idata = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"index.json"]];
+    NSDictionary *index = idata ? [NSJSONSerialization JSONObjectWithData:idata options:0 error:nil][@"shaders"] : nil;
+    CHECK(index.count, "shader index readable");
+    NSUInteger limit = getenv("LARECOMP_BLIND_N") ? (NSUInteger)atoi(getenv("LARECOMP_BLIND_N")) : NSUIntegerMax;
+    backend_gwin_pick(); maxwell_gmem_base = g_gwin_base; maxwell_gmem_size = g_gwin_max;
+    NSMutableDictionary<NSString *, NSString *> *blind = [NSMutableDictionary new];  // shader hash -> blind MSL
+    NSMutableArray<NSNumber *> *stages = [NSMutableArray new]; NSMutableArray<NSString *> *sources = [NSMutableArray new];
+    unsigned seen[6] = {0}, translated[6] = {0};
+    size_t msl_bytes = 0;
+    double t0 = now_ms();
+    for (NSString *hash in [index.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+        NSDictionary *m = index[hash]; int stage = [m[@"stage"] intValue];
+        if ((stage != 0 && stage != 1 && stage != 5) || sources.count >= limit) continue;
+        NSData *bin = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:[hash stringByAppendingString:@".bin"]]];
+        if (!bin) continue;
+        seen[stage]++;
+        size_t co = [m[@"const_offset"] unsignedIntValue], cs = [m[@"const_size"] unsignedIntValue];
+        ShaderKey k = {0}; if (stage == 1) k.vs_out_mask = 0xFFFFFFFFu;
+        ShaderInfo *si = maxwell_translate_with_constants(bin.bytes, co ? co : 0x10000,
+            stage == 0 ? STAGE_VERTEX : stage == 1 ? STAGE_FRAGMENT : STAGE_COMPUTE, &k, (const uint8_t *)bin.bytes + co, co ? cs : 0);
+        if (!si->msl) continue;
+        translated[stage]++; msl_bytes += strlen(si->msl);
+        blind[hash] = @(si->msl); [stages addObject:@(stage)]; [sources addObject:blind[hash]];
+    }
+    double translate_ms = now_ms() - t0;
+    unsigned *built = calloc(6, sizeof *built);
+    t0 = now_ms();
+    dispatch_apply(sources.count, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^(size_t i) { @autoreleasepool {
+        int stage = [stages[i] intValue];
+        id<MTLLibrary> lib = [dev newLibraryWithSource:sources[i] options:game_shader_opts(stage == 0) error:nil];
+        if (lib) __atomic_fetch_add(&built[stage], 1, __ATOMIC_RELAXED);
+    }});
+    double compile_ms = now_ms() - t0;
+    const char *names[] = {"vertex", "fragment", "?", "?", "?", "compute"};
+    for (int st = 0; st < 6; st++) if (seen[st])
+        fprintf(stderr, "blind %-8s indexed %5u  translated %5u  library built %5u\n", names[st], seen[st], translated[st], built[st]);
+    fprintf(stderr, "blind totals: translate %.1f s (serial), libraries %.1f s on %d cores, %.1f MB of MSL\n",
+            translate_ms / 1000, compile_ms / 1000, (int)NSProcessInfo.processInfo.activeProcessorCount, msl_bytes / 1048576.0);
+    const char *rpath = getenv("LARECOMP_BLIND_RECIPES");
+    NSString *text = rpath ? [NSString stringWithContentsOfFile:@(rpath) encoding:NSUTF8StringEncoding error:nil] : nil;
+    if (!text) return;
+    unsigned graphics = 0, vs_same = 0, fs_same = 0, fs_same_pair = 0, both = 0, compute = 0, cs_same = 0;
+    for (NSString *line in [text componentsSeparatedByString:@"\n"]) {
+        id r = line.length ? [NSJSONSerialization JSONObjectWithData:[line dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil] : nil;
+        if (![r isKindOfClass:NSDictionary.class]) continue;
+        if (r[@"compute"]) { compute++; uint32_t kv[5]; NSString *h = r[@"compute"][@"cs"]; NSDictionary *m = index[h];
+            NSData *bin = m ? [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:[h stringByAppendingString:@".bin"]]] : nil;
+            if (!bin || !prep_array(r[@"compute"][@"key"], 5, UINT32_MAX, kv)) continue;
+            ShaderKey k = {0}; k.stencil_slots = kv[0]; k.sint_slots = kv[1]; k.uint_slots = kv[2]; k.img_sint = kv[3]; k.img_uint = kv[4];
+            size_t co = [m[@"const_offset"] unsignedIntValue], cs = [m[@"const_size"] unsignedIntValue];
+            ShaderInfo *si = maxwell_translate_with_constants(bin.bytes, co ? co : 0x10000, STAGE_COMPUTE, &k, (const uint8_t *)bin.bytes + co, co ? cs : 0);
+            if (si->msl && [blind[h] isEqualToString:@(si->msl)]) cs_same++;
+            continue; }
+        NSDictionary *p = r[@"program"]; ShaderKey vk, fk;
+        if (![p isKindOfClass:NSDictionary.class] || !prep_key_parse(p[@"vkey"], &vk) || !prep_key_parse(p[@"fkey"], &fk)) continue;
+        NSString *vh = p[@"vs"], *fh = p[@"fs"]; NSDictionary *vm = index[vh], *fm = fh.length ? index[fh] : nil;
+        NSData *vb = vm ? [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:[vh stringByAppendingString:@".bin"]]] : nil;
+        if (!vb) continue;
+        graphics++;
+        size_t vco = [vm[@"const_offset"] unsignedIntValue];
+        ShaderInfo *vi = maxwell_translate_with_constants(vb.bytes, vco ? vco : 0x10000, STAGE_VERTEX, &vk, (const uint8_t *)vb.bytes + vco, vco ? [vm[@"const_size"] unsignedIntValue] : 0);
+        bool vsame = vi->msl && [blind[vh] isEqualToString:@(vi->msl)];
+        if (vsame) vs_same++;
+        if (!fm) { if (vsame) both++; continue; }
+        NSData *fb = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:[fh stringByAppendingString:@".bin"]]];
+        if (!fb) continue;
+        fk.vs_out_mask = vi->out_mask;  // as the game does, from the vertex shader it is paired with
+        size_t fco = [fm[@"const_offset"] unsignedIntValue];
+        ShaderInfo *fi = maxwell_translate_with_constants(fb.bytes, fco ? fco : 0x10000, STAGE_FRAGMENT, &fk, (const uint8_t *)fb.bytes + fco, fco ? [fm[@"const_size"] unsignedIntValue] : 0);
+        bool fsame = fi->msl && [blind[fh] isEqualToString:@(fi->msl)];
+        if (fsame) fs_same++;
+        if (vsame && fsame) both++;
+    }
+    fprintf(stderr, "blind vs. what the game asked for: %u graphics recipes: vertex program identical %u, fragment identical %u, both %u; "
+            "%u compute recipes: identical %u\n", graphics, vs_same, fs_same, both, compute, cs_same);
+}
+
+// The start screen's "All shaders" badge: when is a precompile still good?
+static void precompile_stamp_rules(void) {
+    const char *now = "version=1\nos=26.5\ngpu=Apple M5\nfile0=10-20\nfile1=30-40\n";
+    char why[160];
+    CHECK(precompile_compare("", now, why, sizeof why) == PRECOMPILE_NOT_DONE, "no stamp: not done");
+    CHECK(precompile_compare("version=1\nos=26.5\ngpu=Apple M5\nfile0=10-20\nfile1=30-40\nshaders=12943\n", now, why, sizeof why) == PRECOMPILE_CURRENT,
+          "the same version, macOS, GPU and game files: current");
+    CHECK(precompile_compare("version=0\nos=26.5\ngpu=Apple M5\nfile0=10-20\nfile1=30-40\n", now, why, sizeof why) == PRECOMPILE_OUTDATED && strstr(why, "version"),
+          "an older precompile version: out of date");
+    CHECK(precompile_compare("version=1\nos=26.4\ngpu=Apple M5\nfile0=10-20\nfile1=30-40\n", now, why, sizeof why) == PRECOMPILE_OUTDATED && strstr(why, "macOS"),
+          "another macOS: out of date");
+    CHECK(precompile_compare("version=1\nos=26.5\ngpu=Apple M1\nfile0=10-20\nfile1=30-40\n", now, why, sizeof why) == PRECOMPILE_OUTDATED && strstr(why, "graphics"),
+          "another GPU: out of date");
+    CHECK(precompile_compare("version=1\nos=26.5\ngpu=Apple M5\nfile0=10-21\nfile1=30-40\n", now, why, sizeof why) == PRECOMPILE_OUTDATED && strstr(why, "game files"),
+          "other game files: out of date");
+    mkdir("cache", 0755); mkdir("cache/shader-precompile", 0755);
+    unlink("cache/shader-precompile/stamp.txt");
+    CHECK(precompile_state("/nonexistent", why, sizeof why) == PRECOMPILE_NOT_DONE, "no stamp file: not done");
+    CHECK(precompile_write_stamp("/nonexistent", 5), "the stamp is written");
+    CHECK(precompile_state("/nonexistent", why, sizeof why) == PRECOMPILE_CURRENT, "a stamp just written is current");
+}
+
 static void compute_images(bool reduction, bool array, bool view) {
     const struct { uint32_t format, value, view_format; } cases[] = {
         {0x0a, 0x3f400000}, {0x0b, 17}, {0x0c, 0xffffffe9}, {0x0b, 0xfffffff7, 0x0c}, {0x0a, 0x3f400000},
@@ -2098,6 +2474,9 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"live-shader-pipeline", "live", live_shader_pipeline},
     {"break-reconvergence", "flow", break_reconvergence},
     {"structured-brx", "flow", structured_brx},
+    {"compute-preparation", "preparation", compute_preparation},
+    {"precompile-stamp", "preparation", precompile_stamp_rules},
+    {"blind-libraries", "preparation", blind_libraries},
     {"compute-image-store", "images", compute_image_store},
     {"compute-image-feedback", "images", compute_image_feedback},
     {"compute-image-ownership", "images", compute_image_ownership},
@@ -2113,6 +2492,9 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"integer-opcode-semantics", "integers", integer_opcode_semantics},
     {"surface-handle-provenance", "integers", surface_handle_provenance},
     {"ldc64-overlap", "sibling", ldc64_overlap},
+    {"shader-preparation", "preparation", shader_preparation},
+    {"recipe-catalog-refresh", "contributions", recipe_catalog_refresh},
+    {"early-snapshot", "early", shader_early_snapshot},
     {"program-readiness", "sibling", program_readiness},
     {"pipeline-archive", "sibling", pipeline_archive_reload},
     {"shadow-fallback", "sibling", shadow_fallback},
@@ -2174,9 +2556,11 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"feedback-mip-color", "feedback", feedback_mip_color},
     {"feedback-mip-depth", "feedback", feedback_mip_depth},
     {"feedback-base-alias", "feedback", feedback_base_alias},
+    {"preparation-page", "preparation", metal_test_preparation_page},
 };
 
 int metal_renderer_test_main(int argc, char **argv) { @autoreleasepool {
+    g_settings.collect_shader_recipes = false;
     setenv("LARECOMP_SYNC_SHADERS", "1", 1);
     setenv("LARECOMP_NO_SHADER_WARM", "1", 1);
     char temporary[] = "/tmp/pokeza-metal-tests-XXXXXX";

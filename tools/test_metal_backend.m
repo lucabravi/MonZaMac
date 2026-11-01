@@ -79,3 +79,58 @@ void metal_test_bootstrap(void) {
 
 // Advance only the upload-cache frame for ownership regressions; no window or fake renderer is needed.
 void metal_test_next_texture_frame(void) { g_frame_counter++; }
+
+// A native page must not need a Metal present or touch the overlay's ImGui context.
+void metal_test_preparation_page(void) {
+    setenv("LARECOMP_HIDDEN", "1", 1);
+    ui_window_init();
+    NSWindow *native = (__bridge NSWindow *)SDL_GetPointerProperty(
+        SDL_GetWindowProperties(window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
+    assert(native);
+    NSUInteger baseline = native.contentView.subviews.count;
+    NSRect original_bounds = native.contentView.bounds;
+    NSView *game_view = native.contentView.subviews.firstObject;
+    NSRect original_game_frame = game_view.frame;
+    assert(!ui_preparation_update());
+    backend_shader_prepare_progress(0, 4);
+    assert(ui_preparation_update());
+    assert(native.contentView.subviews.count == baseline + 1);
+    PreparationPage *page = (PreparationPage *)native.contentView.subviews.lastObject;
+    NSProgressIndicator *bar = page->bar;
+    NSTextField *count = page->count;
+    assert(bar.doubleValue == 0);
+    backend_shader_prepare_progress(2, 4);
+    assert(ui_preparation_update());
+    assert(bar.doubleValue == 0.5 && [count.stringValue containsString:@"2 / 4"]);
+    [native.contentView.superview layoutSubtreeIfNeeded];
+    assert(NSEqualRects(native.contentView.bounds, original_bounds));
+    assert(NSEqualRects(game_view.frame, original_game_frame));
+    assert(NSEqualRects(page.frame, native.contentView.bounds));
+    assert(page->detail.frame.size.width <= 560 && bar.frame.size.width > 100);
+    // Fullscreen/resize uses larger native bounds; the overlay must follow them
+    // without making the SDL Metal view or content view adopt its text width.
+    [native setContentSize:NSMakeSize(1800, 1000)];
+    [native.contentView.superview layoutSubtreeIfNeeded];
+    NSRect resized = native.contentView.bounds;
+    NSRect resized_game = game_view.frame;
+    assert(resized.size.width >= 1700);
+    assert(NSEqualSizes(resized_game.size, resized.size));
+    assert(ui_preparation_update());
+    [native.contentView.superview layoutSubtreeIfNeeded];
+    assert(NSEqualRects(page.frame, resized));
+    assert(NSEqualRects(native.contentView.bounds, resized));
+    assert(NSEqualRects(game_view.frame, resized_game));
+    assert(fabs(NSMidX(page->bar.frame) - NSMidX(page.bounds)) < 1);
+    backend_shader_prepare_progress(9, 4);
+    assert(ui_preparation_update() && bar.doubleValue == 1);
+    backend_shader_prepare_progress(0, 0);
+    assert(!ui_preparation_update() && native.contentView.subviews.count == baseline);
+    assert(NSEqualRects(native.contentView.bounds, resized));
+    assert(NSEqualRects(game_view.frame, resized_game));
+    // A second preparation (save switch/reboot) owns a fresh page.
+    backend_shader_prepare_progress(0, 1);
+    assert(ui_preparation_update());
+    backend_shader_prepare_progress(0, 0);
+    assert(!ui_preparation_update() && native.contentView.subviews.count == baseline);
+    SDL_DestroyWindow(window); window = NULL;
+}

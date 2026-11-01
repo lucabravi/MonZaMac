@@ -461,25 +461,34 @@ void backend_texture_destroyed(NvnTexture *t) {
 static uint64_t g_frame_counter;  // presents so far (texture change detection runs once per frame)
 static uint64_t full_hash_budget, full_hash_budget_frame;
 
+// Four independent multiply chains over interleaved 8-byte words: one chain is bound by the multiply's latency (a 1.2 ms
+// share of a 1.5x frame for ~6 MB), four keep the multiplier busy.
 static uint64_t hash_full(const uint8_t *p, uint64_t n) {
-    uint64_t h = 0x9E3779B97F4A7C15ull ^ n;
+    uint64_t h[4] = {0x9E3779B97F4A7C15ull ^ n, 0xC2B2AE3D27D4EB4Full, 0x165667B19E3779F9ull, 0x27D4EB2F165667C5ull};
     uint64_t i = 0;
-    for (; i + 8 <= n; i += 8) {
-        uint64_t v;
-        memcpy(&v, p + i, 8);
-        h = (h ^ v) * 0x100000001B3ull;
-        h ^= h >> 29;
+    for (; i + 32 <= n; i += 32) {
+        uint64_t v[4];
+        memcpy(v, p + i, 32);
+        for (int k = 0; k < 4; k++) {
+            h[k] = (h[k] ^ v[k]) * 0x100000001B3ull;
+            h[k] ^= h[k] >> 29;
+        }
     }
-    for (; i < n; i++) h = (h ^ p[i]) * 0x100000001B3ull;
-    return h;
+    uint64_t r = h[0];
+    for (int k = 1; k < 4; k++) { r = (r ^ h[k]) * 0x100000001B3ull; r ^= r >> 29; }
+    for (; i < n; i++) r = (r ^ p[i]) * 0x100000001B3ull;
+    return r;
 }
 
 static uint64_t fnv_sample(const uint8_t *p, uint64_t n) {
     // cheap change detector: hash a strided sample of the data
-    uint64_t h = 1469598103934665603ull;
-    uint64_t step = n > 4096 ? n / 4096 : 1;
-    for (uint64_t i = 0; i < n; i += step) { h ^= p[i]; h *= 1099511628211ull; }
-    return h ^ n;
+    // (four chains, as hash_full: one serial multiply per sampled byte made ~100 checks a frame cost about 1 ms)
+    uint64_t h[4] = {1469598103934665603ull, 0xC2B2AE3D27D4EB4Full, 0x165667B19E3779F9ull, 0x27D4EB2F165667C5ull};
+    uint64_t step = n > 4096 ? n / 4096 : 1, i = 0;
+    for (; i + 3 * step < n; i += 4 * step)
+        for (int k = 0; k < 4; k++) { h[k] ^= p[i + k * step]; h[k] *= 1099511628211ull; }
+    for (; i < n; i += step) { h[0] ^= p[i]; h[0] *= 1099511628211ull; }
+    return (h[0] ^ (h[1] * 3) ^ (h[2] * 5) ^ (h[3] * 7)) ^ n;
 }
 
 // Upload all levels/layers from block-linear guest memory.
@@ -1319,6 +1328,129 @@ void backend_present(NvnTexture *t) {
     renderer_debug_frame_boundary(total_frames);
 }
 
+// Native views keep preparation responsive even while a synchronous Metal compile
+// blocks the render thread. No drawable or shared ImGui context is used here.
+void input_reset(void);  // runtime/hle/input.c: held keys must not leak through a modal page
+static atomic_uint_fast64_t prep_progress;
+void backend_shader_prepare_progress(unsigned done, unsigned total) {
+    atomic_store(&prep_progress, total ? ((uint64_t)total << 32) | (done > total ? total : done) : 0);
+}
+
+static atomic_bool prep_cancel;
+void backend_shader_precompile_progress(unsigned phase, unsigned done, unsigned total) {
+    if (!phase && !done) atomic_store(&prep_cancel, false);
+    atomic_store(&prep_progress, (1ull << 62) | (phase ? 0 : (1ull << 61)) | ((uint64_t)(total ? total : 1) << 32) | (done > total ? total : done));
+}
+bool backend_shader_prepare_cancelled(void) { return atomic_load(&prep_cancel); }
+
+void backend_shader_prepare_inputs(unsigned done, unsigned total) {
+    atomic_store(&prep_progress, (1ull << 63) | ((uint64_t)(total ? total : 1) << 32) | (done > total ? total : done));
+}
+
+// SDL lays out its native content/Metal views by frame. Auto Layout constraints
+// attached here can shrink that content view, leaving the game pinned left.
+@interface PreparationPage : NSView {
+@public
+    NSTextField *brand, *title, *detail, *count;
+    NSProgressIndicator *bar;
+    NSButton *stop;
+}
+@end
+@implementation PreparationPage
+- (instancetype)initWithFrame:(NSRect)frame {
+    if (!(self = [super initWithFrame:frame])) return nil;
+    self.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    self.wantsLayer = YES;
+    self.layer.backgroundColor = [NSColor colorWithRed:0.04 green:0.07 blue:0.14 alpha:1].CGColor;
+    self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    brand = [NSTextField labelWithString:@"MonZaMac"];
+    brand.font = [NSFont systemFontOfSize:16 weight:NSFontWeightSemibold];
+    brand.textColor = [NSColor colorWithRed:0.28 green:0.84 blue:1 alpha:1];
+    title = [NSTextField labelWithString:@"Preparing shaders"];
+    title.font = [NSFont systemFontOfSize:28 weight:NSFontWeightSemibold];
+    title.textColor = NSColor.whiteColor;
+    detail = [NSTextField wrappingLabelWithString:
+        @"Compiling graphics pipelines on your Mac to reduce stutter during play. This can take a little while."];
+    detail.font = [NSFont systemFontOfSize:15];
+    detail.textColor = [NSColor colorWithRed:0.58 green:0.64 blue:0.74 alpha:1];
+    bar = [NSProgressIndicator new];
+    bar.style = NSProgressIndicatorStyleBar; bar.indeterminate = NO;
+    bar.minValue = 0; bar.maxValue = 1;
+    bar.accessibilityLabel = @"Shader preparation progress";
+    count = [NSTextField labelWithString:@""];
+    count.font = [NSFont monospacedDigitSystemFontOfSize:14 weight:NSFontWeightRegular];
+    count.textColor = detail.textColor;
+    for (NSTextField *field in @[brand, title, detail, count]) field.alignment = NSTextAlignmentCenter;
+    stop = [NSButton buttonWithTitle:@"Stop" target:self action:@selector(stopPressed:)];
+    stop.hidden = YES;
+    for (NSView *view in @[brand, title, detail, bar, count, stop]) [self addSubview:view];
+    return self;
+}
+- (void)stopPressed:(id)sender {
+    atomic_store(&prep_cancel, true);
+    stop.enabled = NO; stop.title = @"Stopping...";
+}
+- (void)layout {
+    [super layout];
+    CGFloat width = fmax(1, fmin(560, self.bounds.size.width * 0.8));
+    NSArray<NSView *> *views = @[brand, title, detail, bar, count, stop];
+    CGFloat heights[6], total = 5 * 18;
+    for (unsigned i = 0; i < 6; i++) {
+        heights[i] = i == 3 ? 12 : i == 5 ? (stop.hidden ? 0 : 28) : [[(NSTextField *)views[i] cell] cellSizeForBounds:NSMakeRect(0, 0, width, CGFLOAT_MAX)].height;
+        total += heights[i];
+    }
+    CGFloat x = self.bounds.origin.x + (self.bounds.size.width - width) * 0.5;
+    CGFloat y = self.bounds.origin.y + (self.bounds.size.height + total) * 0.5;
+    for (unsigned i = 0; i < 6; i++) {
+        y -= heights[i];
+        views[i].frame = i == 5 ? NSMakeRect(x + (width - 120) * 0.5, y, 120, heights[i]) : NSMakeRect(x, y, width, heights[i]);
+        y -= 18;
+    }
+}
+@end
+
+static bool ui_preparation_update(void) {
+    static PreparationPage *page;
+    uint64_t progress = atomic_load(&prep_progress);
+    if (!progress) {
+        if (page) input_reset();
+        [page removeFromSuperview]; page = nil;
+        return false;
+    }
+    if (!page) {
+        NSWindow *native = (__bridge NSWindow *)SDL_GetPointerProperty(
+            SDL_GetWindowProperties(window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
+        if (!native) return true;
+        input_reset();
+        page = [[PreparationPage alloc] initWithFrame:native.contentView.bounds];
+        [native.contentView addSubview:page positioned:NSWindowAbove relativeTo:nil];
+    }
+    bool inputs = progress >> 63, all = (progress >> 62) & 1, reading = (progress >> 61) & 1;
+    unsigned total = (unsigned)((progress >> 32) & 0x1fffffff), done = (unsigned)progress;
+    if (all) {
+        page->title.stringValue = @"Preparing all shaders";
+        page->detail.stringValue = @"Compiling every graphics program of the game on your Mac, so scenes load without stalls the "
+            "first time you see them. It takes several minutes and uses all CPU cores. You can stop: what was compiled is kept.";
+        page->stop.hidden = NO;
+        if (reading) {
+            if (!page->bar.indeterminate) { page->bar.indeterminate = YES; [page->bar startAnimation:nil]; }
+            page->count.stringValue = @"Reading your game files...";
+        } else {
+            if (page->bar.indeterminate) { [page->bar stopAnimation:nil]; page->bar.indeterminate = NO; }
+            page->bar.doubleValue = (double)done / total;
+            page->count.stringValue = [NSString stringWithFormat:@"%u / %u shaders compiled  ·  %u%%", done, total, done * 100 / total];
+        }
+    } else {
+        page->bar.doubleValue = (double)done / total;
+        page->count.stringValue = [NSString stringWithFormat:@"%u / %u %@  ·  %u%%", done, total,
+            inputs ? @"shader inputs verified" : @"pipelines checked", done * 100 / total];
+    }
+    page.frame = page.superview.bounds;
+    page.needsLayout = YES;
+    [page layoutSubtreeIfNeeded];
+    return true;
+}
+
 // ================================================================== UI thread
 // The window + Metal layer, created once: by the launcher (runtime/ui/launcher.mm, start screen before the game
 // boots) or by ui_run; the game reuses the launcher's window.
@@ -1370,11 +1502,16 @@ int ui_run(void) {
         SDL_Event e;
         while (SDL_WaitEventTimeout(&e, 16)) {
             if (e.type == SDL_EVENT_QUIT) { LOG("window closed\n"); return RT_REBOOT_NONE; }
+            if (ui_preparation_update()) {
+                // Device lifecycle still reaches input handling; gameplay events remain modal.
+                if (e.type == SDL_EVENT_GAMEPAD_ADDED || e.type == SDL_EVENT_GAMEPAD_REMOVED) input_handle_event(&e);
+                continue;
+            }
             if (input_user_blocked(&e)) continue;  // scripted test runs: the real keyboard / mouse / pads do nothing
             if (menu_handle_event(&e)) continue;
             input_handle_event(&e);
         }
-        input_mouse_update(window);  // (Mouse camera "No button": the cursor held in the window)
+        if (!ui_preparation_update()) input_mouse_update(window);  // (Mouse camera "No button": the cursor held in the window)
         menu_apply_window_requests(window);
         int w, h;
         SDL_GetWindowSizeInPixels(window, &w, &h);
