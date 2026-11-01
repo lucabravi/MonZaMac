@@ -14,6 +14,7 @@
 
 #include "maxwell/shader.h"
 #include "cache_probe.h"
+#include "shader_trace.h"
 #include "nvn.h"
 #include "renderer.h"
 #include "../paths.h"
@@ -208,6 +209,7 @@ static void pass_timing_report(void) {
 }
 
 void renderer_debug_frame_boundary(uint64_t frame) {
+    shader_trace_frame(frame);
     if (g_pt_frames) {  // the frame's passes are done: wait for them, read their timestamps
         renderer_flush_reason("debug-readback");
         pass_timing_frame_end();
@@ -1908,6 +1910,23 @@ static uint64_t g_xfb_addr[4], g_xfb_size[4];
 static uint64_t g_ind_off = UINT64_MAX;  // an indirect draw whose arguments the GPU fills in (offset in the gmem window)
 static NvnProgram g_comp_prog;  // the stages bound so far (a game may bind them from several programs)
 
+static void trace_compile(const char *kind, Prog *pr, MTLRenderPipelineDescriptor *pd, double ms) {
+    if (!shader_trace_enabled()) return;
+    shader_trace_compile(kind, ms, pr->vs_addr, pr->fs_addr,
+        pr->vi && pr->vi->msl ? fnv64(pr->vi->msl) : 0,
+        pr->fi && pr->fi->msl ? fnv64(pr->fi->msl) : 0, pd ? pipeline_archivable(pd, pr) : -1);
+    // Hash/state only, bounded per process; makes copied upload aliases traceable
+    // to the exact catalog variant without recording any shader bytes.
+    static unsigned variants;
+    if (!strcmp(kind, "program") && pr->prep_record && __atomic_fetch_add(&variants, 1, __ATOMIC_RELAXED) < 1024) {
+        NSDictionary *row = @{@"program": pr->prep_record,
+            @"vs_msl": [NSString stringWithFormat:@"%016llx", (unsigned long long)(pr->vi && pr->vi->msl ? fnv64(pr->vi->msl) : 0)],
+            @"fs_msl": [NSString stringWithFormat:@"%016llx", (unsigned long long)(pr->fi && pr->fi->msl ? fnv64(pr->fi->msl) : 0)]};
+        NSData *json = [NSJSONSerialization dataWithJSONObject:row options:NSJSONWritingSortedKeys error:nil];
+        if (json) LOG("[shader-variant] %s\n", [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding].UTF8String);
+    }
+}
+
 static void compile_program(Prog *pr) {
     NSError *err = nil;
     double t0 = now_ms();
@@ -1930,6 +1949,7 @@ static void compile_program(Prog *pr) {
     __atomic_fetch_add(&stat_compiles, 1, __ATOMIC_RELAXED);
     double dt = now_ms() - t0;
     @synchronized(cache) { stat_compile_ms += dt; }
+    trace_compile("program", pr, nil, dt);
     pr->ready = true;
 }
 
@@ -1976,14 +1996,17 @@ static void cs_archive_add(MTLComputePipelineDescriptor *cd) {
 }
 
 // Library + pipeline, from the last run's archive when it has the pipeline. Safe on a worker thread.
-static bool cs_compile(CsProg *cp) {
+static bool cs_compile(CsProg *cp, uint64_t trace_addr) {
     NSError *err = nil;
+    double trace_start = now_ms();
     id<MTLLibrary> lib = TIMED_COMPILE([dev newLibraryWithSource:@(cp->si->msl) options:game_shader_opts(false) error:&err]);
+    if (shader_trace_enabled()) shader_trace_compile("compute-library", now_ms() - trace_start, trace_addr, 0, fnv64(cp->si->msl), 0, -1);
     id<MTLFunction> f = lib ? [lib newFunctionWithName:@"main0"] : nil;
     if (f) {
         MTLComputePipelineDescriptor *cd = [MTLComputePipelineDescriptor new];
         cd.computeFunction = f;
         cd.label = [NSString stringWithFormat:@"cs %016llx", (unsigned long long)fnv64(cp->si->msl)];
+        trace_start = now_ms();
         pipeline_archive();
         if (g_archive_read) {
             cd.binaryArchives = @[g_archive_read];
@@ -1993,6 +2016,7 @@ static bool cs_compile(CsProg *cp) {
         }
         if (!cp->pipe) cp->pipe = TIMED_COMPILE([dev newComputePipelineStateWithDescriptor:cd options:MTLPipelineOptionNone reflection:nil error:&err]);
         if (cp->pipe) cs_archive_add([cd copy]);
+        if (shader_trace_enabled()) shader_trace_compile("compute-pipeline", now_ms() - trace_start, trace_addr, 0, fnv64(cp->si->msl), 0, -1);
     }
     if (!cp->pipe) {
         LOG("[compute] compile failed: %s\n%s\n", err.localizedDescription.UTF8String, cp->si->msl);
@@ -2931,7 +2955,7 @@ static CsProg *compute_program(NvnProgram *p) {
     }
     CsProg *cp = calloc(1, sizeof *cp);
     progs[key] = [NSValue valueWithPointer:cp];
-    if (!cs_translate(cp, ss, &k, local) || !cs_compile(cp)) return NULL;
+    if (!cs_translate(cp, ss, &k, local) || !cs_compile(cp, ss->code_addr)) return NULL;
     if (shader_hash) prep_record_compute(shader_hash, &k, local);
     LOG("[compute] program %llx: local size %ux%ux%u, %d cbufs mask %#x\n", ss->code_addr, cp->local[0], cp->local[1],
         cp->local[2], 0, cp->si->cbuf_mask);
@@ -3732,14 +3756,18 @@ static void draw(CmdRec *r, bool indexed) {
     if (!pobj && pipeline_archive() && g_archive_read) {
         // in the last run's archive: built at once without compiling; a miss fails right away and goes the usual way
         pd.binaryArchives = @[g_archive_read];
+        double trace_start = now_ms();
         pobj = [dev newRenderPipelineStateWithDescriptor:pd options:MTLPipelineOptionFailOnBinaryArchiveMiss reflection:nil error:nil];
+        if (pobj) trace_compile("archive-hit", pr, pd, now_ms() - trace_start);
         pd.binaryArchives = nil;
         if (pobj) { cache[pk] = pobj; g_archive_hits++; pipeline_archive_add([pd copy], pr); }  // the new file keeps what is still used
     }
     if (!pobj) {
         if (sync_shaders() || r->x[2] <= 6) {  // a full-screen draw waits for its pipeline too, as for its program (prog_ready_or_wait)
             NSError *err;
+            double trace_start = now_ms();
             pobj = TIMED_COMPILE([dev newRenderPipelineStateWithDescriptor:pd error:&err]);
+            trace_compile("pipeline", pr, pd, now_ms() - trace_start);
             if (!pobj) {
                 static int n;
                 if (n++ < 10) LOG("[metal] pipeline failed (vs %llx fs %llx): %s\n", (unsigned long long)pr->vs_addr, (unsigned long long)pr->fs_addr, err.localizedDescription.UTF8String);
@@ -3755,6 +3783,7 @@ static void draw(CmdRec *r, bool indexed) {
                 if (!ps) { static int n; if (n++ < 10) LOG("[metal] pipeline failed (vs %llx fs %llx): %s\n", (unsigned long long)pr->vs_addr, (unsigned long long)pr->fs_addr, e.localizedDescription.UTF8String); }
                 else pipeline_archive_add(pdc, pr);
                 @synchronized(ready_pipes) { ready_pipes[k] = ps ? (id)ps : (id)[NSNull null]; }
+                trace_compile("pipeline-async", pr, pdc, now_ms() - t0);
                 @synchronized(cache) { stat_compile_ms += now_ms() - t0; }
                 __atomic_fetch_add(&stat_compiles, 1, __ATOMIC_RELAXED);
             }];
@@ -4902,6 +4931,7 @@ void renderer_reset(void) {
     memset(pipe_tab, 0, sizeof pipe_tab);
     [cache removeAllObjects];
     prep_reset();
+    shader_trace_reset();
     [g_cs_progs removeAllObjects];
     @synchronized(g_ready_pipes) { [g_ready_pipes removeAllObjects]; }
     g_pipeline_gen++;

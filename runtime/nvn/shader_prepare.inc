@@ -154,7 +154,7 @@ static NSString *prep_compute_id(NSDictionary *record) {  // (the translation em
 static bool prep_enabled(void) {
     if (getenv("LARECOMP_FS_OVERRIDE") || getenv("LARECOMP_FS_OVERRIDE_HASH") ||
         getenv("LARECOMP_DBG_FS") || getenv("LARECOMP_DBG_VS")) return false;
-    return g_prep_active || g_prep_programs.count || g_prep_cs.count || getenv("LARECOMP_SHADER_RECORD") || getenv("LARECOMP_SHADER_PREP") || g_settings.prepare_shaders || g_settings.collect_shader_recipes;
+    return shader_trace_enabled() || g_prep_active || g_prep_programs.count || g_prep_cs.count || getenv("LARECOMP_SHADER_RECORD") || getenv("LARECOMP_SHADER_PREP") || g_settings.prepare_shaders || g_settings.collect_shader_recipes;
 }
 
 static id<MTLRenderPipelineState> prep_pipeline(Prog *pr, MTLRenderPipelineDescriptor *pd) {
@@ -252,7 +252,7 @@ static unsigned prep_compile(NSDictionary *jobs, NSDictionary *cs_jobs, unsigned
         dispatch_semaphore_wait(slots, DISPATCH_TIME_FOREVER);
         CsProg *cp = [cs_jobs[cid] pointerValue];
         dispatch_group_async(group, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ @autoreleasepool {
-            bool ok = cs_compile(cp);
+            bool ok = cs_compile(cp, 0);
             @synchronized(g_prep_pipelines) {
                 if (ok) g_prep_cs[cid] = [NSValue valueWithPointer:cp];
                 else failures++;
