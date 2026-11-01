@@ -2077,6 +2077,119 @@ static NvnProgram *compute_image_fixture(bool reduction, bool array) {
     return &programs[mode];
 }
 
+// A compute program is recorded as hash + texture masks + workgroup size, rebuilt from its input before it is asked for,
+// and found by the dispatch (no translation or compile at first use).
+static void compute_preparation(void) {
+    static uint64_t code[32]; static NvnProgram prog;
+    uint64_t ops[] = {0x010000000007f000ull | (4ull << 20) | 4};
+    compute_fixture(code, &prog, ops, 1);
+    st.program = &prog;
+    setenv("LARECOMP_SHADER_RECORD", "cs-recipes.jsonl", 1);
+    dispatch_compute(1, 1, 1); check_gpu(); renderer_recipe_flush();
+    unsetenv("LARECOMP_SHADER_RECORD");
+    NSString *line = [NSString stringWithContentsOfFile:@"cs-recipes.jsonl" encoding:NSUTF8StringEncoding error:nil];
+    CHECK(line && [line containsString:@"\"compute\""] && ![line containsString:@"msl"], "a live compute dispatch records a hash/state-only recipe");
+    mkdir("cs-inputs", 0755);
+    NvnShaderStage *stage = &prog.stages[5];
+    NSString *hash = prep_stage_hash(stage);
+    NSData *bytes = [NSData dataWithBytes:(void *)(uintptr_t)stage->code_addr length:stage->const_offset];
+    CHECK(([bytes writeToFile:[NSString stringWithFormat:@"cs-inputs/%@.bin", hash] atomically:YES]), "write synthetic compute input");
+    NSDictionary *shaders = @{hash: @{@"stage": @5, @"size": @(stage->const_offset), @"const_offset": @(stage->const_offset), @"const_size": @0}};
+    CHECK(([[NSJSONSerialization dataWithJSONObject:@{@"version": @1, @"shaders": shaders} options:0 error:nil]
+           writeToFile:@"cs-inputs/index.json" atomically:YES]), "write synthetic compute index");
+    renderer_reset();
+    CHECK(prep_run(@"cs-recipes.jsonl", @"cs-inputs"), "prepare the compute program from its input reference");
+    CHECK(g_prep_cs.count == 1, "preparation builds exactly the recorded compute program");
+    unsigned hits = g_prep_cs_hits;
+    st.program = &prog;
+    dispatch_compute(1, 1, 1); check_gpu();
+    CHECK(g_prep_cs_hits == hits + 1, "the dispatch finds the prepared compute program");
+}
+
+// Measurement, not a check (LARECOMP_BLIND_DIR=<shader index dir>): what translating and compiling every indexed shader
+// "blind" (default specialization, no pairing, no render state) costs and how often the result is the program the game
+// asks for. LARECOMP_BLIND_RECIPES=<recipes.jsonl> gives the programs the game really asked for; LARECOMP_BLIND_N limits.
+static void blind_libraries(void) {
+    const char *dirc = getenv("LARECOMP_BLIND_DIR");
+    if (!dirc) { fprintf(stderr, "blind-libraries: set LARECOMP_BLIND_DIR to measure\n"); return; }
+    NSString *dir = @(dirc);
+    NSData *idata = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"index.json"]];
+    NSDictionary *index = idata ? [NSJSONSerialization JSONObjectWithData:idata options:0 error:nil][@"shaders"] : nil;
+    CHECK(index.count, "shader index readable");
+    NSUInteger limit = getenv("LARECOMP_BLIND_N") ? (NSUInteger)atoi(getenv("LARECOMP_BLIND_N")) : NSUIntegerMax;
+    backend_gwin_pick(); maxwell_gmem_base = g_gwin_base; maxwell_gmem_size = g_gwin_max;
+    NSMutableDictionary<NSString *, NSString *> *blind = [NSMutableDictionary new];  // shader hash -> blind MSL
+    NSMutableArray<NSNumber *> *stages = [NSMutableArray new]; NSMutableArray<NSString *> *sources = [NSMutableArray new];
+    unsigned seen[6] = {0}, translated[6] = {0};
+    size_t msl_bytes = 0;
+    double t0 = now_ms();
+    for (NSString *hash in [index.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+        NSDictionary *m = index[hash]; int stage = [m[@"stage"] intValue];
+        if ((stage != 0 && stage != 1 && stage != 5) || sources.count >= limit) continue;
+        NSData *bin = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:[hash stringByAppendingString:@".bin"]]];
+        if (!bin) continue;
+        seen[stage]++;
+        size_t co = [m[@"const_offset"] unsignedIntValue], cs = [m[@"const_size"] unsignedIntValue];
+        ShaderKey k = {0}; if (stage == 1) k.vs_out_mask = 0xFFFFFFFFu;
+        ShaderInfo *si = maxwell_translate_with_constants(bin.bytes, co ? co : 0x10000,
+            stage == 0 ? STAGE_VERTEX : stage == 1 ? STAGE_FRAGMENT : STAGE_COMPUTE, &k, (const uint8_t *)bin.bytes + co, co ? cs : 0);
+        if (!si->msl) continue;
+        translated[stage]++; msl_bytes += strlen(si->msl);
+        blind[hash] = @(si->msl); [stages addObject:@(stage)]; [sources addObject:blind[hash]];
+    }
+    double translate_ms = now_ms() - t0;
+    unsigned *built = calloc(6, sizeof *built);
+    t0 = now_ms();
+    dispatch_apply(sources.count, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^(size_t i) { @autoreleasepool {
+        int stage = [stages[i] intValue];
+        id<MTLLibrary> lib = [dev newLibraryWithSource:sources[i] options:game_shader_opts(stage == 0) error:nil];
+        if (lib) __atomic_fetch_add(&built[stage], 1, __ATOMIC_RELAXED);
+    }});
+    double compile_ms = now_ms() - t0;
+    const char *names[] = {"vertex", "fragment", "?", "?", "?", "compute"};
+    for (int st = 0; st < 6; st++) if (seen[st])
+        fprintf(stderr, "blind %-8s indexed %5u  translated %5u  library built %5u\n", names[st], seen[st], translated[st], built[st]);
+    fprintf(stderr, "blind totals: translate %.1f s (serial), libraries %.1f s on %d cores, %.1f MB of MSL\n",
+            translate_ms / 1000, compile_ms / 1000, (int)NSProcessInfo.processInfo.activeProcessorCount, msl_bytes / 1048576.0);
+    const char *rpath = getenv("LARECOMP_BLIND_RECIPES");
+    NSString *text = rpath ? [NSString stringWithContentsOfFile:@(rpath) encoding:NSUTF8StringEncoding error:nil] : nil;
+    if (!text) return;
+    unsigned graphics = 0, vs_same = 0, fs_same = 0, fs_same_pair = 0, both = 0, compute = 0, cs_same = 0;
+    for (NSString *line in [text componentsSeparatedByString:@"\n"]) {
+        id r = line.length ? [NSJSONSerialization JSONObjectWithData:[line dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil] : nil;
+        if (![r isKindOfClass:NSDictionary.class]) continue;
+        if (r[@"compute"]) { compute++; uint32_t kv[5]; NSString *h = r[@"compute"][@"cs"]; NSDictionary *m = index[h];
+            NSData *bin = m ? [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:[h stringByAppendingString:@".bin"]]] : nil;
+            if (!bin || !prep_array(r[@"compute"][@"key"], 5, UINT32_MAX, kv)) continue;
+            ShaderKey k = {0}; k.stencil_slots = kv[0]; k.sint_slots = kv[1]; k.uint_slots = kv[2]; k.img_sint = kv[3]; k.img_uint = kv[4];
+            size_t co = [m[@"const_offset"] unsignedIntValue], cs = [m[@"const_size"] unsignedIntValue];
+            ShaderInfo *si = maxwell_translate_with_constants(bin.bytes, co ? co : 0x10000, STAGE_COMPUTE, &k, (const uint8_t *)bin.bytes + co, co ? cs : 0);
+            if (si->msl && [blind[h] isEqualToString:@(si->msl)]) cs_same++;
+            continue; }
+        NSDictionary *p = r[@"program"]; ShaderKey vk, fk;
+        if (![p isKindOfClass:NSDictionary.class] || !prep_key_parse(p[@"vkey"], &vk) || !prep_key_parse(p[@"fkey"], &fk)) continue;
+        NSString *vh = p[@"vs"], *fh = p[@"fs"]; NSDictionary *vm = index[vh], *fm = fh.length ? index[fh] : nil;
+        NSData *vb = vm ? [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:[vh stringByAppendingString:@".bin"]]] : nil;
+        if (!vb) continue;
+        graphics++;
+        size_t vco = [vm[@"const_offset"] unsignedIntValue];
+        ShaderInfo *vi = maxwell_translate_with_constants(vb.bytes, vco ? vco : 0x10000, STAGE_VERTEX, &vk, (const uint8_t *)vb.bytes + vco, vco ? [vm[@"const_size"] unsignedIntValue] : 0);
+        bool vsame = vi->msl && [blind[vh] isEqualToString:@(vi->msl)];
+        if (vsame) vs_same++;
+        if (!fm) { if (vsame) both++; continue; }
+        NSData *fb = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:[fh stringByAppendingString:@".bin"]]];
+        if (!fb) continue;
+        fk.vs_out_mask = vi->out_mask;  // as the game does, from the vertex shader it is paired with
+        size_t fco = [fm[@"const_offset"] unsignedIntValue];
+        ShaderInfo *fi = maxwell_translate_with_constants(fb.bytes, fco ? fco : 0x10000, STAGE_FRAGMENT, &fk, (const uint8_t *)fb.bytes + fco, fco ? [fm[@"const_size"] unsignedIntValue] : 0);
+        bool fsame = fi->msl && [blind[fh] isEqualToString:@(fi->msl)];
+        if (fsame) fs_same++;
+        if (vsame && fsame) both++;
+    }
+    fprintf(stderr, "blind vs. what the game asked for: %u graphics recipes: vertex program identical %u, fragment identical %u, both %u; "
+            "%u compute recipes: identical %u\n", graphics, vs_same, fs_same, both, compute, cs_same);
+}
+
 static void compute_images(bool reduction, bool array, bool view) {
     const struct { uint32_t format, value, view_format; } cases[] = {
         {0x0a, 0x3f400000}, {0x0b, 17}, {0x0c, 0xffffffe9}, {0x0b, 0xfffffff7, 0x0c}, {0x0a, 0x3f400000},
@@ -2258,6 +2371,8 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"live-shader-pipeline", "live", live_shader_pipeline},
     {"break-reconvergence", "flow", break_reconvergence},
     {"structured-brx", "flow", structured_brx},
+    {"compute-preparation", "preparation", compute_preparation},
+    {"blind-libraries", "preparation", blind_libraries},
     {"compute-image-store", "images", compute_image_store},
     {"compute-image-feedback", "images", compute_image_feedback},
     {"compute-image-ownership", "images", compute_image_ownership},

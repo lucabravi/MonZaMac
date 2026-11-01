@@ -144,10 +144,17 @@ static NSString *prep_program_id(NSDictionary *record) {
 static NSString *prep_pipeline_id(Prog *pr, NSDictionary *descriptor) {
     return pr->prep_id ? prep_digest(prep_json(@[pr->prep_id, descriptor])) : nil;
 }
+static NSDictionary *prep_compute_record(NSString *hash, const ShaderKey *k, const uint32_t local[3]) {
+    return @{@"cs": hash, @"key": @[@(k->stencil_slots), @(k->sint_slots), @(k->uint_slots), @(k->img_sint), @(k->img_uint)],
+             @"local": @[@(local[0]), @(local[1]), @(local[2])]};
+}
+static NSString *prep_compute_id(NSDictionary *record) {  // (the translation embeds the memory window, as for graphics)
+    return prep_digest(prep_json(@[record, @(g_gwin_base), @(g_gwin_max)]));
+}
 static bool prep_enabled(void) {
     if (getenv("LARECOMP_FS_OVERRIDE") || getenv("LARECOMP_FS_OVERRIDE_HASH") ||
         getenv("LARECOMP_DBG_FS") || getenv("LARECOMP_DBG_VS")) return false;
-    return g_prep_active || g_prep_programs.count || getenv("LARECOMP_SHADER_RECORD") || getenv("LARECOMP_SHADER_PREP") || g_settings.prepare_shaders || g_settings.collect_shader_recipes;
+    return g_prep_active || g_prep_programs.count || g_prep_cs.count || getenv("LARECOMP_SHADER_RECORD") || getenv("LARECOMP_SHADER_PREP") || g_settings.prepare_shaders || g_settings.collect_shader_recipes;
 }
 
 static id<MTLRenderPipelineState> prep_pipeline(Prog *pr, MTLRenderPipelineDescriptor *pd) {
@@ -187,8 +194,9 @@ static bool prep_find_helper(char *helper, char *script) {
 #include "shader_recipe_record.inc"
 
 static void prep_report(void) {
-    if (g_prep_program_hits || g_prep_pipeline_hits)
-        LOG("[shader-prep] live reuse: %u program variants, %u pipeline lookups\n", g_prep_program_hits, g_prep_pipeline_hits);
+    if (g_prep_program_hits || g_prep_pipeline_hits || g_prep_cs_hits)
+        LOG("[shader-prep] live reuse: %u program variants, %u pipeline lookups, %u compute programs\n", g_prep_program_hits,
+            g_prep_pipeline_hits, g_prep_cs_hits);
 }
 
 static unsigned prep_worker_count(NSUInteger cpus, NSUInteger jobs, const char *override) {
@@ -204,8 +212,8 @@ static unsigned prep_worker_count(NSUInteger cpus, NSUInteger jobs, const char *
 
 // Translation and address-keyed caches stay on the render thread. Each worker
 // owns one translated program and all its PSOs; nothing escapes until the join.
-static unsigned prep_compile(NSDictionary *jobs, unsigned total, unsigned missed) {
-    unsigned workers = prep_worker_count(NSProcessInfo.processInfo.activeProcessorCount, jobs.count,
+static unsigned prep_compile(NSDictionary *jobs, NSDictionary *cs_jobs, unsigned total, unsigned missed) {
+    unsigned workers = prep_worker_count(NSProcessInfo.processInfo.activeProcessorCount, jobs.count + cs_jobs.count,
                                          getenv("LARECOMP_SHADER_PREP_WORKERS"));
     dispatch_semaphore_t slots = dispatch_semaphore_create(workers);
     dispatch_group_t group = dispatch_group_create();
@@ -240,6 +248,19 @@ static unsigned prep_compile(NSDictionary *jobs, unsigned total, unsigned missed
             dispatch_semaphore_signal(slots);
         }});
     }
+    for (NSString *cid in cs_jobs) {
+        dispatch_semaphore_wait(slots, DISPATCH_TIME_FOREVER);
+        CsProg *cp = [cs_jobs[cid] pointerValue];
+        dispatch_group_async(group, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ @autoreleasepool {
+            bool ok = cs_compile(cp);
+            @synchronized(g_prep_pipelines) {
+                if (ok) g_prep_cs[cid] = [NSValue valueWithPointer:cp];
+                else failures++;
+                backend_shader_prepare_progress(++completed, total);
+            }
+            dispatch_semaphore_signal(slots);
+        }});
+    }
     dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
     for (NSString *key in g_prep_programs.allKeys) {
         Prog *pr = g_prep_programs[key];
@@ -264,8 +285,8 @@ static bool prep_run(NSString *path, NSString *dir) {
     id root = [NSJSONSerialization JSONObjectWithData:index_data options:0 error:nil];
     if (![root isKindOfClass:NSDictionary.class] || ![root[@"version"] isEqual:@1] || ![root[@"shaders"] isKindOfClass:NSDictionary.class]) return false;
     NSDictionary *index = root[@"shaders"];
-    g_prep_programs = [NSMutableDictionary new]; g_prep_pipelines = [NSMutableDictionary new];
-    NSMutableDictionary *inputs = [NSMutableDictionary new], *jobs = [NSMutableDictionary new];
+    g_prep_programs = [NSMutableDictionary new]; g_prep_pipelines = [NSMutableDictionary new]; g_prep_cs = [NSMutableDictionary new];
+    NSMutableDictionary *inputs = [NSMutableDictionary new], *jobs = [NSMutableDictionary new], *cs_jobs = [NSMutableDictionary new];
     unsigned missed = 0, seen = 0;
     size_t total_bytes = 0;
     double t0 = now_ms(), previous_ms = stat_compile_ms;
@@ -284,6 +305,31 @@ static bool prep_run(NSString *path, NSString *dir) {
         seen++;
         id r = [NSJSONSerialization JSONObjectWithData:[line dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
         if (![r isKindOfClass:NSDictionary.class] || ![r[@"version"] isEqual:@1]) { missed++; continue; }
+        if (r[@"compute"]) {  // a compute program: translated here, built with the others
+            uint32_t kv[5], lv[3];
+            if (!recipe_valid(r) || !prep_array(r[@"compute"][@"key"], 5, UINT32_MAX, kv) || !prep_array(r[@"compute"][@"local"], 3, 1024, lv)) { missed++; continue; }
+            NSString *hash = r[@"compute"][@"cs"];
+            ShaderKey sk = {0};
+            sk.stencil_slots = kv[0]; sk.sint_slots = kv[1]; sk.uint_slots = kv[2]; sk.img_sint = kv[3]; sk.img_uint = kv[4];
+            NSString *cid = prep_compute_id(prep_compute_record(hash, &sk, lv));
+            if (g_prep_cs[cid] || cs_jobs[cid]) { missed++; continue; }
+            NvnShaderStage ss = {0};
+            NSData *bytes = inputs[hash];
+            if (!bytes) {
+                bytes = prep_load_stage(hash, index, dir, 5, &ss);
+                if (bytes && total_bytes + bytes.length <= (128u << 20)) { inputs[hash] = bytes; total_bytes += bytes.length; }
+                else bytes = nil;
+            } else {
+                id meta = index[hash];
+                if ([meta[@"stage"] unsignedIntValue] != 5) bytes = nil;
+                else ss = (NvnShaderStage){.stage = 5, .code_addr = (uint64_t)(uintptr_t)bytes.bytes,
+                    .const_offset = [meta[@"const_offset"] unsignedIntValue], .const_size = [meta[@"const_size"] unsignedIntValue]};
+            }
+            CsProg *cp = bytes ? calloc(1, sizeof *cp) : NULL;
+            if (!cp || !cs_translate(cp, &ss, &sk, lv)) { free(cp); missed++; continue; }
+            cs_jobs[cid] = [NSValue valueWithPointer:cp];
+            continue;
+        }
         NSDictionary *p = r[@"program"];
         ShaderKey vk, fk;
         if (![p isKindOfClass:NSDictionary.class] || !prep_key_parse(p[@"vkey"], &vk) || !prep_key_parse(p[@"fkey"], &fk) ||
@@ -321,16 +367,16 @@ static bool prep_run(NSString *path, NSString *dir) {
         [job[@"recipes"] addObject:@{@"key": prep_pipeline_id(pr, descriptor), @"descriptor": descriptor}];
     }}
     g_prep_translate_only = false;
-    missed = prep_compile(jobs, total, missed);
+    missed = prep_compile(jobs, cs_jobs, total, missed);
     // Fake source addresses must not escape into the live address-keyed cache after inputs are released.
     memset(prog_tab, 0, sizeof prog_tab);
     for (id key in cache.allKeys) if (![old_keys containsObject:key]) [cache removeObjectForKey:key];
     g_prep_active = false;
     backend_shader_prepare_progress(0, 0);
     stat_compile_ms = previous_ms; stat_compiles = previous_compiles;
-    LOG("[shader-prep] prepared %lu programs, %lu pipelines, %u missing/invalid in %.0f ms\n",
-        (unsigned long)g_prep_programs.count, (unsigned long)g_prep_pipelines.count, missed, now_ms() - t0);
-    return g_prep_pipelines.count != 0;
+    LOG("[shader-prep] prepared %lu programs, %lu pipelines, %lu compute, %u missing/invalid in %.0f ms\n",
+        (unsigned long)g_prep_programs.count, (unsigned long)g_prep_pipelines.count, (unsigned long)g_prep_cs.count, missed, now_ms() - t0);
+    return g_prep_pipelines.count != 0 || g_prep_cs.count != 0;
 }
 
 // The catalog contains references/state only. The trusted bundled helper reads
@@ -373,7 +419,7 @@ static bool prep_install(NSString **manifest, NSString **inputs) {
         if (f) {
             char line[512]; unsigned done, total;
             while (fgets(line, sizeof line, f))
-                if (sscanf(line, "[shader-inputs] %u/%u verified", &done, &total) == 2 && total && total <= 2048)
+                if (sscanf(line, "[shader-inputs] %u/%u verified", &done, &total) == 2 && total)
                     backend_shader_prepare_inputs(done, total);
             fclose(f);
         }
@@ -403,5 +449,5 @@ static void prep_once(void) {
 static void prep_reset(void) {
     renderer_recipe_flush();
     g_prep_recorded = nil;
-    g_prep_programs = nil; g_prep_pipelines = nil; g_prep_started = false;
+    g_prep_programs = nil; g_prep_pipelines = nil; g_prep_cs = nil; g_prep_started = false;
 }

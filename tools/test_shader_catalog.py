@@ -129,6 +129,36 @@ class Contributions(unittest.TestCase):
         c=m.export_catalog([recipe(h) for h in hashes],index);m.validate_catalog(c)
         self.assertEqual(len(m.expand_catalog(c)['recipes']),1500)
 
+    def test_compute_recipes_round_trip_through_catalog_and_contribution(self):
+        cs='%064x'%7
+        entry=dict(self.entry,stage=5)
+        index=dict(version=1,sources={},shaders={self.digest:self.entry,cs:entry})
+        comp=dict(version=1,compute=dict(cs=cs,key=[0,3,0,0,1],local=[8,8,1]))
+        c=m.export_catalog([recipe(self.digest),comp],index);m.validate_catalog(c)
+        self.assertEqual(c['compute'],[comp]);self.assertIn(cs,c['inputs'])
+        self.assertEqual(m.expand_catalog(c)['compute'],[comp])
+        doc=m.contribution_document([recipe(self.digest),comp])
+        self.assertIn(comp,m.contribution_recipes(doc))
+        only=m.contribution_document([comp]);self.assertEqual(m.contribution_recipes(only),[comp])
+        # a compute shader must be a stage-5 input; a bad workgroup is refused
+        bad=dict(version=1,compute=dict(cs=cs,key=[0,0,0,0,0],local=[0,1,1]))
+        with self.assertRaises(ValueError):m.compute_recipe(bad)
+        wrong=dict(version=1,shaders={cs:self.entry},sources={})
+        with self.assertRaises(ValueError):m.export_catalog([comp],dict(wrong,version=1))
+        base=m.export_catalog([recipe(self.digest)],index)
+        self.assertNotIn('compute',m.merge_local_recipes(base,[comp]))  # its input is not in the catalog yet
+        other=dict(version=1,compute=dict(cs=cs,key=[0,1,0,0,0],local=[8,8,1]))
+        merged=m.merge_local_recipes(c,[other])
+        self.assertEqual(len(merged['compute']),2)
+
+    def test_catalog_grows_from_itself_plus_a_journal(self):
+        extra='%064x'%9
+        index=dict(version=1,sources={},shaders={self.digest:self.entry,extra:dict(self.entry)})
+        base=m.export_catalog([recipe(self.digest)],index);path=self.root/'base.json';path.write_bytes(m.encoded(base))
+        journal=self.root/'journal.jsonl';journal.write_text(json.dumps(recipe(extra))+'\n')
+        rows=m.load_recipes(path)+m.load_recipes(journal)
+        grown=m.export_catalog(rows,index);self.assertEqual(len(grown['recipes']),2)
+
     def test_contribution_has_no_recipe_count_limit(self):
         rows=[recipe('%064x'%i) for i in range(5000)]
         self.assertEqual(len(m.contribution_recipes(m.contribution_document(rows))),5000)

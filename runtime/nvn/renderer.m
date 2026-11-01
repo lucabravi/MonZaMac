@@ -1717,14 +1717,18 @@ static id<MTLBinaryArchive> g_archive;       // this run's pipelines, saved to t
 static id<MTLBinaryArchive> g_archive_read;  // the last run's file, only looked up (render thread)
 static dispatch_queue_t g_archive_q;
 static int g_archive_dirty;  // pipelines added since the last save (on g_archive_q)
-static NSMutableArray<MTLRenderPipelineDescriptor *> *g_archive_saved, *g_archive_new;  // in the last save / since (on g_archive_q)
+static NSMutableArray<id> *g_archive_saved, *g_archive_new;  // render and compute descriptors  // in the last save / since (on g_archive_q)
 static int g_archive_hits;   // pipelines found in the archive this run (render thread)
 static NSURL *g_archive_url; // absolute, fixed at open: the working directory may be gone at exit (the tests delete it)
 
 // A failed save leaves the archive empty ("Nothing to serialize"): build it again from the pipelines given
-static void pipeline_archive_rebuild(NSArray<MTLRenderPipelineDescriptor *> *with) {  // on g_archive_q
+static BOOL pipeline_archive_add_desc(id pd, NSError **err) {  // on g_archive_q
+    return [pd isKindOfClass:MTLComputePipelineDescriptor.class] ? [g_archive addComputePipelineFunctionsWithDescriptor:pd error:err]
+                                                                 : [g_archive addRenderPipelineFunctionsWithDescriptor:pd error:err];
+}
+static void pipeline_archive_rebuild(NSArray<id> *with) {  // on g_archive_q
     g_archive = [dev newBinaryArchiveWithDescriptor:[MTLBinaryArchiveDescriptor new] error:nil];
-    for (MTLRenderPipelineDescriptor *pd in with) [g_archive addRenderPipelineFunctionsWithDescriptor:pd error:nil];
+    for (id pd in with) pipeline_archive_add_desc(pd, nil);
 }
 
 // What a pipeline is made of, for the log line of one the archive leaves out: the pattern of those is what is missing to
@@ -1755,13 +1759,13 @@ static void pipeline_archive_save(void) {  // on g_archive_q
         LOG("[shader] pipeline archive save failed (%s): finding the pipelines that break it\n", err.localizedDescription.UTF8String);
         NSArray *fresh = [g_archive_new copy];
         pipeline_archive_rebuild(g_archive_saved);
-        for (MTLRenderPipelineDescriptor *pd in fresh) {
-            if ([g_archive addRenderPipelineFunctionsWithDescriptor:pd error:nil] && [g_archive serializeToURL:tmp error:&err]) {
+        for (id pd in fresh) {
+            if (pipeline_archive_add_desc(pd, nil) && [g_archive serializeToURL:tmp error:&err]) {
                 [g_archive_saved addObject:pd];
                 continue;
             }
-            LOG("[shader] pipeline archive: %s left out: %s | %s\n", pd.label.UTF8String, err.localizedDescription.UTF8String,
-                pipeline_describe(pd).UTF8String);
+            LOG("[shader] pipeline archive: %s left out: %s | %s\n", [pd label].UTF8String, err.localizedDescription.UTF8String,
+                ([pd isKindOfClass:MTLRenderPipelineDescriptor.class] ? pipeline_describe(pd) : @"compute").UTF8String);
             pipeline_archive_rebuild(g_archive_saved);
         }
         [g_archive_new removeAllObjects];
@@ -1927,6 +1931,75 @@ static void compile_program(Prog *pr) {
     double dt = now_ms() - t0;
     @synchronized(cache) { stat_compile_ms += dt; }
     pr->ready = true;
+}
+
+// Compute programs: translated once per code address and sampled-texture types, then built as a pipeline. The two steps
+// are split so preparation can translate on the render thread and build on workers.
+typedef struct { id<MTLComputePipelineState> pipe; ShaderInfo *si; uint32_t local[3]; bool failed; } CsProg;
+static NSMutableDictionary *g_cs_progs;  // code address + sampled texture types -> CsProg
+static NSMutableDictionary<NSString *, NSValue *> *g_prep_cs;  // prepared compute programs by recipe identity -> CsProg *
+static unsigned g_prep_cs_hits;
+
+static bool cs_translate(CsProg *cp, const NvnShaderStage *ss, const ShaderKey *k, const uint32_t local[3]) {
+    backend_gwin_pick();
+    maxwell_gmem_base = g_gwin_base;
+    maxwell_gmem_size = g_gwin_max;
+    cp->si = maxwell_translate_with_constants((const uint8_t *)(uintptr_t)ss->code_addr,
+        ss->const_offset ? ss->const_offset : 0x10000, STAGE_COMPUTE, k,
+        (const uint8_t *)(uintptr_t)(ss->code_addr + ss->const_offset), ss->const_offset ? ss->const_size : 0);
+    if (!cp->si->msl) { LOG("[compute] translate failed: %s (code %llx)\n", cp->si->error, ss->code_addr); cp->failed = true; return false; }
+    for (int i = 0; i < 3; i++) cp->local[i] = local[i] ? local[i] : 1;
+    if (getenv("LARECOMP_SAVE_MSL")) {
+        mkdir("build/msl", 0755);
+        char path[256];
+        snprintf(path, sizeof path, "build/msl/%llx_cs.metal", ss->code_addr);
+        FILE *f = fopen(path, "w"); if (f) { fputs(cp->si->msl, f); fclose(f); }
+    }
+    shader_cache_note(NULL, cp->si->msl);  // (warm-up compiles it at the next start, like the other shaders)
+    return true;
+}
+
+static void cs_archive_add(MTLComputePipelineDescriptor *cd) {
+    if (!g_archive) return;
+    dispatch_async(g_archive_q, ^{
+        NSError *err;
+        cd.binaryArchives = nil;
+        if (![g_archive addComputePipelineFunctionsWithDescriptor:cd error:&err]) {
+            static int n;
+            if (n++ < 10) LOG("[shader] pipeline archive add failed (compute): %s\n", err.localizedDescription.UTF8String);
+            return;
+        }
+        [g_archive_new addObject:cd];
+        if (g_archive_dirty++ == 0)
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC), g_archive_q, ^{ pipeline_archive_save(); });
+    });
+}
+
+// Library + pipeline, from the last run's archive when it has the pipeline. Safe on a worker thread.
+static bool cs_compile(CsProg *cp) {
+    NSError *err = nil;
+    id<MTLLibrary> lib = TIMED_COMPILE([dev newLibraryWithSource:@(cp->si->msl) options:game_shader_opts(false) error:&err]);
+    id<MTLFunction> f = lib ? [lib newFunctionWithName:@"main0"] : nil;
+    if (f) {
+        MTLComputePipelineDescriptor *cd = [MTLComputePipelineDescriptor new];
+        cd.computeFunction = f;
+        cd.label = [NSString stringWithFormat:@"cs %016llx", (unsigned long long)fnv64(cp->si->msl)];
+        pipeline_archive();
+        if (g_archive_read) {
+            cd.binaryArchives = @[g_archive_read];
+            cp->pipe = [dev newComputePipelineStateWithDescriptor:cd options:MTLPipelineOptionFailOnBinaryArchiveMiss reflection:nil error:nil];
+            cd.binaryArchives = nil;
+            if (cp->pipe) __atomic_fetch_add(&g_archive_hits, 1, __ATOMIC_RELAXED);
+        }
+        if (!cp->pipe) cp->pipe = TIMED_COMPILE([dev newComputePipelineStateWithDescriptor:cd options:MTLPipelineOptionNone reflection:nil error:&err]);
+        if (cp->pipe) cs_archive_add([cd copy]);
+    }
+    if (!cp->pipe) {
+        LOG("[compute] compile failed: %s\n%s\n", err.localizedDescription.UTF8String, cp->si->msl);
+        cp->failed = true;
+        return false;
+    }
+    return true;
 }
 
 #include "shader_prepare.inc"
@@ -2830,9 +2903,6 @@ static void bind_cbufs(int stage, ShaderInfo *si) {
 // Compute driver constants (c0): 0x200 work group counts, 0x210 + 16*i uniform buffers (compute has
 // few hardware cbuf slots, so the compiler reads the rest through global memory), 0x310 + 16*i
 // storage buffers; each table entry is {addr_lo, addr_hi, size, 0}.
-typedef struct { id<MTLComputePipelineState> pipe; ShaderInfo *si; uint32_t local[3]; bool failed; } CsProg;
-static NSMutableDictionary *g_cs_progs;  // code address + sampled texture types -> CsProg
-
 static CsProg *compute_program(NvnProgram *p) {
     NvnShaderStage *ss = &p->stages[5];
     if (!ss->code_addr) return NULL;
@@ -2844,34 +2914,25 @@ static CsProg *compute_program(NvnProgram *p) {
     if (!progs) progs = g_cs_progs = [NSMutableDictionary new];
     NSValue *v = progs[key];
     if (v) { CsProg *cp = v.pointerValue; return cp->failed ? NULL : cp; }
+    uint32_t local[3];
+    for (int i = 0; i < 3; i++) {
+        local[i] = ss->control ? *(const uint32_t *)(ss->control + 0x748 + 4 * i) : 1;
+        if (!local[i]) local[i] = 1;
+    }
+    NSString *shader_hash = prep_enabled() && !g_prep_active ? prep_stage_hash(ss) : nil;
+    if (shader_hash) {  // a program prepared before the game asked for it (same code, texture types, workgroup, memory window)
+        NSDictionary *record = prep_compute_record(shader_hash, &k, local);
+        NSValue *prepared = g_prep_cs[prep_compute_id(record)];
+        if (prepared) {
+            g_prep_cs_hits++;
+            progs[key] = prepared;
+            return ((CsProg *)prepared.pointerValue)->failed ? NULL : prepared.pointerValue;
+        }
+    }
     CsProg *cp = calloc(1, sizeof *cp);
     progs[key] = [NSValue valueWithPointer:cp];
-    backend_gwin_pick();
-    maxwell_gmem_base = g_gwin_base;
-    maxwell_gmem_size = g_gwin_max;
-    cp->si = maxwell_translate_with_constants((const uint8_t *)(uintptr_t)ss->code_addr,
-        ss->const_offset ? ss->const_offset : 0x10000, STAGE_COMPUTE, &k,
-        (const uint8_t *)(uintptr_t)(ss->code_addr + ss->const_offset), ss->const_offset ? ss->const_size : 0);
-    if (!cp->si->msl) { LOG("[compute] translate failed: %s (code %llx)\n", cp->si->error, ss->code_addr); cp->failed = true; return NULL; }
-    for (int i = 0; i < 3; i++) {
-        cp->local[i] = ss->control ? *(const uint32_t *)(ss->control + 0x748 + 4 * i) : 1;
-        if (!cp->local[i]) cp->local[i] = 1;
-    }
-    if (getenv("LARECOMP_SAVE_MSL")) {
-        mkdir("build/msl", 0755);
-        char path[256];
-        snprintf(path, sizeof path, "build/msl/%llx_cs.metal", ss->code_addr);
-        FILE *f = fopen(path, "w"); if (f) { fputs(cp->si->msl, f); fclose(f); }
-    }
-    NSError *err = nil;
-    id<MTLLibrary> lib = TIMED_COMPILE([dev newLibraryWithSource:@(cp->si->msl) options:game_shader_opts(false) error:&err]);
-    id<MTLFunction> f = lib ? [lib newFunctionWithName:@"main0"] : nil;
-    cp->pipe = f ? TIMED_COMPILE([dev newComputePipelineStateWithFunction:f error:&err]) : nil;
-    if (!cp->pipe) {
-        LOG("[compute] compile failed: %s\n%s\n", err.localizedDescription.UTF8String, cp->si->msl);
-        cp->failed = true;
-        return NULL;
-    }
+    if (!cs_translate(cp, ss, &k, local) || !cs_compile(cp)) return NULL;
+    if (shader_hash) prep_record_compute(shader_hash, &k, local);
     LOG("[compute] program %llx: local size %ux%ux%u, %d cbufs mask %#x\n", ss->code_addr, cp->local[0], cp->local[1],
         cp->local[2], 0, cp->si->cbuf_mask);
     return cp;

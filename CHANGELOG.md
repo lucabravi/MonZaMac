@@ -67,6 +67,11 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   press it, verifies its size, SHA-256 and schema, rebuilds the inputs from your own files and installs it atomically; the
   previous catalog stays if anything fails. Recipes the new catalog covers leave your pending list. The start screen shows
   whether your catalog is current. No catalog is published yet. Its text is the size of the Legal notice button's.
+- **Compute programs** join the rest: their pipelines go into the pipeline archive and their source into the warm-up cache,
+  so later starts skip the compile; a compute recipe (shader hash, the five texture-type masks, workgroup size) is
+  collected, exported, put in catalogs and prepared before the game asks for it. No count limit anywhere in the catalog,
+  the preparation or the journal. In an 8-minute session with a catalog of the recorded variants, 8 compute programs
+  came prepared instead of compiling when asked. `tools/shader_catalog_from_journal.sh` grows a local catalog from the journal after each session.
 - **Collect new shader recipes** (Shaders tab, on by default, can be turned off): the pipelines the game builds that no
   catalog covers are saved as hashes and numbers in `cache/shader-recipes/recipes.jsonl`, written off the render thread,
   with no limit on how many (100 MiB of file). **Export shader recipes** writes a metadata-only JSON you can share by hand

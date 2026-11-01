@@ -19,7 +19,7 @@ specializations and the actual render-pipeline descriptor on cache misses.
 The records contain hashes and numeric state, with no code bytes or addresses.
 Start a tour with a new output file; this prototype appends records and
 only deduplicates within the process. It records graphics and vertex-only
-transform feedback, not compute. Recording does file I/O at first use and is
+transform feedback, and compute programs (hash, texture masks and workgroup size). Recording does file I/O at first use and is
 for development, not performance measurements.
 
 With both `LARECOMP_SHADER_PREP=<absolute JSONL path>` and
