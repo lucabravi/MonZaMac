@@ -17,6 +17,8 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   skipped instead of drawn (`LARECOMP_IB_GUARD=0` draws them): on Vulkan these came before GPU stops and device losses. After the same fix in
   PokeZ-ARecomp by [Hexveil404](https://github.com/Hexveil404).
 
+- The shader preparation page lays itself out with the window instead of constraining it, so the game is no longer left
+  pinned to the left of a fullscreen window afterwards.
 - Playing another save from the in-game menu, or going back to the start screen, no longer aborts the game: the reboot
   freed a CPU state that belonged to a thread.
 - Pipeline archive (Metal): a new archive is built after each save, and the archive stays off after a save that crashed
