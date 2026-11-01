@@ -1531,9 +1531,10 @@ static void free_source_program(Prog *pr) {
 }
 
 static void shader_early_snapshot(void) {
-    CHECK(!g_settings.early_shaders && !early_enabled(), "early compilation is off without an ini key");
+    CHECK(g_settings.early_shaders && early_enabled(), "early compilation is on without an ini key");
+    g_settings.early_shaders = false;
+    CHECK(!early_enabled(), "the setting turns early compilation off");
     g_settings.early_shaders = true;
-    CHECK(early_enabled(), "the setting turns early compilation on");
     setenv("LARECOMP_SHADER_EARLY", "0", 1);
     CHECK(!early_enabled(), "diagnostic disable takes precedence");
     unsetenv("LARECOMP_SHADER_EARLY");

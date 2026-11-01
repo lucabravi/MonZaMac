@@ -1,8 +1,28 @@
-# Early registration compilation: opt-in experiment
+# Early registration compilation
 
-Early compilation is **off by default** (`early_shaders = 0`). **Shaders > Compile shaders early** turns it on for new
-jobs (`LARECOMP_SHADER_EARLY=1` forces it on, `=0` off); existing compiled results remain reusable. The measurements below
-come from builds where it was on.
+Early compilation is **on by default** (`early_shaders = 1` when the setting is missing). **Shaders > Compile shaders
+early** turns it off for new jobs (`LARECOMP_SHADER_EARLY=1` forces it on, `=0` off); existing compiled results remain
+reusable.
+
+## Cold-cache station walk (current)
+
+Four configurations on an M5 at 1.5x / 30 fps, shader waiting enabled, a copy of the Stazione save, a catalog of 580
+recipes installed, a fresh data root, salted shader names, no pipeline archive or warm-up, and the user-wide Metal library
+cache cleared before every run; the route presses A at frame 300 and walks forward from frame 750 for 210 frames. Two rounds,
+the same result both times:
+
+| Configuration | Worst frame, load (frames 0-750) | Walk (750-1110): compiles, worst frame |
+| --- | ---: | ---: |
+| Nothing on | 8165 / 7930 ms | 13, 57 ms |
+| Early compilation | 1448 / 1412 ms | 0, 38 / 44 ms |
+| Startup preparation (5.6-5.7 s before the game) | 357 / 267 ms | 0, 39 / 38 ms |
+| Both | 304 / 265 ms | 0, 39 / 38 ms |
+
+With both on, early has nothing left to do (the preparation covered it). The "compile" time the log reports for early runs
+is the summed time of parallel workers, not a stall. An earlier single run showed 430 ms for early compilation, but the
+Metal cache had been warmed by another test: the cleared-cache figure above is the one to trust.
+
+## Earlier experiment notes
 
 At app launch the renderer reads the installed metadata catalog (downloaded
 base first, then bundled base) and independent local recipe journal. It uses

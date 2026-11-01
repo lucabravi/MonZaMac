@@ -17,7 +17,7 @@ static const char *settings_file(void) {
 
 Settings g_settings = {
     .collect_shader_recipes = true,
-    .early_shaders = false,
+    .early_shaders = true,
     .aspect = ASPECT_ORIGINAL,
     // the defaults of a new player (an existing larecomp.ini keeps its own): fullscreen, dynamic resolution, 60 fps, SMAA,
     // authentic 16:9, sharper textures (anisotropic filtering)
