@@ -207,6 +207,13 @@ def merge_local_recipes(catalog,local):
     print(f'[shader-inputs] local recipes: {added} added, {missing} awaiting source references',file=sys.stderr,flush=True)
     return c
 
+def catalog_with_local_recipes(catalog,path):
+    if path:
+        try:return merge_local_recipes(catalog,load_recipes(path,allow_empty=True))
+        except (ValueError,OSError,KeyError,TypeError,RecursionError):
+            print('[shader-inputs] invalid local recipes ignored; using installed catalog',file=sys.stderr)
+    return catalog
+
 def read_json(path):
     with Path(path).open('rb') as f: data=f.read(MAX_FILE+1)
     if len(data)>MAX_FILE: raise ValueError('metadata file too large')
@@ -310,9 +317,25 @@ def main(argv=None):
     pr=sub.add_parser('prepare');pr.add_argument('game',type=Path);pr.add_argument('catalog',type=Path);pr.add_argument('output',type=Path)
     pr.add_argument('--decoder',type=Path);pr.add_argument('--recipes',type=Path)
     co=sub.add_parser('contribute');co.add_argument('recipes',type=Path);co.add_argument('output',type=Path)
+    up=sub.add_parser('update');up.add_argument('game',type=Path);up.add_argument('output',type=Path);up.add_argument('--decoder',type=Path);up.add_argument('--recipes',type=Path)
+    status=sub.add_parser('status');status.add_argument('installed',type=Path)
     args=ap.parse_args(argv)
     try:
-        if args.command=='export':
+        if args.command=='status':
+            from za.shader_catalog_update import catalog_status,NoCatalog
+            try:print(json.dumps(dict(state=catalog_status(args.installed))))
+            except NoCatalog as e:print(str(e),file=sys.stderr);return 2
+        elif args.command=='update':
+            from za.shader_catalog_update import update_catalog,NoCatalog
+            from za.shader_inputs import ExternalDecoder
+            decoder=args.decoder
+            if decoder is None:
+                candidate=Path(sys.executable).parent/'monzamac-shader-decode'
+                if candidate.is_file():decoder=candidate
+            try:c=update_catalog(args.game,args.output,ExternalDecoder(decoder) if decoder else None,args.recipes)
+            except NoCatalog as e:print(str(e),file=sys.stderr);return 2
+            print(f'Catalog verified and installed: {len(c["recipes"])} recipes; applied at next game start.')
+        elif args.command=='export':
             rows=load_recipes(args.recipes)
             c=export_catalog(rows,read_json(args.index),args.allow_partial);validate_catalog(c)
             with args.output.open('xb') as f:f.write(encoded(c))
@@ -337,9 +360,7 @@ def main(argv=None):
                 candidate=Path(sys.executable).parent/'monzamac-shader-decode'
                 if candidate.is_file():decoder=candidate
             catalog=read_json(args.catalog)
-            if args.recipes:
-                try:catalog=merge_local_recipes(catalog,load_recipes(args.recipes,allow_empty=True))
-                except (ValueError,OSError,KeyError,TypeError,RecursionError):print('[shader-inputs] invalid local recipes ignored; using installed catalog',file=sys.stderr)
+            catalog=catalog_with_local_recipes(catalog,args.recipes)
             dest=prepare(args.game,catalog,args.output,ExternalDecoder(decoder) if decoder else None)
             print(json.dumps(dict(generation=str(dest),recipes=str(dest/'recipes.jsonl'),inputs=str(dest/'inputs'))))
         return 0

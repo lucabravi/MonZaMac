@@ -175,3 +175,16 @@ The ownership declaration records the user's confirmation for setup; it does not
 rights to Nintendo's content. Building the app from source still needs the developer tools in [Building from source](#building-from-source).
 
 
+
+## Near-term follow-up: application updater
+
+The community shader catalog is updated independently of the app executable.
+A proper application updater is the next separate distribution task: evaluate
+an established macOS updater such as Sparkle before considering a custom
+installer. It needs authenticated/signed releases, correct version/channel
+handling, recoverable installation and compatibility with the game's generated
+library. Updates must preserve extracted game files, keys, saves, settings and
+local recipe contributions, and reconcile bundled/downloaded catalog versions. Any required library rebuild uses the player's own
+files; no game library is distributed. This is planned work, not an implemented
+self-update feature. The existing launcher currently checks for releases and
+opens the download page.

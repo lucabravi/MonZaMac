@@ -16,6 +16,7 @@
 
 #include "imgui.h"
 #include "option_rows.h"
+#include "menu.h"
 #include "imgui_internal.h"  // (NavCursorVisible)
 #include "osk.h"
 #include "../services/am.h"
@@ -48,9 +49,37 @@ static std::atomic<bool> g_want_fullscreen_apply{false};
 #ifdef __APPLE__
 extern "C" unsigned renderer_recipe_count(void);
 extern "C" bool renderer_export_recipes(const char *, char *, size_t);
+extern "C" bool renderer_update_catalog(char *, size_t);
+extern "C" int renderer_check_catalog(void);
+static std::atomic<int> g_catalog_status{CATALOG_UNKNOWN};
+static std::atomic<bool> g_catalog_update_request{false}, g_recipe_contribute_request{false};
 static std::atomic<bool> g_recipe_export_request{false}, g_recipe_export_busy{false};
 static pthread_mutex_t recipe_message_lock = PTHREAD_MUTEX_INITIALIZER;
 static char recipe_export_message[320];
+extern "C" int menu_catalog_status(void) { return g_catalog_status.load(); }
+extern "C" void menu_catalog_update(void) { g_catalog_update_request = true; }
+extern "C" bool menu_catalog_check(void) {
+    if (g_recipe_export_busy.exchange(true)) return false;
+    g_catalog_status = CATALOG_CHECKING;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ @autoreleasepool {
+        int result = renderer_check_catalog();
+        g_catalog_status = result == 0 ? CATALOG_CURRENT : result == 1 ? CATALOG_AVAILABLE : result == 2 ? CATALOG_UNPUBLISHED : CATALOG_ERROR;
+        g_recipe_export_busy = false;
+    }});
+    return true;
+}
+static void catalog_update_start(void) {
+    if (g_recipe_export_busy.exchange(true)) return;
+    g_catalog_status = CATALOG_UPDATING;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ @autoreleasepool {
+        char error[256] = {0}; bool ok = renderer_update_catalog(error, sizeof error);
+        pthread_mutex_lock(&recipe_message_lock);
+        snprintf(recipe_export_message, sizeof recipe_export_message, "%s", ok ? "Catalog verified and installed. Applies at the next game start." : error);
+        pthread_mutex_unlock(&recipe_message_lock);
+        g_catalog_status = ok ? CATALOG_CURRENT : strstr(error, "No published shader catalog") ? CATALOG_UNPUBLISHED : CATALOG_UPDATE_ERROR;
+        g_recipe_export_busy = false;
+    }});
+}
 static void recipe_export_dialog(void) {  // main thread; the game never uploads this file
     if (g_recipe_export_busy.exchange(true)) return;
     input_reset();
@@ -306,6 +335,8 @@ void menu_apply_window_requests(void *win) {
     SDL_Window *w = (SDL_Window *)win;
 #ifdef __APPLE__
     if (g_recipe_export_request.exchange(false)) recipe_export_dialog();
+    if (g_catalog_update_request.exchange(false)) catalog_update_start();
+    if (g_recipe_contribute_request.exchange(false)) SDL_OpenURL("https://github.com/lucabravi/MonZaMac/issues/new?template=shader-recipes.yml");
 #endif
     g_pixel_density = SDL_GetWindowPixelDensity(w);
     static bool text_input;
@@ -622,29 +653,6 @@ static void tab_display(void) {
     opt_choice("Anti-aliasing", &g_settings.antialias, aa, 2, AA_SMAA,
                "Smooths jagged edges of the game image before it is scaled to the window. SMAA: finds the edges and "
                "blends only along them, so textures stay sharp. Most useful at a lower internal resolution.");
-    opt_toggle("Prepare known shaders", &g_settings.prepare_shaders, false,
-               "Before starting, build the graphics pipelines in an installed shader catalog from your own game files. "
-               "Reduces first-encounter stutter for covered effects. Takes extra time at startup; unseen variants still compile normally. "
-               "Requires a compatible catalog. Changes apply on the next game start.");
-#ifdef __APPLE__
-    opt_toggle("Collect new shader recipes", &g_settings.collect_shader_recipes, true,
-               "Locally records only new graphics pipeline recipes missing from the prepared catalog. Metadata is deduplicated "
-               "and saved in the background; game code, keys and saves are not included. Nothing is uploaded. "
-               "New shader programs are collected from the next game start.");
-    unsigned recipes = renderer_recipe_count();
-    char value[48]; snprintf(value, sizeof value, g_recipe_export_busy.load() ? "Exporting..." : "%u recipes", recipes);
-    std::string description = "Save a metadata-only JSON contribution for manual review and sharing. "
-                              "Export does not submit it anywhere. Recipes with unknown source locations still need investigation.";
-    pthread_mutex_lock(&recipe_message_lock);
-    if (*recipe_export_message) { description += "\n\n"; description += recipe_export_message; }
-    pthread_mutex_unlock(&recipe_message_lock);
-    if (!recipes || g_recipe_export_busy.load()) opt_disable_next();
-    if (opt_action("Export shader recipes", value, description.c_str())) g_recipe_export_request = true;
-#endif
-    opt_toggle("Wait for shaders", &g_settings.wait_shaders, false,
-               "A shader or pipeline the game needs for the first time is compiled on the spot, and the game waits: a short "
-               "stutter, but nothing is missing from the picture. Off: it compiles in the background and the objects that "
-               "need it are left out of the picture until it is ready (the pipelines saved from earlier runs are quick).");
     {   // Pokémon Z-A's own effects (runtime/hle/za_mods.c): the same patch build as the frame mode
         if (za_rows()) {
             opt_toggle("Game FXAA", &g_settings.fxaa, true,
@@ -682,6 +690,47 @@ static void tab_display(void) {
         }
     }
 
+    opt_end();
+}
+
+static void tab_shaders(void) {
+    opt_begin("##shaders", ImGui::GetFontSize() / 34);
+    opt_section("Shader preparation");
+    opt_toggle("Prepare known shaders", &g_settings.prepare_shaders, false,
+               "Before starting, build the graphics pipelines in an installed shader catalog from your own game files. "
+               "Reduces first-encounter stutter for covered effects. Takes extra time at startup; unseen variants still compile normally. "
+               "Requires a compatible catalog. Changes apply on the next game start.");
+#ifdef __APPLE__
+    opt_section("Catalog and contributions");
+    opt_toggle("Collect new shader recipes", &g_settings.collect_shader_recipes, true,
+               "Locally records only new graphics pipeline recipes missing from the prepared catalog. Metadata is deduplicated "
+               "and saved in the background; game code, keys and saves are not included. Nothing is uploaded. "
+               "New shader programs are collected from the next game start.");
+    unsigned recipes = renderer_recipe_count();
+    char value[48]; snprintf(value, sizeof value, g_recipe_export_busy.load() ? "Working..." : "%u recipes", recipes);
+    std::string description = "Save a metadata-only JSON contribution for manual review and sharing. "
+                              "Export does not submit it anywhere. Recipes with unknown source locations still need investigation.";
+    pthread_mutex_lock(&recipe_message_lock);
+    if (*recipe_export_message) { description += "\n\n"; description += recipe_export_message; }
+    pthread_mutex_unlock(&recipe_message_lock);
+    if (!recipes || g_recipe_export_busy.load()) opt_disable_next();
+    if (opt_action("Export shader recipes", value, description.c_str())) g_recipe_export_request = true;
+    if (g_recipe_export_busy.load()) opt_disable_next();
+    if (opt_action("Contribute recipes on GitHub", "Open form",
+                   "First export your recipes above, then attach that JSON file to the GitHub form. "
+                   "Opens your browser; no file or game data is uploaded by the app.")) g_recipe_contribute_request = true;
+    if (g_recipe_export_busy.load()) opt_disable_next();
+    std::string catalog_description = "Download a metadata catalog from official MonZaMac GitHub releases and verify it against your own game files. "
+                                      "Nothing is uploaded. Your previous catalog is kept if verification fails. Applies on the next game start.";
+    pthread_mutex_lock(&recipe_message_lock);
+    if (*recipe_export_message) { catalog_description += "\n\n"; catalog_description += recipe_export_message; }
+    pthread_mutex_unlock(&recipe_message_lock);
+    if (opt_action("Update shader catalog", g_recipe_export_busy.load() ? "Working..." : "Check now", catalog_description.c_str())) g_catalog_update_request = true;
+#endif
+    opt_toggle("Wait for shaders", &g_settings.wait_shaders, false,
+               "A shader or pipeline the game needs for the first time is compiled on the spot, and the game waits: a short "
+               "stutter, but nothing is missing from the picture. Off: it compiles in the background and the objects that "
+               "need it are left out of the picture until it is ready (the pipelines saved from earlier runs are quick).");
     opt_end();
 }
 
@@ -921,8 +970,8 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
     Tab tabs[8];
     int ntabs = 0;
     if (prelaunch) tabs[ntabs++] = {"Prelaunch", -1, true};
-    static const char *names[] = {"Video", "Audio", "", "", "", "", "", "", "Controls", "Quit", "Developer", "Saves"};
-    static const int order[] = {8, 0, 1, 11, 9};  // Controls, Video, Audio, Saves, Quit (ids stay: test hooks)
+    static const char *names[] = {"Video", "Audio", "", "", "", "", "", "", "Controls", "Quit", "Developer", "Saves", "Shaders"};
+    static const int order[] = {8, 0, 12, 1, 11, 9};  // Controls, Video, Shaders, Audio, Saves, Quit (ids stay: test hooks)
     for (int i : order)  // (Saves and Quit: in game only - the start screen has its own SAVES and QUIT)
         if ((i != 9 && i != 11) || !prelaunch) tabs[ntabs++] = {names[i], i, true};
     if (g_settings.developer || getenv("LARECOMP_DEVELOPER")) tabs[ntabs++] = {names[10], 10, true};
@@ -1008,6 +1057,7 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
                 case -1: prelaunch(scale); break;
                 case 0: tab_display(); break;
                 case 1: tab_audio(); break;
+                case 12: tab_shaders(); break;
                 case 8: tab_about(); break;
                 case 9: tab_quit(scale, in_game); break;
                 case 10: tab_developer(); break;

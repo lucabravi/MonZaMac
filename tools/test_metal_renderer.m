@@ -1664,6 +1664,31 @@ static void shader_preparation(void) {
           "preparation errors never dump beyond bounded private inputs");
 }
 
+static void recipe_catalog_refresh(void) {
+    ShaderKey key = {0};
+    MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
+    pd.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
+    NSString *a = [@"" stringByPaddingToLength:64 withString:@"a" startingAtIndex:0];
+    NSString *b = [@"" stringByPaddingToLength:64 withString:@"b" startingAtIndex:0];
+    NSDictionary *program = @{@"vs": a, @"fs": b, @"vkey": prep_key_dict(&key), @"fkey": prep_key_dict(&key)};
+    NSDictionary *known = @{@"version": @1, @"program": program, @"pipeline": prep_descriptor_dict(pd)};
+    NSMutableDictionary *extra_program = [program mutableCopy];
+    extra_program[@"vs"] = [@"" stringByPaddingToLength:64 withString:@"c" startingAtIndex:0];
+    NSDictionary *pending = @{@"version": @1, @"program": extra_program, @"pipeline": prep_descriptor_dict(pd)};
+    unsigned before = renderer_recipe_count();
+    recipe_enqueue(known, recipe_default_path); recipe_enqueue(pending, recipe_default_path); renderer_recipe_flush();
+    CHECK(renderer_recipe_count() == before + 2, "seed two distinct pending contributions");
+    mkdir("cache/shader-preparation", 0755);
+    CHECK([prep_json(@{@"version": @1, @"recipes": @[known]}) writeToFile:@"cache/shader-preparation/catalog.json" atomically:YES], "install synthetic catalog update");
+    recipe_refresh_known();
+    CHECK(renderer_recipe_count() == before + 1, "updated catalog removes only now-covered contributions without restart");
+    recipe_enqueue(known, recipe_default_path); renderer_recipe_flush();
+    CHECK(renderer_recipe_count() == before + 1, "covered contribution is not recorded again");
+    NSString *journal = [NSString stringWithContentsOfFile:recipe_default_path encoding:NSUTF8StringEncoding error:nil];
+    CHECK(![journal containsString:recipe_line(known)] && [journal containsString:recipe_line(pending)], "persisted pending file keeps unresolved recipes and excludes covered ones");
+    unlink("cache/shader-preparation/catalog.json"); recipe_refresh_known();
+}
+
 static void program_readiness(void) {
     CmdRec r = {.op = CMD_DRAW_ARRAYS, .x = {4, 0, 7}};
     CHECK(!prog_ready_or_wait(nil, &r), "a missing program cannot draw");
@@ -2249,6 +2274,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"surface-handle-provenance", "integers", surface_handle_provenance},
     {"ldc64-overlap", "sibling", ldc64_overlap},
     {"shader-preparation", "preparation", shader_preparation},
+    {"recipe-catalog-refresh", "contributions", recipe_catalog_refresh},
     {"program-readiness", "sibling", program_readiness},
     {"pipeline-archive", "sibling", pipeline_archive_reload},
     {"shadow-fallback", "sibling", shadow_fallback},

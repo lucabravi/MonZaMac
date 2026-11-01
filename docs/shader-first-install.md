@@ -8,7 +8,7 @@ shader/pipeline cache. This does not enumerate every pipeline in the game.
 ## Player flow
 
 A build containing a compatible `shader-catalog.json` and the complete `lasgen`
-helper offers **Graphics > Prepare known shaders**, off by default. On the next
+helper offers **Shaders > Prepare known shaders**, off by default. On the next
 game start it:
 
 1. Checks the catalog and the installed executable fingerprints.

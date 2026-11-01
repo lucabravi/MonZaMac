@@ -13,6 +13,14 @@ extern "C" {
 
 typedef union SDL_Event SDL_Event;
 
+enum ShaderCatalogStatus { CATALOG_UNKNOWN, CATALOG_CHECKING, CATALOG_CURRENT,
+    CATALOG_AVAILABLE, CATALOG_UNPUBLISHED, CATALOG_ERROR, CATALOG_UPDATING, CATALOG_UPDATE_ERROR };
+#ifdef __APPLE__
+bool menu_catalog_check(void);
+int menu_catalog_status(void);
+void menu_catalog_update(void);
+#endif
+
 // Main (UI) thread: returns true if the event was consumed by the menu (the game must not see it).
 bool menu_handle_event(const SDL_Event *e);
 bool menu_is_open(void);

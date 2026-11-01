@@ -1,0 +1,37 @@
+name: Shader recipe contribution
+description: Share the metadata JSON exported by MonZaMac to improve shader preparation.
+title: "[Shader recipes] New variants"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        In MonZaMac, open **Video → Export shader recipes**, then attach that exported JSON below.
+        Only the app's metadata export belongs here. Do not attach game files, keys, saves,
+        shader dumps, translated Metal source, native caches or diagnostic logs.
+        Contributions are reviewed; recipes with unresolved input origins stay pending.
+  - type: input
+    id: version
+    attributes:
+      label: MonZaMac version
+      placeholder: Version shown in the app
+    validations:
+      required: true
+  - type: textarea
+    id: recipes
+    attributes:
+      label: Exported recipe JSON
+      description: Drag the exported MonZaMac-shader-recipes.json file here. The app does not upload it for you.
+    validations:
+      required: true
+  - type: textarea
+    id: scene
+    attributes:
+      label: Area or effect (optional)
+      description: A brief description can help review the newly discovered variants. No save files are needed.
+  - type: checkboxes
+    id: metadata
+    attributes:
+      label: Attachment check
+      options:
+        - label: I attached only the metadata export produced by MonZaMac, without game data or keys.
+          required: true

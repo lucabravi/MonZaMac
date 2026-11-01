@@ -339,6 +339,8 @@ static bool prep_install(NSString **manifest, NSString **inputs) {
     char catalog[1100], helper[1100], script[1100] = {0}, decoder[1100] = {0};
     const char *override = getenv("LARECOMP_SHADER_CATALOG");
     if (override && *override) snprintf(catalog, sizeof catalog, "%s", override);
+    else if (!access("cache/shader-preparation/catalog.json", R_OK))
+        snprintf(catalog, sizeof catalog, "cache/shader-preparation/catalog.json");
     else if (!rt_resource("shader-catalog.json", NULL, catalog, sizeof catalog)) {
         snprintf(catalog, sizeof catalog, "cache/shader-preparation/catalog.json");
         if (access(catalog, R_OK)) { LOG("[shader-prep] no installed catalog; compiling normally\n"); return false; }
