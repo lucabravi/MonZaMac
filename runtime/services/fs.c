@@ -1,3 +1,4 @@
+#include "../nvn/shader_trace.h"
 // fsp-srv: RomFS as a raw storage image, save data and SD card backed by host directories.
 #include <dirent.h>
 #include <errno.h>
@@ -576,6 +577,13 @@ static void storage(Service *s, IpcReq *req, IpcResp *resp) {
         if (!b) { resp->result = MAKE_RESULT(2, 6001); break; }
         if (size > b->size) size = b->size;
         ssize_t n = romfs_read(st->fd, (uint8_t *)(uintptr_t)b->addr, size, off);
+        if (n > 0 && shader_trace_enabled()) {
+            uint64_t base = 0;
+            const char *path = romfs_file_base(off, &base);
+            const char *last = romfs_file_at(off + (uint64_t)n - 1);
+            bool one_file = path && path == last;
+            shader_trace_read(one_file ? path : "<romfs-image>", one_file ? off - base : off, b->addr, (size_t)n);
+        }
         if (n < 0) LOG("[fs] storage read failed at %llx: %s\n", off, strerror(errno));
         {   // (debug) LARECOMP_LOG_READS=<file>: every read as "<RomFS path> <offset in the file> <size>"
             static FILE *rf;
@@ -617,6 +625,7 @@ static void plain_storage(Service *s, IpcReq *req, IpcResp *resp) {
         if (!b) { resp->result = MAKE_RESULT(2, 6001); break; }
         if (size > b->size) size = b->size;
         ssize_t n = pread(st->fd, (uint8_t *)(uintptr_t)b->addr, size, (off_t)off);
+        if (n > 0 && shader_trace_enabled()) shader_trace_read("<add-on-storage>", off, b->addr, (size_t)n);
         if (n < 0) n = 0;
         if ((uint64_t)n < size) memset((uint8_t *)(uintptr_t)b->addr + n, 0, size - n);
         break;
@@ -701,6 +710,7 @@ static void file(Service *s, IpcReq *req, IpcResp *resp) {
         if ((uint64_t)size > b->size) size = (int64_t)b->size;
         ssize_t n;
         do { n = pread(f->fd, (void *)(uintptr_t)b->addr, (size_t)size, off); } while (n < 0 && errno == EINTR);
+        if (n > 0 && shader_trace_enabled()) shader_trace_read(f->path, (uint64_t)off, b->addr, (size_t)n);
         if (n < 0) resp->result = errno_result();
         if (strstr(f->path, "savedata")) {
             LOG("[save] read %s off %lld size %lld -> guest %llx\n", f->path, (long long)off, (long long)size, (unsigned long long)b->addr);

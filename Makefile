@@ -216,3 +216,7 @@ test-shader-catalog:
 	$(or $(PY),python3) tools/test_shader_catalog_update.py
 	$(or $(PY),python3) tools/test_shader_inputs.py
 	$(or $(PY),python3) tools/test_shader_decoder.py build/shader-decode/release/monzamac-shader-decode
+
+.PHONY: test-shader-trace
+test-shader-trace:
+	python3 tools/test_shader_trace.py

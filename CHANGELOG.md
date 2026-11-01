@@ -28,6 +28,12 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 - Moving the cursor onto a tab with the keyboard or a pad opens it, like L / R and Q / E already did. The mouse still
   needs a click.
 
+### Developer tools
+- **Shader diagnostics** (off unless `LARECOMP_SHADER_TRACE=<new directory>`): records, as metadata only, each registered shader's
+  content hash, stage, where it was read from, when it was registered and when it was compiled, to investigate first-use
+  hitches and shaders whose origin is unknown. Shader dumps need a separate opt-in and are never distributable. See
+  `docs/shader-diagnostics.md`.
+
 ### Settings
 - **Resolution mode** (Fixed / Dynamic) is its own choice, above Internal resolution. Dynamic goes **up to 1080p**,
   **up to 1620p** or **up to match display** (was "Dynamic" and "Dynamic 1.5x" among the fixed sizes; up to 1080p is new,

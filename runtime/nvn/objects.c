@@ -5,6 +5,7 @@
 #include "../kernel.h"
 #include "../settings.h"
 #include "nvn.h"
+#include "shader_trace.h"
 
 void renderer_sync(void);
 
@@ -685,6 +686,7 @@ static void set_shaders(Cpu *c, int stride) {
         p->stages[stage].const_offset = *(const uint32_t *)(control + 0x700);
         p->stages[stage].const_size = *(const uint32_t *)(control + 0x6FC);
         p->stage_mask |= 1u << stage;
+        if (shader_trace_enabled()) shader_trace_stage(c, &p->stages[stage], A(0));
     }
     RET(1);
 }
