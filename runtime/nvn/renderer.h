@@ -17,6 +17,9 @@ void backend_gwin_pick(void);
 // Render thread publishes recipe progress; total == 0 dismisses the main-thread page.
 void backend_shader_prepare_progress(unsigned done, unsigned total);
 void backend_shader_prepare_inputs(unsigned done, unsigned total);
+// "Prepare all shaders": phase 0 reads the game files (no count), phase 1 compiles; the page has a Stop button.
+void backend_shader_precompile_progress(unsigned phase, unsigned done, unsigned total);
+bool backend_shader_prepare_cancelled(void);
 #endif
 #include <SDL3/SDL_events.h>
 

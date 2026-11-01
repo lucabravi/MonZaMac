@@ -1,6 +1,8 @@
 // Developer prototype: private hash/state recipes, rebuilt from the user's indexed shader inputs.
 // Included by renderer.m so preparation uses the live translator and compiler, serialized with drawing.
 static Prog *get_program(NvnProgram *, ShaderKey *, ShaderKey *);
+static bool precompile_requested(void);
+static void precompile_run(void);  // shader_precompile.inc
 static NSMutableDictionary<NSString *, Prog *> *g_prep_programs;
 static NSMutableDictionary<NSString *, id<MTLRenderPipelineState>> *g_prep_pipelines;
 static NSMutableSet<NSString *> *g_prep_recorded;
@@ -440,6 +442,7 @@ static bool prep_install(NSString **manifest, NSString **inputs) {
 static void prep_once(void) {
     if (g_prep_started || g_prep_active) return;
     g_prep_started = true;
+    if (precompile_requested()) precompile_run();
     const char *path = getenv("LARECOMP_SHADER_PREP"), *dir = getenv("LARECOMP_SHADER_INPUTS");
     if (!prep_enabled()) return;
     NSString *manifest = path && *path ? @(path) : nil, *inputs = dir && *dir ? @(dir) : nil;

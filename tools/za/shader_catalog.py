@@ -353,8 +353,16 @@ def main(argv=None):
     co=sub.add_parser('contribute');co.add_argument('recipes',type=Path);co.add_argument('output',type=Path)
     up=sub.add_parser('update');up.add_argument('game',type=Path);up.add_argument('output',type=Path);up.add_argument('--decoder',type=Path);up.add_argument('--recipes',type=Path)
     status=sub.add_parser('status');status.add_argument('installed',type=Path)
+    ix=sub.add_parser('index');ix.add_argument('game',type=Path);ix.add_argument('output',type=Path);ix.add_argument('--decoder',type=Path)
     args=ap.parse_args(argv)
     try:
+        if args.command=='index':
+            # Every shader of the player's own files into a private folder (precompile reads it, then deletes it).
+            from za.shader_inputs import build_index,ExternalDecoder
+            if args.output.is_symlink():raise ValueError('output must not be a symlink')
+            total,embedded=build_index(args.game,args.output,ooz_exe=args.decoder)
+            print(f'[shader-index] {total} shader inputs ({embedded} executable)',file=sys.stderr,flush=True)
+            return 0
         if args.command=='status':
             from za.shader_catalog_update import catalog_status,NoCatalog
             try:print(json.dumps(dict(state=catalog_status(args.installed))))

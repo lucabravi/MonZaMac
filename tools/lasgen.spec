@@ -20,10 +20,10 @@ _uc_versioned = (glob.glob(os.path.join(_uc_lib_dir, 'libunicorn.so*'))  # (not 
 
 a = Analysis(
     [os.path.join(TOOLS, 'lasgen_main.py')],
-    pathex=[TOOLS],
+    pathex=[TOOLS, os.path.join(TOOLS, 'za')],  # (za/trinity.py: shader-catalog index reads the game's archives)
     binaries=collect_dynamic_libs('capstone') + collect_dynamic_libs('unicorn')
              + [(p, 'unicorn/lib') for p in _uc_versioned],
-    hiddenimports=collect_submodules('unicorn'),  # (it imports its arch modules by name at run time)
+    hiddenimports=collect_submodules('unicorn') + ['trinity'],  # (it imports its arch modules by name at run time)
     excludes=['tkinter', 'pydoc', 'doctest', 'unittest', 'pdb', 'IPython', 'numpy', 'setuptools', '_distutils_hack',
               'pkg_resources', 'ssl', '_ssl', '_hashlib', '_multibytecodec', '_codecs_cn', '_codecs_hk',
               '_codecs_iso2022', '_codecs_jp', '_codecs_kr', '_codecs_tw', '_decimal'],
