@@ -48,6 +48,23 @@ def recipe(value):
     fs=sha(p['fs']) if p['fs']!='' else ''
     return dict(version=1,program=dict(vs=sha(p['vs']),fs=fs,vkey=key(p['vkey']),fkey=key(p['fkey'])),pipeline=descriptor(value['pipeline']))
 
+def compute_recipe(value):
+    # A compute program is its code plus the texture-type masks it was translated with and its workgroup size.
+    fields(value,('version','compute'))
+    if type(value['version']) is not int or value['version']!=1: raise ValueError('unsupported recipe version')
+    c=value['compute'];fields(c,('cs','key','local'))
+    key=array(c['key'],5,(1<<32)-1)
+    if key[3]>255 or key[4]>255: raise ValueError('invalid specialization flags')
+    local=array(c['local'],3,1024)
+    if not all(local): raise ValueError('invalid workgroup size')
+    return dict(version=1,compute=dict(cs=sha(c['cs']),key=key,local=local))
+
+def any_recipe(value):
+    return compute_recipe(value) if isinstance(value,dict) and 'compute' in value else recipe(value)
+
+def split_recipes(rows):
+    graphics=[r for r in rows if 'program' in r];return graphics,[r for r in rows if 'compute' in r]
+
 def descriptor(pd):
     fields(pd,('state','colors','attrs','layouts'))
     out=dict(state=array(pd['state'],6,1024))
@@ -61,7 +78,7 @@ def descriptor(pd):
 
 def input_reference(value):
     fields(value,('stage','size','const_offset','const_size','origin'))
-    stage=number(value['stage'],1);size=number(value['size'],MAX_FILE)
+    stage=number(value['stage'],5);size=number(value['size'],MAX_FILE)
     co=number(value['const_offset'],size);cs=number(value['const_size'],size)
     if co<16 or co+cs!=size: raise ValueError('invalid code/constant range')
     o=value['origin']
@@ -90,7 +107,10 @@ def _export_v1(recipes,index,allow_partial=False):
     module_sources=sources(index.get('sources',{}))
     inputs={};out={};omitted=0
     for raw in recipes:
-        r=recipe(raw);p=r['program']; refs=[(p['vs'],0)]+([(p['fs'],1)] if p['fs'] else [])
+        r=any_recipe(raw)
+        if 'compute' in r: refs=[(r['compute']['cs'],5)]
+        else:
+            p=r['program'];refs=[(p['vs'],0)]+([(p['fs'],1)] if p['fs'] else [])
         if any(h not in index['shaders'] for h,_ in refs):
             if not allow_partial: raise ValueError('unresolved shader reference; use --allow-partial explicitly')
             omitted+=1;continue
@@ -102,25 +122,29 @@ def _export_v1(recipes,index,allow_partial=False):
             inputs[h]=ref
         out[digest(encoded(r))]=r
     if not out: raise ValueError('no complete pipeline recipes')
-    return dict(version=1,sources=module_sources,inputs=inputs,
-                recipes=[out[k] for k in sorted(out)],omitted_recipes=omitted)
+    graphics,compute=split_recipes([out[k] for k in sorted(out)])
+    c=dict(version=1,sources=module_sources,inputs=inputs,recipes=graphics,omitted_recipes=omitted)
+    if compute: c['compute']=compute
+    return c
 
 def _validate_v1(c):
-    fields(c,('version','sources','inputs','recipes','omitted_recipes'))
+    fields(c,('version','sources','inputs','recipes','omitted_recipes') + (('compute',) if 'compute' in c else ()))
     if type(c['version']) is not int or c['version']!=1: raise ValueError('unsupported catalog version')
     number(c['omitted_recipes'],1<<31)
-    if not isinstance(c['inputs'],dict) or len(c['inputs'])>2048: raise ValueError('too many input references')
+    if not isinstance(c['inputs'],dict): raise ValueError('invalid input references')
     for h,ref in c['inputs'].items():
         sha(h)
         if input_reference(ref)!=ref: raise ValueError('unexpected input-origin fields')
-    clean=_export_v1(c['recipes'],dict(version=1,sources=c['sources'],shaders=c['inputs']))
+    clean=_export_v1(c['recipes']+c.get('compute',[]),dict(version=1,sources=c['sources'],shaders=c['inputs']))
     if set(clean['inputs'])!=set(c['inputs']): raise ValueError('unused input references')
     return c
 
 def export_catalog(recipes,index,allow_partial=False):
     c=_export_v1(recipes,index,allow_partial)
     profiles,rows=pack_recipe_profiles(c['recipes'])
-    return dict(version=2,sources=c['sources'],inputs=c['inputs'],profiles=profiles,recipes=rows,omitted_recipes=c['omitted_recipes'])
+    out=dict(version=2,sources=c['sources'],inputs=c['inputs'],profiles=profiles,recipes=rows,omitted_recipes=c['omitted_recipes'])
+    if 'compute' in c: out['compute']=c['compute']
+    return out
 
 def pack_recipe_profiles(recipes):
     selections={name:{} for name in ('vertex_keys','fragment_keys','descriptors')}
@@ -137,9 +161,11 @@ def pack_recipe_profiles(recipes):
     return profiles,rows
 
 def _expand_v2(c):
-    fields(c,('version','sources','inputs','profiles','recipes','omitted_recipes'))
+    fields(c,('version','sources','inputs','profiles','recipes','omitted_recipes') + (('compute',) if 'compute' in c else ()))
     rows=expand_recipe_profiles(c['profiles'],c['recipes'],None)
-    return dict(version=1,sources=c['sources'],inputs=c['inputs'],recipes=rows,omitted_recipes=c['omitted_recipes'])
+    out=dict(version=1,sources=c['sources'],inputs=c['inputs'],recipes=rows,omitted_recipes=c['omitted_recipes'])
+    if 'compute' in c: out['compute']=c['compute']
+    return out
 
 def expand_recipe_profiles(profiles,recipes,limit):
     fields(profiles,('vertex_keys','fragment_keys','descriptors'))
@@ -174,14 +200,19 @@ def expand_catalog(c):
 
 def contribution_document(rows):
     if not isinstance(rows,list) or not rows:raise ValueError('expected contribution recipes')
-    unique={encoded(recipe(r)):recipe(r) for r in rows}
-    profiles,recipes=pack_recipe_profiles([unique[k] for k in sorted(unique)])
-    return dict(type='shader-recipes',version=1,profiles=profiles,recipes=recipes)
+    unique={encoded(any_recipe(r)):any_recipe(r) for r in rows}
+    graphics,compute=split_recipes([unique[k] for k in sorted(unique)])
+    profiles,recipes=pack_recipe_profiles(graphics) if graphics else (dict(vertex_keys=[],fragment_keys=[],descriptors=[]),[])
+    doc=dict(type='shader-recipes',version=1,profiles=profiles,recipes=recipes)
+    if compute: doc['compute']=compute
+    return doc
 
 def contribution_recipes(doc):
-    fields(doc,('type','version','profiles','recipes'))
+    fields(doc,('type','version','profiles','recipes') + (('compute',) if 'compute' in doc else ()))
     if doc['type']!='shader-recipes' or type(doc['version']) is not int or doc['version']!=1:raise ValueError('unsupported contribution')
-    return [recipe(r) for r in expand_recipe_profiles(doc['profiles'],doc['recipes'],None)]
+    compute=[compute_recipe(r) for r in doc.get('compute',[])]
+    if not doc['recipes'] and compute and not any(doc['profiles'].get(n) for n in ('vertex_keys','fragment_keys','descriptors')):return compute
+    return [recipe(r) for r in expand_recipe_profiles(doc['profiles'],doc['recipes'],None)]+compute
 
 def load_recipes(path,allow_empty=False):
     with Path(path).open('rb') as f:data=f.read(MAX_RECIPE_FILE+1)
@@ -190,17 +221,20 @@ def load_recipes(path,allow_empty=False):
     try:doc=json.loads(text)
     except json.JSONDecodeError:doc=None
     if isinstance(doc,dict) and doc.get('type')=='shader-recipes':return contribution_recipes(doc)
-    rows=[recipe(json.loads(line)) for line in text.splitlines() if line.strip()]
+    if isinstance(doc,dict) and 'inputs' in doc and 'recipes' in doc:  # an installed catalog: its recipes grow with new ones
+        c=expand_catalog(doc);return c['recipes']+c.get('compute',[])
+    rows=[any_recipe(json.loads(line)) for line in text.splitlines() if line.strip()]
     if not rows and not allow_empty:raise ValueError('expected recipes')
     return rows
 
 def merge_local_recipes(catalog,local):
-    base=expand_catalog(catalog);rows={encoded(recipe(r)):recipe(r) for r in base['recipes']}
+    base=expand_catalog(catalog);rows={encoded(any_recipe(r)):any_recipe(r) for r in base['recipes']+base.get('compute',[])}
     missing=added=0
     for raw in local:
-        r=recipe(raw);p=r['program'];identity=encoded(r)
+        r=any_recipe(raw);identity=encoded(r)
         if identity in rows:continue
-        if any(h and h not in base['inputs'] for h in (p['vs'],p['fs'])):missing+=1;continue
+        hashes=(r['compute']['cs'],) if 'compute' in r else (r['program']['vs'],r['program']['fs'])
+        if any(h and h not in base['inputs'] for h in hashes):missing+=1;continue
         rows[identity]=r;added+=1
     c=export_catalog(list(rows.values()),dict(version=1,sources=base['sources'],shaders=base['inputs']))
     c['omitted_recipes']=catalog['omitted_recipes']
@@ -234,7 +268,7 @@ def prepare(game,catalog,output,decoder):
     """Return an immutable generation; publish current.json only after verification."""
     import fcntl
     validate_catalog(catalog)
-    print(f'[shader-inputs] catalog: {len(catalog["recipes"])} covered recipes, {catalog["omitted_recipes"]} uncovered recipes omitted',file=sys.stderr,flush=True)
+    print(f'[shader-inputs] catalog: {len(catalog["recipes"])} covered recipes, {len(catalog.get("compute",[]))} compute, {catalog["omitted_recipes"]} uncovered recipes omitted',file=sys.stderr,flush=True)
     game=Path(game).resolve(strict=True);output=Path(output)
     if output.is_symlink(): raise ValueError('output root must not be a symlink')
     output.mkdir(parents=True,exist_ok=True)
@@ -259,7 +293,7 @@ def prepare(game,catalog,output,decoder):
             for name in ('catalog.json','recipes.jsonl'):
                 if (destination/name).is_symlink():raise ValueError('cached metadata must not be a symlink')
             if (destination/'catalog.json').read_bytes()!=encoded(catalog): raise ValueError('cached catalog mismatch')
-            if (destination/'recipes.jsonl').read_bytes()!=b''.join(encoded(r) for r in expanded['recipes']):raise ValueError('cached recipes damaged; remove this generation and retry')
+            if (destination/'recipes.jsonl').read_bytes()!=b''.join(encoded(r) for r in expanded['recipes']+expanded.get('compute',[])):raise ValueError('cached recipes damaged; remove this generation and retry')
             index_path=destination/'inputs/index.json'
             expected_index=encoded(dict(version=1,sources=catalog['sources'],shaders=catalog['inputs']))
             if index_path.is_symlink() or index_path.read_bytes()!=expected_index:raise ValueError('cached index damaged; remove this generation and retry')
@@ -297,7 +331,7 @@ def prepare(game,catalog,output,decoder):
                         (private/f'{h}.bin').write_bytes(code);done+=1
                     print(f'[shader-inputs] {done}/{len(catalog["inputs"])} verified',file=sys.stderr,flush=True)
                 (private/'index.json').write_bytes(encoded(dict(version=1,sources=catalog['sources'],shaders=catalog['inputs'])))
-                (staging/'recipes.jsonl').write_bytes(b''.join(encoded(r) for r in expanded['recipes']))
+                (staging/'recipes.jsonl').write_bytes(b''.join(encoded(r) for r in expanded['recipes']+expanded.get('compute',[])))
                 (staging/'catalog.json').write_bytes(encoded(catalog))
                 staging.rename(destination)
             finally:
@@ -310,7 +344,7 @@ def prepare(game,catalog,output,decoder):
 
 def main(argv=None):
     ap=argparse.ArgumentParser(description=__doc__);sub=ap.add_subparsers(dest='command',required=True)
-    ex=sub.add_parser('export');ex.add_argument('recipes',type=Path);ex.add_argument('index',type=Path);ex.add_argument('output',type=Path)
+    ex=sub.add_parser('export');ex.add_argument('recipes',type=Path,nargs='+',help='journals, contributions or catalogs; their recipes are joined');ex.add_argument('index',type=Path);ex.add_argument('output',type=Path)
     ex.add_argument('--allow-partial',action='store_true')
     check=sub.add_parser('check');check.add_argument('catalog',type=Path)
     check.add_argument('--for-distribution',action='store_true',help='require minimized schema v2; structural check only, not legal clearance')
@@ -336,7 +370,7 @@ def main(argv=None):
             except NoCatalog as e:print(str(e),file=sys.stderr);return 2
             print(f'Catalog verified and installed: {len(c["recipes"])} recipes; applied at next game start.')
         elif args.command=='export':
-            rows=load_recipes(args.recipes)
+            rows=[r for path in args.recipes for r in load_recipes(path)]
             c=export_catalog(rows,read_json(args.index),args.allow_partial);validate_catalog(c)
             with args.output.open('xb') as f:f.write(encoded(c))
             print(f'Exported {len(c["recipes"])} recipes, {len(c["inputs"])} references; {c["omitted_recipes"]} omitted. Metadata only; keep local pending distribution review.')

@@ -43,6 +43,12 @@ static id recipe_numbers(id value) {
     return nil;
 }
 static bool recipe_valid(id r) {
+    if ([r isKindOfClass:NSDictionary.class] && r[@"compute"]) {  // compute: code, texture-type masks, workgroup size
+        id c = r[@"compute"]; uint32_t k[5], l[3];
+        return [r count] == 2 && [r[@"version"] isEqual:@1] && [c isKindOfClass:NSDictionary.class] && [c count] == 3 &&
+               prep_hash_valid(c[@"cs"]) && prep_array(c[@"key"], 5, UINT32_MAX, k) && k[3] <= 255 && k[4] <= 255 &&
+               prep_array(c[@"local"], 3, 1024, l) && l[0] && l[1] && l[2];
+    }
     if (![r isKindOfClass:NSDictionary.class] || [r count] != 3 || ![r[@"version"] isEqual:@1]) return false;
     id p = r[@"program"], d = r[@"pipeline"]; ShaderKey vk, fk;
     if (![p isKindOfClass:NSDictionary.class] || [p count] != 4 || !prep_hash_valid(p[@"vs"]) ||
@@ -114,6 +120,8 @@ static void recipe_load_known(void) {  // writer queue; reload after catalog cha
         NSString *line = recipe_line(record);
         if (line) [recipe_known addObject:line];
     }
+    if ([c[@"compute"] isKindOfClass:NSArray.class])
+        for (id row in c[@"compute"]) { NSString *line = recipe_line(row); if (line) [recipe_known addObject:line]; }
 }
 static void recipe_save(RecipeJournal *j) {
     if (!j->dirty || j->failed) return;
@@ -224,9 +232,21 @@ static void prep_record_pipeline(Prog *pr, MTLRenderPipelineDescriptor *pd, bool
     NSString *path = override && *override ? @(override) : recipe_default_path;
     NSString *key = [NSString stringWithFormat:@"%@/%@", path, prep_pipeline_id(pr, prep_descriptor_dict(pd))];
     if (!g_prep_recorded) g_prep_recorded = [NSMutableSet new];
-    if (g_prep_recorded.count >= 8192 || [g_prep_recorded containsObject:key]) return;
+    if ([g_prep_recorded containsObject:key]) return;
     [g_prep_recorded addObject:key];
     recipe_enqueue(@{@"version": @1, @"program": pr->prep_record, @"pipeline": prep_descriptor_dict(pd)}, path);
+}
+
+static void prep_record_compute(NSString *hash, const ShaderKey *k, const uint32_t local[3]) {
+    const char *override = getenv("LARECOMP_SHADER_RECORD");
+    if (g_prep_active || (!(override && *override) && !g_settings.collect_shader_recipes)) return;
+    NSString *path = override && *override ? @(override) : recipe_default_path;
+    NSDictionary *record = prep_compute_record(hash, k, local);
+    NSString *key = [NSString stringWithFormat:@"%@/cs/%@", path, prep_compute_id(record)];
+    if (!g_prep_recorded) g_prep_recorded = [NSMutableSet new];
+    if ([g_prep_recorded containsObject:key]) return;
+    [g_prep_recorded addObject:key];
+    recipe_enqueue(@{@"version": @1, @"compute": record}, path);
 }
 
 static int recipe_helper_run(const char **args, NSString *log, double timeout_ms) {

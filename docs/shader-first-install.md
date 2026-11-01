@@ -92,7 +92,7 @@ cache generation. Native binaries are rebuilt on the consumer's GPU/macOS.
 
 ## Still required before distribution
 
-- Broader graphics recipe coverage and compute preparation. The two omitted
+- Broader recipe coverage (graphics and compute). The two omitted
   recipes/four unresolved inputs can still compile at first encounter.
 - Decoder notice packaging is implemented: original dependency notices and Rust
   library notices are collected and verified by the build. oozextract explicitly

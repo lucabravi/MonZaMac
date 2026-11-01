@@ -1,9 +1,10 @@
 # Local shader recipes and voluntary contributions
 
 **Shaders > Collect new shader recipes** is on by default and can be switched off.
-It records successful graphics/transform-feedback pipelines missing from the
-prepared catalog, including pipelines recovered from the native cache. Compute
-pipelines are not covered. Enabling collection after programs are already loaded
+It records successful graphics/transform-feedback pipelines and compute programs
+missing from the prepared catalog, including pipelines recovered from the native
+cache. A compute recipe is the program's hash, its five texture-type masks and its
+workgroup size (no render state). Enabling collection after programs are already loaded
 needs a game restart for full coverage; disabling stops new submissions immediately.
 
 The renderer captures only shader content hashes, specialization and canonical
@@ -181,3 +182,11 @@ and packaged helper build, both homepage states were rendered and inspected
 using screenshot-only state fixtures, and a real packaged-helper metadata
 request returned the expected unpublished-catalog result. Read-only review
 reported no P1/P2 findings. A public catalog still has to be released separately.
+
+## Growing a local catalog from your own sessions (developers)
+
+After a session with collection on, `tools/shader_catalog_from_journal.sh [game-dir] [data-root]` indexes the game files
+once (a few minutes, needs the native decoder: `cargo build --release` in `tools/shader_decode`), then exports a catalog
+from the installed catalog plus the journal and installs it in `cache/shader-preparation/`. Run it again after each
+session: the game drops from the journal what a catalog already covers, so the installed catalog is always a source.
+Recipes whose shaders are not in the index stay in the journal.
