@@ -33,6 +33,24 @@ Bump `SHADER_PRECOMPILE_VERSION` when the translator's output changes or the pre
   One run each. Pipelines (library plus render state) still get created when first used; with the libraries cached that costs
   little.
 
+## With and without the catalog (waiting off, the normal setting)
+
+The same station walk, one run each, cold start except where the precompiled Metal cache is restored from a snapshot, no
+other changes (compile early on in all rows; the catalog has 580 recipes):
+
+| Configuration | Worst frame, load | Draws skipped (pipeline still compiling) | Compile time | Startup wait |
+| --- | ---: | ---: | ---: | ---: |
+| Nothing | 5135 ms | 826 | 32.1 s | 0 |
+| Precompile only | 2164 ms | 369 | 2.1 s | 0 |
+| Precompile + catalog (early) | 2134 ms | 45 | 2.1 s | 0 |
+| Precompile + catalog + preparation at start | 478 ms | 2 | 0.4 s | 1.3 s |
+| Catalog + preparation, no precompile | 474 ms | 0 | 0.5 s | 9.0 s |
+
+The precompile removes most of the compile time and the long stalls; the pipelines (library plus render state) still get
+created when first used, so draws are skipped for a few frames until they are ready (369 without a catalog). The catalog
+prepares those pipelines: skipped draws fall to 2, and because the libraries are already cached the startup preparation
+takes 1.3 s instead of 9.0 s. They complement each other.
+
 ## What it does not do
 
 It does not know render state, vertex/fragment pairs or texture-type variants, so some variants still compile when first
