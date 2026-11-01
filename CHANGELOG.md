@@ -17,6 +17,15 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   skipped instead of drawn (`LARECOMP_IB_GUARD=0` draws them): on Vulkan these came before GPU stops and device losses. After the same fix in
   PokeZ-ARecomp by [Hexveil404](https://github.com/Hexveil404).
 
+- Playing another save from the in-game menu, or going back to the start screen, no longer aborts the game: the reboot
+  freed a CPU state that belonged to a thread.
+- Pipeline archive (Metal): a new archive is built after each save, and the archive stays off after a save that crashed
+  inside Metal (issue #101). The first save of a session was always fine; the next one crashed on some Macs.
+
+### Menu
+- Moving the cursor onto a tab with the keyboard or a pad opens it, like L / R and Q / E already did. The mouse still
+  needs a click.
+
 ### Settings
 - **Resolution mode** (Fixed / Dynamic) is its own choice, above Internal resolution. Dynamic goes **up to 1080p**,
   **up to 1620p** or **up to match display** (was "Dynamic" and "Dynamic 1.5x" among the fixed sizes; up to 1080p is new,
