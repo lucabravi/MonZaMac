@@ -658,6 +658,74 @@ static void merge_name_fonts(ImGuiIO &io, float size) {
 bool saves_new_game_draw(float scale, ImFont *body, ImFont *small_);
 static float g_menu_gap = 0.35f;  // space under each item, in line heights
 
+// Informational access to the same ownership rules used by game-file setup.
+static bool g_legal_test;  // LARECOMP_LAUNCHER_SHOT=<frame>:legal
+static void legal_notice(float s) {
+    ImVec2 ds = ImGui::GetIO().DisplaySize, saved = ImGui::GetCursorScreenPos();
+    ImFont *font = g_font_small;
+    float fs = 18 * s, h = 40 * s;
+    ImVec2 text = font->CalcTextSizeA(fs, FLT_MAX, 0, "Legal notice");
+    float w = text.x + 56 * s;
+    ImVec2 p(ds.x - w - 18 * s, 16 * s), q(p.x + w, p.y + h);
+    ImGui::SetCursorScreenPos(p);
+    bool clicked = ImGui::InvisibleButton("Legal notice", ImVec2(w, h), ImGuiButtonFlags_EnableNav);
+    bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p, q, hot ? IM_COL32(25, 49, 78, 245) : IM_COL32(8, 18, 35, 225), 9 * s);
+    dl->AddRect(p, q, hot ? IM_COL32(72, 214, 255, 230) : IM_COL32(76, 100, 137, 180), 9 * s);
+    ImVec2 c(p.x + 20 * s, p.y + h * 0.5f);
+    dl->AddTriangleFilled(ImVec2(c.x, c.y - 9 * s), ImVec2(c.x + 10 * s, c.y + 9 * s),
+                          ImVec2(c.x - 10 * s, c.y + 9 * s), IM_COL32(255, 195, 85, 255));
+    dl->AddLine(ImVec2(c.x, c.y - 3.8f * s), ImVec2(c.x, c.y + 2.5f * s), IM_COL32(17, 25, 40, 255), 2 * s);
+    dl->AddCircleFilled(ImVec2(c.x, c.y + 5.5f * s), 1.1f * s, IM_COL32(17, 25, 40, 255));
+    dl->AddText(font, fs, ImVec2(p.x + 39 * s, p.y + (h - text.y) * 0.5f), IM_COL32(238, 244, 255, 255), "Legal notice");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Ownership, non-affiliation and responsible use");
+    ImGui::SetCursorScreenPos(saved);
+    if (clicked || g_legal_test) { ImGui::OpenPopup("##legal_notice"); g_legal_test = false; }
+
+    ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(fminf(ds.x * 0.92f, 830 * s), fminf(ds.y * 0.9f, 470 * s)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(28 * s, 24 * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 16 * s);
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.04f, 0.07f, 0.14f, 1));
+    bool open = ImGui::BeginPopupModal("##legal_notice", NULL, ImGuiWindowFlags_NoTitleBar |
+                                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+    if (!open) return;
+    ImGui::PushFont(g_font_small);
+    ImGui::SetWindowFontScale(0.82f);
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), "Legal notice & responsible use");
+    ImGui::Dummy(ImVec2(0, 12 * s));
+    ImGui::BeginChild("##legal_text", ImVec2(0, -68 * s), false);
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextUnformatted("Independent and unofficial");
+    ImGui::TextWrapped("Neither MonZaMac nor this application is affiliated with, endorsed by, sponsored by or approved by "
+                       "Nintendo, GAME FREAK, Creatures Inc. or The Pokémon Company.");
+    ImGui::Dummy(ImVec2(0, 12 * s));
+    ImGui::TextUnformatted("Your game, your responsibility");
+    ImGui::TextWrapped("By using MonZaMac, you confirm that you own an original copy of Pokémon Legends: Z-A and are entitled "
+                       "under applicable law to use the game files, updates, DLC and keys you provide. You are responsible "
+                       "for obtaining and using those files lawfully.");
+    ImGui::Dummy(ImVec2(0, 12 * s));
+    ImGui::TextWrapped("MonZaMac does not provide game files or keys. Ownership alone does not authorize downloading someone "
+                       "else's dump or redistributing the game. Do not distribute game dumps, keys, extracted assets or "
+                       "builds containing game content.");
+    ImGui::Dummy(ImVec2(0, 12 * s));
+    ImGui::TextUnformatted("Rights and trademarks");
+    ImGui::TextWrapped("Pokémon and related names, characters and trademarks belong to their respective owners. "
+                       "The project's open-source license covers its software, not the game or its content. "
+                       "This notice does not grant additional rights or replace applicable law.");
+    ImGui::PopTextWrapPos();
+    ImGui::EndChild();
+    ImGui::Dummy(ImVec2(0, 10 * s));
+    ImGui::SetCursorPosX((ImGui::GetWindowWidth() - 160 * s) * 0.5f);
+    if (ImGui::Button("Close", ImVec2(160 * s, 42 * s)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) ImGui::CloseCurrentPopup();
+    ImGui::PopFont();
+    ImGui::EndPopup();
+}
+
 // The first PLAY ever (settings.menu_tip_seen): a note on opening the MonZaMac menu in game (it isn't obvious),
 // OK starts the game. Returns true once OK is pressed.
 static bool g_tip_test;  // (LARECOMP_LAUNCHER_SHOT=<frame>:tip)
@@ -1077,6 +1145,7 @@ extern "C" void launcher_run(const char *root) {
         if (pg && !strncmp(pg + 1, "fail", 4)) page = SETUP, set_failure(atoi(pg + 5));  // (the failure messages)
         if (pg && !strncmp(pg + 1, "settings", 8) && pg[9] == ':') g_tab_request_ext = atoi(pg + 10);  // settings:<tab>
         if (pg && !strcmp(pg + 1, "delete")) page = SETUP, g_confirm_delete = true;
+        if (pg && !strcmp(pg + 1, "legal")) page = MAIN, g_legal_test = true;
         if (pg && !strcmp(pg + 1, "tip")) g_settings.menu_tip_seen = false, g_tip_test = true;
         if (pg && !strcmp(pg + 1, "aspect")) g_settings.aspect_asked = g_settings.menu_tip_seen = false, g_tip_test = true;
     }
@@ -1274,6 +1343,7 @@ extern "C" void launcher_run(const char *root) {
                     else ImGui::OpenPopup("##menutip");
                 }
                 if (menu_tip(s)) play = true;
+                legal_notice(s);
             } else if (page == SAVES) {
                 ImGui::PushFont(g_font_menu);
                 int pick = saves_screen_draw(ds.y / 1080.0f, g_font_menu, g_font_small);
