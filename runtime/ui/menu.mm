@@ -4,12 +4,15 @@
 // render thread inside backend_present, after the game image, into the same drawable.
 #ifdef __APPLE__
 #import <Metal/Metal.h>
+#import <AppKit/AppKit.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #endif
 #include <SDL3/SDL.h>
 #include <math.h>
 #include <pthread.h>
 #include <atomic>
 #include <vector>
+#include <string>
 
 #include "imgui.h"
 #include "option_rows.h"
@@ -41,6 +44,37 @@ static std::atomic<bool> g_open{false};
 static std::atomic<bool> g_stats{false};  // F3: fps and the render resolution on screen, for this run (not saved)
 static std::atomic<bool> g_text_busy{false};  // a text field / the on-screen keyboard has the keys (render thread: ui_text_busy)
 static std::atomic<bool> g_want_fullscreen_apply{false};
+
+#ifdef __APPLE__
+extern "C" unsigned renderer_recipe_count(void);
+extern "C" bool renderer_export_recipes(const char *, char *, size_t);
+static std::atomic<bool> g_recipe_export_request{false}, g_recipe_export_busy{false};
+static pthread_mutex_t recipe_message_lock = PTHREAD_MUTEX_INITIALIZER;
+static char recipe_export_message[320];
+static void recipe_export_dialog(void) {  // main thread; the game never uploads this file
+    if (g_recipe_export_busy.exchange(true)) return;
+    input_reset();
+    NSSavePanel *panel = [NSSavePanel savePanel];
+    panel.title = @"Export shader recipes";
+    panel.message = @"Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.";
+    panel.prompt = @"Export";
+    panel.allowedContentTypes = @[ UTTypeJSON ];
+    panel.nameFieldStringValue = @"MonZaMac-shader-recipes.json";
+    [panel beginWithCompletionHandler:^(NSModalResponse response) {
+        if (response != NSModalResponseOK || !panel.URL) { g_recipe_export_busy = false; return; }
+        NSURL *destination = panel.URL;
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ @autoreleasepool {
+            char error[256] = {0};
+            bool ok = renderer_export_recipes(destination.fileSystemRepresentation, error, sizeof error);
+            pthread_mutex_lock(&recipe_message_lock);
+            if (ok) snprintf(recipe_export_message, sizeof recipe_export_message, "Exported %s. Nothing was uploaded.", destination.lastPathComponent.UTF8String);
+            else snprintf(recipe_export_message, sizeof recipe_export_message, "%s", error);
+            pthread_mutex_unlock(&recipe_message_lock);
+            g_recipe_export_busy = false;
+        }});
+    }];
+}
+#endif
 
 struct QEvent {
     enum { KEY, ANALOG, MOUSE_POS, MOUSE_BUTTON, WHEEL, TEXT } kind;
@@ -270,6 +304,9 @@ bool menu_handle_event(const SDL_Event *e) {
 
 void menu_apply_window_requests(void *win) {
     SDL_Window *w = (SDL_Window *)win;
+#ifdef __APPLE__
+    if (g_recipe_export_request.exchange(false)) recipe_export_dialog();
+#endif
     g_pixel_density = SDL_GetWindowPixelDensity(w);
     static bool text_input;
     bool want_text = capturing();
@@ -589,6 +626,21 @@ static void tab_display(void) {
                "Before starting, build the graphics pipelines in an installed shader catalog from your own game files. "
                "Reduces first-encounter stutter for covered effects. Takes extra time at startup; unseen variants still compile normally. "
                "Requires a compatible catalog. Changes apply on the next game start.");
+#ifdef __APPLE__
+    opt_toggle("Collect new shader recipes", &g_settings.collect_shader_recipes, true,
+               "Locally records only new graphics pipeline recipes missing from the prepared catalog. Metadata is deduplicated "
+               "and saved in the background; game code, keys and saves are not included. Nothing is uploaded. "
+               "New shader programs are collected from the next game start.");
+    unsigned recipes = renderer_recipe_count();
+    char value[48]; snprintf(value, sizeof value, g_recipe_export_busy.load() ? "Exporting..." : "%u recipes", recipes);
+    std::string description = "Save a metadata-only JSON contribution for manual review and sharing. "
+                              "Export does not submit it anywhere. Recipes with unknown source locations still need investigation.";
+    pthread_mutex_lock(&recipe_message_lock);
+    if (*recipe_export_message) { description += "\n\n"; description += recipe_export_message; }
+    pthread_mutex_unlock(&recipe_message_lock);
+    if (!recipes || g_recipe_export_busy.load()) opt_disable_next();
+    if (opt_action("Export shader recipes", value, description.c_str())) g_recipe_export_request = true;
+#endif
     opt_toggle("Wait for shaders", &g_settings.wait_shaders, false,
                "A shader or pipeline the game needs for the first time is compiled on the spot, and the game waits: a short "
                "stutter, but nothing is missing from the picture. Off: it compiles in the background and the objects that "

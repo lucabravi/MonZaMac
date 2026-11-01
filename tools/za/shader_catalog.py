@@ -14,6 +14,7 @@ import sys
 import tempfile
 
 MAX_FILE = 16 << 20
+MAX_RECIPE_FILE = 100 << 20  # local journal and contribution files: only the size limits them
 MAX_BLOCK = 128 << 20
 HASH = re.compile(r'[0-9a-f]{64}\Z')
 
@@ -84,7 +85,7 @@ def sources(value):
     return {k:sha(v) for k,v in value.items()}
 
 def _export_v1(recipes,index,allow_partial=False):
-    if not isinstance(recipes,list) or not 1<=len(recipes)<=1024: raise ValueError('expected 1..1024 recipes')
+    if not isinstance(recipes,list) or not recipes: raise ValueError('expected recipes')
     if index.get('version')!=1 or not isinstance(index.get('shaders'),dict): raise ValueError('invalid input index')
     module_sources=sources(index.get('sources',{}))
     inputs={};out={};omitted=0
@@ -107,7 +108,7 @@ def _export_v1(recipes,index,allow_partial=False):
 def _validate_v1(c):
     fields(c,('version','sources','inputs','recipes','omitted_recipes'))
     if type(c['version']) is not int or c['version']!=1: raise ValueError('unsupported catalog version')
-    number(c['omitted_recipes'],1024)
+    number(c['omitted_recipes'],1<<31)
     if not isinstance(c['inputs'],dict) or len(c['inputs'])>2048: raise ValueError('too many input references')
     for h,ref in c['inputs'].items():
         sha(h)
@@ -118,30 +119,38 @@ def _validate_v1(c):
 
 def export_catalog(recipes,index,allow_partial=False):
     c=_export_v1(recipes,index,allow_partial)
+    profiles,rows=pack_recipe_profiles(c['recipes'])
+    return dict(version=2,sources=c['sources'],inputs=c['inputs'],profiles=profiles,recipes=rows,omitted_recipes=c['omitted_recipes'])
+
+def pack_recipe_profiles(recipes):
     selections={name:{} for name in ('vertex_keys','fragment_keys','descriptors')}
-    for r in c['recipes']:
+    for r in recipes:
         for name,value in (('vertex_keys',r['program']['vkey']),('fragment_keys',r['program']['fkey']),('descriptors',r['pipeline'])):
             selections[name][encoded(value)]=value
     profiles={name:[values[k] for k in sorted(values)] for name,values in selections.items()}
     ids={name:{encoded(v):i for i,v in enumerate(table)} for name,table in profiles.items()}
     rows=[]
-    for r in c['recipes']:
+    for r in recipes:
         p=r['program']
         rows.append(dict(vs=p['vs'],fs=p['fs'],vertex_key=ids['vertex_keys'][encoded(p['vkey'])],
                          fragment_key=ids['fragment_keys'][encoded(p['fkey'])],descriptor=ids['descriptors'][encoded(r['pipeline'])]))
-    return dict(version=2,sources=c['sources'],inputs=c['inputs'],profiles=profiles,recipes=rows,omitted_recipes=c['omitted_recipes'])
+    return profiles,rows
 
 def _expand_v2(c):
     fields(c,('version','sources','inputs','profiles','recipes','omitted_recipes'))
-    profiles=c['profiles'];fields(profiles,('vertex_keys','fragment_keys','descriptors'))
+    rows=expand_recipe_profiles(c['profiles'],c['recipes'],None)
+    return dict(version=1,sources=c['sources'],inputs=c['inputs'],recipes=rows,omitted_recipes=c['omitted_recipes'])
+
+def expand_recipe_profiles(profiles,recipes,limit):
+    fields(profiles,('vertex_keys','fragment_keys','descriptors'))
     for name,table in profiles.items():
-        if not isinstance(table,list) or not 1<=len(table)<=1024:raise ValueError('invalid profile table size')
+        if not isinstance(table,list) or not table or (limit is not None and len(table)>limit):raise ValueError('invalid profile table size')
         normalized=[descriptor(v) if name=='descriptors' else key(v) for v in table]
         if encoded(normalized)!=encoded(table) or len({encoded(v) for v in table})!=len(table):
             raise ValueError('profiles must be canonical and distinct')
-    if not isinstance(c['recipes'],list) or not 1<=len(c['recipes'])<=1024:raise ValueError('invalid recipe count')
+    if not isinstance(recipes,list) or not recipes or (limit is not None and len(recipes)>limit):raise ValueError('invalid recipe count')
     refs={name:set() for name in profiles};rows=[]
-    for r in c['recipes']:
+    for r in recipes:
         fields(r,('vs','fs','vertex_key','fragment_key','descriptor'))
         values={}
         for field,name in (('vertex_key','vertex_keys'),('fragment_key','fragment_keys'),('descriptor','descriptors')):
@@ -150,7 +159,7 @@ def _expand_v2(c):
             refs[name].add(i);values[field]=profiles[name][i]
         rows.append(dict(version=1,program=dict(vs=r['vs'],fs=r['fs'],vkey=values['vertex_key'],fkey=values['fragment_key']),pipeline=values['descriptor']))
     if any(refs[name]!=set(range(len(table))) for name,table in profiles.items()):raise ValueError('unused profile')
-    return dict(version=1,sources=c['sources'],inputs=c['inputs'],recipes=rows,omitted_recipes=c['omitted_recipes'])
+    return rows
 
 def validate_catalog(c):
     if not isinstance(c,dict) or type(c.get('version')) is not int:raise ValueError('invalid catalog version')
@@ -162,6 +171,41 @@ def validate_catalog(c):
 def expand_catalog(c):
     validate_catalog(c)
     return _expand_v2(c) if c['version']==2 else c
+
+def contribution_document(rows):
+    if not isinstance(rows,list) or not rows:raise ValueError('expected contribution recipes')
+    unique={encoded(recipe(r)):recipe(r) for r in rows}
+    profiles,recipes=pack_recipe_profiles([unique[k] for k in sorted(unique)])
+    return dict(type='shader-recipes',version=1,profiles=profiles,recipes=recipes)
+
+def contribution_recipes(doc):
+    fields(doc,('type','version','profiles','recipes'))
+    if doc['type']!='shader-recipes' or type(doc['version']) is not int or doc['version']!=1:raise ValueError('unsupported contribution')
+    return [recipe(r) for r in expand_recipe_profiles(doc['profiles'],doc['recipes'],None)]
+
+def load_recipes(path,allow_empty=False):
+    with Path(path).open('rb') as f:data=f.read(MAX_RECIPE_FILE+1)
+    if len(data)>MAX_RECIPE_FILE:raise ValueError('recipe file too large')
+    text=data.decode('utf-8')
+    try:doc=json.loads(text)
+    except json.JSONDecodeError:doc=None
+    if isinstance(doc,dict) and doc.get('type')=='shader-recipes':return contribution_recipes(doc)
+    rows=[recipe(json.loads(line)) for line in text.splitlines() if line.strip()]
+    if not rows and not allow_empty:raise ValueError('expected recipes')
+    return rows
+
+def merge_local_recipes(catalog,local):
+    base=expand_catalog(catalog);rows={encoded(recipe(r)):recipe(r) for r in base['recipes']}
+    missing=added=0
+    for raw in local:
+        r=recipe(raw);p=r['program'];identity=encoded(r)
+        if identity in rows:continue
+        if any(h and h not in base['inputs'] for h in (p['vs'],p['fs'])):missing+=1;continue
+        rows[identity]=r;added+=1
+    c=export_catalog(list(rows.values()),dict(version=1,sources=base['sources'],shaders=base['inputs']))
+    c['omitted_recipes']=catalog['omitted_recipes']
+    print(f'[shader-inputs] local recipes: {added} added, {missing} awaiting source references',file=sys.stderr,flush=True)
+    return c
 
 def read_json(path):
     with Path(path).open('rb') as f: data=f.read(MAX_FILE+1)
@@ -264,15 +308,24 @@ def main(argv=None):
     check=sub.add_parser('check');check.add_argument('catalog',type=Path)
     check.add_argument('--for-distribution',action='store_true',help='require minimized schema v2; structural check only, not legal clearance')
     pr=sub.add_parser('prepare');pr.add_argument('game',type=Path);pr.add_argument('catalog',type=Path);pr.add_argument('output',type=Path)
-    pr.add_argument('--decoder',type=Path)
+    pr.add_argument('--decoder',type=Path);pr.add_argument('--recipes',type=Path)
+    co=sub.add_parser('contribute');co.add_argument('recipes',type=Path);co.add_argument('output',type=Path)
     args=ap.parse_args(argv)
     try:
         if args.command=='export':
-            if args.recipes.stat().st_size>MAX_FILE:raise ValueError('recipe file too large')
-            rows=[json.loads(line) for line in args.recipes.read_text().splitlines() if line.strip()]
+            rows=load_recipes(args.recipes)
             c=export_catalog(rows,read_json(args.index),args.allow_partial);validate_catalog(c)
             with args.output.open('xb') as f:f.write(encoded(c))
             print(f'Exported {len(c["recipes"])} recipes, {len(c["inputs"])} references; {c["omitted_recipes"]} omitted. Metadata only; keep local pending distribution review.')
+        elif args.command=='contribute':
+            document=contribution_document(load_recipes(args.recipes));contribution_recipes(document)
+            if len(encoded(document))>MAX_RECIPE_FILE:raise ValueError('contribution exceeds metadata size limit')
+            if args.output.is_symlink():raise ValueError('export destination must not be a symlink')
+            with tempfile.NamedTemporaryFile(prefix='.shader-recipes-',dir=args.output.parent,delete=False) as f:
+                temp=Path(f.name);f.write(encoded(document))
+            try:temp.replace(args.output)
+            finally:temp.unlink(missing_ok=True)
+            print(f'Exported {len(document["recipes"])} metadata recipes. No uploads performed.')
         elif args.command=='check':
             c=validate_catalog(read_json(args.catalog))
             if args.for_distribution and c['version']!=2:raise ValueError('distribution checks require minimized schema v2')
@@ -283,10 +336,14 @@ def main(argv=None):
             if decoder is None:
                 candidate=Path(sys.executable).parent/'monzamac-shader-decode'
                 if candidate.is_file():decoder=candidate
-            dest=prepare(args.game,read_json(args.catalog),args.output,ExternalDecoder(decoder) if decoder else None)
+            catalog=read_json(args.catalog)
+            if args.recipes:
+                try:catalog=merge_local_recipes(catalog,load_recipes(args.recipes,allow_empty=True))
+                except (ValueError,OSError,KeyError,TypeError,RecursionError):print('[shader-inputs] invalid local recipes ignored; using installed catalog',file=sys.stderr)
+            dest=prepare(args.game,catalog,args.output,ExternalDecoder(decoder) if decoder else None)
             print(json.dumps(dict(generation=str(dest),recipes=str(dest/'recipes.jsonl'),inputs=str(dest/'inputs'))))
         return 0
-    except (ValueError,OSError,KeyError,TypeError) as e:
+    except (ValueError,OSError,KeyError,TypeError,RecursionError) as e:
         print(f'Shader preparation failed: {e}',file=sys.stderr);return 1
 
 if __name__=='__main__':

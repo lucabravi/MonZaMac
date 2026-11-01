@@ -39,7 +39,7 @@ drops prepared objects and allows preparation on the next boot. Existing
 pipeline-archive save/crash safeguards remain in force; an unavailable archive
 does not prevent retaining prepared pipeline objects in memory.
 
-Limits: 16 MiB each for manifest/index files, 1,024 recipe lines prepared,
+Limits: 16 MiB each for manifest/index files, no recipe count limit,
 16 MiB per shader input and 128 MiB retained input bytes during preparation.
 Malformed records or hash/span mismatches are skipped. The private files are
 not a supported interchange format; schema version 1 is for this prototype.

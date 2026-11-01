@@ -147,28 +147,13 @@ static NSString *prep_pipeline_id(Prog *pr, NSDictionary *descriptor) {
 static bool prep_enabled(void) {
     if (getenv("LARECOMP_FS_OVERRIDE") || getenv("LARECOMP_FS_OVERRIDE_HASH") ||
         getenv("LARECOMP_DBG_FS") || getenv("LARECOMP_DBG_VS")) return false;
-    return g_prep_active || g_prep_programs.count || getenv("LARECOMP_SHADER_RECORD") || getenv("LARECOMP_SHADER_PREP") || g_settings.prepare_shaders;
+    return g_prep_active || g_prep_programs.count || getenv("LARECOMP_SHADER_RECORD") || getenv("LARECOMP_SHADER_PREP") || g_settings.prepare_shaders || g_settings.collect_shader_recipes;
 }
 
 static id<MTLRenderPipelineState> prep_pipeline(Prog *pr, MTLRenderPipelineDescriptor *pd) {
     if (!pr->prep_record || pr->ov_active || g_prep_active || !prep_enabled()) return nil;
     NSDictionary *descriptor = prep_descriptor_dict(pd);
     NSString *key = prep_pipeline_id(pr, descriptor);
-    const char *path = getenv("LARECOMP_SHADER_RECORD");
-    if (path && *path) {
-        NSString *dedup = [NSString stringWithFormat:@"%s/%@", path, key];
-        if (!g_prep_recorded) g_prep_recorded = [NSMutableSet new];
-        if (![g_prep_recorded containsObject:dedup] && g_prep_recorded.count < 4096) {
-            NSDictionary *record = @{@"version": @1, @"program": pr->prep_record, @"pipeline": descriptor};
-            NSData *bytes = prep_json(record);
-            FILE *f = fopen(path, "a");
-            if (f) {
-                bool ok = fwrite(bytes.bytes, 1, bytes.length, f) == bytes.length && fputc('\n', f) != EOF;
-                if (fclose(f) != 0) ok = false;
-                if (ok) [g_prep_recorded addObject:dedup];
-            }
-        }
-    }
     id<MTLRenderPipelineState> pipeline = g_prep_pipelines[key];
     if (pipeline) g_prep_pipeline_hits++;
     return pipeline;
@@ -193,6 +178,13 @@ static NSData *prep_load_stage(NSString *hash, NSDictionary *index, NSString *di
     *out = (NvnShaderStage){.stage = stage, .code_addr = (uint64_t)(uintptr_t)data.bytes, .const_offset = co, .const_size = cs};
     return data;
 }
+
+static bool prep_find_helper(char *helper, char *script) {
+    return rt_resource("lasgen/lasgen", NULL, helper, 1100) ||
+        (rt_resource(NULL, "tools/" PLAT_VENV_PYTHON, helper, 1100) &&
+         rt_resource(NULL, "tools/lasgen_main.py", script, 1100));
+}
+#include "shader_recipe_record.inc"
 
 static void prep_report(void) {
     if (g_prep_program_hits || g_prep_pipeline_hits)
@@ -283,7 +275,7 @@ static bool prep_run(NSString *path, NSString *dir) {
     NSSet *old_keys = [NSSet setWithArray:cache.allKeys];
     NSArray<NSString *> *lines = [text componentsSeparatedByString:@"\n"];
     unsigned total = 0;
-    for (NSString *line in lines) if (line.length && total < 1024) total++;
+    for (NSString *line in lines) if (line.length) total++;
     backend_shader_prepare_progress(0, total);
     g_prep_active = g_prep_translate_only = true;
     for (NSString *line in lines) { @autoreleasepool {
@@ -351,9 +343,7 @@ static bool prep_install(NSString **manifest, NSString **inputs) {
         snprintf(catalog, sizeof catalog, "cache/shader-preparation/catalog.json");
         if (access(catalog, R_OK)) { LOG("[shader-prep] no installed catalog; compiling normally\n"); return false; }
     }
-    if (!rt_resource("lasgen/lasgen", NULL, helper, sizeof helper) &&
-        !(rt_resource(NULL, "tools/" PLAT_VENV_PYTHON, helper, sizeof helper) &&
-          rt_resource(NULL, "tools/lasgen_main.py", script, sizeof script))) {
+    if (!prep_find_helper(helper, script)) {
         LOG("[shader-prep] preparation helper unavailable; compiling normally\n"); return false;
     }
     rt_resource("lasgen/monzamac-shader-decode", "build/shader-decode/release/monzamac-shader-decode", decoder, sizeof decoder);
@@ -366,6 +356,7 @@ static bool prep_install(NSString **manifest, NSString **inputs) {
     argv[n++] = "shader-catalog"; argv[n++] = "prepare";
     argv[n++] = game.UTF8String; argv[n++] = catalog; argv[n++] = "cache/shader-preparation";
     if (*decoder) { argv[n++] = "--decoder"; argv[n++] = decoder; }
+    if (!access("cache/shader-recipes/recipes.jsonl", R_OK)) { argv[n++] = "--recipes"; argv[n++] = "cache/shader-recipes/recipes.jsonl"; }
     argv[n] = NULL;
     backend_shader_prepare_inputs(0, 1);
     PlatProc child = plat_spawn(argv, "cache/shader-preparation/prepare.log", false);
@@ -408,5 +399,7 @@ static void prep_once(void) {
     if (manifest && inputs && !prep_run(manifest, inputs)) LOG("[shader-prep] no usable preparation; compiling normally\n");
 }
 static void prep_reset(void) {
+    renderer_recipe_flush();
+    g_prep_recorded = nil;
     g_prep_programs = nil; g_prep_pipelines = nil; g_prep_started = false;
 }

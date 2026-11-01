@@ -2,6 +2,7 @@
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 #ifdef __OBJC__
 #import <Metal/Metal.h>
 void renderer_init(id<MTLDevice> dev);
@@ -47,3 +48,8 @@ void renderer_mark_gpu_owned(NvnTexture *t);
 void input_handle_event(const SDL_Event *e);
 void input_mouse_update(SDL_Window *w);  // runtime/hle/input.c
 bool input_user_blocked(const SDL_Event *e);
+
+// Local metadata collection; export runs off the render/UI threads and sends nothing.
+unsigned renderer_recipe_count(void);
+void renderer_recipe_flush(void);
+bool renderer_export_recipes(const char *destination, char *error, size_t cap);
