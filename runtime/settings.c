@@ -17,6 +17,7 @@ static const char *settings_file(void) {
 
 Settings g_settings = {
     .collect_shader_recipes = true,
+    .early_shaders = false,
     .aspect = ASPECT_ORIGINAL,
     // the defaults of a new player (an existing larecomp.ini keeps its own): fullscreen, dynamic resolution, 60 fps, SMAA,
     // authentic 16:9, sharper textures (anisotropic filtering)
@@ -108,6 +109,7 @@ void settings_load(void) {
         else if (!strcmp(key, "fps60_steady")) {}  // retired: fps60 alone selects the dynamic 60 fps mode
         else if (!strcmp(key, "game_mode")) g_settings.handheld = !strcmp(val, "handheld");
         else if (!strcmp(key, "collect_shader_recipes")) g_settings.collect_shader_recipes = atoi(val) != 0;
+        else if (!strcmp(key, "early_shaders")) g_settings.early_shaders = atoi(val) != 0;
         else if (!strcmp(key, "prepare_shaders")) g_settings.prepare_shaders = atoi(val) != 0;
         else if (!strcmp(key, "wait_for_shaders")) g_settings.wait_shaders = atoi(val) != 0;
         else if (!strcmp(key, "gpu_overlap")) g_settings.gpu_overlap = atoi(val) != 0;
@@ -187,6 +189,7 @@ void settings_save(void) {
     fprintf(f, "fps60 = %d\n", g_settings.fps60);
     fprintf(f, "game_mode = %s\n", g_settings.handheld ? "handheld" : "docked");
     fprintf(f, "collect_shader_recipes = %d\n", g_settings.collect_shader_recipes);
+    fprintf(f, "early_shaders = %d\n", g_settings.early_shaders);
     fprintf(f, "prepare_shaders = %d\n", g_settings.prepare_shaders);
     fprintf(f, "wait_for_shaders = %d\n", g_settings.wait_shaders);
     fprintf(f, "gpu_overlap = %d\n", g_settings.gpu_overlap);

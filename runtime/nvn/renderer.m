@@ -5,6 +5,7 @@
 #include <unistd.h>
 #import <Metal/Metal.h>
 #include <mach/mach_time.h>
+#include <mach/mach_vm.h>
 #include <stdlib.h>
 #include <string.h>
 #include <float.h>
@@ -208,7 +209,14 @@ static void pass_timing_report(void) {
     }
 }
 
+static bool early_enabled(void);
+static void early_frame(void);
+static void early_publish(void);
+static void early_reset(void);
+static void early_live_hit(NSString *identity);
+
 void renderer_debug_frame_boundary(uint64_t frame) {
+    early_frame();
     shader_trace_frame(frame);
     if (g_pt_frames) {  // the frame's passes are done: wait for them, read their timestamps
         renderer_flush_reason("debug-readback");
@@ -1418,6 +1426,7 @@ static int cbuf_base = 3, tex_base = 8;
     uint64_t vs_addr, fs_addr;  // guest shader code addresses, for failure logs
     _Atomic bool failed;  // published by async compilation, read by get_program and draw waits
     _Atomic bool ready;  // functions compiled (async compile: draws are skipped until then)
+    bool early_pending; // renderer-owned: native early results not yet published
     bool ov_active;      // live shader override applied (build/dbgcmd): ov_path is the source to reload
     char ov_path[256];
     NSString *prep_id;
@@ -2066,7 +2075,8 @@ static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
     if (pr) {
         cache[key] = pr; prog_tab[slot].key = h; prog_tab[slot].value = (__bridge void *)pr;
         g_prep_program_hits++;
-        pr->vs_addr = p->stages[0].code_addr; pr->fs_addr = p->stages[1].code_addr;
+        early_live_hit(identity);
+        if (!pr->early_pending) { pr->vs_addr = p->stages[0].code_addr; pr->fs_addr = p->stages[1].code_addr; }
         return pr;
     }
     pr = [Prog new];
@@ -2186,6 +2196,8 @@ static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
     dispatch_async(q, ^{ compile_program(pr); });
     return pr;
 }
+
+#include "shader_early.inc"
 
 static id<MTLSamplerState> sampler_for(NvnSamplerDesc *d) {
     if (d->backend) return (__bridge id<MTLSamplerState>)d->backend;
@@ -3348,7 +3360,7 @@ static void debug_live_controls(void) {
                 int hit = 0;
                 for (id v in progs) if ([v isKindOfClass:[Prog class]]) {
                     Prog *pr = v;
-                    if (pr->fs_addr == addr && pr->ready) hit += live_override_fs(pr, path);
+                    if (pr->fs_addr == addr && pr->ready && !pr->early_pending) hit += live_override_fs(pr, path);
                 }
                 LOG("[dbgcmd] fs %llx <- %s: %d program(s)\n", addr, path, hit);
             }
@@ -3356,7 +3368,7 @@ static void debug_live_controls(void) {
             int hit = 0;
             for (id v in progs) if ([v isKindOfClass:[Prog class]]) {
                 Prog *pr = v;
-                if (pr->ov_active && pr->ready) hit += live_override_fs(pr, pr->ov_path);
+                if (pr->ov_active && pr->ready && !pr->early_pending) hit += live_override_fs(pr, pr->ov_path);
             }
             LOG("[dbgcmd] reload: %d program(s)\n", hit);
         } else if (!strcmp(cmd, "list")) {
@@ -3468,13 +3480,16 @@ static bool dbg_budget(int *n, uint64_t *frame, int limit) {
 // window image - whose program is still compiling is waited for (a few ms, once) rather than skipped: skipping one left
 // the whole frame black. Scene draws are still skipped until ready. (As ZA Recomp's Vulkan wait_built, 302bd07.)
 static bool prog_ready_or_wait(Prog *pr, const CmdRec *r) {
-    if (!pr || pr->ready) return pr != nil;
-    if (r->x[2] > 6) return false;
+    if (!pr || (pr->ready && !pr->early_pending)) return pr != nil;
+    if (r->x[2] > 6 && !sync_shaders()) return false;
     double t0 = now_ms();
-    while (!pr->ready && !pr->failed && now_ms() - t0 < 2000) usleep(1000);
+    while ((!pr->ready || pr->early_pending) && !pr->failed && now_ms() - t0 < 2000) {
+        early_publish(); // only publishes completed objects; never starts translation
+        if (!pr->ready || pr->early_pending) usleep(1000);
+    }
     static int n;
     if (n++ < 20) LOG("[metal] full-screen draw waited %.1f ms for its program\n", now_ms() - t0);
-    return pr->ready;
+    return pr->ready && !pr->early_pending;
 }
 
 // (diagnostics) classify a dropped draw. get_program returns nil both for a program missing a stage and for one whose
@@ -4915,6 +4930,7 @@ static void exec_list(uint64_t handle, int depth) {
 // everything keyed by guest addresses or guest-owned objects - programs (by code address), pipelines (by program),
 // views, snapshots, bound state - so the next boot can't hit a stale entry. Metal's own shader cache stays warm.
 void renderer_reset(void) {
+    early_reset();
     renderer_flush_reason("reset");
     gpu_profile_reset();
     renderer_gpu_timing_reset();

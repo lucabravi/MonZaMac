@@ -44,6 +44,7 @@ typedef struct {
     bool xfb_barrier;    // on by default (Developer tab): the render pass stays open after GPU skinning (a buffer barrier instead of ending it; LARECOMP_XFB_END_BARRIER=0/1 overrides)
     bool gpu_overlap;    // on by default (Developer tab): the game's frame fence is waited one frame late, so its CPU work on frame N+1 overlaps the GPU's frame N (runtime/nvn/renderer.m)
     bool collect_shader_recipes; // local metadata only; voluntary export, no uploads
+    bool early_shaders; // compile learned variants when the game registers their inputs (default off)
     bool prepare_shaders; // optional catalog-based preparation before first graphics use
     bool wait_shaders;   // compile a new shader or pipeline when the game first needs it and wait for it (else its draws are skipped meanwhile)
     bool game_drs;       // Pokémon Z-A: the game's own dynamic resolution may react to the GPU time it is told (runtime/nvn/renderer.m)

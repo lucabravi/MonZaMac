@@ -154,7 +154,7 @@ static NSString *prep_compute_id(NSDictionary *record) {  // (the translation em
 static bool prep_enabled(void) {
     if (getenv("LARECOMP_FS_OVERRIDE") || getenv("LARECOMP_FS_OVERRIDE_HASH") ||
         getenv("LARECOMP_DBG_FS") || getenv("LARECOMP_DBG_VS")) return false;
-    return shader_trace_enabled() || g_prep_active || g_prep_programs.count || g_prep_cs.count || getenv("LARECOMP_SHADER_RECORD") || getenv("LARECOMP_SHADER_PREP") || g_settings.prepare_shaders || g_settings.collect_shader_recipes;
+    return early_enabled() || shader_trace_enabled() || g_prep_active || g_prep_programs.count || g_prep_cs.count || getenv("LARECOMP_SHADER_RECORD") || getenv("LARECOMP_SHADER_PREP") || g_settings.prepare_shaders || g_settings.collect_shader_recipes;
 }
 
 static id<MTLRenderPipelineState> prep_pipeline(Prog *pr, MTLRenderPipelineDescriptor *pd) {
