@@ -66,7 +66,7 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   shaders. **Update shader catalog** checks the project's official releases for a `shader-catalog.json` asset only when you
   press it, verifies its size, SHA-256 and schema, rebuilds the inputs from your own files and installs it atomically; the
   previous catalog stays if anything fails. Recipes the new catalog covers leave your pending list. The start screen shows
-  whether your catalog is current. No catalog is published yet.
+  whether your catalog is current. No catalog is published yet. Its text is the size of the Legal notice button's.
 - **Collect new shader recipes** (Shaders tab, on by default, can be turned off): the pipelines the game builds that no
   catalog covers are saved as hashes and numbers in `cache/shader-recipes/recipes.jsonl`, written off the render thread,
   with no limit on how many (100 MiB of file). **Export shader recipes** writes a metadata-only JSON you can share by hand
