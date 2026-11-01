@@ -689,23 +689,23 @@ static void shader_catalog_badge(float s) {
     ImVec2 ds = ImGui::GetIO().DisplaySize, saved = ImGui::GetCursorScreenPos();
     ImFont *font = g_font_small;
     float w = font->CalcTextSizeA(18 * s, FLT_MAX, 0, "Legal notice").x + 56 * s;
-    ImVec2 p(ds.x - w - 18 * s, 64 * s), q(p.x + w, p.y + (action ? 102 : 64) * s);
+    ImVec2 p(ds.x - w - 18 * s, 64 * s), q(p.x + w, p.y + (action ? 112 : 70) * s);
     ImDrawList *dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(p, q, IM_COL32(8, 18, 35, 225), 9 * s);
     dl->AddRect(p, q, IM_COL32(76, 100, 137, 180), 9 * s);
-    dl->AddText(font, 14 * s, ImVec2(p.x + 10 * s, p.y + 9 * s), IM_COL32(238, 244, 255, 255), "Shader catalog");
+    dl->AddText(font, 18 * s, ImVec2(p.x + 10 * s, p.y + 9 * s), IM_COL32(238, 244, 255, 255), "Shader catalog");
     ImU32 color = state == CATALOG_CURRENT ? IM_COL32(125, 229, 165, 255) :
                   state == CATALOG_AVAILABLE ? IM_COL32(255, 201, 100, 255) : IM_COL32(166, 185, 207, 255);
-    dl->AddText(font, 12 * s, ImVec2(p.x + 10 * s, p.y + 34 * s), color, status);
+    dl->AddText(font, 14 * s, ImVec2(p.x + 10 * s, p.y + 40 * s), color, status);
     if (action) {
-        ImVec2 a(p.x + 10 * s, p.y + 61 * s), b(q.x - 10 * s, p.y + 92 * s);
+        ImVec2 a(p.x + 10 * s, p.y + 66 * s), b(q.x - 10 * s, p.y + 102 * s);
         ImGui::SetCursorScreenPos(a);
         bool click = ImGui::InvisibleButton("##catalog-quick-action", ImVec2(b.x-a.x, b.y-a.y), ImGuiButtonFlags_EnableNav);
         bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
         dl->AddRectFilled(a, b, hot ? IM_COL32(32, 86, 121, 255) : IM_COL32(24, 52, 82, 255), 5 * s);
         const char *label = (state == CATALOG_AVAILABLE || state == CATALOG_UPDATE_ERROR) ? "Update now" : "Check now";
-        ImVec2 text = font->CalcTextSizeA(13 * s, FLT_MAX, 0, label);
-        dl->AddText(font, 13 * s, ImVec2((a.x+b.x-text.x)*0.5f, (a.y+b.y-text.y)*0.5f), IM_COL32(238, 244, 255, 255), label);
+        ImVec2 text = font->CalcTextSizeA(15 * s, FLT_MAX, 0, label);
+        dl->AddText(font, 15 * s, ImVec2((a.x+b.x-text.x)*0.5f, (a.y+b.y-text.y)*0.5f), IM_COL32(238, 244, 255, 255), label);
         if (click) { if (state == CATALOG_AVAILABLE || state == CATALOG_UPDATE_ERROR) menu_catalog_update(); else checked = menu_catalog_check(); }
         if (hot) ImGui::SetTooltip("Official shader recipe catalog. No game data is uploaded. Compilation runs at game start or when shaders are registered.");
     }
