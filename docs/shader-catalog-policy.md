@@ -8,6 +8,7 @@ not a copyright opinion or a guarantee against claims.
 | Artifact | Treatment |
 | --- | --- |
 | Schema-v2 catalog | Candidate for reviewed distribution: source hashes, fixed source paths, offsets/lengths, shader identifiers and shared numeric specialization/pipeline profiles only. |
+| Validated `shader-recipes` contribution JSON | Candidate for voluntary manual sharing: shared numeric profiles and shader hashes, no source locators or code. Validate/resolve against the maintainer’s private index before adding it to a catalog. |
 | Recorded recipes / schema-v1 catalogs | Local developer inputs; convert through the strict exporter before packaging. |
 | Reconstructed shader `.bin` inputs | Private, generated from the player's own files; never attach or bundle. |
 | Translated MSL, SPIR-V, metallibs, `pipelines.bin` | Private generated caches; never substitute these for a catalog. |
@@ -15,7 +16,7 @@ not a copyright opinion or a guarantee against claims.
 
 The source repository contains tools and synthetic fixtures. Generated catalogs
 remain under ignored `build/` until their exact contents and publication are
-explicitly reviewed/authorized. No automatic contribution upload is implemented.
+explicitly reviewed/authorized. Local discovery and voluntary export are implemented; no automatic contribution upload is implemented.
 
 ## Minimize and validate
 

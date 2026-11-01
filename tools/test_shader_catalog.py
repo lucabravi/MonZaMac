@@ -105,4 +105,44 @@ class Profiles(unittest.TestCase):
         installed=m.prepare(self.game,c,self.root/'legacy',None)
         self.assertTrue((installed/'recipes.jsonl').is_file())
 
+class Contributions(unittest.TestCase):
+    setUp = Catalog.setUp
+    def test_metadata_contribution_deduplicates_and_rejects_unknown_fields(self):
+        r=recipe(self.digest);doc=m.contribution_document([r,r])
+        self.assertEqual(len(m.contribution_recipes(doc)),1)
+        self.assertNotIn('inputs',doc)
+        doc['shader_code']='unwanted payload'
+        with self.assertRaises(ValueError):m.contribution_recipes(doc)
+    def test_invalid_local_recipe_file_does_not_disable_base_preparation(self):
+        catalog=self.root/'catalog.json';catalog.write_bytes(m.encoded(m.export_catalog([recipe(self.digest)],self.index,False)))
+        bad=self.root/'invalid-local.jsonl';bad.write_bytes(b'\xff')
+        self.assertEqual(m.main(['prepare',str(self.game),str(catalog),str(self.root/'prepared-base'),'--recipes',str(bad)]),0)
+        self.assertTrue((self.root/'prepared-base/current.json').exists())
+    def test_invalid_export_preserves_destination(self):
+        src=self.root/'recipes.jsonl';src.write_text('{"code":"unwanted"}\n')
+        dest=self.root/'out.json';dest.write_text('keep')
+        self.assertEqual(m.main(['contribute',str(src),str(dest)]),1)
+        self.assertEqual(dest.read_text(),'keep')
+    def test_catalog_has_no_recipe_count_limit(self):
+        hashes=['%064x'%i for i in range(1500)]
+        index=dict(version=1,sources={},shaders={h:self.entry for h in hashes})
+        c=m.export_catalog([recipe(h) for h in hashes],index);m.validate_catalog(c)
+        self.assertEqual(len(m.expand_catalog(c)['recipes']),1500)
+
+    def test_contribution_has_no_recipe_count_limit(self):
+        rows=[recipe('%064x'%i) for i in range(5000)]
+        self.assertEqual(len(m.contribution_recipes(m.contribution_document(rows))),5000)
+
+    def test_contribution_can_be_reimported_and_local_variants_prepared(self):
+        r=recipe(self.digest);base=m.export_catalog([r],self.index,False)
+        other=json.loads(json.dumps(r));other['pipeline']['state'][3]=1
+        doc=m.contribution_document([other]);path=self.root/'contribution.json';path.write_bytes(m.encoded(doc))
+        rows=m.load_recipes(path)
+        self.assertEqual(rows,[m.recipe(other)])
+        merged=m.merge_local_recipes(base,rows+[recipe('f'*64)])
+        self.assertEqual(len(merged['recipes']),2)
+        self.assertEqual(len(merged['inputs']),1)
+        installed=m.prepare(self.game,merged,self.root/'prepared',None)
+        self.assertEqual(len((installed/'recipes.jsonl').read_text().splitlines()),2)
+
 if __name__=='__main__':unittest.main()

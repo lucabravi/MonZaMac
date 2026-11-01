@@ -126,3 +126,11 @@ rendered with 115 program reuse and 182 pipeline lookup events. Compiler entry
 points were salted for this smoke test; no performance comparison is claimed.
 The packaging check accepted v2 and rejected the legacy v1 catalog. Source review
 reported no actionable P1/P2 issues. All changes remain local and unpublished.
+
+## Local discovery follow-up
+
+Local collection and voluntary metadata export are now available in Video
+settings. Known-input variants can join the next local preparation without a
+new application build; a shared catalog update remains reviewed and explicit.
+See [recipe contributions](shader-recipe-contributions.md) for behavior, bounds,
+validation and the measured gameplay pair.

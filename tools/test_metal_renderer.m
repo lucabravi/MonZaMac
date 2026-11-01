@@ -1574,6 +1574,7 @@ static void shader_preparation(void) {
     xfb.stage_mask = 1; st.program = &xfb; g_xfb_on = g_raster_discard = true;
     fullscreen_draw(1); renderer_flush();
     g_xfb_on = g_raster_discard = false;
+    renderer_recipe_flush();
     CHECK(access("recipes.jsonl", R_OK) == 0, "live draw records a numeric/hash-only recipe");
     unsetenv("LARECOMP_SHADER_RECORD");
     renderer_reset();
@@ -1589,11 +1590,62 @@ static void shader_preparation(void) {
     CHECK(prep_run(@"mixed.jsonl", @"inputs"), "invalid and duplicate recipes do not prevent valid preparation");
     CHECK(g_prep_programs.count == 2 && g_prep_pipelines.count == 2 && stat_compiles == before_compiles,
           "duplicate identities retain one complete prepared result per variant and restore draw statistics");
+    NSString *first = [[recipes componentsSeparatedByString:@"\n"] firstObject];
+    NSDictionary *record = [NSJSONSerialization JSONObjectWithData:[first dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+    CHECK([[first stringByAppendingString:@"\n"] writeToFile:@"prior-recipes.jsonl" atomically:YES encoding:NSUTF8StringEncoding error:nil], "seed prior session metadata");
+    recipe_enqueue(record, @"prior-recipes.jsonl"); recipe_enqueue(record, @"prior-recipes.jsonl");
+    renderer_recipe_flush();
+    NSString *prior = [NSString stringWithContentsOfFile:@"prior-recipes.jsonl" encoding:NSUTF8StringEncoding error:nil];
+    CHECK([prior componentsSeparatedByString:@"\n"].count == 2, "journal deduplicates metadata loaded from a prior session");
+    recipe_enqueue(record, @"async-recipes.jsonl"); renderer_recipe_flush();
+    struct stat mode; CHECK(!stat("async-recipes.jsonl", &mode) && (mode.st_mode & 0777) == 0600, "new journal is owner-only");
+    CHECK([@"{" writeToFile:@"broken-recipes.jsonl" atomically:YES encoding:NSUTF8StringEncoding error:nil], "seed incomplete journal");
+    recipe_enqueue(record, @"broken-recipes.jsonl"); renderer_recipe_flush();
+    CHECK([[NSString stringWithContentsOfFile:@"broken-recipes.jsonl" encoding:NSUTF8StringEncoding error:nil] isEqual:@"{"], "invalid existing journal is preserved");
+    CHECK([@"private" writeToFile:@"private-target.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil] &&
+          !symlink("private-target.txt", "linked-recipes.jsonl"), "seed journal symlink");
+    recipe_enqueue(record, @"linked-recipes.jsonl"); renderer_recipe_flush();
+    CHECK([[NSString stringWithContentsOfFile:@"private-target.txt" encoding:NSUTF8StringEncoding error:nil] isEqual:@"private"], "journal symlinks never overwrite targets");
+    CHECK(!mkfifo("fifo-recipes.jsonl", 0600), "seed a non-regular journal");
+    recipe_enqueue(record, @"fifo-recipes.jsonl"); renderer_recipe_flush();
+    CHECK(!lstat("fifo-recipes.jsonl", &mode) && S_ISFIFO(mode.st_mode), "FIFO is rejected without blocking or replacing it");
+    dispatch_suspend(recipe_q);
+    for (unsigned i = 0; i < 200; i++) recipe_enqueue(record, @"bounded-recipes.jsonl");
+    unsigned queued = __atomic_load_n(&recipe_pending, __ATOMIC_RELAXED);
+    unsigned dropped = __atomic_load_n(&recipe_dropped, __ATOMIC_RELAXED);
+    dispatch_resume(recipe_q); renderer_recipe_flush();
+    CHECK(queued == 128 && dropped >= 72, "full background queue drops work without blocking the renderer");
+    unsigned before_recipes = renderer_recipe_count();
+    g_settings.collect_shader_recipes = true;
     unsigned before_programs = g_prep_program_hits, before_pipelines = g_prep_pipeline_hits;
     stat_compiles = 0;
     bind_targets(&color, NULL, NULL); prepare_draw(); fullscreen_draw(1); expect_rgba(&color, 0, 255, 0);
     CHECK(stat_compiles == 0 && g_prep_program_hits > before_programs && g_prep_pipeline_hits > before_pipelines,
           "first live draw reuses prepared program and pipeline without compilation");
+    renderer_recipe_flush();
+    CHECK(renderer_recipe_count() == before_recipes, "prepared pipelines do not produce new contribution rows");
+    uint32_t original_mask = st.channel_mask;
+    st.channel_mask = 3;
+    fullscreen_draw(1); expect_rgba(&color, 0, 255, 0); renderer_recipe_flush();
+    CHECK(renderer_recipe_count() == before_recipes + 1, "a successful unprepared pipeline is collected automatically");
+    if (getenv("LARECOMP_TEST_RECIPE_EXPORT")) {
+        char here[4096]; CHECK(getcwd(here, sizeof here), "export fixture directory");
+        setenv("LARECOMP_DATA_ROOT", here, 1); rt_paths_init();
+        __block bool exported = false;
+        dispatch_semaphore_t finished = dispatch_semaphore_create(0);
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            char error[256] = {0};
+            exported = renderer_export_recipes("native-recipes.json", error, sizeof error);
+            dispatch_semaphore_signal(finished);
+        });
+        CHECK(dispatch_semaphore_wait(finished, dispatch_time(DISPATCH_TIME_NOW, 35 * NSEC_PER_SEC)) == 0 && exported,
+              "native snapshot and standalone helper export complete in the background");
+        id contribution = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:@"native-recipes.json"] options:0 error:nil];
+        CHECK([contribution[@"type"] isEqual:@"shader-recipes"] && [contribution[@"recipes"] count] == 1,
+              "native export contains a validated contribution, not shader bytes");
+    }
+    st.channel_mask = original_mask;
+    g_settings.collect_shader_recipes = false;
     destroy_texture(&color);
     NSMutableData *short_input = [NSMutableData dataWithLength:16];
     NSString *hash = prep_digest(short_input);
@@ -2262,6 +2314,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
 };
 
 int metal_renderer_test_main(int argc, char **argv) { @autoreleasepool {
+    g_settings.collect_shader_recipes = false;
     setenv("LARECOMP_SYNC_SHADERS", "1", 1);
     setenv("LARECOMP_NO_SHADER_WARM", "1", 1);
     char temporary[] = "/tmp/pokeza-metal-tests-XXXXXX";

@@ -59,6 +59,10 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
   progress page. Workers follow the CPU count. No catalog ships with the app yet; `docs/shader-first-install.md` explains
   the format and how one is built. A small native decoder (`oozextract`, MIT; its notices are packaged) reads the
   game's compressed archives.
+- **Collect new shader recipes** (Graphics, on by default, can be turned off): the pipelines the game builds that no
+  catalog covers are saved as hashes and numbers in `cache/shader-recipes/recipes.jsonl`, written off the render thread,
+  with no limit on how many (100 MiB of file). **Export shader recipes** writes a metadata-only JSON you can share by hand
+  to grow the catalog; nothing is uploaded. See `docs/shader-recipe-contributions.md`.
 - Shader preparation compiles on up to two native workers (`LARECOMP_SHADER_PREP_WORKERS=1` for one) while the render
   thread keeps the translator and caches; the progress page is a native window that keeps redrawing during long
   compiles. Same 113 programs and 147 pipelines on an M5: 19.2 s with one worker, 9.6 s with two.

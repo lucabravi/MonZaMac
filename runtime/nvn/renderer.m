@@ -1789,6 +1789,7 @@ static void pipeline_archive_save(void) {  // on g_archive_q
 
 static void prep_report(void);
 void renderer_save_pipeline_archive(void) {
+    renderer_recipe_flush();
     if (g_archive_q) dispatch_sync(g_archive_q, ^{ pipeline_archive_save(); });
     prep_report();
 }
@@ -3703,6 +3704,7 @@ static void draw(CmdRec *r, bool indexed) {
         }
     }
     if (pobj == [NSNull null]) { stat_skipped++; dbg_skips++; return; }
+    prep_record_pipeline(pr, pd, prepared != nil);
     pipe = pobj;
     pipe_tab[pslot].key = phash;
     pipe_tab[pslot].value = (__bridge void *)pipe;  // retained by the cache dictionary
