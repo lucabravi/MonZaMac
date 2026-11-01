@@ -28,6 +28,17 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 - Moving the cursor onto a tab with the keyboard or a pad opens it, like L / R and Q / E already did. The mouse still
   needs a click.
 
+### Shaders
+- **Prepare all shaders** (start screen: the **All shaders** badge at the top right, below Legal notice and Shader catalog;
+  green check when done and current, yellow triangle when not done or out of date). Clicking it explains the cost and offers
+  **Compile all shaders** or Cancel. Compiling starts the game, which reads every shader from your own game files (about
+  40 s), translates them with their usual settings and compiles their Metal libraries on all cores (about 4.5 minutes on a
+  10-core M5), with a progress page and a Stop button; what was compiled is kept. It leaves about 370 MB in Metal's shader
+  cache and deletes its 115 MB of temporary files. A stamp records the precompile version, macOS, the GPU and the game
+  files, so the badge turns yellow when any of them changes. Cold-cache station walk on an M5 with nothing else (no
+  catalog, no recipes): the worst frame while entering the station went from about 16 s to 0.57 s. Details in
+  `docs/shader-precompile.md`.
+
 ### Developer tools
 - **Shader diagnostics** (off unless `LARECOMP_SHADER_TRACE=<new directory>`): records, as metadata only, each registered shader's
   content hash, stage, where it was read from, when it was registered and when it was compiled, to investigate first-use

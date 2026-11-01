@@ -2271,6 +2271,28 @@ static void blind_libraries(void) {
             "%u compute recipes: identical %u\n", graphics, vs_same, fs_same, both, compute, cs_same);
 }
 
+// The start screen's "All shaders" badge: when is a precompile still good?
+static void precompile_stamp_rules(void) {
+    const char *now = "version=1\nos=26.5\ngpu=Apple M5\nfile0=10-20\nfile1=30-40\n";
+    char why[160];
+    CHECK(precompile_compare("", now, why, sizeof why) == PRECOMPILE_NOT_DONE, "no stamp: not done");
+    CHECK(precompile_compare("version=1\nos=26.5\ngpu=Apple M5\nfile0=10-20\nfile1=30-40\nshaders=12943\n", now, why, sizeof why) == PRECOMPILE_CURRENT,
+          "the same version, macOS, GPU and game files: current");
+    CHECK(precompile_compare("version=0\nos=26.5\ngpu=Apple M5\nfile0=10-20\nfile1=30-40\n", now, why, sizeof why) == PRECOMPILE_OUTDATED && strstr(why, "version"),
+          "an older precompile version: out of date");
+    CHECK(precompile_compare("version=1\nos=26.4\ngpu=Apple M5\nfile0=10-20\nfile1=30-40\n", now, why, sizeof why) == PRECOMPILE_OUTDATED && strstr(why, "macOS"),
+          "another macOS: out of date");
+    CHECK(precompile_compare("version=1\nos=26.5\ngpu=Apple M1\nfile0=10-20\nfile1=30-40\n", now, why, sizeof why) == PRECOMPILE_OUTDATED && strstr(why, "graphics"),
+          "another GPU: out of date");
+    CHECK(precompile_compare("version=1\nos=26.5\ngpu=Apple M5\nfile0=10-21\nfile1=30-40\n", now, why, sizeof why) == PRECOMPILE_OUTDATED && strstr(why, "game files"),
+          "other game files: out of date");
+    mkdir("cache", 0755); mkdir("cache/shader-precompile", 0755);
+    unlink("cache/shader-precompile/stamp.txt");
+    CHECK(precompile_state("/nonexistent", why, sizeof why) == PRECOMPILE_NOT_DONE, "no stamp file: not done");
+    CHECK(precompile_write_stamp("/nonexistent", 5), "the stamp is written");
+    CHECK(precompile_state("/nonexistent", why, sizeof why) == PRECOMPILE_CURRENT, "a stamp just written is current");
+}
+
 static void compute_images(bool reduction, bool array, bool view) {
     const struct { uint32_t format, value, view_format; } cases[] = {
         {0x0a, 0x3f400000}, {0x0b, 17}, {0x0c, 0xffffffe9}, {0x0b, 0xfffffff7, 0x0c}, {0x0a, 0x3f400000},
@@ -2453,6 +2475,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"break-reconvergence", "flow", break_reconvergence},
     {"structured-brx", "flow", structured_brx},
     {"compute-preparation", "preparation", compute_preparation},
+    {"precompile-stamp", "preparation", precompile_stamp_rules},
     {"blind-libraries", "preparation", blind_libraries},
     {"compute-image-store", "images", compute_image_store},
     {"compute-image-feedback", "images", compute_image_feedback},

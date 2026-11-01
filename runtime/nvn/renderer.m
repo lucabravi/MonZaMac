@@ -2036,6 +2036,7 @@ static bool cs_compile(CsProg *cp, uint64_t trace_addr) {
 }
 
 #include "shader_prepare.inc"
+#include "shader_precompile.inc"
 
 static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
     if (!g_prep_started) {

@@ -45,6 +45,7 @@ extern "C" {
 #include "settings.h"
 #include "saves.h"
 #include "input_bind.h"
+#include "precompile_stamp.h"
 void controls_bindings_draw(float scale);  // ui/controls_ui.mm
 void ui_window_init(void);
 SDL_Window *ui_window(void);
@@ -662,6 +663,9 @@ static float g_menu_gap = 0.35f;  // space under each item, in line heights
 
 // Informational access to the same ownership rules used by game-file setup.
 static bool g_legal_test;  // LARECOMP_LAUNCHER_SHOT=<frame>:legal
+static bool g_precompile_test;  // LARECOMP_LAUNCHER_SHOT=<frame>:precompile
+static bool g_precompile_go;  // "Compile" was chosen: start the game, which precompiles every shader first
+static float g_catalog_badge_bottom = 64;  // (the next badge goes below the catalog's)
 static void shader_catalog_badge(float s) {
 #ifdef __APPLE__
     static bool checked;
@@ -688,8 +692,9 @@ static void shader_catalog_badge(float s) {
     bool action = state == CATALOG_AVAILABLE || state == CATALOG_UPDATE_ERROR || state == CATALOG_UNKNOWN || state == CATALOG_ERROR;
     ImVec2 ds = ImGui::GetIO().DisplaySize, saved = ImGui::GetCursorScreenPos();
     ImFont *font = g_font_small;
-    float w = font->CalcTextSizeA(18 * s, FLT_MAX, 0, "Legal notice").x + 56 * s;
+    float w = font->CalcTextSizeA(18 * s, FLT_MAX, 0, "Legal notice").x + 96 * s;
     ImVec2 p(ds.x - w - 18 * s, 64 * s), q(p.x + w, p.y + (action ? 112 : 70) * s);
+    g_catalog_badge_bottom = q.y / s;
     ImDrawList *dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(p, q, IM_COL32(8, 18, 35, 225), 9 * s);
     dl->AddRect(p, q, IM_COL32(76, 100, 137, 180), 9 * s);
@@ -718,7 +723,7 @@ static void legal_notice(float s) {
     ImFont *font = g_font_small;
     float fs = 18 * s, h = 40 * s;
     ImVec2 text = font->CalcTextSizeA(fs, FLT_MAX, 0, "Legal notice");
-    float w = text.x + 56 * s;
+    float w = text.x + 96 * s;  // (the three badges at the top right share this width)
     ImVec2 p(ds.x - w - 18 * s, 16 * s), q(p.x + w, p.y + h);
     ImGui::SetCursorScreenPos(p);
     bool clicked = ImGui::InvisibleButton("Legal notice", ImVec2(w, h), ImGuiButtonFlags_EnableNav);
@@ -777,6 +782,91 @@ static void legal_notice(float s) {
         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) ImGui::CloseCurrentPopup();
     ImGui::PopFont();
     ImGui::EndPopup();
+}
+
+// "Prepare all shaders": a badge under the catalog's (green check: done and still good for this MonZaMac, macOS, GPU and
+// game files; yellow triangle: not done or out of date), and what clicking it says. Compile starts the game, which
+// precompiles first (the translator needs the running game's memory window); Cancel closes it.
+static void precompile_badge(float s) {
+#ifdef __APPLE__
+    static PrecompileState state = PRECOMPILE_NOT_DONE;
+    static char reason[160] = "Not done yet.";
+    static double checked_at = -10;
+    double now = ImGui::GetTime();
+    if (now - checked_at > 1.5 || g_precompile_test) {  // (a few stat calls and a device lookup: not every frame)
+        checked_at = now;
+        state = precompile_state(g_root.c_str(), reason, sizeof reason);
+        if (getenv("LARECOMP_PRECOMPILE_STATUS_TEST")) state = (PrecompileState)atoi(getenv("LARECOMP_PRECOMPILE_STATUS_TEST"));
+    }
+    bool good = state == PRECOMPILE_CURRENT;
+    ImVec2 ds = ImGui::GetIO().DisplaySize, saved = ImGui::GetCursorScreenPos();
+    ImFont *font = g_font_small;
+    float w = font->CalcTextSizeA(18 * s, FLT_MAX, 0, "Legal notice").x + 96 * s, h = 62 * s;
+    ImVec2 p(ds.x - w - 18 * s, (g_catalog_badge_bottom + 10) * s), q(p.x + w, p.y + h);
+    ImGui::SetCursorScreenPos(p);
+    bool clicked = ImGui::InvisibleButton("##precompile-badge", ImVec2(w, h), ImGuiButtonFlags_EnableNav);
+    bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p, q, hot ? IM_COL32(25, 49, 78, 245) : IM_COL32(8, 18, 35, 225), 9 * s);
+    dl->AddRect(p, q, hot ? IM_COL32(72, 214, 255, 230) : IM_COL32(76, 100, 137, 180), 9 * s);
+    ImVec2 c(p.x + 20 * s, p.y + h * 0.5f);
+    if (good) {
+        dl->AddCircleFilled(c, 11 * s, IM_COL32(125, 229, 165, 255));
+        dl->AddPolyline((ImVec2[]){ImVec2(c.x - 5 * s, c.y), ImVec2(c.x - 1.5f * s, c.y + 4 * s), ImVec2(c.x + 5.5f * s, c.y - 4 * s)},
+                        3, IM_COL32(17, 25, 40, 255), 0, 2.2f * s);
+    } else {
+        dl->AddTriangleFilled(ImVec2(c.x, c.y - 10 * s), ImVec2(c.x + 11 * s, c.y + 9 * s), ImVec2(c.x - 11 * s, c.y + 9 * s),
+                              IM_COL32(255, 195, 85, 255));
+        dl->AddLine(ImVec2(c.x, c.y - 4.5f * s), ImVec2(c.x, c.y + 2.5f * s), IM_COL32(17, 25, 40, 255), 2 * s);
+        dl->AddCircleFilled(ImVec2(c.x, c.y + 5.5f * s), 1.1f * s, IM_COL32(17, 25, 40, 255));
+    }
+    dl->AddText(font, 18 * s, ImVec2(p.x + 39 * s, p.y + 9 * s), IM_COL32(238, 244, 255, 255), "All shaders");
+    dl->AddText(font, 14 * s, ImVec2(p.x + 39 * s, p.y + 36 * s), good ? IM_COL32(125, 229, 165, 255) : IM_COL32(255, 201, 100, 255),
+                good ? "Precompiled" : state == PRECOMPILE_OUTDATED ? "Out of date" : "Not done");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Compile every shader of the game before you play");
+    ImGui::SetCursorScreenPos(saved);
+    if (clicked || g_precompile_test) { ImGui::OpenPopup("##precompile"); g_precompile_test = false; }
+
+    ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(fminf(ds.x * 0.92f, 760 * s), fminf(ds.y * 0.92f, 400 * s)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(28 * s, 24 * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 16 * s);
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.04f, 0.07f, 0.14f, 1));
+    bool open = ImGui::BeginPopupModal("##precompile", NULL, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+    if (!open) return;
+    ImGui::PushFont(g_font_small);
+    ImGui::SetWindowFontScale(0.82f);
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), "Prepare all shaders");
+    ImGui::Dummy(ImVec2(0, 10 * s));
+    ImGui::TextColored(good ? ImVec4(0.49f, 0.9f, 0.65f, 1) : ImVec4(1, 0.79f, 0.39f, 1), "%s", reason);
+    ImGui::Dummy(ImVec2(0, 8 * s));
+    ImGui::BeginChild("##precompile_text", ImVec2(0, -68 * s), false);
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextWrapped("Compiles every graphics program of the game now, on your Mac, so most scenes load without the stalls "
+                       "of a first visit. Some variants can still compile when first used.");
+    ImGui::Dummy(ImVec2(0, 10 * s));
+    ImGui::TextWrapped("Time: several minutes (about 5 on a 10-core M5, longer elsewhere), using every CPU core: the Mac gets "
+                       "warm. You can stop any time; what was compiled is kept.");
+    ImGui::TextWrapped("Space: about 400 MB in Metal's shader cache and 120 MB of temporary files, deleted at the end.");
+    ImGui::Dummy(ImVec2(0, 10 * s));
+    ImGui::TextWrapped("Nothing is uploaded. It starts the game, which does this first. Redo it when MonZaMac, macOS, your GPU "
+                       "or the game files change: the badge turns yellow then.");
+    ImGui::PopTextWrapPos();
+    ImGui::EndChild();
+    ImGui::Dummy(ImVec2(0, 10 * s));
+    float bw = 250 * s, gap = 16 * s;
+    ImGui::SetCursorPosX((ImGui::GetWindowWidth() - 2 * bw - gap) * 0.5f);
+    if (ImGui::Button(good ? "Compile again" : "Compile all shaders", ImVec2(bw, 42 * s))) {
+        g_settings.precompile_request = true; g_precompile_go = true; ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine(0, gap);
+    if (ImGui::Button("Cancel", ImVec2(bw, 42 * s)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) ImGui::CloseCurrentPopup();
+    ImGui::PopFont();
+    ImGui::EndPopup();
+#endif
 }
 
 // The first PLAY ever (settings.menu_tip_seen): a note on opening the MonZaMac menu in game (it isn't obvious),
@@ -1199,6 +1289,7 @@ extern "C" void launcher_run(const char *root) {
         if (pg && !strncmp(pg + 1, "settings", 8) && pg[9] == ':') g_tab_request_ext = atoi(pg + 10);  // settings:<tab>
         if (pg && !strcmp(pg + 1, "delete")) page = SETUP, g_confirm_delete = true;
         if (pg && !strcmp(pg + 1, "legal")) page = MAIN, g_legal_test = true;
+        if (pg && !strcmp(pg + 1, "precompile")) page = MAIN, g_precompile_test = true;
         if (pg && !strcmp(pg + 1, "tip")) g_settings.menu_tip_seen = false, g_tip_test = true;
         if (pg && !strcmp(pg + 1, "aspect")) g_settings.aspect_asked = g_settings.menu_tip_seen = false, g_tip_test = true;
     }
@@ -1398,6 +1489,8 @@ extern "C" void launcher_run(const char *root) {
                 if (menu_tip(s)) play = true;
                 legal_notice(s);
                 shader_catalog_badge(s);
+                if (ready) precompile_badge(s);
+                if (g_precompile_go) g_precompile_go = false, play = true;
             } else if (page == SAVES) {
                 ImGui::PushFont(g_font_menu);
                 int pick = saves_screen_draw(ds.y / 1080.0f, g_font_menu, g_font_small);
