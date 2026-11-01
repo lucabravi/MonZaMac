@@ -1336,6 +1336,13 @@ void backend_shader_prepare_progress(unsigned done, unsigned total) {
     atomic_store(&prep_progress, total ? ((uint64_t)total << 32) | (done > total ? total : done) : 0);
 }
 
+static atomic_bool prep_cancel;
+void backend_shader_precompile_progress(unsigned phase, unsigned done, unsigned total) {
+    if (!phase && !done) atomic_store(&prep_cancel, false);
+    atomic_store(&prep_progress, (1ull << 62) | (phase ? 0 : (1ull << 61)) | ((uint64_t)(total ? total : 1) << 32) | (done > total ? total : done));
+}
+bool backend_shader_prepare_cancelled(void) { return atomic_load(&prep_cancel); }
+
 void backend_shader_prepare_inputs(unsigned done, unsigned total) {
     atomic_store(&prep_progress, (1ull << 63) | ((uint64_t)(total ? total : 1) << 32) | (done > total ? total : done));
 }
@@ -1346,6 +1353,7 @@ void backend_shader_prepare_inputs(unsigned done, unsigned total) {
 @public
     NSTextField *brand, *title, *detail, *count;
     NSProgressIndicator *bar;
+    NSButton *stop;
 }
 @end
 @implementation PreparationPage
@@ -1373,23 +1381,29 @@ void backend_shader_prepare_inputs(unsigned done, unsigned total) {
     count.font = [NSFont monospacedDigitSystemFontOfSize:14 weight:NSFontWeightRegular];
     count.textColor = detail.textColor;
     for (NSTextField *field in @[brand, title, detail, count]) field.alignment = NSTextAlignmentCenter;
-    for (NSView *view in @[brand, title, detail, bar, count]) [self addSubview:view];
+    stop = [NSButton buttonWithTitle:@"Stop" target:self action:@selector(stopPressed:)];
+    stop.hidden = YES;
+    for (NSView *view in @[brand, title, detail, bar, count, stop]) [self addSubview:view];
     return self;
+}
+- (void)stopPressed:(id)sender {
+    atomic_store(&prep_cancel, true);
+    stop.enabled = NO; stop.title = @"Stopping...";
 }
 - (void)layout {
     [super layout];
     CGFloat width = fmax(1, fmin(560, self.bounds.size.width * 0.8));
-    NSArray<NSView *> *views = @[brand, title, detail, bar, count];
-    CGFloat heights[5], total = 4 * 18;
-    for (unsigned i = 0; i < 5; i++) {
-        heights[i] = i == 3 ? 12 : [[(NSTextField *)views[i] cell] cellSizeForBounds:NSMakeRect(0, 0, width, CGFLOAT_MAX)].height;
+    NSArray<NSView *> *views = @[brand, title, detail, bar, count, stop];
+    CGFloat heights[6], total = 5 * 18;
+    for (unsigned i = 0; i < 6; i++) {
+        heights[i] = i == 3 ? 12 : i == 5 ? (stop.hidden ? 0 : 28) : [[(NSTextField *)views[i] cell] cellSizeForBounds:NSMakeRect(0, 0, width, CGFLOAT_MAX)].height;
         total += heights[i];
     }
     CGFloat x = self.bounds.origin.x + (self.bounds.size.width - width) * 0.5;
     CGFloat y = self.bounds.origin.y + (self.bounds.size.height + total) * 0.5;
-    for (unsigned i = 0; i < 5; i++) {
+    for (unsigned i = 0; i < 6; i++) {
         y -= heights[i];
-        views[i].frame = NSMakeRect(x, y, width, heights[i]);
+        views[i].frame = i == 5 ? NSMakeRect(x + (width - 120) * 0.5, y, 120, heights[i]) : NSMakeRect(x, y, width, heights[i]);
         y -= 18;
     }
 }
@@ -1411,11 +1425,26 @@ static bool ui_preparation_update(void) {
         page = [[PreparationPage alloc] initWithFrame:native.contentView.bounds];
         [native.contentView addSubview:page positioned:NSWindowAbove relativeTo:nil];
     }
-    bool inputs = progress >> 63;
-    unsigned total = (unsigned)((progress >> 32) & 0x7fffffff), done = (unsigned)progress;
-    page->bar.doubleValue = (double)done / total;
-    page->count.stringValue = [NSString stringWithFormat:@"%u / %u %@  ·  %u%%", done, total,
-        inputs ? @"shader inputs verified" : @"pipelines checked", done * 100 / total];
+    bool inputs = progress >> 63, all = (progress >> 62) & 1, reading = (progress >> 61) & 1;
+    unsigned total = (unsigned)((progress >> 32) & 0x1fffffff), done = (unsigned)progress;
+    if (all) {
+        page->title.stringValue = @"Preparing all shaders";
+        page->detail.stringValue = @"Compiling every graphics program of the game on your Mac, so scenes load without stalls the "
+            "first time you see them. It takes several minutes and uses all CPU cores. You can stop: what was compiled is kept.";
+        page->stop.hidden = NO;
+        if (reading) {
+            if (!page->bar.indeterminate) { page->bar.indeterminate = YES; [page->bar startAnimation:nil]; }
+            page->count.stringValue = @"Reading your game files...";
+        } else {
+            if (page->bar.indeterminate) { [page->bar stopAnimation:nil]; page->bar.indeterminate = NO; }
+            page->bar.doubleValue = (double)done / total;
+            page->count.stringValue = [NSString stringWithFormat:@"%u / %u shaders compiled  ·  %u%%", done, total, done * 100 / total];
+        }
+    } else {
+        page->bar.doubleValue = (double)done / total;
+        page->count.stringValue = [NSString stringWithFormat:@"%u / %u %@  ·  %u%%", done, total,
+            inputs ? @"shader inputs verified" : @"pipelines checked", done * 100 / total];
+    }
     page.frame = page.superview.bounds;
     page.needsLayout = YES;
     [page layoutSubtreeIfNeeded];

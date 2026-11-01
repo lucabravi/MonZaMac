@@ -141,6 +141,33 @@ class ExternalDecoder:
             return data
 
 
+def build_index(game, output, ooz=None, ooz_exe=None):
+    """Index the game's shaders into `output` (inputs as <sha256>.bin plus index.json); returns (total, from_executable)."""
+    game, output = Path(game), Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    sys.path.insert(0, str(Path(__file__).resolve().parent))  # trinity.py (the flatbuffer reader, no decoder in it)
+    from nso import Nso
+    shaders = {}
+    sources = {}
+    for module in ('main', 'sdk'):
+        path = game / 'exefs' / module
+        sources['exefs/' + module] = hashlib.sha256(path.read_bytes()).hexdigest()
+        index_container(Nso(str(path)).image, dict(kind='nso', path='exefs/' + module,
+                                                 source_sha256=sources['exefs/' + module]), output, shaders)
+    embedded = len(shaders)
+    if ooz or ooz_exe:
+        import trinity
+        decoder = trinity.Oodle(ooz) if ooz else ExternalDecoder(ooz_exe)
+        for data, origin in trinity_entries(game / 'romfs', decoder):
+            index_container(data, origin, output, shaders)
+    index = dict(version=1, sources=sources, shaders=shaders)
+    tmp = output / 'index.json.tmp'
+    tmp.write_text(json.dumps(index, sort_keys=True, indent=2) + '\n')
+    tmp.replace(output / 'index.json')
+    return len(shaders), embedded
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('game', type=Path)
@@ -149,27 +176,8 @@ def main():
     decoder.add_argument('--ooz', help='optional external Oodle library (trinity.py interface)')
     decoder.add_argument('--ooz-exe', help='optional external oozdec executable (8-byte size-prefix protocol)')
     args = ap.parse_args()
-    args.output.mkdir(parents=True, exist_ok=True)
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from nso import Nso
-    shaders = {}
-    sources = {}
-    for module in ('main', 'sdk'):
-        path = args.game / 'exefs' / module
-        sources['exefs/' + module] = hashlib.sha256(path.read_bytes()).hexdigest()
-        index_container(Nso(str(path)).image, dict(kind='nso', path='exefs/' + module,
-                                                 source_sha256=sources['exefs/' + module]), args.output, shaders)
-    embedded = len(shaders)
-    if args.ooz or args.ooz_exe:
-        import trinity
-        decoder = trinity.Oodle(args.ooz) if args.ooz else ExternalDecoder(args.ooz_exe)
-        for data, origin in trinity_entries(args.game / 'romfs', decoder):
-            index_container(data, origin, args.output, shaders)
-    index = dict(version=1, sources=sources, shaders=shaders)
-    tmp = args.output / 'index.json.tmp'
-    tmp.write_text(json.dumps(index, sort_keys=True, indent=2) + '\n')
-    tmp.replace(args.output / 'index.json')
-    print(f'Indexed {len(shaders)} unique shader inputs ({embedded} executable, {len(shaders)-embedded} archive); private cache only.')
+    total, embedded = build_index(args.game, args.output, args.ooz, args.ooz_exe)
+    print(f'Indexed {total} unique shader inputs ({embedded} executable, {total-embedded} archive); private cache only.')
 
 
 if __name__ == '__main__':

@@ -89,7 +89,8 @@ visits benefit from the local cache. The **Shaders** tab of the menu can prepare
 game starts (**Prepare known shaders**), saves the ones the game had to build as hashes and numbers (**Collect new
 shader recipes**; nothing is uploaded) so you can share them by hand with **Export shader recipes** and the
 **Contribute recipes on GitHub** form, and fetches the official catalog only when you press **Update shader catalog**.
-No catalog is published yet.
+No catalog is published yet. On the start screen, **All shaders** (top right) can compile every shader of the
+game up front: about five minutes once and about 400 MB of Metal cache, and the first visit to a scene stalls far less.
 
 Building from source and the developer tools are in [docs/development.md](docs/development.md).
 
