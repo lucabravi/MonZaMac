@@ -1531,6 +1531,23 @@ static void free_source_program(Prog *pr) {
 }
 
 static void shader_preparation(void) {
+    CHECK(prep_worker_count(10, 113, NULL) == 10, "automatic preparation uses active CPUs");
+    CHECK(prep_worker_count(10, 3, NULL) == 3, "worker count is bounded by program groups");
+    CHECK(prep_worker_count(0, 113, NULL) == 1 && prep_worker_count(10, 0, NULL) == 1, "empty/unknown capacity stays safe");
+    CHECK(prep_worker_count(10, 113, "1") == 1 && prep_worker_count(10, 113, "2") == 2, "serial and baseline overrides work");
+    CHECK(prep_worker_count(10, 113, "40") == 10, "override cannot oversubscribe CPUs");
+    const char *invalid[] = {"", "0", "-2", "+2", "2x", "999999999999999999999999"};
+    for (unsigned i = 0; i < sizeof invalid / sizeof *invalid; i++)
+        CHECK(prep_worker_count(10, 113, invalid[i]) == 10, "malformed override falls back to automatic capacity");
+    MTLRenderPipelineDescriptor *a = [MTLRenderPipelineDescriptor new];
+    a.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
+    MTLRenderPipelineDescriptor *b = [a copy];
+    b.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+    b.colorAttachments[1].writeMask = MTLColorWriteMaskRed;
+    b.colorAttachments[1].blendingEnabled = YES;
+    CHECK([prep_descriptor_dict(a) isEqual:prep_descriptor_dict(b)], "inactive blend and absent-target state share one profile");
+    a.colorAttachments[0].blendingEnabled = b.colorAttachments[0].blendingEnabled = YES;
+    CHECK(![prep_descriptor_dict(a) isEqual:prep_descriptor_dict(b)], "active blend factors remain separate profiles");
     ShaderKey original = {0}, decoded = {0};
     original.uint_slots = 9; original.xfb_count[2] = 3; original.xfb_void = true;
     CHECK(prep_key_parse(prep_key_dict(&original), &decoded) && !memcmp(&original, &decoded, sizeof original),
@@ -1564,6 +1581,8 @@ static void shader_preparation(void) {
     CHECK(g_prep_programs.count == 2 && g_prep_pipelines.count == 2, "preparation covers vertex-only XFB without active live XFB state");
     CHECK(!g_prep_active, "preparation joins workers before handing state back to draws");
     NSString *recipes = [NSString stringWithContentsOfFile:@"recipes.jsonl" encoding:NSUTF8StringEncoding error:nil];
+    recipes = [[recipes stringByReplacingOccurrencesOfString:@"true" withString:@"1"]
+               stringByReplacingOccurrencesOfString:@"false" withString:@"0"];
     NSString *mixed = [NSString stringWithFormat:@"invalid JSON\n%@%@", recipes, recipes];
     CHECK([mixed writeToFile:@"mixed.jsonl" atomically:YES encoding:NSUTF8StringEncoding error:nil], "write mixed duplicate recipes");
     int before_compiles = stat_compiles;

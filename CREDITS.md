@@ -93,3 +93,13 @@ code only - it grants nothing for Nintendo's game, which you must supply yoursel
 | PKHeX (save format only: the file pad, block layout and Pokémon record shuffle that `runtime/save_info.c` reads; no code) | n/a | format reference only (its license: see the project) | https://github.com/kwsch/PKHeX |
 
 The build script that fetches and builds these (with checksums) is `tools/build_deps_macos.sh`.
+
+## Local shader-preparation decoder
+
+The optional shader preparation helper uses [oozextract](https://github.com/lvlvllvlvllvlvl/oozextract) 0.5.7,
+which declares the MIT license. The project attribution and permission text are
+in `tools/shader_decode/licenses/oozextract-MIT.txt`. Original dependency notices,
+including the required Unicode notice, and Rust standard-library notices are
+packaged in the app's `Contents/Resources/lasgen/shader-decoder-licenses/` folder.
+The generated inventory records the exact dependency versions and checksums.
+This component decodes the user's own local files; no game data is included.

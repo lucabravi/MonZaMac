@@ -19,6 +19,7 @@ VERSION="${VERSION#v}"
 GEN_HELPER=build/helper/lasgen
 ZIG=build/zig
 [ -x "$EXE" ] || { echo "no $EXE"; exit 1; }
+build/helper-venv/bin/python tools/shader_decoder_notices.py --verify "$GEN_HELPER/shader-decoder-licenses"
 [ -x "$GEN_HELPER/lasgen" ] || { echo "no $GEN_HELPER (make gen-helper)"; exit 1; }
 [ -x "$ZIG/zig" ] || { echo "no $ZIG (tools/fetch_zig.sh)"; exit 1; }
 NSTOOL=tools/nstool
@@ -33,6 +34,11 @@ mkdir -p "$C/MacOS" "$C/Frameworks" "$C/Resources"
 cp "$EXE" "$C/MacOS/monzamac"
 strip -S "$C/MacOS/monzamac"  # (debug-map entries only: the symbols crash reports name functions by stay)
 cp -R "$GEN_HELPER" "$C/Resources/lasgen"
+# Explicit opt-in: generated catalogs stay outside source control. Never copy an input cache.
+if [ -n "${SHADER_CATALOG:-}" ]; then
+    "$GEN_HELPER/lasgen" shader-catalog check --for-distribution "$SHADER_CATALOG"
+    cp "$SHADER_CATALOG" "$C/Resources/shader-catalog.json"
+fi
 cp -R "$ZIG" "$C/Resources/zig"
 mkdir -p "$C/Resources/nstool/licenses"
 cp "$NSTOOL/bin/nstool" "$C/Resources/nstool/nstool"

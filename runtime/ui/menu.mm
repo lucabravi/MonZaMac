@@ -585,6 +585,10 @@ static void tab_display(void) {
     opt_choice("Anti-aliasing", &g_settings.antialias, aa, 2, AA_SMAA,
                "Smooths jagged edges of the game image before it is scaled to the window. SMAA: finds the edges and "
                "blends only along them, so textures stay sharp. Most useful at a lower internal resolution.");
+    opt_toggle("Prepare known shaders", &g_settings.prepare_shaders, false,
+               "Before starting, build the graphics pipelines in an installed shader catalog from your own game files. "
+               "Reduces first-encounter stutter for covered effects. Takes extra time at startup; unseen variants still compile normally. "
+               "Requires a compatible catalog. Changes apply on the next game start.");
     opt_toggle("Wait for shaders", &g_settings.wait_shaders, false,
                "A shader or pipeline the game needs for the first time is compiled on the spot, and the game waits: a short "
                "stutter, but nothing is missing from the picture. Off: it compiles in the background and the objects that "

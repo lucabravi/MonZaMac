@@ -15,6 +15,7 @@ extern uint64_t g_gwin_base, g_gwin_max;  // guest memory window g_guest_buffer 
 void backend_gwin_pick(void);
 // Render thread publishes recipe progress; total == 0 dismisses the main-thread page.
 void backend_shader_prepare_progress(unsigned done, unsigned total);
+void backend_shader_prepare_inputs(unsigned done, unsigned total);
 #endif
 #include <SDL3/SDL_events.h>
 

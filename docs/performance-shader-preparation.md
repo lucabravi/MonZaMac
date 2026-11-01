@@ -31,7 +31,7 @@ requires matching shader content, specialization and descriptor state. The
 selected guest-memory window is included in in-process program identity.
 Unknown or changed variants retain normal first-use compilation.
 
-Preparation is serialized with drawing. Translation/cache access stays on the render thread; native Metal compilation runs in up to two workers. It uses the current
+Preparation is serialized with drawing. Translation/cache access stays on the render thread; native Metal compilation uses an active-CPU-sized worker pool, bounded by program groups. It uses the current
 translator and compiler options, rather than loading translated code from a
 previous build. It does not move guest pointers onto a background worker.
 Shader overrides/debug probes disable the preparation path. In-place reboot
@@ -81,7 +81,7 @@ normal first-use compilation statistics. With no preparation/recording
 variables, normal rendering and first-use compilation remain the default.
 
 **This does not give a fresh installation coverage for unobserved scenes.**
-It requires locally learned recipes, has no launcher setup/skip UI yet,
+The developer recording path requires locally learned recipes. A local first-install catalog flow is now implemented (see [first-install shader preparation](shader-first-install.md)); no catalog is distributed yet. It has no skip UI,
 and does not index every possible archive, mod or DLC source. Do not ship a
 maintainer-generated recipe/input cache as part of this prototype. Expanding
 coverage and a user-facing preparation flow are follow-up work.
@@ -282,3 +282,36 @@ focused preparation tests passed; 88 native renderer tests passed with Metal
 Validation on Apple M5. Other Macs, prolonged sessions and game-wide recipe
 coverage were not tested. All test instances were stopped. Inputs, recipes,
 raw logs and screenshots remain private; no push/PR update was performed.
+
+## CPU-sized preparation workers, 2026-11-01
+
+The default native compilation concurrency now follows
+`NSProcessInfo.activeProcessorCount`, bounded by the number of distinct program
+groups. A missing CPU count or empty batch safely selects one slot. Translation
+and cache ownership, result locking and the final worker join are unchanged.
+`LARECOMP_SHADER_PREP_WORKERS=<positive integer>` can lower the concurrency for
+comparison or rollback; it is bounded by CPU/job capacity. Malformed, zero,
+negative and overflowing values fall back to automatic selection.
+
+One cold pair on Apple M5 (10 active logical CPUs, 32 GiB RAM) used the same
+147-recipe catalog, empty separate application caches and distinct compiler
+entry-point salts:
+
+| Selection | Preparation | Peak active jobs | App peak RSS | Metal compiler services peak RSS |
+| --- | ---: | ---: | ---: | ---: |
+| Explicit 2 | 9,608 ms | 2 | 993 MiB | 146 MiB |
+| Automatic | 2,985 ms | 10 | 995 MiB | 300 MiB |
+
+Both prepared 113 program variants and 147 pipelines with no misses among the
+included recipes, then reached the station. The two originally uncovered
+recipes remain excluded from this catalog. This one pair shows a 68.9%
+reduction on this Mac, not a cross-device performance guarantee. RSS was
+sampled about every 200 ms during startup/preparation; compiler figures sum
+all visible MTLCompilerService processes on the machine and are not exclusive
+attribution to this app or a measurement of total system memory. Other Macs
+and memory-pressure conditions were not tested.
+
+The runtime build and two focused preparation tests passed, including active
+CPU/job bounds, serial/two-worker overrides and malformed override handling.
+No unchanged repeated gameplay sweeps were run. Test instances were stopped;
+all source changes and numeric results remain local, without push/PR updates.

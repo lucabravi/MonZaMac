@@ -16,6 +16,8 @@
 #include "cache_probe.h"
 #include "nvn.h"
 #include "renderer.h"
+#include "../paths.h"
+#include "../platform.h"
 #include "../settings.h"  // (g_settings.game_drs)
 
 static id<MTLDevice> dev;
@@ -1930,7 +1932,7 @@ static void compile_program(Prog *pr) {
 
 static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
     if (!g_prep_started) {
-        if (getenv("LARECOMP_SHADER_PREP")) backend_gwin_pick();
+        if (getenv("LARECOMP_SHADER_PREP") || g_settings.prepare_shaders) backend_gwin_pick();
         prep_once();
     }
     shader_cache_warm();

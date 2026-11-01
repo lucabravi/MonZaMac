@@ -89,7 +89,13 @@ static bool prep_apply(id object, id array, NSArray<NSString *> *fields) {
 }
 static NSDictionary *prep_descriptor_dict(MTLRenderPipelineDescriptor *pd) {
     NSMutableArray *colors = [NSMutableArray new], *attrs = [NSMutableArray new], *layouts = [NSMutableArray new];
-    for (int i = 0; i < 8; i++) [colors addObject:prep_values(pd.colorAttachments[i], prep_color_fields())];
+    for (int i = 0; i < 8; i++) {
+        NSMutableArray *values = [prep_values(pd.colorAttachments[i], prep_color_fields()) mutableCopy];
+        // Unattached targets and disabled blending cannot use these fields.
+        if (!pd.colorAttachments[i].pixelFormat) { values[1] = @0; values[2] = @0; }
+        if (![values[2] boolValue]) for (int j = 3; j < 9; j++) values[j] = @0;
+        [colors addObject:values];
+    }
     for (int i = 0; i < 31; i++) {
         MTLVertexAttributeDescriptor *a = pd.vertexDescriptor.attributes[i];
         MTLVertexBufferLayoutDescriptor *l = pd.vertexDescriptor.layouts[i];
@@ -141,7 +147,7 @@ static NSString *prep_pipeline_id(Prog *pr, NSDictionary *descriptor) {
 static bool prep_enabled(void) {
     if (getenv("LARECOMP_FS_OVERRIDE") || getenv("LARECOMP_FS_OVERRIDE_HASH") ||
         getenv("LARECOMP_DBG_FS") || getenv("LARECOMP_DBG_VS")) return false;
-    return g_prep_active || g_prep_programs.count || getenv("LARECOMP_SHADER_RECORD") || getenv("LARECOMP_SHADER_PREP");
+    return g_prep_active || g_prep_programs.count || getenv("LARECOMP_SHADER_RECORD") || getenv("LARECOMP_SHADER_PREP") || g_settings.prepare_shaders;
 }
 
 static id<MTLRenderPipelineState> prep_pipeline(Prog *pr, MTLRenderPipelineDescriptor *pd) {
@@ -193,11 +199,22 @@ static void prep_report(void) {
         LOG("[shader-prep] live reuse: %u program variants, %u pipeline lookups\n", g_prep_program_hits, g_prep_pipeline_hits);
 }
 
+static unsigned prep_worker_count(NSUInteger cpus, NSUInteger jobs, const char *override) {
+    NSUInteger capacity = MIN(MAX(cpus, 1), MAX(jobs, 1));
+    if (override && override[0] >= '1' && override[0] <= '9') {
+        char *end = NULL;
+        errno = 0;
+        unsigned long value = strtoul(override, &end, 10);
+        if (!errno && end && !*end && value) capacity = MIN(capacity, value);
+    }
+    return (unsigned)capacity;
+}
+
 // Translation and address-keyed caches stay on the render thread. Each worker
 // owns one translated program and all its PSOs; nothing escapes until the join.
 static unsigned prep_compile(NSDictionary *jobs, unsigned total, unsigned missed) {
-    const char *serial = getenv("LARECOMP_SHADER_PREP_WORKERS");
-    unsigned workers = serial && !strcmp(serial, "1") ? 1 : 2;
+    unsigned workers = prep_worker_count(NSProcessInfo.processInfo.activeProcessorCount, jobs.count,
+                                         getenv("LARECOMP_SHADER_PREP_WORKERS"));
     dispatch_semaphore_t slots = dispatch_semaphore_create(workers);
     dispatch_group_t group = dispatch_group_create();
     __block unsigned completed = missed, failures = missed, active = 0, peak = 0;
@@ -308,7 +325,8 @@ static bool prep_run(NSString *path, NSString *dir) {
             job = [@{@"program": pr, @"recipes": [NSMutableArray new]} mutableCopy];
             jobs[pr->prep_id] = job;
         }
-        [job[@"recipes"] addObject:@{@"key": prep_pipeline_id(pr, r[@"pipeline"]), @"descriptor": r[@"pipeline"]}];
+        NSDictionary *descriptor = prep_descriptor_dict(prep_descriptor(r[@"pipeline"], nil));
+        [job[@"recipes"] addObject:@{@"key": prep_pipeline_id(pr, descriptor), @"descriptor": descriptor}];
     }}
     g_prep_translate_only = false;
     missed = prep_compile(jobs, total, missed);
@@ -323,11 +341,71 @@ static bool prep_run(NSString *path, NSString *dir) {
     return g_prep_pipelines.count != 0;
 }
 
+// The catalog contains references/state only. The trusted bundled helper reads
+// the player's own files and publishes an immutable generation after verification.
+static bool prep_install(NSString **manifest, NSString **inputs) {
+    char catalog[1100], helper[1100], script[1100] = {0}, decoder[1100] = {0};
+    const char *override = getenv("LARECOMP_SHADER_CATALOG");
+    if (override && *override) snprintf(catalog, sizeof catalog, "%s", override);
+    else if (!rt_resource("shader-catalog.json", NULL, catalog, sizeof catalog)) {
+        snprintf(catalog, sizeof catalog, "cache/shader-preparation/catalog.json");
+        if (access(catalog, R_OK)) { LOG("[shader-prep] no installed catalog; compiling normally\n"); return false; }
+    }
+    if (!rt_resource("lasgen/lasgen", NULL, helper, sizeof helper) &&
+        !(rt_resource(NULL, "tools/" PLAT_VENV_PYTHON, helper, sizeof helper) &&
+          rt_resource(NULL, "tools/lasgen_main.py", script, sizeof script))) {
+        LOG("[shader-prep] preparation helper unavailable; compiling normally\n"); return false;
+    }
+    rt_resource("lasgen/monzamac-shader-decode", "build/shader-decode/release/monzamac-shader-decode", decoder, sizeof decoder);
+    extern const char *g_romfs_dir;
+    if (!g_romfs_dir) return false;
+    NSString *game = [@(g_romfs_dir) stringByDeletingLastPathComponent];
+    mkdir("cache", 0755); mkdir("cache/shader-preparation", 0755);
+    const char *argv[16]; int n = 0;
+    argv[n++] = helper; if (*script) argv[n++] = script;
+    argv[n++] = "shader-catalog"; argv[n++] = "prepare";
+    argv[n++] = game.UTF8String; argv[n++] = catalog; argv[n++] = "cache/shader-preparation";
+    if (*decoder) { argv[n++] = "--decoder"; argv[n++] = decoder; }
+    argv[n] = NULL;
+    backend_shader_prepare_inputs(0, 1);
+    PlatProc child = plat_spawn(argv, "cache/shader-preparation/prepare.log", false);
+    if (!child) { backend_shader_prepare_progress(0, 0); return false; }
+    double started = now_ms(); int result;
+    while ((result = plat_proc_wait(child, false)) < 0) {
+        if (g_rt_unwind || now_ms() - started > 120000) {
+            plat_proc_kill(child); backend_shader_prepare_progress(0, 0);
+            LOG("[shader-prep] input preparation interrupted or timed out; compiling normally\n"); return false;
+        }
+        FILE *f = fopen("cache/shader-preparation/prepare.log", "r");
+        if (f) {
+            char line[512]; unsigned done, total;
+            while (fgets(line, sizeof line, f))
+                if (sscanf(line, "[shader-inputs] %u/%u verified", &done, &total) == 2 && total && total <= 2048)
+                    backend_shader_prepare_inputs(done, total);
+            fclose(f);
+        }
+        usleep(20000);
+    }
+    backend_shader_prepare_progress(0, 0);
+    if (result) { LOG("[shader-prep] input preparation failed (%d); compiling normally (see cache/shader-preparation/prepare.log)\n", result); return false; }
+    NSData *data = [NSData dataWithContentsOfFile:@"cache/shader-preparation/current.json"];
+    if (!data || data.length > 1024) return false;
+    id current = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    if (![current isKindOfClass:NSDictionary.class] || ![current[@"version"] isEqual:@1] || !prep_hash_valid(current[@"catalog"])) return false;
+    NSString *base = [@"cache/shader-preparation" stringByAppendingPathComponent:current[@"catalog"]];
+    *manifest = [base stringByAppendingPathComponent:@"recipes.jsonl"];
+    *inputs = [base stringByAppendingPathComponent:@"inputs"];
+    return true;
+}
+
 static void prep_once(void) {
     if (g_prep_started || g_prep_active) return;
     g_prep_started = true;
     const char *path = getenv("LARECOMP_SHADER_PREP"), *dir = getenv("LARECOMP_SHADER_INPUTS");
-    if (path && dir && prep_enabled() && !prep_run(@(path), @(dir))) LOG("[shader-prep] no usable preparation; compiling normally\n");
+    if (!prep_enabled()) return;
+    NSString *manifest = path && *path ? @(path) : nil, *inputs = dir && *dir ? @(dir) : nil;
+    if (!path && !dir && g_settings.prepare_shaders) prep_install(&manifest, &inputs);
+    if (manifest && inputs && !prep_run(manifest, inputs)) LOG("[shader-prep] no usable preparation; compiling normally\n");
 }
 static void prep_reset(void) {
     g_prep_programs = nil; g_prep_pipelines = nil; g_prep_started = false;
