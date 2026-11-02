@@ -798,6 +798,10 @@ static void tab_developer(float scale) {
                "Adds to the F3 overlay the time the CPU spends translating and submitting a frame's commands (the game's "
                "thread) and the time the GPU is busy per frame (smoothed). If the CPU number is close to the frame time, "
                "the CPU is the limit; if the GPU number is, the GPU is.");
+    opt_toggle("Developer log", &g_settings.dev_log, false,
+               "Writes the warnings the developers look for (a shader the precompilation does not cover, ...) to logs/devlog.txt "
+               "with the time of each, apart from the normal log. Nothing is written when it is off. LARECOMP_DEVLOG=<subjects> "
+               "turns single subjects on without this switch.");
     opt_toggle("GPU timing log", &g_settings.dev_gpu_trace, false,
                "Writes the GPU time of each frame's present window to the log, two lines per frame. For measuring. "
                "LARECOMP_GPU_TIMING_TRACE=1 also writes a line per command buffer (about 140 a frame).");
