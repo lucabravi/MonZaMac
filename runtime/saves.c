@@ -200,6 +200,36 @@ bool saves_delete(const char *id) {
     return !exists(p);
 }
 
+// Routes live apart from the saves (routes/<name>/save = the starting point, routes/<name>/route.txt = the pad), so they
+// never show in the save list. A replay runs on a fresh copy of the starting point: autosaves don't touch the original.
+bool saves_route_begin(const char *name, char *route_out, size_t n) {
+    char id[SAVE_NAME_MAX + 1], dir[160], save[200];
+    if (!clean_name(name, id)) return false;
+    snprintf(dir, sizeof dir, "routes/%s", id);
+    if (exists(dir)) return false;
+    mkdir("routes", 0755);
+    snprintf(save, sizeof save, "%s/save", dir);
+    if (mkdir(dir, 0755) != 0 || !copy_tree(saves_current_path(), save)) { remove_tree(dir); return false; }
+    return (size_t)snprintf(route_out, n, "%s/route.txt", dir) < n;
+}
+
+bool saves_route_names(const char *name) {  // is there a route of this name
+    char dir[160];
+    snprintf(dir, sizeof dir, "routes/%s", name);
+    return exists(dir);
+}
+
+// The save dir for replaying route `name`: a new copy of its starting point (build/route-run), or NULL.
+const char *saves_route_replay_dir(const char *name) {
+    static char run[] = "build/route-run";
+    char src[200];
+    snprintf(src, sizeof src, "routes/%s/save", name);
+    if (!exists(src)) return NULL;
+    remove_tree(run);
+    mkdir("build", 0755);
+    return copy_tree(src, run) ? run : NULL;
+}
+
 // The slot the game reads and writes (g_save_dir): its path as in SaveSlot.path
 const char *saves_current_path(void) { return g_save_dir ? g_save_dir : DEFAULT_DIR; }
 
