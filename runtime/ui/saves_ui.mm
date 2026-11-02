@@ -28,7 +28,7 @@ static const ImU32 sub = IM_COL32(150, 172, 210, 255), warn = IM_COL32(255, 120,
 static const ImU32 gold = IM_COL32(244, 194, 72, 255);
 }
 
-enum Ask { NONE, NEW, COPY, RENAME, DELETE, IMPORT };
+enum Ask { NONE, NEW, COPY, RENAME, DELETE, IMPORT, ROUTE };
 static int g_open = -1;  // the save showing its whole team (its expand button, or Y on a pad, I on the keyboard, on the selected one)
 static SaveSlot g_slots[SAVE_SLOTS_MAX];
 static int g_n, g_sel, g_focus = -1, g_ask = NONE;
@@ -36,6 +36,10 @@ static char g_name[SAVE_NAME_MAX * 4 + 1], g_err[96], g_created[SAVE_NAME_MAX + 
 static bool g_made;  // NEW just made the slot g_created (the home screen's NEW GAME goes on with it)
 static char g_msg[160];  // under the bar: what the last import / export did
 static bool g_msg_bad;
+extern "C" bool route_record_start(const char *file);  // runtime/hle/input.c
+extern "C" void route_record_stop(void);
+extern "C" bool route_recording(void);
+static char g_route_name[SAVE_NAME_MAX + 1];  // the route being recorded (its save slot has the same name)
 
 static SaveSlot g_none;  // (stands in for the selected slot when there is none)
 static void reload(void) { g_n = saves_list(g_slots, SAVE_SLOTS_MAX); if (g_sel >= g_n) g_sel = g_n - 1; if (g_sel < 0) g_sel = 0; }
@@ -365,9 +369,9 @@ static bool dialogs(float sc, ImFont *body, ImFont *small_) {
     ImGui::PopStyleVar(2);
     if (!open) return false;
     ImGui::PushFont(small_);
-    bool naming = g_ask == NEW || g_ask == COPY || g_ask == RENAME || g_ask == IMPORT;
+    bool naming = g_ask == NEW || g_ask == COPY || g_ask == RENAME || g_ask == IMPORT || g_ask == ROUTE;
     const char *title = g_ask == NEW ? "New save" : g_ask == COPY ? "Copy save" : g_ask == RENAME ? "Rename save"
-                      : g_ask == IMPORT ? "Import save" : "Delete save?";
+                      : g_ask == IMPORT ? "Import save" : g_ask == ROUTE ? "Record a route" : "Delete save?";
     ImGui::PushFont(body);
     ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(pal::accent), "%s", title);
     ImGui::PopFont();
@@ -377,15 +381,21 @@ static bool dialogs(float sc, ImFont *body, ImFont *small_) {
         if (ImGui::IsWindowAppearing()) {
             if (g_ask != IMPORT) snprintf(g_name, sizeof g_name, "%s", g_ask == RENAME ? cur.name : "");  // (import: the trainer's, set when staged)
             if (g_ask == COPY) copy_name(cur);
-            for (int k = 1; g_ask == NEW && k < 100; k++) {  // "Save 1", "Save 2", ...: the first free
+            for (int k = 1; (g_ask == NEW || g_ask == ROUTE) && k < 100; k++) {  // "Save 1", "Save 2", ...: the first free
                 char t[32];
                 bool taken = false;
-                snprintf(t, sizeof t, "Save %d", k);
+                snprintf(t, sizeof t, g_ask == ROUTE ? "Route %d" : "Save %d", k);
                 for (int i = 0; i < g_n; i++) taken |= !strcmp(g_slots[i].id, t);
                 if (!taken) { snprintf(g_name, sizeof g_name, "%s", t); break; }
             }
         }
         if (g_ask == COPY) ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(pal::sub), "Name for the copy of \"%s\"", cur.name);
+        if (g_ask == ROUTE) {
+            ImGui::PushTextWrapPos(0);
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(pal::sub), "The save in use (\"%s\", as the game last saved it) is copied under this name first, then the pad is "
+                               "recorded until you stop. Play the copy and the route is in its folder.", cur.name);
+            ImGui::PopTextWrapPos();
+        }
         if (g_ask == IMPORT) import_preview(sc, small_);
         ImGui::SetNextItemWidth(-1);
         if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
@@ -410,6 +420,17 @@ static bool dialogs(float sc, ImFont *body, ImFont *small_) {
         if (g_ask == IMPORT) {
             done = saves_import_commit(g_name, g_created);
             if (done) select_id(g_created), snprintf(g_msg, sizeof g_msg, "Imported as \"%s\".", g_created), g_msg_bad = false;
+        } else if (g_ask == ROUTE) {
+            done = saves_copy(cur.id, g_name);  // (before the first pad change, so the actions of the route don't reach it)
+            if (done) {
+                reload();
+                char f[160];
+                for (int i = 0; i < g_n; i++)
+                    if (!strcmp(g_slots[i].name, g_name) && saves_route_file(g_slots[i].id, f, sizeof f) && route_record_start(f)) {
+                        snprintf(g_route_name, sizeof g_route_name, "%s", g_name);
+                        snprintf(g_msg, sizeof g_msg, "Recording \"%s\".", g_name), g_msg_bad = false;
+                    }
+            }
         } else if (g_ask == COPY) {
             done = saves_copy(cur.id, g_name);
             if (done) snprintf(g_msg, sizeof g_msg, "Copied as \"%s\".", g_name), g_msg_bad = false;
@@ -1001,4 +1022,30 @@ bool saves_ingame_tab(float scale, ImFont *body, ImFont *small_) {
     }
     if (g_act >= 0) restart = action_window(scale, cur, body, small_);
     return restart;
+}
+
+// Developer tab: the entry that records a route (a save copy + the pad changes), and its name dialog.
+void saves_route_entry(void) {
+    static int age = 1000;
+    if (g_ask == NONE && ++age > 60) reload(), age = 0;
+    if (route_recording()) {
+        char d[200];
+        snprintf(d, sizeof d, "Recording \"%s\": the pad is written to route.txt in the folder of that save. Stop when the route is done.", g_route_name);
+        if (opt_action("Stop recording", g_route_name, d)) route_record_stop();
+        return;
+    }
+    int cur = -1;
+    for (int i = 0; i < g_n; i++)
+        if (!strcmp(g_slots[i].path, saves_current_path())) cur = i;
+    if (cur < 0 || g_n >= SAVE_SLOTS_MAX) opt_disable_next();
+    if (opt_action("Record a route", "", "Asks for a name, copies the save in use (as the game last saved it: save first) into a new save of that name, then "
+                   "records everything you press until you stop. The copy keeps the starting point; the route is route.txt in its folder. "
+                   "To play it back: LARECOMP_INPUT_REPLAY=<route.txt> (LARECOMP_INPUT_REPLAY_AT=<frame> to start it later) with LARECOMP_SAVE_DIR set to a copy of that folder.") && cur >= 0) {
+        g_sel = cur;
+        g_ask = ROUTE, g_err[0] = 0;
+    }
+}
+void saves_route_dialog(float scale, ImFont *body, ImFont *small_) {
+    g_menu_look = true;
+    if (g_ask == ROUTE || ImGui::IsPopupOpen("##saveask")) dialogs(scale, body, small_);
 }

@@ -38,6 +38,8 @@ bool saves_import_commit(const char *name, char *id_out);  // false: bad or take
 void saves_import_cancel(void);
 // Export: the slot's save as a .zip (save_0/...), the form an import takes back.
 bool saves_export(const char *id, const char *zip);
+// Where a route recorded with this slot's save is kept (route.txt in its folder; Developer tab, runtime/ui/saves_ui.mm).
+bool saves_route_file(const char *id, char *out, size_t n);
 const char *saves_current_path(void);  // the slot the game uses (as SaveSlot.path)
 // The game uses this slot's data from now on (g_save_dir). Unknown id: the original.
 void saves_select(const char *id);

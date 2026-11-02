@@ -200,6 +200,12 @@ bool saves_delete(const char *id) {
     return !exists(p);
 }
 
+bool saves_route_file(const char *id, char *out, size_t n) {
+    char p[128];
+    slot_path(id, p, sizeof p);
+    return (size_t)snprintf(out, n, "%s/route.txt", p) < n;
+}
+
 // The slot the game reads and writes (g_save_dir): its path as in SaveSlot.path
 const char *saves_current_path(void) { return g_save_dir ? g_save_dir : DEFAULT_DIR; }
 

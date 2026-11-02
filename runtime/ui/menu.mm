@@ -789,7 +789,9 @@ static void tab_quit(float scale, bool in_game) {
 
 // Developer: switches for diagnostics, shown with "developer = 1" in the ini (or LARECOMP_DEVELOPER=1, or Cmd+Shift+D).
 // Each applies at once; LARECOMP_* variables still work and win where a feature has one.
-static void tab_developer(void) {
+void saves_route_entry(void);
+void saves_route_dialog(float, ImFont *, ImFont *);
+static void tab_developer(float scale) {
     opt_begin("##developer", ImGui::GetFontSize() / 34);
     opt_section("Diagnostics");
     opt_toggle("Frame times in F3", &g_settings.dev_frame_stats, false,
@@ -814,10 +816,13 @@ static void tab_developer(void) {
                "stays open and a barrier orders the data instead, about 1 ms less GPU time a frame in the tested scenes "
                "(4% at 1.5x, one test went from 38 to 42 fps). Applies at once. Risk: if the ordering is not enough, characters can "
                "look deformed or missing for a frame. Turn it off if anything looks wrong, and tell us where.");
+    opt_section("Tests");
+    saves_route_entry();
     opt_section("Menu");
     opt_toggle("Show this tab", &g_settings.developer, false,
                "Off hides the Developer tab again (Cmd+Shift+D or \"developer = 1\" in larecomp.ini bring it back).");
     opt_end();
+    saves_route_dialog(scale, g_font_big, g_font);
 }
 
 static void tab_about(void) {
@@ -1064,7 +1069,7 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
                 case 12: tab_shaders(); break;
                 case 8: tab_about(); break;
                 case 9: tab_quit(scale, in_game); break;
-                case 10: tab_developer(); break;
+                case 10: tab_developer(scale); break;
                 case 11: {  // (true: the game restarts with another save)
                     bool saves_ingame_tab(float, ImFont *, ImFont *);
                     if (saves_ingame_tab(scale, g_font_big, g_font)) set_open(false);
