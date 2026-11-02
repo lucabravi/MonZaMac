@@ -103,4 +103,5 @@ static void precompile_run(void) {
     precompile_write_stamp(root.UTF8String, built);
     LOG("[precompile] %u shaders: %u translated, %u libraries compiled (%u compute pipelines) on %u workers in %.1f s\n", total, translated, built,
         pipelines, workers, (now_ms() - t0) / 1000);
+    if (getenv("LARECOMP_PRECOMPILE_EXIT")) { fflush(stderr); _exit(0); }  // (tests: leave the game before it runs anything)
 }
