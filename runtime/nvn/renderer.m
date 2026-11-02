@@ -3516,7 +3516,8 @@ static bool dbg_budget(int *n, uint64_t *frame, int limit) {
 // the whole frame black. Scene draws are still skipped until ready. (As ZA Recomp's Vulkan wait_built, 302bd07.)
 // Scene draws wait a little too: a program or pipeline that Metal already has in its caches is built in a millisecond or
 // two, but skipping the draw took the object off the screen for a whole frame, at different places each run as the
-// builds' timing varies. Up to 4 ms a draw and 6 ms a frame (LARECOMP_SCENE_WAIT_MS, 0: skip at once); past that the draw
+// builds' timing varies. Up to 4 ms a draw and 6 ms a frame, less when the frame has little room left (LARECOMP_SCENE_WAIT_MS
+// sets the ceiling, 0: skip at once); past that the draw
 // is skipped as before - a shader built for the first time costs a moment's pop-in instead of a hitch.
 static inline uint64_t now_ns_scene(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW); }
 static double g_scene_wait_ns_frame;
@@ -3527,7 +3528,15 @@ static bool scene_wait_budget(uint64_t *left_ns) {
     static uint64_t frame = ~0ull;
     uint64_t f = renderer_present_count();
     if (f != frame) { frame = f; g_scene_wait_ns_frame = 0; }
-    double left = budget_ms * 1e6 - g_scene_wait_ns_frame;
+    // The room left in the frame: its period minus what the CPU and the GPU use (smoothed, as the F3 overlay shows them) and
+    // a millisecond to spare - so a scene that already fills its frame doesn't wait at all, an easy one waits the full budget.
+    extern double g_stat_cpu_ms, g_stat_gpu_ms;
+    extern int g_out_present_interval;
+    double period = 16.67 * (g_out_present_interval >= 1 && g_out_present_interval <= 4 ? g_out_present_interval : 1);
+    double busy = g_stat_cpu_ms > g_stat_gpu_ms ? g_stat_cpu_ms : g_stat_gpu_ms;
+    double room = busy > 0 ? period - busy - 1.0 : budget_ms;
+    double cap = room < budget_ms ? room : budget_ms;
+    double left = cap * 1e6 - g_scene_wait_ns_frame;
     if (left > 4e6) left = 4e6;
     if (left <= 0) return false;
     *left_ns = (uint64_t)left;
