@@ -31,6 +31,7 @@ static NSMutableDictionary<NSString *, id> *cache;
 static uint64_t stat_wait_by[3], stat_wait_n[3];
 static void dump_pending_arrays(void);
 static uint64_t stat_ring_reused;
+static uint64_t g_stat_scene_wait_ns, g_stat_scene_waits, g_stat_scene_wait_hits, g_stat_scene_hit_max_ns;
 static uint64_t stat_draws, stat_skipped, stat_passes, stat_dispatches, stat_wait_ns, stat_flushes, stat_feedback_copies;
 static uint64_t stat_skip_none, stat_skip_failed, stat_skip_wait;  // why a draw was dropped
 static double stat_gpu_s;
@@ -585,6 +586,10 @@ static uint64_t hmix(uint64_t h, const void *p, size_t n) {
 const char *renderer_stats(void) {
     if (getenv("LARECOMP_UNIFORM_STATS"))
         LOG("[uniform] copied %.1f MB reused %.1f MB, rings reused %llu\n", stat_uniform_copied / 1048576.0, stat_uniform_reused / 1048576.0, (unsigned long long)stat_ring_reused);
+    if (getenv("LARECOMP_SCENE_WAIT_LOG"))
+        LOG("[scene-wait] %llu waits, %llu got their shader or pipeline in time, %.1f ms waited, longest success %.2f ms\n", (unsigned long long)g_stat_scene_waits,
+            (unsigned long long)g_stat_scene_wait_hits, g_stat_scene_wait_ns / 1e6, g_stat_scene_hit_max_ns / 1e6);
+    g_stat_scene_waits = g_stat_scene_wait_hits = g_stat_scene_wait_ns = 0;
     stat_uniform_copied = stat_uniform_reused = 0;
     static int dumps;
     if (dumps++ < 3) {
@@ -3509,9 +3514,50 @@ static bool dbg_budget(int *n, uint64_t *frame, int limit) {
 // A draw of a handful of vertices - a full-screen pass: post-processing, a menu's backdrop, the composite into the
 // window image - whose program is still compiling is waited for (a few ms, once) rather than skipped: skipping one left
 // the whole frame black. Scene draws are still skipped until ready. (As ZA Recomp's Vulkan wait_built, 302bd07.)
+// Scene draws wait a little too: a program or pipeline that Metal already has in its caches is built in a millisecond or
+// two, but skipping the draw took the object off the screen for a whole frame, at different places each run as the
+// builds' timing varies. Up to 1 ms a draw (a build Metal already has takes under 0.3 ms; one that isn't there takes far longer than any wait) and 6 ms a frame, less when the frame has little room left (LARECOMP_SCENE_WAIT_MS
+// sets the ceiling, 0: skip at once); past that the draw
+// is skipped as before - a shader built for the first time costs a moment's pop-in instead of a hitch.
+static inline uint64_t now_ns_scene(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW); }
+static double g_scene_wait_ns_frame;
+static bool scene_wait_budget(uint64_t *left_ns) {
+    static double budget_ms = -1;
+    if (budget_ms < 0) budget_ms = getenv("LARECOMP_SCENE_WAIT_MS") ? atof(getenv("LARECOMP_SCENE_WAIT_MS")) : 6;
+    extern uint64_t renderer_present_count(void);
+    static uint64_t frame = ~0ull;
+    uint64_t f = renderer_present_count();
+    if (f != frame) { frame = f; g_scene_wait_ns_frame = 0; }
+    // The room left in the frame: its period minus what the CPU and the GPU use (smoothed, as the F3 overlay shows them) and
+    // a millisecond to spare - so a scene that already fills its frame doesn't wait at all, an easy one waits the full budget.
+    extern double g_stat_cpu_ms, g_stat_gpu_ms;
+    extern int g_out_present_interval;
+    double period = 16.67 * (g_out_present_interval >= 1 && g_out_present_interval <= 4 ? g_out_present_interval : 1);
+    double busy = g_stat_cpu_ms > g_stat_gpu_ms ? g_stat_cpu_ms : g_stat_gpu_ms;
+    double room = busy > 0 ? period - busy - 1.0 : budget_ms;
+    double cap = room < budget_ms ? room : budget_ms;
+    double left = cap * 1e6 - g_scene_wait_ns_frame;
+    if (left > 1e6) left = 1e6;
+    if (left <= 0) return false;
+    *left_ns = (uint64_t)left;
+    return true;
+}
 static bool prog_ready_or_wait(Prog *pr, const CmdRec *r) {
     if (!pr || (pr->ready && !pr->early_pending)) return pr != nil;
-    if (r->x[2] > 6 && !sync_shaders()) return false;
+    uint64_t scene_left = 0;
+    if (r->x[2] > 6 && !sync_shaders()) {
+        if (!pr->failed && scene_wait_budget(&scene_left)) {
+            uint64_t s0 = now_ns_scene();
+            while ((!pr->ready || pr->early_pending) && !pr->failed && now_ns_scene() - s0 < scene_left) {
+                early_publish();
+                if (!pr->ready || pr->early_pending) usleep(100);
+            }
+            uint64_t spent = now_ns_scene() - s0;
+            g_scene_wait_ns_frame += spent; g_stat_scene_wait_ns += spent; g_stat_scene_waits++;
+            if (pr->ready && !pr->early_pending) { g_stat_scene_wait_hits++; if (spent > g_stat_scene_hit_max_ns) g_stat_scene_hit_max_ns = spent; return true; }
+        }
+        return false;
+    }
     double t0 = now_ms();
     while ((!pr->ready || pr->early_pending) && !pr->failed && now_ms() - t0 < 2000) {
         early_publish(); // only publishes completed objects; never starts translation
@@ -3795,6 +3841,20 @@ static void draw(CmdRec *r, bool indexed) {
         @synchronized(ready_pipes) {
             id done = ready_pipes[pk];
             if (done) { [ready_pipes removeObjectForKey:pk]; cache[pk] = done; pobj = done; }
+        }
+        uint64_t pipe_left = 0;
+        if (pobj == pending && r->x[2] > 6 && scene_wait_budget(&pipe_left)) {
+            uint64_t s0 = now_ns_scene();
+            while (pobj == pending && now_ns_scene() - s0 < pipe_left) {
+                usleep(100);
+                @synchronized(ready_pipes) {
+                    id done = ready_pipes[pk];
+                    if (done) { [ready_pipes removeObjectForKey:pk]; cache[pk] = done; pobj = done; }
+                }
+            }
+            uint64_t spent = now_ns_scene() - s0;
+            g_scene_wait_ns_frame += spent; g_stat_scene_wait_ns += spent; g_stat_scene_waits++;
+            if (pobj != pending) { g_stat_scene_wait_hits++; if (spent > g_stat_scene_hit_max_ns) g_stat_scene_hit_max_ns = spent; }
         }
         if (pobj == pending) { stat_skipped++; stat_skip_wait++; dbg_skips++; return; }
     }
