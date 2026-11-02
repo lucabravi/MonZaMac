@@ -5,6 +5,7 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+- **Record a route** (Developer tab, Tests): asks for a name, copies the save in use to `routes/<name>/save` and records every pad change into `routes/<name>/route.txt` until you stop. Routes are not in the save list. `LARECOMP_ROUTE=<name>` plays one back on a fresh copy of its starting save each time, so an autosave during the replay never touches it; `LARECOMP_INPUT_REPLAY_AT=<frame>` delays the start (the game needs about 600 frames to load a save and press Continue). For repeatable performance tests.
 - A menu row with ◀ ▶ arrows no longer shows the arrow that has nowhere to go (first or last choice, minimum or maximum).
 
 ## 0.1.5
