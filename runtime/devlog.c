@@ -1,11 +1,13 @@
 // Developer log (devlog.h).
 #include "devlog.h"
+#include "settings.h"
 #include <pthread.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <time.h>
 
 static const char *subjects() {
@@ -16,6 +18,7 @@ static const char *subjects() {
 }
 
 bool devlog_on(const char *subject) {
+    if (g_settings.dev_log) return true;  // (the Developer tab: every subject)
     const char *s = subjects();
     if (!s) return false;
     if (!strcmp(s, "all")) return true;
@@ -41,7 +44,12 @@ void devlog(const char *subject, const char *fmt, ...) {
         f = fopen(path, "a");
     }
     if (f) {
-        fprintf(f, "[%s] ", subject);
+        struct timeval tv;
+        struct tm tm;
+        gettimeofday(&tv, NULL);
+        localtime_r(&tv.tv_sec, &tm);
+        fprintf(f, "%04d-%02d-%02d %02d:%02d:%02d.%03d [%s] ", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min,
+                tm.tm_sec, (int)(tv.tv_usec / 1000), subject);
         va_list ap;
         va_start(ap, fmt);
         vfprintf(f, fmt, ap);

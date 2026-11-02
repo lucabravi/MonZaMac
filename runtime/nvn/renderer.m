@@ -2006,16 +2006,13 @@ static unsigned g_prep_cs_hits;
 
 // The key every compute program of the game's recipes was built with: texture slot 28 as a stencil and an unsigned view
 // (the precompilation builds them with it too, shader_precompile.inc). A program built with another key is logged
-// under LARECOMP_DEVLOG=compute: that one is not covered by the precompilation.
+// in the developer log (devlog.h, subject compute): that one is not covered by the precompilation.
 #define CS_KEY_SLOTS (1u << 28)
 
 static bool cs_translate(CsProg *cp, const NvnShaderStage *ss, const ShaderKey *k, const uint32_t local[3]) {
-    if (devlog_on("compute")) {
-        bool expected = k->stencil_slots == CS_KEY_SLOTS && k->uint_slots == CS_KEY_SLOTS && !k->sint_slots && !k->img_sint && !k->img_uint;
-        devlog("compute", "%s code %llx key stencil %#x sint %#x uint %#x img_sint %#x img_uint %#x local %u,%u,%u",
-               expected ? "expected key:" : "UNEXPECTED key (not precompiled):", (unsigned long long)ss->code_addr,
-               k->stencil_slots, k->sint_slots, k->uint_slots, k->img_sint, k->img_uint, local[0], local[1], local[2]);
-    }
+    if (devlog_on("compute") && !(k->stencil_slots == CS_KEY_SLOTS && k->uint_slots == CS_KEY_SLOTS && !k->sint_slots && !k->img_sint && !k->img_uint))
+        devlog("compute", "built with a key the precompilation does not cover: code %llx stencil %#x sint %#x uint %#x img_sint %#x img_uint %#x local %u,%u,%u",
+               (unsigned long long)ss->code_addr, k->stencil_slots, k->sint_slots, k->uint_slots, k->img_sint, k->img_uint, local[0], local[1], local[2]);
     backend_gwin_pick();
     maxwell_gmem_base = g_gwin_base;
     maxwell_gmem_size = g_gwin_max;

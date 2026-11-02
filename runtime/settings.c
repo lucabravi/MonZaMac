@@ -116,6 +116,7 @@ void settings_load(void) {
         else if (!strcmp(key, "xfb_barrier")) g_settings.xfb_barrier = atoi(val) != 0;
         else if (!strcmp(key, "game_dynamic_res")) g_settings.game_drs = atoi(val) != 0;
         else if (!strcmp(key, "developer")) g_settings.developer = atoi(val) != 0;
+        else if (!strcmp(key, "dev_log")) g_settings.dev_log = atoi(val) != 0;
         else if (!strcmp(key, "dev_gpu_trace")) g_settings.dev_gpu_trace = atoi(val) != 0;
         else if (!strcmp(key, "dev_uncapped_fps")) g_settings.dev_uncapped_fps = atoi(val) != 0;
         else if (!strcmp(key, "dev_frame_stats")) g_settings.dev_frame_stats = atoi(val) != 0;
@@ -196,6 +197,7 @@ void settings_save(void) {
     fprintf(f, "xfb_barrier = %d\n", g_settings.xfb_barrier);
     fprintf(f, "game_dynamic_res = %d\n", g_settings.game_drs);
     fprintf(f, "developer = %d\n", g_settings.developer);
+    fprintf(f, "dev_log = %d\n", g_settings.dev_log);
     fprintf(f, "dev_gpu_trace = %d\n", g_settings.dev_gpu_trace);
     fprintf(f, "dev_uncapped_fps = %d\n", g_settings.dev_uncapped_fps);
     fprintf(f, "dev_frame_stats = %d\n", g_settings.dev_frame_stats);
