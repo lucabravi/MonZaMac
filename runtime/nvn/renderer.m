@@ -30,6 +30,7 @@ static NSMutableDictionary<NSString *, id> *cache;
 // (stats) GPU wait time by cause: 0 = guest fence (nvnSyncWait), 1 = full flush (CPU reads GPU results / ring), 2 = sync all
 static uint64_t stat_wait_by[3], stat_wait_n[3];
 static void dump_pending_arrays(void);
+static uint64_t stat_ring_reused;
 static uint64_t stat_draws, stat_skipped, stat_passes, stat_dispatches, stat_wait_ns, stat_flushes, stat_feedback_copies;
 static uint64_t stat_skip_none, stat_skip_failed, stat_skip_wait;  // why a draw was dropped
 static double stat_gpu_s;
@@ -583,7 +584,7 @@ static uint64_t hmix(uint64_t h, const void *p, size_t n) {
 
 const char *renderer_stats(void) {
     if (getenv("LARECOMP_UNIFORM_STATS"))
-        LOG("[uniform] copied %.1f MB reused %.1f MB\n", stat_uniform_copied / 1048576.0, stat_uniform_reused / 1048576.0);
+        LOG("[uniform] copied %.1f MB reused %.1f MB, rings reused %llu\n", stat_uniform_copied / 1048576.0, stat_uniform_reused / 1048576.0, (unsigned long long)stat_ring_reused);
     stat_uniform_copied = stat_uniform_reused = 0;
     static int dumps;
     if (dumps++ < 3) {
@@ -1441,11 +1442,39 @@ static uint8_t *ring_data;
 static uint64_t ring_off, ring_epoch;
 #define RING_SIZE (64u << 20)
 
+// Rings that were filled and left: reused once the last command buffer that read them has completed (a fresh
+// 64 MB buffer per wrap is zeroed and faulted in by the kernel); LARECOMP_NO_RING_POOL=1 allocates fresh ones.
+#define RING_POOL 6
+static struct { id<MTLBuffer> buf; uint64_t seq; } ring_retired[RING_POOL];
+
+static bool ring_seq_done(uint64_t seq) {
+    pthread_mutex_lock(&cb_lock);
+    bool done = seq <= submit_seq && (submit_seq - seq >= CB_HIST || !cb_hist[seq % CB_HIST] ||
+                cb_hist[seq % CB_HIST].status >= MTLCommandBufferStatusCompleted);
+    pthread_mutex_unlock(&cb_lock);
+    return done;
+}
+
 static uint64_t ring_alloc(const void *data, uint64_t size) {
     uint64_t aligned = (ring_off + 255) & ~255ull;
     if (!ring || aligned + size > RING_SIZE) {
-        // Start a fresh ring; command buffers in flight keep the old one alive until they complete.
-        ring = [dev newBufferWithLength:(size > RING_SIZE ? size : RING_SIZE) options:MTLResourceStorageModeShared];
+        static int pool_off = -1;
+        if (pool_off < 0) pool_off = getenv("LARECOMP_NO_RING_POOL") != NULL;
+        if (ring && !pool_off && ring.length == RING_SIZE) {  // retire the full one, keep it for later
+            int slot = 0;
+            for (int i = 0; i < RING_POOL; i++) {
+                if (!ring_retired[i].buf) { slot = i; break; }
+                if (ring_retired[i].seq < ring_retired[slot].seq) slot = i;
+            }
+            ring_retired[slot].buf = ring;  // (a full pool drops its oldest entry)
+            ring_retired[slot].seq = renderer_fence_seq();
+        }
+        id<MTLBuffer> next = nil;
+        if (size <= RING_SIZE && !pool_off)
+            for (int i = 0; i < RING_POOL && !next; i++)
+                if (ring_retired[i].buf && ring_seq_done(ring_retired[i].seq)) { next = ring_retired[i].buf; ring_retired[i].buf = nil; stat_ring_reused++; }
+        // Otherwise start a fresh ring; command buffers in flight keep the old one alive until they complete.
+        ring = next ?: [dev newBufferWithLength:(size > RING_SIZE ? size : RING_SIZE) options:MTLResourceStorageModeShared];
         ring_data = ring.contents;
         ring_epoch++;
         aligned = 0;

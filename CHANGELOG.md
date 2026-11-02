@@ -5,6 +5,7 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+- The renderer reuses its retired 64 MB upload buffers instead of allocating a new one on every wrap (about 46 allocations in 1500 frames). Measured on a station walk replay, uncapped at 1x: 83.1, 87.1, 89.4 fps without it and 87.9, 89.4, 90.9 with it, alternating runs, so about 3% more, a small margin. `LARECOMP_NO_RING_POOL=1` turns it off.
 - A menu row with ◀ ▶ arrows no longer shows the arrow that has nowhere to go (first or last choice, minimum or maximum).
 
 ## 0.1.5
