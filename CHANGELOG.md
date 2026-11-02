@@ -3,6 +3,10 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
+## Unreleased
+
+- A menu row with ◀ ▶ arrows no longer shows the arrow that has nowhere to go (first or last choice, minimum or maximum).
+
 ## 0.1.5
 
 ### Shaders
