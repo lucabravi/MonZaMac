@@ -534,8 +534,11 @@ static void fill_state(Cpu *c) {
             rec_on = 1;
             if (getenv("LARECOMP_INPUT_REC")) route_record_start(getenv("LARECOMP_INPUT_REC"));
             if (getenv("LARECOMP_INPUT_REPLAY_AT")) replay_at = strtoull(getenv("LARECOMP_INPUT_REPLAY_AT"), NULL, 10);
-            if (getenv("LARECOMP_INPUT_REPLAY")) {
-                FILE *rf = fopen(getenv("LARECOMP_INPUT_REPLAY"), "r");
+            char rpath[200];
+            const char *replay = getenv("LARECOMP_INPUT_REPLAY");
+            if (getenv("LARECOMP_ROUTE")) snprintf(rpath, sizeof rpath, "routes/%s/route.txt", getenv("LARECOMP_ROUTE")), replay = rpath;
+            if (replay) {
+                FILE *rf = fopen(replay, "r");
                 unsigned long long f, bb;
                 int l1, l2, r1, r2;
                 size_t cap = 0;
@@ -544,7 +547,7 @@ static void fill_state(Cpu *c) {
                     tape[ntape].f = f; tape[ntape].b = bb; tape[ntape].lx = l1; tape[ntape].ly = l2; tape[ntape].rx = r1; tape[ntape++].ry = r2;
                 }
                 if (rf) fclose(rf);
-                LOG("[input] replaying %zu pad states from %s\n", ntape, getenv("LARECOMP_INPUT_REPLAY"));
+                LOG("[input] replaying %zu pad states from %s\n", ntape, replay);
             }
         }
         uint64_t fr = renderer_present_count();

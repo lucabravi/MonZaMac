@@ -386,14 +386,15 @@ static bool dialogs(float sc, ImFont *body, ImFont *small_) {
                 bool taken = false;
                 snprintf(t, sizeof t, g_ask == ROUTE ? "Route %d" : "Save %d", k);
                 for (int i = 0; i < g_n; i++) taken |= !strcmp(g_slots[i].id, t);
+                if (g_ask == ROUTE) taken = saves_route_names(t);
                 if (!taken) { snprintf(g_name, sizeof g_name, "%s", t); break; }
             }
         }
         if (g_ask == COPY) ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(pal::sub), "Name for the copy of \"%s\"", cur.name);
         if (g_ask == ROUTE) {
             ImGui::PushTextWrapPos(0);
-            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(pal::sub), "The save in use (\"%s\", as the game last saved it) is copied under this name first, then the pad is "
-                               "recorded until you stop. Play the copy and the route is in its folder.", cur.name);
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(pal::sub), "The save in use (\"%s\", as the game last saved it) is copied into routes/ first (it does not show in the save list), then the pad is "
+                               "recorded until you stop.", cur.name);
             ImGui::PopTextWrapPos();
         }
         if (g_ask == IMPORT) import_preview(sc, small_);
@@ -421,16 +422,9 @@ static bool dialogs(float sc, ImFont *body, ImFont *small_) {
             done = saves_import_commit(g_name, g_created);
             if (done) select_id(g_created), snprintf(g_msg, sizeof g_msg, "Imported as \"%s\".", g_created), g_msg_bad = false;
         } else if (g_ask == ROUTE) {
-            done = saves_copy(cur.id, g_name);  // (before the first pad change, so the actions of the route don't reach it)
-            if (done) {
-                reload();
-                char f[160];
-                for (int i = 0; i < g_n; i++)
-                    if (!strcmp(g_slots[i].name, g_name) && saves_route_file(g_slots[i].id, f, sizeof f) && route_record_start(f)) {
-                        snprintf(g_route_name, sizeof g_route_name, "%s", g_name);
-                        snprintf(g_msg, sizeof g_msg, "Recording \"%s\".", g_name), g_msg_bad = false;
-                    }
-            }
+            char f[200];
+            done = saves_route_begin(g_name, f, sizeof f) && route_record_start(f);  // (the start is copied before the first pad change)
+            if (done) snprintf(g_route_name, sizeof g_route_name, "%s", g_name), snprintf(g_msg, sizeof g_msg, "Recording \"%s\".", g_name), g_msg_bad = false;
         } else if (g_ask == COPY) {
             done = saves_copy(cur.id, g_name);
             if (done) snprintf(g_msg, sizeof g_msg, "Copied as \"%s\".", g_name), g_msg_bad = false;
@@ -1038,9 +1032,9 @@ void saves_route_entry(void) {
     for (int i = 0; i < g_n; i++)
         if (!strcmp(g_slots[i].path, saves_current_path())) cur = i;
     if (cur < 0 || g_n >= SAVE_SLOTS_MAX) opt_disable_next();
-    if (opt_action("Record a route", "", "Asks for a name, copies the save in use (as the game last saved it: save first) into a new save of that name, then "
-                   "records everything you press until you stop. The copy keeps the starting point; the route is route.txt in its folder. "
-                   "To play it back: LARECOMP_INPUT_REPLAY=<route.txt> (LARECOMP_INPUT_REPLAY_AT=<frame> to start it later) with LARECOMP_SAVE_DIR set to a copy of that folder.") && cur >= 0) {
+    if (opt_action("Record a route", "", "Asks for a name, copies the save in use (as the game last saved it: save first) to routes/<name>, then "
+                   "records everything you press until you stop. The copy keeps the starting point; it is kept in routes/<name>, not in the save list. "
+                   "To play it back: LARECOMP_ROUTE=<name> (a fresh copy of the starting save each time; LARECOMP_INPUT_REPLAY_AT=<frame> starts it later).") && cur >= 0) {
         g_sel = cur;
         g_ask = ROUTE, g_err[0] = 0;
     }
