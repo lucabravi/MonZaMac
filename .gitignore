@@ -11,6 +11,8 @@ build/
 /cache/
 save/
 saves/
+# recorded routes: a copy of a save and the pad, never committed
+/routes/
 save.*/
 /larecomp.ini
 # tools and Python environments (machine-specific)
