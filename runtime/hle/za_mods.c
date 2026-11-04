@@ -138,6 +138,14 @@ static void za_smooth_anim_stub(Cpu *c) {
     dispatch_lookup(0x7001dce6b8ull)(c);
 }
 
+// Whether the option has any effect: the override is only installed for the build it was checked on (the menu row is
+// greyed out on the others, and on the start screen, before the build is known)
+bool rt_za_smooth_anim_supported(void) {
+    extern uint8_t g_game_build[8];
+    static const uint8_t b202[8] = {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a};
+    return !memcmp(g_game_build, b202, sizeof b202);
+}
+
 void rt_za_smooth_anim_install(void) {
     extern uint8_t g_game_build[8];
     static const uint8_t b202[8] = {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a};
