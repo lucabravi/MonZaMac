@@ -54,6 +54,7 @@ typedef struct {
     bool fxaa;           // Pokémon Z-A: its own FXAA anti-aliasing
     bool bloom;          // Pokémon Z-A: its bloom (glow around bright light)
     bool fov;            // Pokémon Z-A: a wider field of view (runtime/hle/za_mods.c rt_za_fov)
+    bool smooth_anim;    // Pokémon Z-A: distant characters animate every frame (rt_za_smooth_anim_install)
     bool lod;            // Pokémon Z-A: 8x anisotropic filtering and LOD bias -1.0 (the bias needs macOS 26) (rt_za_lod)
     bool shadows_4k;     // Pokémon Z-A: 4096 shadow map, only with LARECOMP_SHADOWS_4K=1 (rt_za_shadows_4k): no menu entry or ini key any more, see shadow_res
     int shadow_res;      // 1-4: the shadow maps are drawn at that many times the game's size, from the next start (runtime/nvn/metal.m)

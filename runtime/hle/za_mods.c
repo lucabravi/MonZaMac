@@ -89,7 +89,9 @@ bool rt_za_shadows_4k(void) {
 // Z-A 2.0.2 budgets 20 active NPCs and 25 selection candidates. Raising both to 64 removed
 // repeated TempExit churn in the tested station walk. This preserves the game's scoring,
 // distance checks and exit lifecycle; it does not correct the underlying priority policy.
+void rt_za_smooth_anim_install(void);
 void rt_za_npc_capacity(void) {
+    rt_za_smooth_anim_install();
     extern uint8_t g_game_build[8];
     static const uint8_t b202[8] = {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a};
     const char *e = ENV("LARECOMP_NPC_CAPACITY_FIX");
@@ -107,4 +109,41 @@ void rt_za_npc_capacity(void) {
     ST32(logical_addr, 64);
     ST32(selector + 0x310, 64);
     LOG("[za] NPC appearance budgets %u/%u -> 64/64\n", logical, selection);
+}
+
+// Smooth distant animation. The game's per-frame animation update (0x7001dcdf40) reads one byte of each entity's context,
+// [[this+0x48]+0x1f4]: set, the entity is updated every frame; clear, it goes through the reduced path that makes distant
+// characters and Pokémon move in visible steps (an entry-selection pass, about 24 of 70 entities set at a time, chosen by
+// distance and view). Setting the byte for every entity before the update keeps the game's own logic and only removes the
+// reduction. It is applied by overriding the update and its vtable stub (0x7001dce6b8, which moves `this` by -0x20 and
+// jumps to the update directly, so the update alone is never reached through the table): no change to the game library.
+static void za_smooth_anim(uint64_t self) {
+    static int logged = -1;
+    static const char *env;
+    static bool env_read;
+    if (!env_read) { env = ENV("LARECOMP_SMOOTH_ANIM"); env_read = true; }
+    if (self < 0x7000000000ull || self >= GUEST_HI - 0x50) return;
+    uint64_t ctx = LD64(self + 0x48);
+    if (ctx < 0x7000000000ull || ctx >= GUEST_HI - 0x200) return;
+    if (!on("smooth distant animation", env, g_settings.smooth_anim, &logged)) return;
+    uint8_t *flag = (uint8_t *)(uintptr_t)(ctx + 0x1f4);
+    if (!*flag) *flag = 1;
+}
+static void za_smooth_anim_update(Cpu *c) {
+    za_smooth_anim(c->x[0]);
+    dispatch_lookup(0x7001dcdf40ull)(c);
+}
+static void za_smooth_anim_stub(Cpu *c) {
+    za_smooth_anim(c->x[0] - 0x20);
+    dispatch_lookup(0x7001dce6b8ull)(c);
+}
+
+void rt_za_smooth_anim_install(void) {
+    extern uint8_t g_game_build[8];
+    static const uint8_t b202[8] = {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a};
+    static bool done;
+    if (done || memcmp(g_game_build, b202, sizeof b202)) return;
+    done = true;
+    hle_override(0x7001dcdf40ull, za_smooth_anim_update, "za_smooth_anim_update");
+    hle_override(0x7001dce6b8ull, za_smooth_anim_stub, "za_smooth_anim_stub");
 }
