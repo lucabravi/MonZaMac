@@ -670,7 +670,7 @@ static void tab_display(void) {
                        "The camera's field of view a little wider: more of the scene at the sides. Off: the game's own.");
             opt_toggle("Smooth distant animation", &g_settings.smooth_anim, true,
                        "Characters and Pokémon away from the camera animate every frame, as those close by do, instead of in "
-                       "visible steps. Costs a little CPU in crowded places. Off: the game's own.");
+                       "visible steps. Costs a little CPU in crowded places. Off: the game's own. Game version 2.0.2 only.");
             opt_toggle("Sharper textures", &g_settings.lod, true,
                        "Textures stay sharp on ground and walls seen at a slant, and (macOS 26 or later) farther away too. "
                        "Off: the game's own.");
