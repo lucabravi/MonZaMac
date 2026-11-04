@@ -36,6 +36,7 @@ Settings g_settings = {
     .fxaa = true,
     .bloom = true,
     .fov = false,        // (changes the framing: off by default)
+    .smooth_anim = true,
     .lod = true,
     .gpu_overlap = true,
     .xfb_barrier = true,
@@ -124,6 +125,7 @@ void settings_load(void) {
         else if (!strcmp(key, "game_fxaa")) g_settings.fxaa = atoi(val) != 0;
         else if (!strcmp(key, "bloom")) g_settings.bloom = atoi(val) != 0;
         else if (!strcmp(key, "game_fov")) g_settings.fov = atoi(val) != 0;
+        else if (!strcmp(key, "game_smooth_anim")) g_settings.smooth_anim = atoi(val) != 0;
         else if (!strcmp(key, "game_lod")) g_settings.lod = atoi(val) != 0;
         else if (!strcmp(key, "game_shadows_4k")) shadows_4k_old = atoi(val) != 0;  // (the option is gone: see below)
         else if (!strcmp(key, "shadow_resolution")) { int v = atoi(val); g_settings.shadow_res = v < 1 ? 1 : v > 4 ? 4 : v; shadow_key = true; }
@@ -205,6 +207,7 @@ void settings_save(void) {
     fprintf(f, "game_fxaa = %d\n", g_settings.fxaa);
     fprintf(f, "bloom = %d\n", g_settings.bloom);
     fprintf(f, "game_fov = %d\n", g_settings.fov);
+    fprintf(f, "game_smooth_anim = %d\n", g_settings.smooth_anim);
     fprintf(f, "game_lod = %d\n", g_settings.lod);
     fprintf(f, "shadow_resolution = %d\nshadow_sharpness = %d\n", g_settings.shadow_res, g_settings.shadow_sharp);
     fprintf(f, "upscaler = %s\n", g_settings.upscaler == UPSCALE_METALFX ? "metalfx" : g_settings.upscaler == UPSCALE_FSR1 ? "fsr1" : "bilinear");
