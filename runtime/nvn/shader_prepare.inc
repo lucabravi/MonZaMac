@@ -212,11 +212,23 @@ static unsigned prep_worker_count(NSUInteger cpus, NSUInteger jobs, const char *
     return (unsigned)capacity;
 }
 
+// Dedicated preparation waits on synchronous Metal compiles. More workers than
+// Metal can execute just compete for CPU/memory; gameplay's background policy is separate.
+static unsigned prep_compilation_workers(NSUInteger jobs, const char *override) {
+    NSUInteger capacity = NSProcessInfo.processInfo.activeProcessorCount;
+    if (@available(macOS 13.3, *)) {
+        if ([dev respondsToSelector:@selector(maximumConcurrentCompilationTaskCount)]) {
+            NSUInteger metal = dev.maximumConcurrentCompilationTaskCount;
+            if (metal) capacity = MIN(capacity, metal);
+        }
+    }
+    return prep_worker_count(capacity, jobs, override);
+}
+
 // Translation and address-keyed caches stay on the render thread. Each worker
 // owns one translated program and all its PSOs; nothing escapes until the join.
 static unsigned prep_compile(NSDictionary *jobs, NSDictionary *cs_jobs, unsigned total, unsigned missed) {
-    unsigned workers = prep_worker_count(NSProcessInfo.processInfo.activeProcessorCount, jobs.count + cs_jobs.count,
-                                         getenv("LARECOMP_SHADER_PREP_WORKERS"));
+    unsigned workers = prep_compilation_workers(jobs.count + cs_jobs.count, getenv("LARECOMP_SHADER_PREP_WORKERS"));
     dispatch_semaphore_t slots = dispatch_semaphore_create(workers);
     dispatch_group_t group = dispatch_group_create();
     __block unsigned completed = missed, failures = missed, active = 0, peak = 0;

@@ -31,7 +31,7 @@ requires matching shader content, specialization and descriptor state. The
 selected guest-memory window is included in in-process program identity.
 Unknown or changed variants retain normal first-use compilation.
 
-Preparation is serialized with drawing. Translation/cache access stays on the render thread; native Metal compilation uses an active-CPU-sized worker pool, bounded by program groups. It uses the current
+Preparation is serialized with drawing. Translation/cache access stays on the render thread; dedicated native Metal compilation uses a worker pool bounded by active CPUs, Metal's `maximumConcurrentCompilationTaskCount` and the number of jobs. If that Metal limit is unavailable or zero, it falls back to active CPUs. `LARECOMP_SHADER_PREP_WORKERS` can lower the limit. Gameplay's early-compilation worker policy is unchanged. It uses the current
 translator and compiler options, rather than loading translated code from a
 previous build. It does not move guest pointers onto a background worker.
 Shader overrides/debug probes disable the preparation path. In-place reboot
