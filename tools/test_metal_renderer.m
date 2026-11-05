@@ -2172,6 +2172,65 @@ static NvnProgram *compute_image_fixture(bool reduction, bool array) {
 
 // A compute program is recorded as hash + texture masks + workgroup size, rebuilt from its input before it is asked for,
 // and found by the dispatch (no translation or compile at first use).
+static void compute_content_cache(void) {
+    static uint64_t code[2][34]; static NvnProgram programs[2];
+    static uint8_t control[0x800];
+    uint64_t ops[] = {0x010000000007f004ull | (4ull << 20)};
+    for (unsigned i = 0; i < 2; i++) compute_fixture(code[i], &programs[i], ops, 1);
+    CsProg *first = compute_program(&programs[0]);
+    CHECK(first && !first->failed, "synthetic compute compiles");
+    CHECK(compute_program(&programs[0]) == first, "same registration reuses its program");
+    CHECK(compute_program(&programs[1]) == first, "identical code at a new address reuses the live program");
+    programs[0].stages[5].control = control;
+    uint32_t local[] = {2, 1, 1}; memcpy(control + 0x748, local, sizeof local);
+    CsProg *wide = compute_program(&programs[0]);
+    CHECK(wide && wide != first && wide->local[0] == 2, "changed workgroup dimensions cannot hit the old program");
+    CHECK(compute_program(&programs[1]) == first, "the other address retains the original specialization");
+    // Exercise the actual registration path rather than inventing an invalidation signal.
+    *(uint32_t *)(control + 0x700) = 32 * sizeof(uint64_t);
+    uint64_t object = (uint64_t)&programs[0], descriptor[] = {(uint64_t)code[0], (uint64_t)control};
+    Cpu cpu = {0}; cpu.x[0] = (uint64_t)&object; cpu.x[1] = 1; cpu.x[2] = (uint64_t)descriptor;
+    HostFn register_shader = hle_lookup_impl("nvnProgramSetShaders");
+    CHECK(register_shader != NULL, "NVN shader registration is linked");
+    register_shader(&cpu);
+    uint64_t generation = programs[0].stages[5].generation;
+    CHECK(generation && compute_program(&programs[0]) == wide, "unchanged code re-registration reuses its content");
+    code[0][1] ^= 1ull << 20; // other immediate, at the same code address
+    cpu.x[0] = (uint64_t)&object; register_shader(&cpu);
+    CsProg *changed = compute_program(&programs[0]);
+    CHECK(programs[0].stages[5].generation != generation && changed && changed != wide,
+          "new code registered at the old address cannot reuse its previous pipeline");
+    code[0][1] ^= 1ull << 20;
+    cpu.x[0] = (uint64_t)&object; register_shader(&cpu);
+    CHECK(compute_program(&programs[0]) == wide, "restoring previous content reuses its pipeline");
+    *(uint32_t *)(control + 0x6fc) = sizeof(uint64_t);
+    code[0][32] = 17;
+    cpu.x[0] = (uint64_t)&object; register_shader(&cpu);
+    CsProg *constants = compute_program(&programs[0]);
+    code[0][32] = 23;
+    cpu.x[0] = (uint64_t)&object; register_shader(&cpu);
+    CsProg *partition = compute_program(&programs[0]);
+    CHECK(constants && partition != constants, "compiler constants participate in content identity");
+    *(uint32_t *)(control + 0x700) += sizeof(uint64_t);
+    *(uint32_t *)(control + 0x6fc) = 0; // same total bytes, different code/constants split
+    cpu.x[0] = (uint64_t)&object; register_shader(&cpu);
+    CsProg *split = compute_program(&programs[0]);
+    CHECK(split && split != partition, "the code/constants partition participates in content identity");
+    NvnProgram alias = {0}; object = (uint64_t)&alias;
+    cpu.x[0] = (uint64_t)&object; register_shader(&cpu);
+    [g_cs_progs removeAllObjects];
+    // CMD_BIND_PROGRAM composes every source into this one renderer-owned object.
+    g_comp_prog.stages[5] = programs[0].stages[5];
+    CHECK(compute_program(&g_comp_prog) == split, "restore the first registration's fast path");
+    id memo = g_cs_progs.allValues.firstObject;
+    g_comp_prog.stages[5] = alias.stages[5];
+    CHECK(compute_program(&g_comp_prog) == split, "two registered programs can share a code address");
+    CHECK(g_cs_progs.count == 2 && [g_cs_progs.allValues indexOfObjectIdenticalTo:memo] != NSNotFound,
+          "shared code registrations retain independent fast entries instead of rehashing each other");
+    renderer_reset();
+    CHECK(!g_cs_progs.count && !g_cs_content.count, "reset drops address and content identities");
+}
+
 static void compute_preparation(void) {
     static uint64_t code[32]; static NvnProgram prog;
     uint64_t ops[] = {0x010000000007f000ull | (4ull << 20) | 4};
@@ -2486,6 +2545,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"live-shader-pipeline", "live", live_shader_pipeline},
     {"break-reconvergence", "flow", break_reconvergence},
     {"structured-brx", "flow", structured_brx},
+    {"compute-content-cache", "compute-cache", compute_content_cache},
     {"compute-preparation", "preparation", compute_preparation},
     {"precompile-stamp", "preparation", precompile_stamp_rules},
     {"blind-libraries", "preparation", blind_libraries},

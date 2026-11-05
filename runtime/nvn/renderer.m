@@ -1997,10 +1997,12 @@ static void compile_program(Prog *pr) {
     pr->ready = true;
 }
 
-// Compute programs: translated once per code address and sampled-texture types, then built as a pipeline. The two steps
-// are split so preparation can translate on the render thread and build on workers.
+// Compute programs share the preparation content/specialization identity; an
+// address/registration cache avoids rehashing on every dispatch. Translation and
+// building are split so preparation can translate on the render thread and build on workers.
 typedef struct { id<MTLComputePipelineState> pipe; ShaderInfo *si; uint32_t local[3]; bool failed; } CsProg;
-static NSMutableDictionary *g_cs_progs;  // code address + sampled texture types -> CsProg
+static NSMutableDictionary<NSString *, NSValue *> *g_cs_progs; // registration/address/specialization -> CsProg
+static NSMutableDictionary<NSString *, NSValue *> *g_cs_content; // same identity as prepared compute programs
 static NSMutableDictionary<NSString *, NSValue *> *g_prep_cs;  // prepared compute programs by recipe identity -> CsProg *
 static unsigned g_prep_cs_hits;
 
@@ -2988,31 +2990,38 @@ static CsProg *compute_program(NvnProgram *p) {
     if (!ss->code_addr) return NULL;
     ShaderKey k = {0};
     texture_key(5, &k);
-    NSString *key = [NSString stringWithFormat:@"%llx/%x/%x/%x/%x/%x", ss->code_addr, k.stencil_slots, k.sint_slots,
-                    k.uint_slots, k.img_sint, k.img_uint];
-    NSMutableDictionary *progs = g_cs_progs;
-    if (!progs) progs = g_cs_progs = [NSMutableDictionary new];
-    NSValue *v = progs[key];
-    if (v) { CsProg *cp = v.pointerValue; return cp->failed ? NULL : cp; }
     uint32_t local[3];
     for (int i = 0; i < 3; i++) {
         local[i] = ss->control ? *(const uint32_t *)(ss->control + 0x748 + 4 * i) : 1;
         if (!local[i]) local[i] = 1;
     }
-    NSString *shader_hash = prep_enabled() && !g_prep_active ? prep_stage_hash(ss) : nil;
-    if (shader_hash) {  // a program prepared before the game asked for it (same code, texture types, workgroup, memory window)
-        NSDictionary *record = prep_compute_record(shader_hash, &k, local);
-        NSValue *prepared = g_prep_cs[prep_compute_id(record)];
-        if (prepared) {
-            g_prep_cs_hits++;
-            progs[key] = prepared;
-            return ((CsProg *)prepared.pointerValue)->failed ? NULL : prepared.pointerValue;
-        }
+    backend_gwin_pick();
+    NSString *key = [NSString stringWithFormat:@"%llx/%llx/%x/%x/%x/%x/%x/%u/%u/%u/%u/%u/%llx/%llx", ss->generation, ss->code_addr,
+                    k.stencil_slots, k.sint_slots, k.uint_slots, k.img_sint, k.img_uint, local[0], local[1], local[2],
+                    ss->const_offset, ss->const_size, g_gwin_base, g_gwin_max];
+    if (!g_cs_progs) g_cs_progs = [NSMutableDictionary new];
+    NSValue *cached = g_cs_progs[key];
+    if (cached) {
+        CsProg *cp = cached.pointerValue;
+        return cp->failed ? NULL : cp;
     }
-    CsProg *cp = calloc(1, sizeof *cp);
-    progs[key] = [NSValue valueWithPointer:cp];
+    // NVN inputs stay immutable until SetShaders registers them again. Hash only
+    // on a new address/registration/specialization; never on the dispatch fast path.
+    NSString *shader_hash = prep_stage_hash(ss);
+    NSString *identity = shader_hash ? prep_compute_stage_id(prep_compute_record(shader_hash, &k, local), ss) : nil;
+    if (!g_cs_content) g_cs_content = [NSMutableDictionary new];
+    NSValue *value = identity ? g_cs_content[identity] : nil;
+    if (!value && identity) {
+        value = g_prep_cs[identity];
+        if (value) g_prep_cs_hits++;
+    }
+    CsProg *cp = value ? value.pointerValue : calloc(1, sizeof *cp);
+    if (!value) value = [NSValue valueWithPointer:cp];
+    g_cs_progs[key] = value;
+    if (identity) g_cs_content[identity] = value;
+    if (cp->si || cp->failed) return cp->failed ? NULL : cp;
     if (!cs_translate(cp, ss, &k, local) || !cs_compile(cp, ss->code_addr)) return NULL;
-    if (shader_hash) prep_record_compute(shader_hash, &k, local);
+    if (shader_hash && !g_prep_active && prep_enabled()) prep_record_compute(shader_hash, &k, local);
     LOG("[compute] program %llx: local size %ux%ux%u, %d cbufs mask %#x\n", ss->code_addr, cp->local[0], cp->local[1],
         cp->local[2], 0, cp->si->cbuf_mask);
     return cp;
@@ -5048,6 +5057,7 @@ void renderer_reset(void) {
     prep_reset();
     shader_trace_reset();
     [g_cs_progs removeAllObjects];
+    [g_cs_content removeAllObjects];
     @synchronized(g_ready_pipes) { [g_ready_pipes removeAllObjects]; }
     g_pipeline_gen++;
     [g_snap_copies removeAllObjects];
