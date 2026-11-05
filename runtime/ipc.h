@@ -6,6 +6,8 @@ typedef struct {
     uint64_t addr, size;
 } IpcBuf;
 
+typedef struct Domain Domain;
+
 typedef struct IpcReq {
     uint32_t type;      // 4 = request, 5 = control, 2 = close, 6/7 = with context
     uint32_t cmd;
@@ -19,6 +21,7 @@ typedef struct IpcReq {
     uint32_t domain_obj;  // 0 if not a domain message
     uint32_t domain_in_objs[8];
     int ndomain_in;
+    Domain *domain;  // originating session; input object ids are local to this domain
 } IpcReq;
 
 typedef struct Service Service;
@@ -43,9 +46,9 @@ struct Service {
     void (*on_close)(Service *s);  // optional: the last of them closed (stop threads, free state)
 };
 
-typedef struct {
+struct Domain {
     Service *objs[256];
-} Domain;
+};
 
 typedef struct {
     KObject obj;
@@ -73,6 +76,7 @@ static inline IpcBuf *in_buf(IpcReq *req, int i) {
 Service *service_new(const char *name, ServiceHandler h, void *state);
 Service *service_lookup(const char *name);  // from the registry (services/*.c)
 void ipc_return_object(IpcResp *resp, Service *s);
+Service *ipc_input_object(const IpcReq *req, int index);  // borrowed; validate the service type before use
 
 typedef struct { const char *name; ServiceHandler handler; } ServiceDef;
 #ifdef __APPLE__
