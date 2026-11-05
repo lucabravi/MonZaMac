@@ -48,6 +48,7 @@ static std::atomic<bool> g_want_fullscreen_apply{false};
 
 #ifdef __APPLE__
 extern "C" unsigned renderer_recipe_count(void);
+extern "C" bool rt_za_smooth_anim_supported(void);  // (runtime/hle/za_mods.c)
 extern "C" bool renderer_export_recipes(const char *, char *, size_t);
 extern "C" bool renderer_update_catalog(char *, size_t);
 extern "C" int renderer_check_catalog(void);
@@ -668,9 +669,14 @@ static void tab_display(void) {
                        "The game's glow around bright light. Off: no glow, a plainer image.");
             opt_toggle("Wider view", &g_settings.fov, false,
                        "The camera's field of view a little wider: more of the scene at the sides. Off: the game's own.");
-            opt_toggle("Smooth distant animation", &g_settings.smooth_anim, true,
-                       "Characters and Pokémon away from the camera animate every frame, as those close by do, instead of in "
-                       "visible steps. Costs a little CPU in crowded places. Off: the game's own. Game version 2.0.2 only.");
+            {   // (only the 2.0.2 build is patched: on the others the row shows the setting but cannot change it)
+                ImGui::BeginDisabled(!rt_za_smooth_anim_supported());
+                opt_toggle("Smooth distant animation", &g_settings.smooth_anim, true,
+                           "Characters and Pokémon away from the camera animate every frame, as those close by do, instead of "
+                           "in visible steps. Costs a little CPU in crowded places. Off: the game's own. Game version 2.0.2 "
+                           "only.");
+                ImGui::EndDisabled();
+            }
             opt_toggle("Sharper textures", &g_settings.lod, true,
                        "Textures stay sharp on ground and walls seen at a slant, and (macOS 26 or later) farther away too. "
                        "Off: the game's own.");
