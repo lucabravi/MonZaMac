@@ -874,7 +874,8 @@ static void save_value(const SaveSlot &s, char *out, size_t n) {  // (the row's 
     snprintf(out, n, "%s  \xc2\xb7  %s", si->trainer[0] ? si->trainer : "?", pl);
 }
 
-// The action window of one save (not the one being played). true: the game restarts with it (close the menu).
+// The action window of one save. true: the game restarts with it (close the menu). The save being played can be reloaded too:
+// the game restarts from what it last saved there (to undo what happened since).
 static bool action_window(float sc, int cur, ImFont *body, ImFont *small_) {
     if (g_act < 0 || g_act >= g_n) { g_act = -1; return false; }
     bool restart = false;
@@ -891,7 +892,7 @@ static bool action_window(float sc, int cur, ImFont *body, ImFont *small_) {
     ImGui::PopStyleVar(2);
     if (!open) return false;
     const SaveSlot &s = g_slots[g_act];
-    const bool now = g_act == cur;  // the save being played: only copy and export
+    const bool now = g_act == cur;  // the save being played: reload, copy and export (no rename or delete)
     ImGui::PushFont(body);
     ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(pal::accent), "%s", s.name);
     ImGui::PopFont();
@@ -907,13 +908,17 @@ static bool action_window(float sc, int cur, ImFont *body, ImFont *small_) {
     auto close = [&]() { g_act = -1, g_act_confirm = false; ImGui::CloseCurrentPopup(); };
     if (g_act_confirm) {
         ImGui::PushTextWrapPos(0);
-        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(pal::warn), "Play \"%s\"? The game restarts with it: progress in \"%s\" "
-                           "since its last save is lost.", s.name, cur >= 0 ? g_slots[cur].name : "this game");
+        if (now)
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(pal::warn), "Reload \"%s\"? The game restarts from its last save: "
+                               "progress since then is lost.", s.name);
+        else
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(pal::warn), "Play \"%s\"? The game restarts with it: progress in \"%s\" "
+                               "since its last save is lost.", s.name, cur >= 0 ? g_slots[cur].name : "this game");
         ImGui::PopTextWrapPos();
         ImGui::Dummy(ImVec2(0, 10 * sc));
         float hw = (bw - 16 * sc) * 0.5f;
         if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-        if (bar_button("Yes, play it", hw, bh, small_) || (g_test_yes && !ImGui::IsWindowAppearing())) {
+        if (bar_button(now ? "Yes, reload it" : "Yes, play it", hw, bh, small_) || (g_test_yes && !ImGui::IsWindowAppearing())) {
             g_test_yes = false;
             saves_select(s.id);
             snprintf(g_settings.save_slot, sizeof g_settings.save_slot, "%s", s.id);
@@ -926,7 +931,7 @@ static bool action_window(float sc, int cur, ImFont *body, ImFont *small_) {
         if (bar_button("Cancel", hw, bh, small_) || back) g_act_confirm = false;
     } else {
         if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-        if (!now && bar_button("Play this save", bw, bh, small_)) g_act_confirm = true;
+        if (bar_button(now ? "Reload this save" : "Play this save", bw, bh, small_)) g_act_confirm = true;
         bool one = g_n < SAVE_SLOTS_MAX;
         ImGui::BeginDisabled(!one || !s.played);
         if (bar_button("Copy", bw, bh, small_)) g_sel = g_act, g_ask = COPY, g_err[0] = 0, close();
@@ -969,7 +974,7 @@ bool saves_ingame_tab(float scale, ImFont *body, ImFont *small_) {
         opt_action("No save yet", "", "Save in the game first: then it can be copied and exported here.");
     } else {
         save_desc(g_slots[cur], d, sizeof d);
-        strncat(d, "\n\nCopy or export what the game last saved (save in the game first for the latest).",
+        strncat(d, "\n\nReload it (the game restarts from its last save), or copy or export what the game last saved (save in the game first for the latest).",
                 sizeof d - strlen(d) - 1);
         if (opt_action(g_slots[cur].name, "In use", d, false)) g_act = cur, g_act_confirm = false;
     }
