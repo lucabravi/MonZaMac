@@ -153,6 +153,10 @@ static NSDictionary *prep_compute_record(NSString *hash, const ShaderKey *k, con
 static NSString *prep_compute_id(NSDictionary *record) {  // (the translation embeds the memory window, as for graphics)
     return prep_digest(prep_json(@[record, @(g_gwin_base), @(g_gwin_max)]));
 }
+static NSString *prep_compute_stage_id(NSDictionary *record, const NvnShaderStage *s) {
+    // Equal complete byte spans can still have different code/constants partitions.
+    return prep_digest(prep_json(@[prep_compute_id(record), @(s->const_offset), @(s->const_size)]));
+}
 static bool prep_enabled(void) {
     if (getenv("LARECOMP_FS_OVERRIDE") || getenv("LARECOMP_FS_OVERRIDE_HASH") ||
         getenv("LARECOMP_DBG_FS") || getenv("LARECOMP_DBG_VS")) return false;
@@ -325,8 +329,6 @@ static bool prep_run(NSString *path, NSString *dir) {
             NSString *hash = r[@"compute"][@"cs"];
             ShaderKey sk = {0};
             sk.stencil_slots = kv[0]; sk.sint_slots = kv[1]; sk.uint_slots = kv[2]; sk.img_sint = kv[3]; sk.img_uint = kv[4];
-            NSString *cid = prep_compute_id(prep_compute_record(hash, &sk, lv));
-            if (g_prep_cs[cid] || cs_jobs[cid]) { missed++; continue; }
             NvnShaderStage ss = {0};
             NSData *bytes = inputs[hash];
             if (!bytes) {
@@ -339,7 +341,10 @@ static bool prep_run(NSString *path, NSString *dir) {
                 else ss = (NvnShaderStage){.stage = 5, .code_addr = (uint64_t)(uintptr_t)bytes.bytes,
                     .const_offset = [meta[@"const_offset"] unsignedIntValue], .const_size = [meta[@"const_size"] unsignedIntValue]};
             }
-            CsProg *cp = bytes ? calloc(1, sizeof *cp) : NULL;
+            if (!bytes) { missed++; continue; }
+            NSString *cid = prep_compute_stage_id(prep_compute_record(hash, &sk, lv), &ss);
+            if (g_prep_cs[cid] || cs_jobs[cid]) { missed++; continue; }
+            CsProg *cp = calloc(1, sizeof *cp);
             if (!cp || !cs_translate(cp, &ss, &sk, lv)) { free(cp); missed++; continue; }
             cs_jobs[cid] = [NSValue valueWithPointer:cp];
             continue;

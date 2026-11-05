@@ -315,3 +315,17 @@ The runtime build and two focused preparation tests passed, including active
 CPU/job bounds, serial/two-worker overrides and malformed override handling.
 No unchanged repeated gameplay sweeps were run. Test instances were stopped;
 all source changes and numeric results remain local, without push/PR updates.
+
+## Live compute content reuse
+
+Live compute programs use the same content identity as prepared programs: shader code and compiler constants (including their boundary),
+texture/image types, workgroup dimensions and the guest-memory window. Identical inputs at another address reuse
+one program, including a cached failure. A registered address has a fast lookup; full content hashing occurs only
+when its registration or specialization changes. The registration identity survives the renderer's composed program,
+so two registered objects sharing an address keep independent fast entries. NVN shader inputs remain immutable until `nvnProgramSetShaders`
+or its Ext form registers them again. Local dimensions are checked before the lookup, so changing the control
+section's workgroup size cannot reuse the previous specialization. Both live caches are cleared on renderer reset.
+
+The asset-free Metal `compute-content-cache` case checks another address, workgroup changes, and code replaced at
+its old address through actual NVN shader registration. `compute-preparation` checks reuse of a program built in
+advance. These tests do not measure memory growth or hitching in a long Z-A session.
