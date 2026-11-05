@@ -75,6 +75,7 @@ typedef struct {
     int tex_slot[8192];           // texture index -> Metal slot + 1
     bool tex_weak[64];            // slot type only guessed (from a size query): the next sample decides
     bool fail;
+    bool uses_ftz; // comparison operands explicitly flushed to signed zero
     bool branchy;  // program uses the pc state machine
     int ipa_mode;  // interpolation mode of the IPA being translated (-1 for plain loads)
     int ipa_mul;   // its multiplier register (mode 1: the result is the "pass" value attr/w times this register)
@@ -246,6 +247,14 @@ static const char *fneg_abs(const char *e, bool neg, bool abs_, char *buf) {
     return buf;
 }
 #define NA(e, n, a) fneg_abs((e), (n), (a), alloca(600))
+
+static const char *ftz_operand(Ctx *c, const char *expr, bool flush, char *out) {
+    if (!flush) return expr;
+    c->uses_ftz = true;
+    snprintf(out, 640, "ftz(%s)", expr);
+    return out;
+}
+#define FTZ(e, on) ftz_operand(c, (e), (on), alloca(640))
 
 static const char *fresult(const char *e, bool sat, char *buf) {
     if (sat) sprintf(buf, "as_type<uint>(saturate(%s))", e);
@@ -1557,6 +1566,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
     } else if (OPM(0x5bb0000000000000ull, 0xfff0000000000000ull) || OPM(0x4bb0000000000000ull, 0xfff0000000000000ull) ||
                OPM(0x36b0000000000000ull, 0xfef0000000000000ull)) {  // FSETP
         const char *x = NA(F(R(a)), bits(w, 43, 1), bits(w, 7, 1)), *y = NA(F(B(true)), bits(w, 6, 1), bits(w, 44, 1));
+        x = FTZ(x, bits(w, 47, 1)); y = FTZ(y, bits(w, 47, 1));
         char cmp[512];
         fcmp_expr(cmp, (int)bits(w, 48, 4), x, y);
         int p = (int)bits(w, 3, 3), q = (int)bits(w, 0, 3), bo = (int)bits(w, 45, 2);
@@ -1568,6 +1578,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
     } else if (OPM(0x5800000000000000ull, 0xff00000000000000ull) || OPM(0x4800000000000000ull, 0xfe00000000000000ull) ||
                OPM(0x3000000000000000ull, 0xfe00000000000000ull)) {  // FSET
         const char *x = NA(F(R(a)), bits(w, 43, 1), bits(w, 54, 1)), *y = NA(F(B(true)), bits(w, 53, 1), bits(w, 44, 1));
+        x = FTZ(x, bits(w, 55, 1)); y = FTZ(y, bits(w, 55, 1));
         char cmp[512];
         fcmp_expr(cmp, (int)bits(w, 48, 4), x, y);
         sprintf(t, "((%s) %s %s)", cmp, bool_op((int)bits(w, 45, 2)), P((int)bits(w, 39, 3), bits(w, 42, 1)));
@@ -1584,7 +1595,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             bv = operand_b(c, w, true, bb);
             cv = R((int)bits(w, 39, 8));
         }
-        fcmp_expr(cmp, (int)bits(w, 48, 4), F(cv), "0.0f");
+        fcmp_expr(cmp, (int)bits(w, 48, 4), FTZ(F(cv), bits(w, 47, 1)), "0.0f");
         sprintf(t, "(%s ? %s : %s)", cmp, R(a), bv);
         set_reg(c, d, t);
     } else if (OPM(0x5c98000000000000ull, 0xfff8000000000000ull) || OPM(0x4c98000000000000ull, 0xfff8000000000000ull) ||
@@ -2664,6 +2675,8 @@ static ShaderInfo *glsl_finish(Ctx *c, bool any_branch, bool dbg) {
     int set = stage == STAGE_FRAGMENT ? 1 : 0;
     Str s = {0};
     sp(&s, "%s", glsl_prelude);
+    if (c->uses_ftz)
+        sp(&s, "float ftz(float a) { uint v = floatBitsToUint(a); return uintBitsToFloat((v & 0x7f800000u) == 0u ? (v & 0x80000000u) : v); }\n");
     for (int i = 0; i < 18; i++) {
         if (!(info->cbuf_mask & (1u << i))) continue;
         uint32_t n = info->cbuf_size[i] / 16;
@@ -2948,6 +2961,10 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
     // ---------------------------------------------------------- MSL source
     Str s = {0};
     sp(&s, "#include <metal_stdlib>\nusing namespace metal;\n");
+    // Test exponent bits so fast math cannot turn a subnormal comparison into
+    // an ordinary compare. Preserve the sign of zero, infinities and NaN payloads.
+    if (c->uses_ftz)
+        sp(&s, "static inline float ftz(float a) { uint v = as_type<uint>(a); return as_type<float>((v & 0x7f800000u) == 0u ? (v & 0x80000000u) : v); }\n");
     sp(&s, "static inline uint cbr(constant uint4 *cb, uint off) { return cb[off >> 4][(off >> 2) & 3]; }\n");
     sp(&s, "static inline uint bfe_u(uint v, uint ctl) { uint pos = ctl & 0xFFu, len = (ctl >> 8) & 0xFFu; if (len == 0u) return 0u; if (pos >= 32u) return 0u; return extract_bits(v, pos, min(len, 32u - pos)); }\n");
     sp(&s, "static inline uint bfe_s(uint v, uint ctl) { uint pos = ctl & 0xFFu, len = (ctl >> 8) & 0xFFu; if (len == 0u) return 0u; if (pos >= 32u) return (int(v) < 0) ? 0xFFFFFFFFu : 0u; return uint(extract_bits(int(v), pos, min(len, 32u - pos))); }\n");
