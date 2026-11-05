@@ -57,7 +57,7 @@ static void precompile_run(void) {
     LOG("[precompile] %u shaders in the game files (read in %.0f ms)\n", total, now_ms() - t0);
     backend_shader_precompile_progress(1, 0, total);
 
-    unsigned workers = prep_worker_count(NSProcessInfo.processInfo.activeProcessorCount, total, getenv("LARECOMP_SHADER_PREP_WORKERS"));
+    unsigned workers = prep_compilation_workers(total, getenv("LARECOMP_SHADER_PREP_WORKERS"));
     dispatch_semaphore_t slots = dispatch_semaphore_create(workers);
     dispatch_group_t group = dispatch_group_create();
     __block unsigned done = 0, built = 0, pipelines = 0;
