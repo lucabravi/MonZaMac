@@ -65,6 +65,7 @@ typedef struct {
     uint32_t vs_in_comp[32];
     bool uses_branches, uses_cc, uses_local, uses_vid, uses_iid, uses_frag_coord, uses_front_facing, uses_lane, uses_layer;
     uint8_t out_comp[32];  // vertex: output components written per varying (transform feedback order)
+    uint32_t shadow_matrix_pc, shadow_mul_pc[2];  // guarded Z-A cascade PCF pattern
     bool uses_rscale;  // resolution-scale table (fragment/compute only)
     uint32_t txq_z;    // (MSL) texture slots whose TXQ dimension reads z: tz<slot>(level) is emitted with the final type
     bool warned_surface;  // a dropped bindless surface op was noted
@@ -1314,6 +1315,100 @@ static void emit_tex(Ctx *c, uint64_t w, bool bindless) {
     write_tex_result(c, slot, call, mask, d, RZ, false, false);
 }
 
+// Z-A uses one texel-radius PCF kernel for cascades with different world footprints.
+// Recognise the complete constant-buffer ABI and both reciprocal-size products before
+// changing anything. A partial match stays byte-for-byte unchanged (including GLSL).
+static bool has_flow_target(uint64_t w);
+static void shadow_cascade_plan(Ctx *c, const uint64_t *code, size_t end) {
+    const char *env = getenv("LARECOMP_SHADOW_CASCADE_FILTER");
+    if (c->stage != STAGE_FRAGMENT || c->glsl || (env && !atoi(env))) return;
+    unsigned splits = 0, matrix_mask = 0, matrix_addr = RZ, radius = RZ, products = 0, texture = 0;
+    uint32_t matrix_pc = 0, radius_pc = 0, mul_pc[2] = {0};
+    // TXQ texture+axis, then I2F (bit 2), then reciprocal (bit 3).
+    unsigned dimension[256] = {0};
+    uint32_t dimension_pc[256] = {0}, setup_pc = 0;
+    bool matrix_index[256] = {0};
+    for (size_t i = 1; i < end; i++) {
+        if (!(i % 4)) continue;
+        uint64_t w = code[i], op = w & 0xfff8000000000000ull;
+        unsigned d = bits(w,0,8), a = bits(w,8,8), b = bits(w,20,8);
+        bool always = bits(w,16,4) == PT, radius_load = false, product = false;
+        unsigned tag = 0; uint32_t tag_pc = 0;
+        if ((w >> 60) == 4 && bits(w,34,5) == 3) {
+            unsigned off = bits(w,20,14) * 4;
+            if (off >= 0x850 && off <= 0x858) splits |= 1u << ((off - 0x850) / 4);
+        }
+        bool matrix_load = op == 0xef90000000000000ull && always && bits(w,36,5) == 6 &&
+                           a != RZ && matrix_index[a] && bits(w,48,3) == 5 &&
+                           bits(w,20,16) < 64 && !(bits(w,20,16) % 8);
+        // All eight rows must be in one straight-line block. The helper reads them together.
+        if (matrix_mask && matrix_mask != 255 && !matrix_load) return;
+        if (matrix_load) {
+            if (matrix_addr != RZ && matrix_addr != a) return;
+            if (d == a || d + 1 == a) return;
+            matrix_addr = a;
+            matrix_mask |= 1u << (bits(w,20,16) / 8);
+            if (!matrix_pc) matrix_pc = (uint32_t)i * 8;
+        }
+        if (op == 0xef90000000000000ull && always && bits(w,36,5) == 3 && bits(w,20,16) == 2452 &&
+            a != RZ && matrix_mask == 255) {
+            if (radius != RZ || bits(w,48,3) != 4) return;
+            radius = d; radius_pc = (uint32_t)i * 8; radius_load = true;
+        } else if (op == 0x5c68000000000000ull && always && radius != RZ && products < 2) {
+            unsigned other = a == radius ? b : b == radius ? a : RZ;
+            if (other != RZ && (dimension[other] & 8)) {
+                unsigned axis = (dimension[other] & 3) - 1, tex = dimension[other] >> 4;
+                if (axis > 1 || mul_pc[axis] || (texture && texture != tex) || (d == radius && products != 1)) return;
+                if (!setup_pc || dimension_pc[other] < setup_pc) setup_pc = dimension_pc[other];
+                texture = tex; mul_pc[axis] = (uint32_t)i * 8; products++; product = true;
+            }
+        }
+        if (radius != RZ && products < 2 && !radius_load && !product &&
+            (d == radius || (op == 0xef90000000000000ull && bits(w,48,3) == 5 && d+1 == radius))) return;
+        if (always && op == 0x5cb8000000000000ull && bits(w,10,2) == 2 && bits(w,8,2) != 1 &&
+            !bits(w,45,1) && !bits(w,49,1) && dimension[b] && !(dimension[b] & 12)) tag = dimension[b] | 4;
+        if (always && op == 0x5080000000000000ull && bits(w,20,4) == 4 && (dimension[a] & 4) &&
+            !bits(w,48,1) && !bits(w,46,1)) tag = (dimension[a] & ~4u) | 8;
+        if (tag) tag_pc = op == 0x5cb8000000000000ull ? dimension_pc[b] : dimension_pc[a];
+        dimension[d] = tag; dimension_pc[d] = tag_pc;
+        matrix_index[d] = always && (w & 0xfef8000000000000ull) == 0x3848000000000000ull &&
+                          !bits(w,56,1) && bits(w,20,19) == 6;
+        if (op == 0xef90000000000000ull && bits(w,48,3) == 5 && d < RZ) {
+            dimension[d+1] = 0; matrix_index[d+1] = false;
+        }
+        if (op == 0xdf48000000000000ull) {
+            unsigned mask = bits(w,31,4), out = d;
+            for (unsigned axis = 0; axis < 4; axis++) if (mask & (1u << axis)) {
+                if (out >= RZ || (radius != RZ && products < 2 && out == radius)) return;
+                dimension[out] = always && bits(w,22,6) == 1 && axis < 2 ?
+                    ((bits(w,36,13) + 1) << 4) | (axis + 1) : 0;
+                dimension_pc[out++] = (uint32_t)i * 8;
+            }
+        } else if ((w >> 60) == 0xc || (w >> 60) == 0xd || (w & 0xff00000000000000ull) == 0xee00000000000000ull) {
+            // Texture/global-memory instructions can write multiple registers; discard pending provenance.
+            memset(dimension, 0, sizeof dimension);
+        }
+    }
+    if (splits != 7 || matrix_mask != 255 || products != 2) return;
+    if (!setup_pc || radius_pc < setup_pc) setup_pc = radius_pc;
+    unsigned last = mul_pc[0] > mul_pc[1] ? mul_pc[0] : mul_pc[1];
+    for (size_t i = 1; i < end; i++) {
+        if (!(i % 4)) continue;
+        uint64_t w = code[i], op = w & 0xfff0000000000000ull;
+        unsigned pc = (unsigned)i * 8;
+        // Dimension/radius definitions and products must be straight-line and have no bypassing entry.
+        if (pc > setup_pc && pc <= last && op >= 0xe200000000000000ull && op <= 0xe3f0000000000000ull) return;
+        if (op == 0xe250000000000000ull) return; // indirect branch: entry cannot be established here
+        if (has_flow_target(w)) {
+            unsigned to = norm_target((int64_t)pc + 8 + sbits(w,20,24));
+            if (to > matrix_pc && to <= last && (pc < matrix_pc || pc > last)) return;
+            if (to > setup_pc && to <= last && (pc < setup_pc || pc > last)) return;
+        }
+    }
+    c->shadow_matrix_pc = matrix_pc;
+    memcpy(c->shadow_mul_pc, mul_pc, sizeof mul_pc);
+}
+
 // ------------------------------------------------------------------ instruction translation
 static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
     char t[2048], u[2048];
@@ -1399,6 +1494,8 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         int n = sz == 5 ? 2 : 1;
         char rb[16];
         const char *dyn = a == RZ ? NULL : reg(c, a, rb);
+        if (pc == c->shadow_matrix_pc)
+            sp(&c->body, "    shadow_radius_scale = shadow_cascade_ratio(cb6, %s >> 6);\n", dyn);
         // LDC.64 R4, c[i][R4 + x]: the address register is also a destination. Read it once before the writes, or
         // the second word comes from c[i][<first word> + x + 4]
         bool overlap = dyn && n > 1 && a >= d && a < d + n;
@@ -1541,6 +1638,9 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         sprintf(t, bits(w, 44, 2) == 2 ? "(fmz_mul(%s, %s)%s)" : "(%s * %s%s)", F(R(a)), NA(F(B(true)), bits(w, 48, 1), false),
                 scale[bits(w, 41, 3)]);
         set_reg(c, d, FRES(t, bits(w, 50, 1)));
+        for (int axis = 0; axis < 2; axis++)
+            if (pc == c->shadow_mul_pc[axis])
+                sp(&c->body, "    r%d = as_type<uint>(as_type<float>(r%d) * shadow_radius_scale.%c);\n", d, d, axis ? 'y' : 'x');
     } else if (OPM(0x1e00000000000000ull, 0xff00000000000000ull)) {  // FMUL32I
         sprintf(t, bits(w, 53, 2) == 2 ? "fmz_mul(%s, as_type<float>(0x%08xu))" : "(%s * as_type<float>(0x%08xu))", F(R(a)),
                 (uint32_t)bits(w, 20, 32));
@@ -2916,6 +3016,7 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
     }
     uint32_t *regions = any_branch ? break_regions((const uint64_t *)code, end) : NULL;
     if (any_branch && !regions) fail(c, "allocating break regions");
+    shadow_cascade_plan(c, (const uint64_t *)code, end);
     // translate
     bool dbg = maxwell_dbg_code && blob == maxwell_dbg_code && stage == STAGE_FRAGMENT;
     static int annotate = -1;
@@ -3072,6 +3173,26 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
         else if (ty == TEXTYPE_2D_ARRAY || ty == TEXTYPE_CUBE_ARRAY || ty == TEXTYPE_1D_ARRAY) sp(&s, "#define tz%d(l) t%d.get_array_size()\n", i, i);
         else sp(&s, "#define tz%d(l) 1u\n", i);
     }
+    if (c->shadow_matrix_pc) sp(&s,
+        "static inline float2 shadow_cascade_uv_scale(constant uint4 *matrices, uint layer) {\n"
+        "    float4 a = as_type<float4>(matrices[layer * 4]);\n"
+        "    float4 b = as_type<float4>(matrices[layer * 4 + 1]);\n"
+        "    float4 c = as_type<float4>(matrices[layer * 4 + 2]);\n"
+        "    float4 d = as_type<float4>(matrices[layer * 4 + 3]);\n"
+        "    if ((as_type<uint>(a.w) & 0x7fffffffu) || (as_type<uint>(b.w) & 0x7fffffffu) ||\n"
+        "        (as_type<uint>(c.w) & 0x7fffffffu) || (as_type<uint>(d.w) & 0x7fffffffu) == 0u ||\n"
+        "        (as_type<uint>(d.w) & 0x7f800000u) == 0x7f800000u) return float2(0);\n"
+        "    float2 scale = float2(length(float3(a.x,b.x,c.x)),length(float3(a.y,b.y,c.y))) / abs(d.w);\n"
+        "    uint2 exponent = as_type<uint2>(scale) & 0x7f800000u;\n"
+        "    return any(exponent == 0x7f800000u) || any(scale <= 0.0f) ? float2(0) : scale;\n"
+        "}\n"
+        "static inline float2 shadow_cascade_ratio(constant uint4 *matrices, uint layer) {\n"
+        "    if (layer == 0u || layer > 2u) return float2(1);\n"
+        "    float2 near_scale = shadow_cascade_uv_scale(matrices,0u), selected_scale = shadow_cascade_uv_scale(matrices,layer);\n"
+        "    if (any(near_scale <= 0.0f) || any(selected_scale <= 0.0f)) return float2(1);\n"
+        "    return min(selected_scale / near_scale,float2(1));\n"
+        "}\n"
+    );
     if (stage == STAGE_VERTEX) {
         sp(&s, "vertex %s main0(VIn in [[stage_in]], uint vid [[vertex_id]], uint iid [[instance_id]], uint biid [[base_instance]]%s%s) {\n",
            key && key->xfb_void ? "void" : "VOut",
@@ -3089,6 +3210,7 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
            c->uses_lane ? ", uint lane [[thread_index_in_simdgroup]]" : "", args.buf ? args.buf : "");
     }
     free(args.buf);
+    if (c->shadow_matrix_pc) sp(&s, "  float2 shadow_radius_scale = float2(1);\n");
     if (smap)
         for (int i = 0; i < info->ntex; i++) sp(&s, "  sampler s%d = ss[smap[%d]];\n", i, i);
     for (int i = 0; i < 256; i++)
