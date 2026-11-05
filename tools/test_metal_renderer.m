@@ -244,6 +244,18 @@ static void safe_math_compute(void) {
 static void integer_opcode_semantics(void) {
 #define REG_OP(top, flags) (((uint64_t)(top) << 48) | 9ull | (1ull << 8) | (7ull << 16) | (2ull << 20) | (flags))
     static const struct { const char *name; uint64_t opcode; uint32_t input[3], want; bool predicate; uint32_t want_gpr; } cases[] = {
+        {"FSET.FTZ positive subnormal", REG_OP(0x5800, (1ull << 55) | (2ull << 48) | (7ull << 39)), {1, 0, 0}, 0xffffffff},
+        {"FSET.FTZ negative subnormal", REG_OP(0x5800, (1ull << 55) | (2ull << 48) | (7ull << 39)), {0x807fffff, 0, 0}, 0xffffffff},
+        {"FSET.FTZ both subnormal operands", REG_OP(0x5800, (1ull << 55) | (2ull << 48) | (7ull << 39)), {1, 0x807fffff, 0}, 0xffffffff},
+        {"FSET.FTZ smallest normal", REG_OP(0x5800, (1ull << 55) | (2ull << 48) | (7ull << 39)), {0x00800000, 0, 0}, 0},
+        {"FSET.FTZ infinity", REG_OP(0x5800, (1ull << 55) | (2ull << 48) | (7ull << 39)), {0x7f800000, 0, 0}, 0},
+        {"FSET.FTZ NaN condition", REG_OP(0x5800, (1ull << 55) | (2ull << 48) | (7ull << 39)), {0x7fc12345, 0, 0}, 0},
+        {"FSET.FTZ signed zero", REG_OP(0x5800, (1ull << 55) | (2ull << 48) | (7ull << 39)), {0x80000000, 0, 0}, 0xffffffff},
+        {"FSETP.FTZ subnormal", (0x5bb0ull << 48) | (1ull << 47) | (2ull << 48) | (7ull << 39) | (2ull << 20) | (7ull << 16) | (1ull << 8) | 7,
+            {0x80000001, 0, 0}, 1, true},
+        {"FCMP.FTZ preserves selected subnormal", REG_OP(0x5ba0, (1ull << 47) | (2ull << 48) | (3ull << 39)), {0x80000001, 0x12345678, 1}, 0x80000001},
+        {"FCMP.FTZ preserves selected NaN bits", REG_OP(0x5ba0, (1ull << 47) | (2ull << 48) | (3ull << 39)), {0x7fc12345, 0x12345678, 0x80000001}, 0x7fc12345},
+        {"FCMP.FTZ normal condition", REG_OP(0x5ba0, (1ull << 47) | (2ull << 48) | (3ull << 39)), {0x80000001, 0x12345678, 0x00800000}, 0x12345678},
         {"SHF.R.U64 register 40", REG_OP(0x5cf8, (3ull << 39) | (2ull << 37)), {0, 40, 0x100}, 1},
         {"SHF.L.U64 register 40", REG_OP(0x5bf8, (3ull << 39) | (2ull << 37)), {1, 40, 0}, 0x100},
         {"SHF.R.S64 clamps 64", REG_OP(0x5cf8, (3ull << 39) | (3ull << 37)), {0, 64, 0x80000000}, 0xffffffff},

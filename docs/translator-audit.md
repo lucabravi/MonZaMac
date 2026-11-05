@@ -1,5 +1,20 @@
 # Maxwell shader translator audit
 
+## Comparison denormals (2026-11-05)
+
+`FSETP` and `FCMP` bit 47 and `FSET` bit 55 request `.FTZ`: compared FP32 subnormal operands become signed zero.
+The translator now emits an exponent-bit flush in MSL and GLSL, after source modifiers. Normal values, infinities and
+NaNs are preserved; `FCMP` flushes only its condition, leaving both selected data operands untouched. Instructions
+without `.FTZ` retain their previous output. The encoding cross-check was prompted by
+[nxnative's Maxwell comparison fix](https://github.com/seedds/nxnative/commit/84dea69835).
+
+`python3 tools/test_compare_ftz.py --glsl` checks all 40 combinations of source forms, dialect and flag, compiles the
+GLSL with shaderc, and compares non-FTZ output with the branch baseline. The Metal `integer-opcode-semantics` case
+checks subnormals of both signs, the smallest normal, zero, infinity, NaN and unchanged `FCMP` data bits. These are
+synthetic tests; no Z-A artifact or performance change has been attributed to this fix.
+
+## Earlier audit
+
 `runtime/nvn/maxwell/translate.c` compared, instruction by instruction, with Ryujinx's shader decoder
 (`Ryujinx.Graphics.Shader` 1.1.477: `Decoders/InstDecoders.cs`, `Instructions/InstEmitTexture.cs`,
 `InstEmitSurface.cs`, `InstEmitMemory.cs`, `InstEmitConversion.cs`, `InstEmitWarp.cs`, the GLSL backend's
