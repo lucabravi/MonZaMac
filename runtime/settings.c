@@ -7,6 +7,10 @@
 #include "hle.h"
 #include "input_bind.h"
 
+#ifdef __APPLE__
+extern bool fg_supported(void); // runtime/nvn/frame_generation.m: OS and GPU support
+#endif
+
 #define SETTINGS_FILE settings_file()
 
 // LARECOMP_SETTINGS=<path>: another settings file (test runs never touch the player's larecomp.ini)
@@ -27,6 +31,7 @@ Settings g_settings = {
     .mouse_camera_button = MOUSE_BTN_RIGHT,
     .res_mode = RES_DYNAMIC_X1,  // (dynamic up to the game's own 1080p: holds the frame rate on most Macs)
     .fps60 = true,
+    .frame_generation = FRAME_GENERATION_OFF,
     .antialias = AA_SMAA,
     .volume = 1.0f,
     .reverb = true,
@@ -98,7 +103,7 @@ void settings_load(void) {
     bool tip_key = false, aspect_key = false, shadow_key = false, shadows_4k_old = false;
     while (fgets(line, sizeof line, f)) {
         char key[64];
-        char val[128];
+        char val[128] = {0};
         if (sscanf(line, " %63[^= ] = %127[^\n]", key, val) < 1) continue;
         if (!strcmp(key, "aspect")) g_settings.aspect = !strcmp(val, "original") ? ASPECT_ORIGINAL : ASPECT_UNLOCKED;
         else if (!strcmp(key, "fullscreen")) g_settings.fullscreen = atoi(val) != 0;
@@ -107,6 +112,12 @@ void settings_load(void) {
         else if (!strcmp(key, "movie_audio")) g_settings.movie_audio = atoi(val) != 0;
         else if (!strcmp(key, "show_fps")) g_settings.show_fps = atoi(val) != 0;
         else if (!strcmp(key, "fps60")) g_settings.fps60 = atoi(val) != 0;
+        else if (!strcmp(key, "frame_generation")) {
+            char *end;
+            long mode = strtol(val, &end, 10);
+            while (*end == ' ' || *end == '\t' || *end == '\r') end++;
+            g_settings.frame_generation = end != val && !*end && mode >= FRAME_GENERATION_OFF && mode <= FRAME_GENERATION_60_120 ? (int)mode : FRAME_GENERATION_OFF;
+        }
         else if (!strcmp(key, "fps60_steady")) {}  // retired: fps60 alone selects the dynamic 60 fps mode
         else if (!strcmp(key, "game_mode")) g_settings.handheld = !strcmp(val, "handheld");
         else if (!strcmp(key, "collect_shader_recipes")) g_settings.collect_shader_recipes = atoi(val) != 0;
@@ -190,6 +201,7 @@ void settings_save(void) {
     fprintf(f, "movie_audio = %d\n", g_settings.movie_audio);
     fprintf(f, "show_fps = %d\n", g_settings.show_fps);
     fprintf(f, "fps60 = %d\n", g_settings.fps60);
+    fprintf(f, "frame_generation = %d\n", g_settings.frame_generation);
     fprintf(f, "game_mode = %s\n", g_settings.handheld ? "handheld" : "docked");
     fprintf(f, "collect_shader_recipes = %d\n", g_settings.collect_shader_recipes);
     fprintf(f, "early_shaders = %d\n", g_settings.early_shaders);
@@ -245,4 +257,21 @@ void settings_save(void) {
 bool settings_uncapped_fps(void) {
     const char *e = ENV("LARECOMP_UNCAPPED_FPS");
     return e ? atoi(e) != 0 : g_settings.dev_uncapped_fps;
+}
+
+int settings_frame_generation(void) {
+#ifdef __APPLE__
+    int mode = g_settings.frame_generation;
+    const char *fps = ENV("LARECOMP_FPS");
+    if (mode >= FRAME_GENERATION_30_60 && mode <= FRAME_GENERATION_60_120 &&
+        !(fps && *fps) && !settings_uncapped_fps() && fg_supported()) return mode;
+#endif
+    return FRAME_GENERATION_OFF;
+}
+
+bool settings_real_fps60(void) {
+    const char *fps = ENV("LARECOMP_FPS");
+    if (fps && *fps) return atoi(fps) >= 60;
+    int mode = settings_frame_generation();
+    return mode ? mode == FRAME_GENERATION_60_120 : g_settings.fps60;
 }

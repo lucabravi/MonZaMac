@@ -14,6 +14,7 @@ enum { UPSCALE_BILINEAR = 0, UPSCALE_METALFX = 1 /* macOS */, UPSCALE_FSR1 = 2 /
 #define UPSCALE_SHARP UPSCALE_FSR1
 #endif
 enum { AA_OFF = 0, AA_SMAA = 1 };
+enum { FRAME_GENERATION_OFF = 0, FRAME_GENERATION_30_60 = 1, FRAME_GENERATION_60_120 = 2 };
 enum { PROMPTS_AUTO = 0, PROMPTS_NINTENDO = 1, PROMPTS_XBOX = 2, PROMPTS_PLAYSTATION = 3, PROMPTS_KEYBOARD = 4 };  // (keyboard: Pokémon Z-A's font glyphs, runtime/hle/pl.c)
 // System language served to the game (runtime/services/am.c GetDesiredLanguage, services/hid_set.c GetLanguageCode):
 // the game picks its text language from it, as it would from the Switch's own system setting. LANG_AUTO follows the
@@ -37,6 +38,7 @@ typedef struct {
     bool show_fps;
     bool handheld;       // Pokémon Z-A: the game is told it runs handheld (720p, lighter settings), not docked (runtime/services/am.c)
     bool fps60;  // Pokémon Z-A: 60 fps with a dynamic world step down to 30 fps (runtime/hle/framepace.c)
+    int frame_generation; // FRAME_GENERATION_*: saved choice; settings_frame_generation() checks availability and conflicts
     bool developer;      // the Developer tab of the menu is shown (ini "developer = 1", LARECOMP_DEVELOPER, Cmd+Shift+D)
     bool dev_log;        // Developer: the developer log (runtime/devlog.h) is on for every subject (LARECOMP_DEVLOG=<subjects> still works without it)
     bool dev_gpu_trace;  // Developer: the GPU time per present window in the log (LARECOMP_GPU_TIMING_TRACE adds a line per command buffer)
@@ -80,6 +82,8 @@ extern Settings g_settings;
 void settings_load(void);
 void settings_save(void);
 bool settings_uncapped_fps(void); // LARECOMP_UNCAPPED_FPS overrides the Developer toggle
+int settings_frame_generation(void); // effective mode: off if unsupported, LARECOMP_FPS is set, or FPS is uncapped
+bool settings_real_fps60(void); // source game rate: environment override, effective generation mode, then saved fps60
 // The language code to serve the game ("es", "en-US", ...): the setting, or the host locale for LANG_AUTO
 const char *settings_language(void);
 // That code's name for the menu ("Spanish")

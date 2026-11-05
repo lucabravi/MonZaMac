@@ -5,6 +5,8 @@
 #include <stddef.h>
 #ifdef __OBJC__
 #import <Metal/Metal.h>
+#include "frame_generation.h"
+bool renderer_fg_inputs(NvnTexture *presented, id<MTLTexture> *scene, id<MTLTexture> *depth, FgCamera *camera);
 void renderer_init(id<MTLDevice> dev);
 id<MTLCommandQueue> renderer_queue(void);
 id<MTLTexture> renderer_texture(NvnTexture *t, id<MTLBlitCommandEncoder> blit, bool for_render);

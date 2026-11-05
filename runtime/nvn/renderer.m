@@ -19,6 +19,9 @@
 #include "shader_trace.h"
 #include "nvn.h"
 #include "renderer.h"
+#include "frame_generation_camera.h"
+#include "frame_generation_display.h"
+extern uint64_t renderer_present_count(void);
 #include "../paths.h"
 #include "../platform.h"
 #include "../settings.h"  // (g_settings.game_drs)
@@ -668,6 +671,7 @@ static int dbg_draws;  // draws encoded in the pass in flight (debug frame)
 static int dbg_skips;  // draws dropped before encoding in the pass in flight (no program / not compiled)
 static int dbg_enc;    // draws that reached a Metal draw call in the pass in flight (debug frame)
 static NvnTexture *dbg_rt[8];  // the attachments the pass in flight began with (st.rt already names the next pass's when it ends)
+static id<MTLTexture> fg_active_color; // actual pass attachment, independent of debug captures
 static id dbg_rt_tex[8];  // (diagnostics) the exact MTL textures those attachments were encoded with
 static NSString *g_last_pipe_label;  // (diagnostics) label of the pipeline bound by the last draw: the FS source hash it was built from
 // (diagnostics) live overrides, set from build/dbgcmd while the game runs (see debug_live_controls)
@@ -1093,6 +1097,7 @@ static void begin_pass(void) {
     st.rt_dirty = false;
     for (int i = 0; i < 8; i++) dbg_rt[i] = i < st.rt.ncolor ? st.rt.color[i] : NULL;
     MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
+    fg_active_color = nil;
     int w = 0, h = 0;
     NSUInteger layers = NSUIntegerMax;
     for (int i = 0; i < st.rt.ncolor; i++) {
@@ -1101,6 +1106,7 @@ static void begin_pass(void) {
         renderer_mark_gpu_owned(t);
         id<MTLTexture> tex = view_texture(t, &st.rt.cview[i], st.rt.has_cview[i], true, nil);
         rp.colorAttachments[i].texture = tex;
+        if (i == 0 && g_settings.frame_generation) fg_active_color = tex;
         layers = MIN(layers, texture_layers(tex));
         if (g_debug_frame) dbg_rt_tex[i] = tex;
         if (g_rt_plane >= 0 && tex.textureType == MTLTextureType3D) rp.colorAttachments[i].depthPlane = (NSUInteger)g_rt_plane;
@@ -1430,6 +1436,7 @@ static int cbuf_base = 3, tex_base = 8;
 @public
     id<MTLFunction> vs, fs;
     ShaderInfo *vi, *fi;
+    uint64_t fg_source_hash;  // computed once when frame generation observes a fragment program
     uint64_t vs_addr, fs_addr;  // guest shader code addresses, for failure logs
     _Atomic bool failed;  // published by async compilation, read by get_program and draw waits
     _Atomic bool ready;  // functions compiled (async compile: draws are skipped until then)
@@ -3350,6 +3357,7 @@ static bool live_override_fs(Prog *pr, const char *path) {
         free(b);
         return false;
     }
+    pr->fg_source_hash = 0;
     pr->fi->msl = b;  // (the translated source leaks: diagnostic path)
     pr->fs = fn;
     g_pipeline_gen++; // old slow-cache entries must not match recycled native function addresses
@@ -3614,6 +3622,7 @@ static void prog_skip_stat(Prog *pr, NvnProgram *p, CmdRec *r) {
     LOG("[metal] %llu draws so far used a program that never compiled (fs %llx)\n", stat_draws, fs);
 }
 
+static void fg_observe_draw(Prog *pr);
 static void draw(CmdRec *r, bool indexed) {
     if (!(uint32_t)(indexed ? r->x[6] : r->x[4])) return;
     if (!st.program) {        stat_skipped++; stat_skip_none++; dbg_skips++;
@@ -4193,6 +4202,7 @@ static void draw(CmdRec *r, bool indexed) {
         }
     }
     }  // runs
+    fg_observe_draw(pr);
     stat_draws++;
     g_pt_draws++;
     if (g_profile_frames) g_profile.draws++;
@@ -4207,6 +4217,62 @@ static void draw(CmdRec *r, bool indexed) {
                                                 f[(512 + i * 8 + v) * 4], f[(512 + i * 8 + v) * 4 + 1], f[(512 + i * 8 + v) * 4 + 2]);
             LOG("\n");
         }
+    }
+}
+
+// Frame generation observes encoded draws only; skipped shaders never publish inputs.
+static uint64_t fg_camera_frame = UINT64_MAX, fg_scene_frame = UINT64_MAX;
+static FgCamera fg_camera;
+static id<MTLTexture> fg_depth, fg_scene;
+static NvnTexture *fg_canvas;
+static id<MTLTexture> fg_scene_ring[3];
+
+bool renderer_fg_inputs(NvnTexture *presented, id<MTLTexture> *scene, id<MTLTexture> *depth, FgCamera *camera) {
+    uint64_t frame = renderer_present_count();
+    bool valid = settings_frame_generation() && fg_camera_frame == frame && fg_scene_frame == frame &&
+                 fg_canvas == presented && fg_depth && fg_scene;
+    if (valid) { *scene = fg_scene; *depth = fg_depth; *camera = fg_camera; }
+    return valid;
+}
+
+static void fg_observe_draw(Prog *pr) {
+    if (!settings_frame_generation()) return;
+    if (!pr->fi || !pr->fi->msl) return; // vertex-only transform feedback has no fragment source
+    if (!pr->fg_source_hash) pr->fg_source_hash = fnv64(pr->fi->msl);
+    uint64_t hash = pr->fg_source_hash, frame = renderer_present_count();
+    // Verified Z-A deferred lighting: camera block and full-resolution sampled depth.
+    if (hash == 0x38299bbd2d7c353dull && cbuf_base == 3 && st.ubuf[1][2].addr && st.ubuf[1][2].size >= 544) {
+        FgCamera camera;
+        if (!fg_camera_decode((const void *)(uintptr_t)st.ubuf[1][2].addr, st.ubuf[1][2].size, &camera)) return;
+        NvnTexture *depth = NULL;
+        for (int i = 0; i < pr->fi->ntex; i++)
+            if (pr->fi->tex[i].handle_offset == 256) depth = shader_texture_object(1, &pr->fi->tex[i]);
+        if (!depth || depth->target != 1 || !renderer_format_is_depth(depth->format)) return;
+        id<MTLTexture> texture = renderer_texture(depth, nil, false);
+        if (!texture || texture.textureType != MTLTextureType2D || texture.sampleCount != 1) return;
+        if (nvn_window_origin() == 0) { // match the vertex translator's Metal clip-Y conversion
+            for (int col=0;col<4;col++) camera.view_projection[col*4+1] = -camera.view_projection[col*4+1];
+            for (int row=0;row<4;row++) camera.inverse_view_projection[4+row] = -camera.inverse_view_projection[4+row];
+        }
+        fg_camera = camera; fg_depth = texture; fg_camera_frame = frame;
+    }
+    // This spatial FXAA draw writes the final colour canvas before HUD/text draws.
+    if (hash == 0xee350631a7ed66ceull && fg_camera_frame == frame && st.rt.color[0] && fg_active_color) {
+        id<MTLTexture> source = fg_active_color;
+        if (source.width != fg_depth.width || source.height != fg_depth.height || source.sampleCount != 1) return;
+        id<MTLTexture> copy = fg_scene_ring[frame % 3];
+        if (!copy || copy.width != source.width || copy.height != source.height || copy.pixelFormat != source.pixelFormat) {
+            MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:source.pixelFormat width:source.width height:source.height mipmapped:NO];
+            d.storageMode = MTLStorageModePrivate; d.usage = MTLTextureUsageShaderRead;
+            copy = [dev newTextureWithDescriptor:d]; fg_scene_ring[frame % 3] = copy;
+        }
+        if (!copy) return;
+        end_pass("frame-generation-scene");
+        id<MTLBlitCommandEncoder> blit = [cmdbuf blitCommandEncoder];
+        [blit copyFromTexture:source toTexture:copy]; [blit endEncoding];
+        fg_scene = copy; fg_canvas = st.rt.color[0]; fg_scene_frame = frame;
+        if (devlog_on("framegen") && frame % 120 == 0)
+            devlog("framegen", "scene frame %llu %lux%lu, camera and depth matched", (unsigned long long)frame, (unsigned long)copy.width, (unsigned long)copy.height);
     }
 }
 
@@ -5038,6 +5104,10 @@ static void exec_list(uint64_t handle, int depth) {
 // everything keyed by guest addresses or guest-owned objects - programs (by code address), pipelines (by program),
 // views, snapshots, bound state - so the next boot can't hit a stale entry. Metal's own shader cache stays warm.
 void renderer_reset(void) {
+    fg_camera_frame = fg_scene_frame = UINT64_MAX;
+    fg_depth = fg_scene = fg_active_color = nil; fg_canvas = NULL;
+    for (int i = 0; i < 3; i++) fg_scene_ring[i] = nil;
+    fg_reset();fg_display_reset();
     early_reset();
     renderer_flush_reason("reset");
     gpu_profile_reset();
