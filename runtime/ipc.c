@@ -42,6 +42,23 @@ Service *service_lookup(const char *name) {
 
 void ipc_return_object(IpcResp *resp, Service *s) { resp->objects[resp->nobjects++] = s; }
 
+Service *ipc_input_object(const IpcReq *req, int index) {
+    if (index < 0) return NULL;
+    if (req->domain) {
+        if (req->nmove || req->ndomain_in < 0 || req->ndomain_in > 8 || index >= req->ndomain_in) return NULL;
+        uint32_t id = req->domain_in_objs[index];
+        return id > 0 && id < 256 ? req->domain->objs[id] : NULL;
+    }
+    if (req->ndomain_in || req->nmove < 0 || req->nmove > 8 || index >= req->nmove) return NULL;
+    // Pseudo handles are not transferable input objects (handle_get requires a current thread for them).
+    uint32_t h = req->move_handles[index];
+    if (h >= 0xffff8000u) return NULL;
+    KObject *o = handle_get(h);
+    if (!o || o->type != KOBJ_SESSION) return NULL;
+    KSession *sess = (KSession *)o;
+    return sess->domain ? NULL : sess->svc;
+}
+
 static uint32_t session_new(Service *s) {
     KSession *k = calloc(1, sizeof *k);
     k->obj.type = KOBJ_SESSION;
@@ -117,6 +134,7 @@ int ipc_handle_request(Cpu *c, uint32_t handle) {
     KSession *sess = (KSession *)o;
     uint32_t *msg = (uint32_t *)(uintptr_t)c->tpidrro;
     IpcReq req = {0};
+    req.domain = sess->domain;
     IpcResp resp = {0};
     req.type = msg[0] & 0xFFFF;
     int nx = (msg[0] >> 16) & 0xF, na = (msg[0] >> 20) & 0xF, nb = (msg[0] >> 24) & 0xF;
@@ -128,6 +146,7 @@ int ipc_handle_request(Cpu *c, uint32_t handle) {
         if (hd & 1) { req.pid = p[0] | ((uint64_t)p[1] << 32); p += 2; }
         req.ncopy = (hd >> 1) & 0xF;
         req.nmove = (hd >> 5) & 0xF;
+        if (req.ncopy > 8 || req.nmove > 8) return 0xE401;
         for (int i = 0; i < req.ncopy; i++) req.copy_handles[i] = *p++;
         for (int i = 0; i < req.nmove; i++) req.move_handles[i] = *p++;
     }
@@ -183,7 +202,12 @@ int ipc_handle_request(Cpu *c, uint32_t handle) {
                 goto write_response;
             }
             req.ndomain_in = nin;
-            for (int i = 0; i < nin; i++) req.domain_in_objs[i] = *(uint32_t *)(payload + 16 + dsize + 4 * i);
+            // Domain input ids follow the CMIF message, within the raw data region.
+            const uint8_t *raw_end = (const uint8_t *)(raw + raw_words);
+            if (nin > 8 || dsize < 16 || payload + 16 > raw_end ||
+                (size_t)(raw_end - (payload + 16)) < (size_t)dsize + 4 * nin) return 0xE401;
+            req.data_size = dsize - 16;  // The declared CMIF body excludes transport padding and input ids.
+            for (int i = 0; i < nin; i++) memcpy(&req.domain_in_objs[i], payload + 16 + dsize + 4 * i, 4);
             payload += 16;
         }
         if (memcmp(payload, "SFCI", 4)) {
@@ -193,7 +217,7 @@ int ipc_handle_request(Cpu *c, uint32_t handle) {
         }
         req.cmd = *(uint32_t *)(payload + 8);
         req.data = payload + 16;
-        req.data_size = raw_words * 4 > 32 ? raw_words * 4 - 32 : 0;
+        if (!dom) req.data_size = raw_words * 4 > 32 ? raw_words * 4 - 32 : 0;
         Service *target = sess->svc;
         if (sess->domain) {
             target = req.domain_obj < 256 ? sess->domain->objs[req.domain_obj] : NULL;
