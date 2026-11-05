@@ -80,6 +80,14 @@ int main(void) {@autoreleasepool {
         phase=tick_phase(phase+step,step,late);
         assert(fabs(phase-late)<1e-9 && phase+step>late); // a late tick rebases, no catchup burst
     }
+    double visible_fps=0;
+    assert(!fg_presentation_active(&visible_fps));
+    last_generated=CACurrentMediaTime();display_period=1./120;
+    assert(fg_presentation_active(&visible_fps) && fabs(visible_fps-120)<1e-8);
+    last_generated=CACurrentMediaTime()-1;
+    assert(!fg_presentation_active(&visible_fps)); // stale generation must disappear from the overlay
+    last_generated=CACurrentMediaTime();fg_display_reset();
+    assert(!fg_presentation_active(&visible_fps)); // a new mode has to warm up again
     double start=CACurrentMediaTime();
     assert(wait_tick(fg_display_epoch(),start+.01));
     assert(CACurrentMediaTime()-start>=.009);

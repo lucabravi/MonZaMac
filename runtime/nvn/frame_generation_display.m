@@ -29,7 +29,7 @@ static NSMutableArray<FgDisplayPacket *> *pending;
 static id<MTLCommandQueue> display_queue;
 static bool worker_ready;
 static uint64_t real_count, generated_count, dropped_count;
-static double last_presented, display_period;
+static double last_presented, last_generated, display_period;
 
 uint64_t fg_display_epoch(void) { return atomic_load(&current_epoch); }
 void fg_display_reset(void) {
@@ -37,10 +37,17 @@ void fg_display_reset(void) {
     pthread_mutex_lock(&lock);
     atomic_fetch_add(&current_epoch,1);
     [pending removeAllObjects];
-    last_presented=display_period=0;
+    last_presented=last_generated=display_period=0;
     pthread_cond_broadcast(&changed);
     pthread_mutex_unlock(&lock);
     pthread_mutex_unlock(&submit_lock);
+}
+bool fg_presentation_active(double *fps) {
+    pthread_mutex_lock(&lock);
+    bool active=last_generated>0 && CACurrentMediaTime()-last_generated<.25 && display_period>0;
+    if(fps)*fps=active?1./display_period:0;
+    pthread_mutex_unlock(&lock);
+    return active;
 }
 void fg_presentation_stats(uint64_t *real, uint64_t *generated, double *fps) {
     pthread_mutex_lock(&lock);
@@ -91,7 +98,7 @@ static bool present_image(FgDisplayPacket *p, id<MTLCommandQueue> queue,
         double now=shown.presentedTime;
         pthread_mutex_lock(&lock);
         if(fg_display_epoch()==epoch && now>0) {
-            if(synthetic)generated_count++; else real_count++;
+            if(synthetic) { generated_count++;last_generated=now; } else real_count++;
             double delta=now-last_presented;
             if(delta>.001 && delta<.2)display_period=display_period?display_period*.9+delta*.1:delta;
             last_presented=fmax(now,last_presented);

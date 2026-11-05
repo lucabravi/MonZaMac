@@ -22,8 +22,8 @@ the native settings menu. After a reset the first two images seed history; they 
 counting MetalFX's initial endpoint copy as a generated image. An independent presenter receives immutable GPU-ready
 images, uses a separate Metal queue, and limits pending whole-frame pairs to avoid an unbounded latency backlog.
 
-F3 shows counts of real/generated images that actually reached the display and an estimated display rate. The usual
-FPS remains the real game rate. `LARECOMP_DEVLOG=framegen` enables bounded input/generation diagnostics; presentation
+The FPS overlay shows the real rate and actual display rate on one line, for example `60fps -> FG 120fps`.
+The FG suffix appears only while synthetic images are reaching the display. Without generation it shows only the real rate. `LARECOMP_DEVLOG=framegen` enables bounded input/generation diagnostics; presentation
 summaries also report dropped pending pairs. Counters alone do not establish visual interpolation quality.
 
 ## Verification

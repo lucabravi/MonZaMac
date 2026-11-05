@@ -1193,7 +1193,13 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         ImGui::SetNextWindowBgAlpha(0.5f);
         ImGui::Begin("##fps", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
                                         ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing);
-        ImGui::Text("%.0f fps", io.Framerate);
+#ifdef __APPLE__
+        double fg_fps=0;
+        if(!open && settings_frame_generation() && fg_presentation_active(&fg_fps))
+            ImGui::Text("%.0ffps -> FG %.0ffps",io.Framerate,fg_fps);
+        else
+#endif
+            ImGui::Text("%.0ffps",io.Framerate);
         if (settings_uncapped_fps()) ImGui::TextUnformatted("BENCHMARK: game speed may change");
         if (g_stats.load()) {  // F3: what the 3D image renders at (the game's own size times the output scale)
             extern int g_out_present_interval;
@@ -1208,13 +1214,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
                 ImGui::Text("dynamic %.0f%%  (frame %.1f ms, gpu %.1f ms%s)", output_scale_dynamic_factor() * 100, fm, gm, gok ? "" : ", not used");
             }
             ImGui::Text("present interval %d", g_out_present_interval);
-#ifdef __APPLE__
-            if(g_settings.frame_generation) {
-                uint64_t real=0,generated=0;double fps=0;
-                fg_presentation_stats(&real,&generated,&fps);
-                ImGui::Text("FG: %llu real + %llu generated, display %.1f fps",(unsigned long long)real,(unsigned long long)generated,fps);
-            }
-#endif
+
 
             if (g_settings.dev_frame_stats) {  // Developer: where the frame's time goes
                 extern double g_stat_cpu_ms, g_stat_gpu_ms;
