@@ -1270,7 +1270,8 @@ void backend_present(NvnTexture *t) {
         renderer_set_scale((float)sx, (float)sy);
         if (b && b->tex) {
             id<MTLTexture> src = raw_view(b->tex);
-            if(g_settings.antialias==AA_SMAA || g_settings.upscaler==UPSCALE_METALFX) {
+            // Split the pass only when SMAA runs or MetalFX actually upscales (not at 1:1, where plain sampling is right).
+            if(g_settings.antialias==AA_SMAA || metalfx_upscale(cb,src,vw/crop[2],vh/crop[3])) {
                 [enc endEncoding];renderer_profile_pass_end("present-postprocess");
                 src=present_postprocess(cb,src,vw/crop[2],vh/crop[3]);
                 MTLRenderPassDescriptor *rp2=[MTLRenderPassDescriptor renderPassDescriptor];
