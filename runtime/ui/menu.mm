@@ -680,7 +680,7 @@ static void tab_display(void) {
                 if (opt_choice("Shadow resolution", &si, sz, 4, 0,
                                "The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024). Higher: "
                                "smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory "
-                               "(4x: about 240 MB, 2x: 60 MB). From the next start."))
+                               "(4x: about 240 MB, 2x: 60 MB). Applies at once."))
                     g_settings.shadow_res = si + 1;
                 int sh = g_settings.shadow_sharp - 1;
                 if (g_settings.shadow_res == 1) opt_disable_next();  // (nothing to narrow at the game's size)

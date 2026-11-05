@@ -181,6 +181,7 @@ typedef struct {
     uint64_t frame_cleared;  // LARECOMP_FRAME_CLEAR: frame it was last cleared at first use
     float sx, sy;        // allocation scale relative to the guest's size
     float shadow_k;      // a shadow map drawn at shadow_k times the game's size (tex_shadow_scale): 0 / 1 = as is
+    bool shadow_cand;    // one of the shadow maps (tex_shadow_candidate): remade when the scale changes
     int reg;             // slot in g_reg (live textures, for the "largest textures" dump) + 1
 } TexBackend;
 
@@ -245,21 +246,30 @@ static bool tex_scalable(const NvnTexture *t) {
 // Shadow maps (square render targets: Pokémon Z-A's cascades are a depth array of 1024x1024 x 3, with an 8-bit object-id
 // array of the same shape drawn in the same pass) keep the game's size at any output resolution, so their texels get
 // bigger on screen as the picture gets sharper: blocky shadow edges. Settings > Rendering > Shadow resolution
-// (shadow_resolution; LARECOMP_SHADOW_SCALE=<1-4> overrides it) draws them that many times bigger instead, from the next
-// start (the size is taken once). The shaders still see the game's size (renderer_texture_scale, as for the scaled
+// (shadow_resolution; LARECOMP_SHADOW_SCALE=<1-4> overrides it) draws them that many times bigger instead; a change
+// applies at once (tex_shadow_refresh makes the map again). The shaders still see the game's size (renderer_texture_scale, as for the scaled
 // targets), and the passes' viewports follow it. The id array has to match the depth's size, so square render-target
 // arrays of 2-4 layers are scaled, depth or not. Z-A at 4x: 4096x4096 x 3, about 240 MB for the two.
-static float tex_shadow_scale(const NvnTexture *t) {
-    static int k = -1;
-    if (k < 0) {
-        const char *e = getenv("LARECOMP_SHADOW_SCALE");
-        k = e ? atoi(e) : g_settings.shadow_res;
-        if (k < 1) k = 1;
-        if (k > 4) k = 4;
-    }
-    if (k == 1 || !(t->flags & 8) || t->samples > 1 || t->width != t->height || t->width < 256 || t->width * k > 8192) return 1;
+static int shadow_k_wanted(void) {
+    static const char *env;
+    static bool env_read;
+    if (!env_read) { env = getenv("LARECOMP_SHADOW_SCALE"); env_read = true; }
+    int k = env ? atoi(env) : g_settings.shadow_res;  // (read at every use: the menu changes it while the game runs)
+    return k < 1 ? 1 : k > 4 ? 4 : k;
+}
+
+// Whether the texture is one of the shadow maps at all (any scale): a square render target of at least 256, a depth
+// texture or a render-target array of 2-4 layers.
+static bool tex_shadow_candidate(const NvnTexture *t) {
+    if (!(t->flags & 8) || t->samples > 1 || t->width != t->height || t->width < 256) return false;
     bool array = t->target == 4 && t->depth >= 2 && t->depth <= 4;
-    if (!array && !(t->target == 1 && renderer_format_is_depth(t->format))) return 1;
+    return array || (t->target == 1 && renderer_format_is_depth(t->format));
+}
+
+// The scale the shadow map is drawn at now: 1 for any other texture, and where the larger map would pass 8192.
+static float tex_shadow_scale(const NvnTexture *t) {
+    int k = shadow_k_wanted();
+    if (k == 1 || !tex_shadow_candidate(t) || t->width * k > 8192) return 1;
     static int nlog;
     if (nlog++ < 4)
         LOG("[shadow] map %s %ux%u (%u layers) drawn at %ux%u\n", renderer_format_is_depth(t->format) ? "depth" : "colour", t->width,
@@ -267,9 +277,24 @@ static float tex_shadow_scale(const NvnTexture *t) {
     return (float)k;
 }
 
+static void create_backend_texture(NvnTexture *t, TexBackend *b);
+static void release_backend_texture(NvnTexture *t, TexBackend *b);
+
+// The shadow quality was changed in the menu: a shadow map made at another scale is made again at the new one (the maps are
+// drawn again every frame, so nothing is lost; the id array and the depth array change together, each at its first use).
+static void tex_shadow_refresh(NvnTexture *t, TexBackend *b) {
+    if (!b->shadow_cand) return;
+    float want = tex_shadow_scale(t);
+    if (want == (b->shadow_k > 1 ? b->shadow_k : 1)) return;
+    release_backend_texture(t, b);
+    b->shadow_k = want;
+    create_backend_texture(t, b);
+}
+
 // A shadow map's size over the game's (1: not one, or at the game's size).
 float renderer_texture_shadow_k(NvnTexture *t) {
     TexBackend *b = t ? (TexBackend *)t->backend : NULL;
+    if (b) tex_shadow_refresh(t, b);
     return b && b->shadow_k > 1 ? b->shadow_k : 1;
 }
 
@@ -326,6 +351,7 @@ bool renderer_texture_presented(NvnTexture *t) {
 
 void renderer_texture_scale(NvnTexture *t, float *sx, float *sy) {
     TexBackend *b = t ? (TexBackend *)t->backend : NULL;
+    if (b) tex_shadow_refresh(t, b);
     if (b && (b->scalable || b->shadow_k > 1)) { *sx = b->sx; *sy = b->sy; }
     else { *sx = 1; *sy = 1; }
 }
@@ -357,10 +383,12 @@ static TexBackend *tex_backend(NvnTexture *t) {
             release_backend_texture(t, b);
             create_backend_texture(t, b);
         }
+        tex_shadow_refresh(t, b);
         return b;
     }
     TexBackend *b = calloc(1, sizeof *b);
     b->scalable = tex_scalable(t);
+    b->shadow_cand = tex_shadow_candidate(t);
     b->shadow_k = tex_shadow_scale(t);
     if (t->width == 1920 && t->height == 1080 && getenv("LARECOMP_LOG_SCALABLE"))
         LOG("[scale] 1920x1080 tex %p f%#x flags %#x target %u samples %u levels %u -> scalable %d (%s)\n", (void *)t, t->format,
