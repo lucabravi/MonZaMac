@@ -5,6 +5,8 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+- **Consistent shadow filtering across cascades:** keeps the filter's world-space width consistent in both materials and the deferred shadow mask, removing the abrupt sharp-to-blurry boundary seen at the station. Cascade distances stay unchanged; distant shadow detail still depends on map resolution. See `docs/shadow-cascades.md`.
+
 - The save being played can be **reloaded** from the in-game Saves tab (**Reload this save**, with the same confirmation as playing another one): the game restarts from its last save there, to undo what happened since. Before, only the other saves could be played
 - **Shadow resolution** applies at once: changing it in Video > Rendering makes the shadow maps again at the new size while the game runs, instead of from the next start (the maps are drawn again every frame, so nothing is lost; at 4x they take about 240 MB while it is on)
 - **Smooth distant animation** (Video > Rendering, on by default): characters and Pokémon away from the camera animate every frame instead of in visible steps. The game's per-frame animation update skips the full path for entities outside a small selected set (about 24 of 70 in the station), chosen by distance and view; a per-entity flag decides it, and the option sets that flag before the update, so the game's own logic is untouched. Applied as a runtime override of the update and its vtable stub, with no change to the game library; Z-A v2.0.2 only (the row is greyed out on the other versions). `LARECOMP_SMOOTH_ANIM=0` turns it off for a run. At the station the CPU and GPU cost was not measurable.
