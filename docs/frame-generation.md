@@ -15,7 +15,8 @@ It does not make 30-fps input respond like native 60-fps input.
 
 The renderer captures validated, matching-frame depth/camera data and the scene after FXAA but before HUD draws.
 MetalFX receives the final composited HUD separately. The selected SMAA/spatial-upscaling path processes both real
-and generated images. The native overlay is built once and rendered into both images without advancing ImGui twice.
+and generated images. When supported, MetalFX writes directly to the game canvas's 8-bit format, avoiding an extra
+full-frame conversion. Other formats/devices retain the FP16 output path; `LARECOMP_FG_OUTPUT_FP16=1` forces it for comparison. The native overlay is built once and rendered into both images without advancing ImGui twice.
 
 Generation resets on mode, window size, input-size or projection changes, camera cuts, missing inputs and opening
 the native settings menu. After a reset the first two images seed history; they are shown as real frames rather than
