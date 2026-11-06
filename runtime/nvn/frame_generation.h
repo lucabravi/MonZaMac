@@ -26,7 +26,8 @@ void fg_reset(void);
 // End active encoders first. Calls and commits must follow frame order on one queue.
 // Inputs must be shader-readable, tracked, single-sample 2D textures of equal size.
 // mode: 0=off, 1=30->60, 2=60->120. First two frames after reset and invalid frames return nil.
-// Returned private texture can be retained by the presenter; it is never recycled.
+// Returned private texture matches an 8-bit canvas when supported, otherwise RGBA16Float.
+// It can be retained by the presenter and is never recycled.
 // Camera-only motion cannot describe independently moving objects or particles.
 id<MTLTexture> fg_encode(id<MTLCommandBuffer> command_buffer,
                          id<MTLTexture> scene, id<MTLTexture> composited_ui,

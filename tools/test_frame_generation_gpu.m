@@ -68,7 +68,11 @@ static id<MTLTexture> encode(id<MTLTexture> s,id<MTLTexture> ui,id<MTLTexture> z
     [cb commit]; [cb waitUntilCompleted];
     if(cb.error)fprintf(stderr,"%s\n",cb.error.description.UTF8String);
     assert(!cb.error);
-    if(out) assert(out.storageMode==MTLStorageModePrivate && out.pixelFormat==MTLPixelFormatRGBA16Float);
+    if(out) {
+        const char *legacy=getenv("LARECOMP_FG_OUTPUT_FP16");
+        assert(out.storageMode==MTLStorageModePrivate);
+        assert(out.pixelFormat==(legacy && atoi(legacy)?MTLPixelFormatRGBA16Float:MTLPixelFormatRGBA8Unorm));
+    }
     return out;
 }
 static NSData *readback_pixels(id<MTLTexture> t, NSUInteger pixel_size) {
@@ -80,7 +84,15 @@ static NSData *readback_pixels(id<MTLTexture> t, NSUInteger pixel_size) {
     [e endEncoding]; [cb commit]; [cb waitUntilCompleted]; assert(!cb.error);
     return [NSData dataWithBytes:b.contents length:row*t.height];
 }
-static NSData *readback(id<MTLTexture> t) { return readback_pixels(t,8); }
+static NSData *readback(id<MTLTexture> t) {
+    if(t.pixelFormat==MTLPixelFormatRGBA16Float)return readback_pixels(t,8);
+    assert(t.pixelFormat==MTLPixelFormatRGBA8Unorm);
+    NSData *raw=readback_pixels(t,4);NSUInteger row=(t.width*4+255)&~255;
+    NSMutableData *converted=[NSMutableData dataWithLength:t.width*t.height*8];
+    __fp16 *dst=converted.mutableBytes;const uint8_t *src=raw.bytes;
+    for(NSUInteger y=0;y<t.height;y++)for(NSUInteger x=0;x<t.width*4;x++)dst[y*t.width*4+x]=(__fp16)(src[y*row+x]/255.f);
+    return converted;
+}
 static id<MTLTexture> crop(id<MTLTexture> t) {
     MTLTextureDescriptor *d=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:t.pixelFormat width:W/2 height:H/2 mipmapped:NO];
     d.usage=MTLTextureUsageShaderRead;
@@ -105,6 +117,7 @@ int main(void) {@autoreleasepool {
     device=MTLCreateSystemDefaultDevice(); queue=[device newCommandQueue];
     if(!fg_supported()){puts("SKIP: macOS 26 / supported MetalFX GPU required");return 0;}
     printf("GPU: %s\n",device.name.UTF8String);
+    unsetenv("LARECOMP_FG_OUTPUT_FP16");
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
     if(@available(macOS 26.0,*)) {
     for(int mode=1;mode<=2;mode++) for(int reversed=0;reversed<=1;reversed++) for(int native=0;native<=1;native++) {
@@ -216,6 +229,12 @@ int main(void) {@autoreleasepool {
         NSData *bytes=readback(outputs[i]);
         assert(difference(bytes,(i+2)*4)>.0001 && difference(bytes,(i+1)*4)>.0001);
     }
+    fg_reset();setenv("LARECOMP_FG_OUTPUT_FP16","1",1);
+    { FgCamera c=camera(0,false);id<MTLTexture> z=depth(false,false);
+      assert(!encode(scene(0,false),nil,z,&c,1,30.));
+      assert(!encode(scene(0,false),nil,z,&c,1,30.+1./30));
+      assert(encode(scene(0,false),nil,z,&c,1,30.+2./30)); }
+    unsetenv("LARECOMP_FG_OUTPUT_FP16");fg_reset();
     puts("PASS: both modes, normal/reversed native/float depth, motion scenes, 4px X/-3px Y backward motion, private output distinct from endpoints, reset/gap/nil/off/UI/cut/resize, in-flight retention");
     }
 #endif

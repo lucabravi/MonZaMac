@@ -114,10 +114,19 @@ static FgState *make_state(id<MTLCommandBuffer> cb, id<MTLTexture> scene, id<MTL
     s->scene_format=scene.pixelFormat; s->depth_format=depth.pixelFormat; s->ui_format=ui.pixelFormat;
     MTLFXFrameInterpolatorDescriptor *d=[MTLFXFrameInterpolatorDescriptor new];
     d.inputWidth=d.outputWidth=s->width; d.inputHeight=d.outputHeight=s->height;
-    d.colorTextureFormat=d.outputTextureFormat=MTLPixelFormatRGBA16Float;
+    d.colorTextureFormat=MTLPixelFormatRGBA16Float;
+    // Match the game's 8-bit canvas directly; avoids a full-frame FP16→8-bit pass.
+    const char *fp16=getenv("LARECOMP_FG_OUTPUT_FP16");
+    bool native8=(!fp16 || !atoi(fp16)) &&
+        (scene.pixelFormat==MTLPixelFormatRGBA8Unorm || scene.pixelFormat==MTLPixelFormatBGRA8Unorm);
+    d.outputTextureFormat=native8?scene.pixelFormat:MTLPixelFormatRGBA16Float;
     d.depthTextureFormat=MTLPixelFormatR32Float; d.motionTextureFormat=MTLPixelFormatRG16Float;
     d.uiTextureFormat=MTLPixelFormatRGBA16Float;
     s->effect=[d newFrameInterpolatorWithDevice:s->device];
+    if(!s->effect && native8) {
+        d.outputTextureFormat=MTLPixelFormatRGBA16Float;
+        s->effect=[d newFrameInterpolatorWithDevice:s->device];
+    }
     NSError *error=nil;
     id<MTLLibrary> lib=[s->device newLibraryWithSource:shader_source options:nil error:&error];
     if(!lib || !s->effect)return nil;
@@ -187,7 +196,7 @@ id<MTLTexture> fg_encode(id<MTLCommandBuffer> cb, id<MTLTexture> scene, id<MTLTe
         double delta=now-s->time;
         BOOL reset=!s->previous || !isfinite(delta) || delta<=0 || delta>.25 || camera_cut(&s->camera,camera);
         FgFrame *frame=acquire_frame(s), *previous=reset?nil:s->previous;
-        id<MTLTexture> output=texture(s,MTLPixelFormatRGBA16Float,s->effect.outputTextureUsage|MTLTextureUsageShaderRead);
+        id<MTLTexture> output=texture(s,s->effect.outputTextureFormat,s->effect.outputTextureUsage|MTLTextureUsageShaderRead);
         if(!frame || !output) { state=nil; return nil; }
         id<MTLComputeCommandEncoder> encoder=[cb computeCommandEncoder];
         if(!encoder) { state=nil; return nil; }
