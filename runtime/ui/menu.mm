@@ -50,8 +50,8 @@ static std::atomic<bool> g_want_fullscreen_apply{false};
 #ifdef __APPLE__
 extern "C" unsigned renderer_recipe_count(void);
 extern "C" bool rt_za_smooth_anim_supported(void);  // (runtime/hle/za_mods.c)
-extern "C" bool temporal_supported(void);
 extern "C" bool fg_supported(void);  // runtime/nvn/frame_generation.m
+extern "C" bool temporal_supported(void);  // runtime/nvn/temporal_upscale.m
 extern "C" bool renderer_export_recipes(const char *, char *, size_t);
 extern "C" bool renderer_update_catalog(char *, size_t);
 extern "C" int renderer_check_catalog(void);
@@ -532,7 +532,6 @@ static bool za_rows(void) {
 static void tab_display(void) {
     float scale = ImGui::GetFontSize() / 34;
     opt_begin("##video", scale);
-    bool temporal = settings_temporal_upscale();
     opt_section("Display");
     bool fs = g_settings.fullscreen;
     if (opt_toggle("Fullscreen", &fs, false, "Fills the screen. Also: F11, Alt+Enter or Cmd+Ctrl+F.")) {
@@ -540,6 +539,8 @@ static void tab_display(void) {
         g_want_fullscreen_apply.store(true);
     }
     opt_toggle("Show FPS", &g_settings.show_fps, false, "Shows the frame rate in the top right corner. F3 does it for this run only, adding the render resolution.");
+
+    opt_section("Rendering resolution");
     {   // Pokémon Z-A's game mode (runtime/services/am.c): the mode the game is told it runs in
         if (za_rows()) {
             int gm = g_settings.handheld ? 1 : 0;
@@ -551,49 +552,6 @@ static void tab_display(void) {
                 am_set_handheld(gm == 1);
         }
     }
-    {   // Pokémon Z-A's frame mode (runtime/hle/framepace.c rt_za_frame_cfg): applies from the next frame
-        if (za_rows()) {
-            int fg = settings_frame_generation();
-            int fr = (fg ? settings_real_fps60() : g_settings.fps60) ? 1 : 0;
-            static const char *rates[] = {"30 fps (Switch)", "60 fps"};
-            if (fg) opt_disable_next();
-            if (opt_choice("Frame rate", &fr, rates, 2, 0,
-                           "30 fps: as on the Switch. 60 fps: smoother motion, with the world step adapting to the "
-                           "time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU. "
-                           "Frame generation selects its own source rate; turning it off restores your choice here."))
-                g_settings.fps60 = fr == 1;
-            bool supported = false;
-#ifdef __APPLE__
-            supported = fg_supported();
-#endif
-            const char *fps_override = ENV("LARECOMP_FPS");
-            const char *reason = !supported ? "Unavailable: requires macOS 26 and a GPU supporting MetalFX frame interpolation. " :
-                                 fps_override && *fps_override ? "Inactive: unset LARECOMP_FPS to use frame generation. " :
-                                 settings_uncapped_fps() ? "Inactive: turn off Uncapped FPS (benchmark), including LARECOMP_UNCAPPED_FPS. " : "";
-            char description[768];
-            snprintf(description, sizeof description, "%sAdds an intermediate frame between real game frames: 30 real to 60 displayed, "
-                     "or 60 real to 120 displayed. The game keeps its original speed. Falls back to real frames when scene inputs "
-                     "are unavailable. Camera motion is reconstructed; moving characters and particles may show artifacts.", reason);
-            static const char *generation[] = {"Off", "30 -> 60 fps", "60 -> 120 fps"};
-            if (!supported) opt_disable_next();
-            opt_choice("Frame generation", &g_settings.frame_generation, generation, 3, FRAME_GENERATION_OFF, description);
-            static const char *quality[] = {"Native", "Performance"};
-            static const char *temporal_quality[] = {"Output", "Performance"};
-            int fg_quality = temporal ? 0 : g_settings.frame_generation_performance ? 1 : 0;
-            if (!supported || !g_settings.frame_generation || temporal) opt_disable_next();
-            if (opt_choice("Frame generation quality", &fg_quality, temporal ? temporal_quality : quality, 2, 0,
-                          temporal ? "With MetalFX temporal, frame generation uses the reconstructed output resolution. "
-                                     "Performance is inactive in this combination. Your saved quality choice is restored "
-                                     "when temporal is off." :
-                          "Native uses the rendering resolution for generated frames. Performance caps only generated frames "
-                          "at 1920 pixels wide (1080p at 16:9) to reduce GPU cost. Real frames keep the selected rendering "
-                          "resolution. Intermediate images may look softer. Applies immediately."))
-                g_settings.frame_generation_performance = fg_quality == 1;
-
-        }
-    }
-
-    opt_section("Rendering");
     // Two choices: Fixed or Dynamic, then the resolution - for Dynamic how far up it may go (it's lowered while the GPU
     // can't hold the frame rate). Display order -> RES_* (the ini / enum order predates the menu order).
     // (Fixed: Match display in the middle, left from it 75% / 50% / 25%, right 1x-4x; user 2026-10-11)
@@ -662,6 +620,14 @@ static void tab_display(void) {
             if (opt_choice("Internal resolution", &ri, fixed, NFIXED, fixed_def, d2, false)) g_settings.res_mode = fixed_mode[ri];
         }
     }
+    if (za_rows()) {
+        opt_toggle("Game dynamic resolution", &g_settings.game_drs, false,
+                   "The game's own resolution scaling, which lowers the picture when it thinks the GPU is slow. Off: "
+                   "it stays at full (a window in the background no longer makes it blurry for a while). Separate "
+                   "from Internal resolution > Dynamic.");
+    }
+
+    opt_section("Upscaling and AA");
     {   // saved choices survive capability fallback and switching between the platforms
 #ifdef __APPLE__
         bool supported = temporal_supported();
@@ -691,6 +657,7 @@ static void tab_display(void) {
         if (opt_choice("Upscaler", &ui, ups, 2, 1, ud)) g_settings.upscaler = ui ? UPSCALE_SHARP : UPSCALE_BILINEAR;
 #endif
     }
+    bool temporal = settings_temporal_upscale();
     static const char *aa[] = {"Off", "SMAA"};
     if (temporal) opt_disable_next();
     opt_choice("Anti-aliasing", &g_settings.antialias, aa, 2, AA_SMAA,
@@ -706,43 +673,87 @@ static void tab_display(void) {
                                   "is restored when temporal is off." :
                        "The game's own anti-aliasing, a light blur over the whole image. Off: sharper, with more jagged "
                        "edges (SMAA above can smooth them instead).");
-            opt_toggle("Game dynamic resolution", &g_settings.game_drs, false,
-                       "The game's own resolution scaling, which lowers the picture when it thinks the GPU is slow. Off: "
-                       "it stays at full (a window in the background no longer makes it blurry for a while). Separate "
-                       "from Internal resolution > Dynamic.");
-            opt_toggle("Depth of field", &g_settings.dof, true,
-                       "The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.");
-            opt_toggle("Bloom", &g_settings.bloom, true,
-                       "The game's glow around bright light. Off: no glow, a plainer image.");
-            opt_toggle("Wider view", &g_settings.fov, false,
-                       "The camera's field of view a little wider: more of the scene at the sides. Off: the game's own.");
-            {   // (only the 2.0.2 build is patched: on the others the row shows the setting but cannot change it)
-                ImGui::BeginDisabled(!rt_za_smooth_anim_supported());
-                opt_toggle("Smooth distant animation", &g_settings.smooth_anim, true,
-                           "Characters and Pokémon away from the camera animate every frame, as those close by do, instead of "
-                           "in visible steps. Costs a little CPU in crowded places. Off: the game's own. Game version 2.0.2 "
-                           "only.");
-                ImGui::EndDisabled();
-            }
-            opt_toggle("Sharper textures", &g_settings.lod, true,
-                       "Textures stay sharp on ground and walls seen at a slant, and (macOS 26 or later) farther away too. "
-                       "Off: the game's own.");
-            {   // the shadow map's size (runtime/nvn/metal.m: taken at start) and its filter's width (runtime/nvn/renderer.m)
-                static const char *sz[] = {"Game's", "2x", "3x", "4x"};
-                int si = g_settings.shadow_res - 1;
-                if (opt_choice("Shadow resolution", &si, sz, 4, 0,
-                               "The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024). Higher: "
-                               "smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory "
-                               "(4x: about 240 MB, 2x: 60 MB). Applies at once."))
-                    g_settings.shadow_res = si + 1;
-                int sh = g_settings.shadow_sharp - 1;
-                if (g_settings.shadow_res == 1) opt_disable_next();  // (nothing to narrow at the game's size)
-                if (opt_choice("Shadow sharpness", &sh, sz, 4, 0,
-                               "How soft the edges of the sun's shadows are: the game's own blur, or 2-4 times narrower, "
-                               "so sharper shadows. At most the shadow resolution (the blur is measured in the map's texels). "
-                               "Changes at once."))
-                    g_settings.shadow_sharp = sh + 1;
-            }
+        }
+    }
+
+    opt_section("Frame rate and generation");
+    {   // Pokémon Z-A's frame mode (runtime/hle/framepace.c rt_za_frame_cfg): applies from the next frame
+        if (za_rows()) {
+            int fg = settings_frame_generation();
+            int fr = (fg ? settings_real_fps60() : g_settings.fps60) ? 1 : 0;
+            static const char *rates[] = {"30 fps (Switch)", "60 fps"};
+            if (fg) opt_disable_next();
+            if (opt_choice("Frame rate", &fr, rates, 2, 0,
+                           "30 fps: as on the Switch. 60 fps: smoother motion, with the world step adapting to the "
+                           "time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU. "
+                           "Frame generation selects its own source rate; turning it off restores your choice here."))
+                g_settings.fps60 = fr == 1;
+            bool supported = false;
+#ifdef __APPLE__
+            supported = fg_supported();
+#endif
+            const char *fps_override = ENV("LARECOMP_FPS");
+            const char *reason = !supported ? "Unavailable: requires macOS 26 and a GPU supporting MetalFX frame interpolation. " :
+                                 fps_override && *fps_override ? "Inactive: unset LARECOMP_FPS to use frame generation. " :
+                                 settings_uncapped_fps() ? "Inactive: turn off Uncapped FPS (benchmark), including LARECOMP_UNCAPPED_FPS. " : "";
+            char description[768];
+            snprintf(description, sizeof description, "%sAdds an intermediate frame between real game frames: 30 real to 60 displayed, "
+                     "or 60 real to 120 displayed. The game keeps its original speed. Falls back to real frames when scene inputs "
+                     "are unavailable. Camera motion is reconstructed; moving characters and particles may show artifacts.", reason);
+            static const char *generation[] = {"Off", "30 -> 60 fps", "60 -> 120 fps"};
+            if (!supported) opt_disable_next();
+            opt_choice("Frame generation", &g_settings.frame_generation, generation, 3, FRAME_GENERATION_OFF, description);
+            static const char *quality[] = {"Native", "Performance"};
+            static const char *temporal_quality[] = {"Output", "Performance"};
+            int fg_quality = temporal ? 0 : g_settings.frame_generation_performance ? 1 : 0;
+            if (!supported || !g_settings.frame_generation || temporal) opt_disable_next();
+            if (opt_choice("Frame generation quality", &fg_quality, temporal ? temporal_quality : quality, 2, 0,
+                          temporal ? "With MetalFX temporal, frame generation uses the reconstructed output resolution. "
+                                     "Performance is inactive in this combination. Your saved quality choice is restored "
+                                     "when temporal is off." :
+                          "Native uses the rendering resolution for generated frames. Performance caps only generated frames "
+                          "at 1920 pixels wide (1080p at 16:9) to reduce GPU cost. Real frames keep the selected rendering "
+                          "resolution. Intermediate images may look softer. Applies immediately."))
+                g_settings.frame_generation_performance = fg_quality == 1;
+
+        }
+    }
+
+    if (za_rows()) {
+        opt_section("Game effects");
+        opt_toggle("Depth of field", &g_settings.dof, true,
+                   "The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.");
+        opt_toggle("Bloom", &g_settings.bloom, true,
+                   "The game's glow around bright light. Off: no glow, a plainer image.");
+        opt_toggle("Wider view", &g_settings.fov, false,
+                   "The camera's field of view a little wider: more of the scene at the sides. Off: the game's own.");
+        {   // (only the 2.0.2 build is patched: on the others the row shows the setting but cannot change it)
+            ImGui::BeginDisabled(!rt_za_smooth_anim_supported());
+            opt_toggle("Smooth distant animation", &g_settings.smooth_anim, true,
+                       "Characters and Pokémon away from the camera animate every frame, as those close by do, instead of "
+                       "in visible steps. Costs a little CPU in crowded places. Off: the game's own. Game version 2.0.2 "
+                       "only.");
+            ImGui::EndDisabled();
+        }
+        opt_toggle("Sharper textures", &g_settings.lod, true,
+                   "Textures stay sharp on ground and walls seen at a slant, and (macOS 26 or later) farther away too. "
+                   "Off: the game's own.");
+        opt_section("Shadows");
+        {   // the shadow map's size (runtime/nvn/metal.m: taken at start) and its filter's width (runtime/nvn/renderer.m)
+            static const char *sz[] = {"Game's", "2x", "3x", "4x"};
+            int si = g_settings.shadow_res - 1;
+            if (opt_choice("Shadow resolution", &si, sz, 4, 0,
+                           "The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024). Higher: "
+                           "smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory "
+                           "(4x: about 240 MB, 2x: 60 MB). Applies at once."))
+                g_settings.shadow_res = si + 1;
+            int sh = g_settings.shadow_sharp - 1;
+            if (g_settings.shadow_res == 1) opt_disable_next();  // (nothing to narrow at the game's size)
+            if (opt_choice("Shadow sharpness", &sh, sz, 4, 0,
+                           "How soft the edges of the sun's shadows are: the game's own blur, or 2-4 times narrower, "
+                           "so sharper shadows. At most the shadow resolution (the blur is measured in the map's texels). "
+                           "Changes at once."))
+                g_settings.shadow_sharp = sh + 1;
         }
     }
 
