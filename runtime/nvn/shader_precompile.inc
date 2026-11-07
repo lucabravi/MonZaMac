@@ -77,9 +77,10 @@ static void precompile_run(void) {
         if (stage == 5) k.stencil_slots = k.uint_slots = CS_KEY_SLOTS;
         ShaderInfo *si = maxwell_translate_with_constants(bin.bytes, co ? co : 0x10000,
             stage == 0 ? STAGE_VERTEX : stage == 1 ? STAGE_FRAGMENT : STAGE_COMPUTE, &k, (const uint8_t *)bin.bytes + co, co ? cs : 0);
-        if (!si->msl) { @synchronized(group) { backend_shader_precompile_progress(1, ++done, total); } continue; }
+        if (!si->msl) { maxwell_free(si); @synchronized(group) { backend_shader_precompile_progress(1, ++done, total); } continue; }
         translated++;
         NSString *source = @(si->msl);
+        maxwell_free(si);  // source owns the text; the worker needs no translation metadata
         dispatch_semaphore_wait(slots, DISPATCH_TIME_FOREVER);
         dispatch_group_async(group, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ @autoreleasepool {
             id<MTLLibrary> lib = [dev newLibraryWithSource:source options:game_shader_opts(stage == 0) error:nil];
