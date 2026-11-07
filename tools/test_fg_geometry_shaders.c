@@ -48,7 +48,7 @@ int main(void) {
             assert(fg->out_mask == old->out_mask && fg->attr_mask == old->attr_mask);
         } else {
             assert(strstr(fg->msl, "float4 fgMotion [[color(7)]]"));
-            assert(strstr(fg->msl, "constant float2 &fgResolution [[buffer(25)]]"));
+            assert(strstr(fg->msl, "constant float4 &fgViewport [[buffer(25)]]"));
             assert(strstr(fg->msl, "65504"));
             assert(fg->out_mask == old->out_mask);
         }

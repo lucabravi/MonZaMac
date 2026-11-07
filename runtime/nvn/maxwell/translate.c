@@ -3143,7 +3143,7 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
         sp(&args, ", device atomic_uint *fgCurrent [[buffer(%d)]], device const uint *fgPrevious [[buffer(%d)]], constant uint4 &fgParams [[buffer(%d)]]",
            FG_CURRENT_BUFFER_INDEX, FG_PREVIOUS_BUFFER_INDEX, FG_PARAMS_BUFFER_INDEX);
     if (fg_history && stage == STAGE_FRAGMENT)
-        sp(&args, ", constant float2 &fgResolution [[buffer(%d)]]", FG_PARAMS_BUFFER_INDEX);
+        sp(&args, ", constant float4 &fgViewport [[buffer(%d)]]", FG_PARAMS_BUFFER_INDEX);
     for (int i = 0; i < 18; i++)
         if (info->cbuf_mask & (1u << i)) sp(&args, ", constant uint4 *cb%d [[buffer(%d)]]", i, i);
     if (info->uses_gmem) {
@@ -3312,7 +3312,7 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
         if (fg_history)
             sp(&s, "  if (in.fgHistoryValid > 0.999999f && in.fgPreviousClip.w > 0.0f) {\n"
                    "    float2 fgPreviousUV = (in.fgPreviousClip.xy / in.fgPreviousClip.w) * float2(0.5f, -0.5f) + 0.5f;\n"
-                   "    o.fgMotion = float4(fgPreviousUV * fgResolution - in.pos.xy, 0, 0);\n"
+                   "    o.fgMotion = float4(fgViewport.zw + fgPreviousUV * fgViewport.xy - in.pos.xy, 0, 0);\n"
                    "  }\n");
         sp(&s, "  return o;\n}\n");
     } else {

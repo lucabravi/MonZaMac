@@ -22,6 +22,9 @@ Switching applies immediately and resets interpolation history when the working 
 may look softer. Native and generated images keep separate SMAA/spatial-MetalFX caches, so alternating sizes do not
 recompile filters every frame.
 
+The interpolated picture is the viewport the game draws into: in handheld mode that is 1280x720 inside larger game
+targets, so scene, depth, motion and the HUD are all read from that rectangle only.
+
 The renderer captures validated, matching-frame depth/camera data and the scene after FXAA but before HUD draws.
 MetalFX receives the final composited HUD separately. The selected SMAA/spatial-upscaling path processes both real
 and generated images. When supported, MetalFX writes directly to the game canvas's 8-bit format, avoiding an extra
@@ -67,7 +70,7 @@ The presenter uses the measured source-frame interval, including below the nomin
 midpoint spacing under GPU load. Camera data is decoded from the exact uniform snapshot bound to the deferred draw.
 The per-vertex path is enabled with frame generation; `LARECOMP_FG_VERTEX_MOTION=0` forces camera-only motion for diagnosis.
 Direct single-instance skinned draws with compatible layout and a free MRT7 are tracked, in the G-buffer, recognised by its
-formats and a common size for its targets and depth (handheld and dynamic game resolution included, not yet verified there). Other G-buffer draws write
+formats and a common size for its targets and depth. Other G-buffer draws write
 an invalid-motion sentinel, so covered background motion cannot leak into foreground objects. The motion variants of
 a shader compile when first drawn, so a new character can cause a short hitch. These limits do not establish
 artifact-free interpolation.

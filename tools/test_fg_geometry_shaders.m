@@ -95,7 +95,7 @@ int main(void) { @autoreleasepool {
         [enc setVertexBytes:raw[f] length:sizeof raw[f] atIndex:0];
         [enc setVertexBuffer:current offset:guard_case ? 0 : GUARD_BYTES atIndex:FG_CURRENT_BUFFER_INDEX];
         [enc setVertexBuffer:previous offset:guard_case ? 0 : GUARD_BYTES atIndex:FG_PREVIOUS_BUFFER_INDEX];
-        simd_uint4 params = {guard_case ? 0 : VERTICES, frame != 0, frame + 1, 0}; simd_float2 size = {WIDTH, WIDTH}; simd_float4 tint[2] = {0};
+        simd_uint4 params = {guard_case ? 0 : VERTICES, frame != 0, frame + 1, 0}; simd_float4 size = {WIDTH, WIDTH, 0, 0}; simd_float4 tint[2] = {0};
         [enc setVertexBytes:&params length:sizeof params atIndex:FG_PARAMS_BUFFER_INDEX];
         [enc setFragmentBytes:&size length:sizeof size atIndex:FG_PARAMS_BUFFER_INDEX];
         [enc setFragmentBytes:tint length:sizeof tint atIndex:19];

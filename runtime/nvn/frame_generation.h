@@ -13,6 +13,9 @@ typedef struct {
     bool reversed_depth;
 } FgCamera;
 
+// A sub-rectangle of a texture, in its pixels (handheld draws 1280x720 into larger game targets).
+typedef struct { unsigned x, y, width, height; } FgRect;
+
 #ifdef __OBJC__
 #import <Metal/Metal.h>
 #endif
@@ -34,6 +37,12 @@ void fg_reset(void);
 // Camera-only motion cannot describe independently moving objects or particles.
 // Optional geometry motion is backward RG16Float displacement in scene pixels.
 // Any component at +/-65504 or nonfinite falls back to camera motion for that pixel.
+// ui_rect / depth_rect (also the geometry motion rect) select the picture inside those inputs; NULL = the whole texture.
+// The scene is already the picture only, and sets the working size.
+id<MTLTexture> fg_encode_view(id<MTLCommandBuffer> command_buffer,
+                              id<MTLTexture> scene, id<MTLTexture> composited_ui, const FgRect *ui_rect,
+                              id<MTLTexture> depth, const FgRect *depth_rect, id<MTLTexture> geometry_motion,
+                              const FgCamera *camera, int mode, unsigned max_width, double now_seconds);
 id<MTLTexture> fg_encode(id<MTLCommandBuffer> command_buffer,
                          id<MTLTexture> scene, id<MTLTexture> composited_ui,
                          id<MTLTexture> depth, id<MTLTexture> geometry_motion, const FgCamera *camera,

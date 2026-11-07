@@ -46,13 +46,13 @@ static FgState *state API_AVAILABLE(macos(26.0));
 static NSString *const shader_source =
 @"#include <metal_stdlib>\nusing namespace metal;\n"
 "struct Camera { float4x4 inverse; float4x4 previous; };\n"
-"kernel void color_copy(texture2d<float> s [[texture(0)]], texture2d<half,access::write> d [[texture(1)]], uint2 p [[thread_position_in_grid]]) { if(p.x<d.get_width()&&p.y<d.get_height()) { constexpr sampler q(coord::normalized,filter::linear);float4 v=(s.get_width()==d.get_width()&&s.get_height()==d.get_height())?s.read(p):s.sample(q,(float2(p)+.5)/float2(d.get_width(),d.get_height()));d.write(half4(v),p); } }\n"
-"void project(float z, uint2 p, constant Camera& c, texture2d<float,access::write> d, texture2d<half,access::write> m, texture2d<half,access::read> geometry, uint has_geometry) {\n"
+"kernel void color_copy(texture2d<float> s [[texture(0)]], texture2d<half,access::write> d [[texture(1)]], constant uint4& r [[buffer(0)]], uint2 p [[thread_position_in_grid]]) { if(p.x<d.get_width()&&p.y<d.get_height()) { constexpr sampler q(coord::normalized,filter::linear);float4 v=(r.z==d.get_width()&&r.w==d.get_height())?s.read(uint2(r.xy)+p):s.sample(q,(float2(r.xy)+(float2(p)+.5)*float2(r.zw)/float2(d.get_width(),d.get_height()))/float2(s.get_width(),s.get_height()));d.write(half4(v),p); } }\n"
+"void project(float z, uint2 p, constant Camera& c, texture2d<float,access::write> d, texture2d<half,access::write> m, texture2d<half,access::read> geometry, uint has_geometry, uint4 r) {\n"
 " float2 size=float2(d.get_width(),d.get_height()); float2 uv=(float2(p)+.5)/size; d.write(float4(z),p);\n"
 // Inspect half bits: fast-math may remove floating-point isfinite checks.
 " if(has_geometry) {\n"
-"   float2 source=float2(geometry.get_width(),geometry.get_height());\n"
-"   uint2 q=min(uint2((float2(p)+.5f)*source/size),uint2(source)-1u); half2 motion=geometry.read(q).xy;\n"
+"   float2 source=float2(r.zw);\n"
+"   uint2 q=min(uint2(float2(r.xy)+(float2(p)+.5f)*source/size),uint2(geometry.get_width(),geometry.get_height())-1u); half2 motion=geometry.read(q).xy;\n"
 "   if(all((as_type<ushort2>(motion)&ushort2(0x7fff))<ushort2(0x7bff))) {\n"
 "     m.write(half4(half2(float2(motion)*size/source),0,0),p); return;\n"
 "   }\n"
@@ -62,8 +62,8 @@ static NSString *const shader_source =
 " if(all(isfinite(prev))&&prev.w>1e-6) { float2 ndc=prev.xy/prev.w; float2 previousUV=float2(ndc.x*.5+.5,.5-ndc.y*.5); motion=(previousUV-uv)*size; }\n"
 " if(!all(isfinite(motion)))motion=0;\n"
 " m.write(half4(half2(clamp(motion,-size,size)),0,0),p); }\n"
-"kernel void float_depth(texture2d<float,access::read> s [[texture(0)]],texture2d<float,access::write> d [[texture(1)]],texture2d<half,access::write> m [[texture(2)]],texture2d<half,access::read> geometry [[texture(3)]],constant Camera& c [[buffer(0)]],constant uint& has_geometry [[buffer(1)]],uint2 p [[thread_position_in_grid]]) { if(p.x<d.get_width()&&p.y<d.get_height())project(s.read(uint2((float2(p)+.5)*float2(s.get_width(),s.get_height())/float2(d.get_width(),d.get_height()))).x,p,c,d,m,geometry,has_geometry); }\n"
-"kernel void native_depth(depth2d<float> s [[texture(0)]],texture2d<float,access::write> d [[texture(1)]],texture2d<half,access::write> m [[texture(2)]],texture2d<half,access::read> geometry [[texture(3)]],constant Camera& c [[buffer(0)]],constant uint& has_geometry [[buffer(1)]],uint2 p [[thread_position_in_grid]]) { constexpr sampler q(coord::pixel,filter::nearest); if(p.x<d.get_width()&&p.y<d.get_height())project(s.sample(q,(float2(p)+.5)*float2(s.get_width(),s.get_height())/float2(d.get_width(),d.get_height())),p,c,d,m,geometry,has_geometry); }\n"
+"kernel void float_depth(texture2d<float,access::read> s [[texture(0)]],texture2d<float,access::write> d [[texture(1)]],texture2d<half,access::write> m [[texture(2)]],texture2d<half,access::read> geometry [[texture(3)]],constant Camera& c [[buffer(0)]],constant uint& has_geometry [[buffer(1)]],constant uint4& r [[buffer(2)]],uint2 p [[thread_position_in_grid]]) { if(p.x<d.get_width()&&p.y<d.get_height())project(s.read(uint2(float2(r.xy)+(float2(p)+.5)*float2(r.zw)/float2(d.get_width(),d.get_height()))).x,p,c,d,m,geometry,has_geometry,r); }\n"
+"kernel void native_depth(depth2d<float> s [[texture(0)]],texture2d<float,access::write> d [[texture(1)]],texture2d<half,access::write> m [[texture(2)]],texture2d<half,access::read> geometry [[texture(3)]],constant Camera& c [[buffer(0)]],constant uint& has_geometry [[buffer(1)]],constant uint4& r [[buffer(2)]],uint2 p [[thread_position_in_grid]]) { constexpr sampler q(coord::pixel,filter::nearest); if(p.x<d.get_width()&&p.y<d.get_height())project(s.sample(q,float2(r.xy)+(float2(p)+.5)*float2(r.zw)/float2(d.get_width(),d.get_height())),p,c,d,m,geometry,has_geometry,r); }\n"
 ;
 
 static BOOL native_depth_format(MTLPixelFormat f) {
@@ -191,18 +191,22 @@ void fg_reset(void) {
 #endif
 }
 
-id<MTLTexture> fg_encode(id<MTLCommandBuffer> cb, id<MTLTexture> scene, id<MTLTexture> ui,
-                         id<MTLTexture> depth, id<MTLTexture> geometry_motion, const FgCamera *camera, int mode, unsigned max_width, double now) {
+static BOOL rect_fits(const FgRect *r, id<MTLTexture> t) {
+    return !r || (r->width && r->height && r->x<t.width && r->y<t.height && r->width<=t.width-r->x && r->height<=t.height-r->y);
+}
+id<MTLTexture> fg_encode_view(id<MTLCommandBuffer> cb, id<MTLTexture> scene, id<MTLTexture> ui, const FgRect *ui_rect,
+                              id<MTLTexture> depth, const FgRect *depth_rect, id<MTLTexture> geometry_motion,
+                              const FgCamera *camera, int mode, unsigned max_width, double now) {
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
     if(@available(macOS 26.0,*)) @synchronized([FgState class]) {
         id<MTLDevice> device=cb.device;
         BOOL valid=cb && cb.status<MTLCommandBufferStatusCommitted && (mode==1 || mode==2) && isfinite(now) && camera_valid(camera) &&
             [MTLFXFrameInterpolatorDescriptor supportsDevice:device] &&
             usable(scene,device,scene.width,scene.height) && color_format(scene.pixelFormat) &&
-            usable(depth,device,scene.width,scene.height) &&
+            usable(depth,device,depth.width,depth.height) && rect_fits(depth_rect,depth) &&
             (native_depth_format(depth.pixelFormat) || depth.pixelFormat==MTLPixelFormatR32Float || depth.pixelFormat==MTLPixelFormatR16Float || depth.pixelFormat==MTLPixelFormatR16Unorm) &&
-            (!ui || (usable(ui,device,scene.width,scene.height) && color_format(ui.pixelFormat))) &&
-            (!geometry_motion || (usable(geometry_motion,device,scene.width,scene.height) && geometry_motion.pixelFormat==MTLPixelFormatRG16Float)) &&
+            (!ui || (usable(ui,device,ui.width,ui.height) && rect_fits(ui_rect,ui) && color_format(ui.pixelFormat))) &&
+            (!geometry_motion || (usable(geometry_motion,device,depth.width,depth.height) && geometry_motion.width==depth.width && geometry_motion.height==depth.height && geometry_motion.pixelFormat==MTLPixelFormatRG16Float)) &&
             fabsf(camera->aspect-((float)scene.width/scene.height))<.05f;
         if(!valid) { state=nil; return nil; }
         FgState *s=state;
@@ -221,10 +225,14 @@ id<MTLTexture> fg_encode(id<MTLCommandBuffer> cb, id<MTLTexture> scene, id<MTLTe
         if(!encoder) { state=nil; return nil; }
         encoder.label=@"Frame generation input conversion and camera motion";
         [encoder setComputePipelineState:s->copy_color];
+        uint32_t scene_rect[4]={0,0,(uint32_t)scene.width,(uint32_t)scene.height};
+        [encoder setBytes:scene_rect length:sizeof scene_rect atIndex:0];
         [encoder setTexture:scene atIndex:0]; [encoder setTexture:frame->color atIndex:1];
         MTLSize size=MTLSizeMake(s->width,s->height,1), group=MTLSizeMake(8,8,1);
         [encoder dispatchThreads:size threadsPerThreadgroup:group];
         if(ui) {
+            uint32_t ui_view[4]={ui_rect?ui_rect->x:0,ui_rect?ui_rect->y:0,ui_rect?ui_rect->width:(uint32_t)ui.width,ui_rect?ui_rect->height:(uint32_t)ui.height};
+            [encoder setBytes:ui_view length:sizeof ui_view atIndex:0];
             [encoder setTexture:ui atIndex:0]; [encoder setTexture:frame->ui atIndex:1];
             [encoder dispatchThreads:size threadsPerThreadgroup:group];
         }
@@ -237,6 +245,8 @@ id<MTLTexture> fg_encode(id<MTLCommandBuffer> cb, id<MTLTexture> scene, id<MTLTe
         uint32_t has_geometry=geometry_motion!=nil;
         [encoder setTexture:geometry_motion?:scene atIndex:3];
         [encoder setBytes:&has_geometry length:sizeof has_geometry atIndex:1];
+        uint32_t depth_view[4]={depth_rect?depth_rect->x:0,depth_rect?depth_rect->y:0,depth_rect?depth_rect->width:(uint32_t)depth.width,depth_rect?depth_rect->height:(uint32_t)depth.height};
+        [encoder setBytes:depth_view length:sizeof depth_view atIndex:2];
         [encoder dispatchThreads:size threadsPerThreadgroup:group];
         [encoder endEncoding];
 
@@ -275,8 +285,12 @@ id<MTLTexture> fg_encode(id<MTLCommandBuffer> cb, id<MTLTexture> scene, id<MTLTe
         return ready?output:nil;
     }
 #endif
-    (void)cb; (void)scene; (void)ui; (void)depth; (void)geometry_motion; (void)camera; (void)mode; (void)max_width; (void)now;
+    (void)cb; (void)scene; (void)ui; (void)ui_rect; (void)depth; (void)depth_rect; (void)geometry_motion; (void)camera; (void)mode; (void)max_width; (void)now;
     return nil;
+}
+id<MTLTexture> fg_encode(id<MTLCommandBuffer> cb, id<MTLTexture> scene, id<MTLTexture> ui,
+                         id<MTLTexture> depth, id<MTLTexture> geometry_motion, const FgCamera *camera, int mode, unsigned max_width, double now) {
+    return fg_encode_view(cb,scene,ui,NULL,depth,NULL,geometry_motion,camera,mode,max_width,now);
 }
 
 // Selected-frame private dump: no screen capture and no data is uploaded.

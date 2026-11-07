@@ -1266,6 +1266,7 @@ void backend_present(NvnTexture *t) {
         extern void present_crop(double, float *, double *, double *, double *, double *);
         float crop[4];  // uv origin and size
         present_crop(shape, crop, &vx, &vy, &vw, &vh);
+        float crop_base[4]; memcpy(crop_base, crop, sizeof crop_base);  // (before the game's crop: the interpolated image is already only the picture)
         {   // the game's own crop of its window texture (handheld: 1280x720 of 1920x1080): only that part is the picture
             extern int g_present_crop[4], g_present_tex[2];
             const int *wc = g_present_crop, tw = g_present_tex[0], th = g_present_tex[1];
@@ -1310,22 +1311,30 @@ void backend_present(NvnTexture *t) {
         if (menu_at && (long)total_frames + 1 == menu_at) { extern void menu_test_open(void); menu_test_open(); }
         menu_render(dev, cb, present_target);
         id<MTLTexture> fg_image=nil, fg_source=nil, fg_z=nil, fg_window_image=nil;
-        FgCamera fg_camera;
+        FgCamera fg_camera; FgRect fg_rect={0};
         double fg_clock=CACurrentMediaTime();
         static double fg_previous_source_time;static uint64_t fg_time_epoch;
         uint64_t clock_epoch=fg_display_epoch();
         double fg_source_period=fg_previous_source_time && clock_epoch==fg_time_epoch ? fg_clock-fg_previous_source_time : 1./(fg_mode==1?30:60);
         fg_previous_source_time=fg_clock;fg_time_epoch=clock_epoch;
-        if(fg_process && !menu_is_open() && renderer_fg_inputs(t,&fg_source,&fg_z,&fg_camera)) {
+        if(fg_process && !menu_is_open() && renderer_fg_inputs(t,&fg_source,&fg_z,&fg_camera,&fg_rect)) {
             fg_source=raw_view(fg_source);
-            fg_image=fg_encode(cb,fg_source,raw_view(b->tex),fg_z,renderer_fg_motion(),&fg_camera,fg_mode,g_settings.frame_generation_performance?1920:0,fg_clock);
+            id<MTLTexture> fg_ui=raw_view(b->tex);
+            FgRect ui_rect={0,0,(unsigned)fg_ui.width,(unsigned)fg_ui.height};
+            extern int g_present_crop[4], g_present_tex[2];
+            if(g_present_tex[0]>0 && g_present_tex[1]>0 && g_present_crop[2]>0 && g_present_crop[3]>0) {  // the window texture's picture, in its pixels
+                double kx=(double)fg_ui.width/g_present_tex[0], ky=(double)fg_ui.height/g_present_tex[1];
+                FgRect r={(unsigned)lround(g_present_crop[0]*kx),(unsigned)lround(g_present_crop[1]*ky),(unsigned)lround(g_present_crop[2]*kx),(unsigned)lround(g_present_crop[3]*ky)};
+                if(r.width && r.height && r.x+r.width<=fg_ui.width && r.y+r.height<=fg_ui.height)ui_rect=r;
+            }
+            fg_image=fg_encode_view(cb,fg_source,fg_ui,&ui_rect,fg_z,&fg_rect,renderer_fg_motion(),&fg_camera,fg_mode,g_settings.frame_generation_performance?1920:0,fg_clock);
         } else fg_reset();
         if(fg_image) {
             id<MTLTexture> filtered=fg_match_format(cb,fg_image,fg_source.pixelFormat);
-            if(filtered)filtered=present_postprocess(cb,filtered,vw/crop[2],vh/crop[3],true);
+            if(filtered)filtered=present_postprocess(cb,filtered,vw/crop_base[2],vh/crop_base[3],true);
             if(filtered)fg_window_image=fg_window_target(width,height);
             if(fg_window_image) {
-                fg_draw_present(cb,fg_window_image,filtered,vx,vy,vw,vh,crop);
+                fg_draw_present(cb,fg_window_image,filtered,vx,vy,vw,vh,crop_base);
                 menu_render_repeat(cb,fg_window_image);
             }
         }

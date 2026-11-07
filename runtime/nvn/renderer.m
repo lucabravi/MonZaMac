@@ -578,6 +578,9 @@ static bool g_xfb_on, g_raster_discard, g_xfb_dirty;
 static id<MTLTexture> fg_geometry_texture;
 static uint64_t fg_geometry_texture_frame=UINT64_MAX,fg_geometry_depth_address;
 static bool fg_geometry_attached;
+static float fg_geometry_view[4], fg_camera_view[4];
+static bool fg_geometry_view_set;
+static FgRect fg_rect;
 static bool fg_geometry_complete;
 static unsigned fg_geometry_writes;
 static uint64_t fg_geometry_source_frame=UINT64_MAX;
@@ -591,7 +594,7 @@ static void fg_geometry_begin(uint64_t frame) {
     if(frame==fg_geometry_source_frame)return;
     unsigned n=0;
     for(unsigned i=0;i<fg_skin_count;i++)if(fg_skin_ranges[i].frame<=frame && frame-fg_skin_ranges[i].frame<=2)fg_skin_ranges[n++]=fg_skin_ranges[i];
-    fg_skin_count=n;fg_geometry_writes=0;fg_geometry_complete=true;fg_geometry_source_frame=frame;
+    fg_skin_count=n;fg_geometry_writes=0;fg_geometry_complete=true;fg_geometry_view_set=false;fg_geometry_source_frame=frame;
 }
 static bool fg_geometry_target(void) {
     if(!fg_geometry_enabled() || g_raster_discard || st.rt.ncolor<5 || st.rt.color[7] || !st.rt.depth)return false;
@@ -701,6 +704,11 @@ bool renderer_texture_presented(NvnTexture *t);
 // Widescreen UI: 2D draws into the swapchain image use a centred 16:9 region (uniform scale) instead of
 // the stretched wide mapping. vp_* is the mapping for the current draw: physical = guest * s + off.
 static float vp_sx = 1, vp_sy = 1, vp_ox = 0, vp_oy = 0;
+// The Metal viewport of the draw being encoded, in target pixels (handheld: 1280x720 scaled, inside a larger game target).
+static void fg_current_view(float v[4]) {
+    const float *vp = st.viewport[0];
+    v[0] = vp[0] * vp_sx + vp_ox; v[1] = vp[1] * vp_sy + vp_oy; v[2] = vp[2] * vp_sx; v[3] = vp[3] * vp_sy;
+}
 static float tex_sc[2][64][2];          // per bound texture slot: allocation scale (for shaders' texel math)
 static float tex_lb[2][64];             // per bound texture slot: added to explicit sample LODs (hiz_lod)
 static uint32_t tex_wh[2][64][2];       // per bound texture slot: guest size
@@ -4156,11 +4164,9 @@ static void draw(CmdRec *r, bool indexed) {
         bool model=fg_bound_model_valid && fg_geometry_model(fg_history_key,renderer_present_count(),fg_bound_model_hash);
         uint64_t tag=renderer_present_count()+1;
         uint32_t info[4]={fg_binding.vertex_count,model && fg_binding.has_previous,(uint32_t)tag,(uint32_t)(tag>>32)};
-        float resolution[2]={(float)fg_geometry_texture.width,(float)fg_geometry_texture.height};
         [enc setVertexBuffer:fg_binding.current offset:0 atIndex:FG_CURRENT_BUFFER_INDEX];
         [enc setVertexBuffer:fg_binding.previous offset:0 atIndex:FG_PREVIOUS_BUFFER_INDEX];
         [enc setVertexBytes:info length:sizeof info atIndex:FG_PARAMS_BUFFER_INDEX];
-        [enc setFragmentBytes:resolution length:sizeof resolution atIndex:FG_PARAMS_BUFFER_INDEX];
     }
 
     if (pr->vi->uses_gmem) [enc setVertexBuffer:g_guest_buffer offset:0 atIndex:GMEM_BUFFER_INDEX];
@@ -4262,6 +4268,12 @@ static void draw(CmdRec *r, bool indexed) {
         }
     }
     [enc setViewport:(MTLViewport){vp[0] * vp_sx + vp_ox, vp[1] * vp_sy + vp_oy, vp[2] * vp_sx, vp[3] * vp_sy, zn, zf}];
+    if (pr->vi->uses_fg_motion) {  // the motion is measured inside this viewport; every motion draw of a frame must share it
+        float v[4]; fg_current_view(v);
+        [enc setFragmentBytes:v length:sizeof v atIndex:FG_PARAMS_BUFFER_INDEX];
+        if (!fg_geometry_view_set) { memcpy(fg_geometry_view, v, sizeof v); fg_geometry_view_set = true; }
+        else if (fabsf(v[0]-fg_geometry_view[0])>.5f || fabsf(v[1]-fg_geometry_view[1])>.5f || fabsf(v[2]-fg_geometry_view[2])>.5f || fabsf(v[3]-fg_geometry_view[3])>.5f) fg_geometry_complete = false;
+    }
     apply_scissor();
     if (pr->fi->uses_rscale) {  // [0] = render target scale, [1 + i] = scale of texture i
         float rs[66][4] = {{vp_sx, vp_sy, vp_ox, vp_oy}};
@@ -4378,20 +4390,22 @@ static NvnTexture *fg_canvas;
 static uint64_t fg_depth_address;
 static id<MTLTexture> fg_scene_ring[3];
 
-bool renderer_fg_inputs(NvnTexture *presented, id<MTLTexture> *scene, id<MTLTexture> *depth, FgCamera *camera) {
+bool renderer_fg_inputs(NvnTexture *presented, id<MTLTexture> *scene, id<MTLTexture> *depth, FgCamera *camera, FgRect *rect) {
     uint64_t frame = renderer_present_count();
     bool valid = settings_frame_generation() && fg_camera_frame == frame && fg_scene_frame == frame &&
                  fg_canvas == presented && fg_depth && fg_scene;
     if(!valid && devlog_on("framegen") && frame%120==0)
         devlog("framegen","input miss frame %llu camera %llu scene %llu canvas %d textures %d/%d",(unsigned long long)frame,(unsigned long long)fg_camera_frame,(unsigned long long)fg_scene_frame,fg_canvas==presented,fg_depth!=nil,fg_scene!=nil);
-    if (valid) { *scene = fg_scene; *depth = fg_depth; *camera = fg_camera; }
+    if (valid) { *scene = fg_scene; *depth = fg_depth; *camera = fg_camera; *rect = fg_rect; }
     return valid;
 }
 
 id<MTLTexture> renderer_fg_motion(void) {
     uint64_t frame=renderer_present_count();
     bool valid=fg_geometry_enabled() && fg_geometry_texture_frame==frame && fg_geometry_depth_address==fg_depth_address &&
-               fg_geometry_writes && fg_geometry_complete && fg_geometry_frame_valid(frame);
+               fg_geometry_writes && fg_geometry_complete && fg_geometry_frame_valid(frame) && fg_geometry_view_set &&
+               fabsf(fg_geometry_view[0]-fg_camera_view[0])<=.5f && fabsf(fg_geometry_view[1]-fg_camera_view[1])<=.5f &&
+               fabsf(fg_geometry_view[2]-fg_camera_view[2])<=.5f && fabsf(fg_geometry_view[3]-fg_camera_view[3])<=.5f;
     if(devlog_on("framegen") && fg_geometry_enabled() && frame%120==0)
         devlog("framegen","geometry frame %llu writes %u valid %d depth %d skin ranges %u",(unsigned long long)frame,fg_geometry_writes,valid,fg_geometry_depth_address==fg_depth_address,fg_skin_count);
     return valid?fg_geometry_texture:nil;
@@ -4416,25 +4430,32 @@ static void fg_observe_draw(Prog *pr) {
             for (int col=0;col<4;col++) camera.view_projection[col*4+1] = -camera.view_projection[col*4+1];
             for (int row=0;row<4;row++) camera.inverse_view_projection[4+row] = -camera.inverse_view_projection[4+row];
         }
-        fg_camera = camera; fg_depth = texture; fg_depth_address=depth->addr; fg_camera_frame = frame;
+        fg_camera = camera; fg_depth = texture; fg_depth_address=depth->addr; fg_camera_frame = frame; fg_current_view(fg_camera_view);
     }
     // This spatial FXAA draw writes the final colour canvas before HUD/text draws.
     if (hash == 0xee350631a7ed66ceull && fg_camera_frame == frame && st.rt.color[0] && fg_active_color) {
         id<MTLTexture> source = fg_active_color;
         if (source.width != fg_depth.width || source.height != fg_depth.height || source.sampleCount != 1) return;
+        // The picture is the viewport of this draw, which must be the one the lighting draw (camera and depth) used.
+        float v[4]; fg_current_view(v);
+        for (int i = 0; i < 4; i++) if (fabsf(v[i] - fg_camera_view[i]) > .5f) return;
+        FgRect rect = {(unsigned)lroundf(v[0]), (unsigned)lroundf(v[1]), (unsigned)lroundf(v[2]), (unsigned)lroundf(v[3])};
+        if (v[0] < 0 || v[1] < 0 || rect.width < 64 || rect.height < 64 || rect.x + rect.width > source.width || rect.y + rect.height > source.height) return;
         id<MTLTexture> copy = fg_scene_ring[frame % 3];
-        if (!copy || copy.width != source.width || copy.height != source.height || copy.pixelFormat != source.pixelFormat) {
-            MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:source.pixelFormat width:source.width height:source.height mipmapped:NO];
+        if (!copy || copy.width != rect.width || copy.height != rect.height || copy.pixelFormat != source.pixelFormat) {
+            MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:source.pixelFormat width:rect.width height:rect.height mipmapped:NO];
             d.storageMode = MTLStorageModePrivate; d.usage = MTLTextureUsageShaderRead;
             copy = [dev newTextureWithDescriptor:d]; fg_scene_ring[frame % 3] = copy;
         }
         if (!copy) return;
         end_pass("frame-generation-scene");
         id<MTLBlitCommandEncoder> blit = [cmdbuf blitCommandEncoder];
-        [blit copyFromTexture:source toTexture:copy]; [blit endEncoding];
-        fg_scene = copy; fg_canvas = st.rt.color[0]; fg_scene_frame = frame;
+        [blit copyFromTexture:source sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(rect.x, rect.y, 0) sourceSize:MTLSizeMake(rect.width, rect.height, 1)
+                    toTexture:copy destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0, 0, 0)];
+        [blit endEncoding];
+        fg_scene = copy; fg_canvas = st.rt.color[0]; fg_scene_frame = frame; fg_rect = rect;
         if (devlog_on("framegen") && frame % 120 == 0)
-            devlog("framegen", "scene frame %llu %lux%lu, camera and depth matched", (unsigned long long)frame, (unsigned long)copy.width, (unsigned long)copy.height);
+            devlog("framegen", "scene frame %llu %lux%lu at %u,%u of %lux%lu, camera and depth matched", (unsigned long long)frame, (unsigned long)copy.width, (unsigned long)copy.height, rect.x, rect.y, (unsigned long)source.width, (unsigned long)source.height);
     }
 }
 

@@ -62,6 +62,18 @@ static id<MTLTexture> depth(bool reversed, bool native) {
     }
     return t;
 }
+// Depth of a bigger game target whose picture is only its top-left WxH (handheld: 1280x720 in 1920x1080); zero elsewhere.
+static id<MTLTexture> depth_in_corner(void) {
+    MTLTextureDescriptor *d=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR32Float width:2*W height:2*H mipmapped:NO];
+    d.usage=MTLTextureUsageShaderRead;
+    id<MTLTexture> t=[device newTextureWithDescriptor:d];
+    float z=100.f/(.1f-100.f)*-2.f+(.1f*100.f/(.1f-100.f)); z/=2.f;
+    float *pixels=calloc(4*W*H,sizeof(float));
+    for(unsigned y=0;y<H;y++)for(unsigned x=0;x<W;x++)pixels[y*2*W+x]=z;
+    [t replaceRegion:MTLRegionMake2D(0,0,2*W,2*H) mipmapLevel:0 withBytes:pixels bytesPerRow:2*W*sizeof(float)];
+    free(pixels);
+    return t;
+}
 static id<MTLTexture> encode_motion(id<MTLTexture> s,id<MTLTexture> ui,id<MTLTexture> z,id<MTLTexture> motion,FgCamera *c,int mode,double now) {
     id<MTLCommandBuffer> cb=[queue commandBuffer];
     id<MTLTexture> out=fg_encode(cb,s,ui,z,motion,c,mode,0,now);
@@ -95,6 +107,19 @@ static NSData *readback(id<MTLTexture> t) {
     __fp16 *dst=converted.mutableBytes;const uint8_t *src=raw.bytes;
     for(NSUInteger y=0;y<t.height;y++)for(NSUInteger x=0;x<t.width*4;x++)dst[y*t.width*4+x]=(__fp16)(src[y*row+x]/255.f);
     return converted;
+}
+// Pans the camera over five frames and returns the last generated image.
+static NSData *sequence_last(id<MTLTexture> z,const FgRect *rect,int mode) {
+    fg_reset();
+    NSData *last=nil;
+    for(int i=0;i<5;i++) {
+        FgCamera c=camera(i*16.f/(W*(1.f/tanf(M_PI/6)/((float)W/H))),false);
+        id<MTLCommandBuffer> cb=[queue commandBuffer];
+        id<MTLTexture> out=fg_encode_view(cb,scene(i*4,false),nil,NULL,z,rect,nil,&c,mode,0,3.+i/(mode==1?30.:60.));
+        [cb commit]; [cb waitUntilCompleted]; assert(!cb.error);
+        if(i<2) assert(!out); else { assert(out); last=readback(out); }
+    }
+    return last;
 }
 static id<MTLTexture> crop(id<MTLTexture> t) {
     MTLTextureDescriptor *d=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:t.pixelFormat width:W/2 height:H/2 mipmapped:NO];
@@ -312,6 +337,12 @@ int main(void) {@autoreleasepool {
             assert(difference(bytes,(i+2)*4,0)>.0001 && difference(bytes,(i+1)*4,0)>.0001);
             assert_midpoint(bytes,(i+2)*4,mode,false,false);
         }
+    }
+    for(int mode=1;mode<=2;mode++) {  // the picture is a sub-rectangle of a larger depth target: same result as a plain one
+        NSData *plain=sequence_last(depth(false,false),NULL,mode), *corner=sequence_last(depth_in_corner(),&(FgRect){0,0,W,H},mode);
+        assert(plain.length==corner.length);
+        const __fp16 *x=plain.bytes,*y=corner.bytes;
+        for(NSUInteger i=0;i<plain.length/sizeof(__fp16);i++)assert(fabsf((float)x[i]-(float)y[i])<.004f);
     }
     fg_reset();setenv("LARECOMP_FG_OUTPUT_FP16","1",1);
     { FgCamera c=camera(0,false);id<MTLTexture> z=depth(false,false);
