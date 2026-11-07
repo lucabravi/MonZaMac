@@ -660,6 +660,67 @@ static void expect_depth_slice(NvnTexture *t, unsigned slice, float want) {
 
 static void expect_depth(NvnTexture *t, float want) { expect_depth_slice(t, 0, want); }
 
+static void recorded_targets(const RtState *state) {
+    // Independent encoding of SetRenderTargets' existing command payload.
+    struct { uint64_t tex[8]; NvnTextureView views[8]; uint8_t has_view[8]; uint64_t depth;
+             NvnTextureView dview; uint8_t has_dview; } payload={0};
+    for(int i=0;i<state->ncolor;i++) {
+        payload.tex[i]=(uint64_t)state->color[i];payload.views[i]=state->cview[i];payload.has_view[i]=state->has_cview[i];
+    }
+    payload.depth=(uint64_t)state->depth;payload.dview=state->dview;payload.has_dview=state->has_dview;
+    uint64_t commands[(sizeof(CmdRec)*2+sizeof payload)/8]={0};
+    CmdRec *r=(CmdRec *)commands;r->op=CMD_SET_RENDER_TARGETS;r->size=sizeof *r+sizeof payload;r->x[0]=state->ncolor;
+    memcpy(r->extra,&payload,sizeof payload);((CmdRec *)((uint8_t *)r+r->size))->op=CMD_END;
+    exec_list((uint64_t)commands,0);
+}
+static void render_target_rebind(void) {
+    bool forced=getenv("LARECOMP_RT_REBIND_PASSES") && atoi(getenv("LARECOMP_RT_REBIND_PASSES"));
+    NvnTexture a=test_texture(1,4,4,1,1,0x25,1),b=test_texture(1,4,4,1,2,0x25,1);
+    NvnTexture depth=test_texture(1,4,4,1,1,0x35,1),other_depth=test_texture(1,4,4,1,1,0x33,1);
+    bind_targets(&a,&depth,NULL);prepare_draw();
+    const float red[4]={1,0,0,1},blue[4]={0,0,1,1};
+    clear(0,0,red,15,false,0,false,0,0);clear(-1,0,NULL,0,true,.25f,true,0x53,0xff);
+    CHECK(g_lc[0].on && g_ld_on && g_ls_on && !enc,"fixture has deferred colour/depth/stencil clears");
+    RtState same=st.rt;recorded_targets(&same);
+    CHECK(forced?(!g_lc[0].on && !g_ld_on && !g_ls_on):(g_lc[0].on && g_ld_on && g_ls_on),
+          "an identical binding preserves pending clears until the pass is needed");
+    renderer_flush();expect_rgba(&a,255,0,0);
+    id<MTLBuffer> planes=[dev newBufferWithLength:2048 options:MTLResourceStorageModeShared];
+    id<MTLCommandBuffer> read=[renderer_queue() commandBuffer];id<MTLBlitCommandEncoder> blit=[read blitCommandEncoder];
+    for(unsigned plane=0;plane<2;plane++)
+        [blit copyFromTexture:renderer_texture(&depth,nil,true) sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0)
+             sourceSize:MTLSizeMake(4,4,1) toBuffer:planes destinationOffset:plane*1024 destinationBytesPerRow:256 destinationBytesPerImage:1024
+             options:plane?MTLBlitOptionStencilFromDepthStencil:MTLBlitOptionDepthFromDepthStencil];
+    [blit endEncoding];[read commit];[read waitUntilCompleted];CHECK(!read.error,"combined depth/stencil readback");
+    for(unsigned y=0;y<4;y++)for(unsigned x=0;x<4;x++) {
+        CHECK(fabsf(*(float *)((uint8_t *)planes.contents+y*256+x*4)-.25f)<.00001f,"pending depth clear survives the identical bind");
+        CHECK(*((uint8_t *)planes.contents+1024+y*256+x)==0x53,"pending stencil clear survives the identical bind");
+    }
+    uint64_t passes=stat_passes;
+    st.scissor[0][0]=0;st.scissor[0][2]=2;fullscreen_draw(1);
+    recorded_targets(&same);
+    CHECK(st.rt_dirty==forced,"an identical active binding keeps the encoder clean");
+    st.scissor[0][0]=2;fullscreen_draw(1);renderer_flush();
+    CHECK(stat_passes-passes==(forced?2:1),"identical targets continue the existing pass");
+    expect_rgba(&a,0,255,0);
+    st.scissor[0][0]=0;st.scissor[0][2]=4;
+    clear(0,0,blue,15,false,0,false,0,0);RtState changed=st.rt;changed.color[0]=&b;
+    recorded_targets(&changed);CHECK(st.rt_dirty && !g_lc[0].on,"a different target consumes clears on the old target");
+    fullscreen_draw(1);renderer_flush();expect_rgba(&a,0,0,255);expect_rgba(&b,0,255,0);
+    clear(0,0,red,15,false,0,false,0,0);changed=st.rt;
+    changed.has_cview[0]=1;changed.cview[0]=(NvnTextureView){.setmask=1,.base_level=1,.num_levels=1};
+    recorded_targets(&changed);CHECK(st.rt_dirty && !g_lc[0].on,"a changed mip view consumes the old view's clear");
+    clear(0,0,blue,15,false,0,false,0,0);renderer_flush();expect_rgba(&b,255,0,0);
+    id<MTLBuffer> mip=read_texture(renderer_texture(&b,nil,true),0,1,4);
+    for(unsigned y=0;y<2;y++)for(unsigned x=0;x<2;x++) {
+        uint8_t *v=(uint8_t *)mip.contents+y*256+x*4;CHECK(v[0]==0 && v[1]==0 && v[2]==255 && v[3]==255,"the new mip is cleared independently");
+    }
+    changed=st.rt;changed.depth=&other_depth;recorded_targets(&changed);
+    CHECK(st.rt_dirty && st.rt.depth==&other_depth,"a changed depth target is never treated as identical");
+    recorded_targets(&changed);CHECK(st.rt_dirty,"an identical bind does not clear independently dirty state");
+    renderer_flush();destroy_texture(&a);destroy_texture(&b);destroy_texture(&depth);destroy_texture(&other_depth);
+}
+
 static void clear_bias(void) {
     NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
     NvnTexture depth = test_texture(1, 4, 4, 1, 1, 0x33, 1);
@@ -2685,6 +2746,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"layer-mixed-depth", "layers", layer_mixed_depth},
     {"layer-depth-only", "layers", layer_depth_only},
     {"clear-layered", "clears", clear_layered},
+    {"render-target-rebind", "clears", render_target_rebind},
     {"clear-mip-extent", "clears", clear_mip_extent},
     {"clear-minimum-color-extent", "clears", clear_minimum_color_extent},
     {"clear-minimum-depth-extent", "clears", clear_minimum_depth_extent},

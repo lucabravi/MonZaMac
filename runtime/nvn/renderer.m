@@ -5074,6 +5074,15 @@ static void exec_list(uint64_t handle, int depth) {
             }
             const struct { uint64_t tex[8]; NvnTextureView views[8]; uint8_t has_view[8]; uint64_t depth;
                            NvnTextureView dview; uint8_t has_dview; } *rt = x;
+            bool same=st.rt.ncolor==(int)r->x[0] && st.rt.depth==(NvnTexture *)(uintptr_t)rt->depth &&
+                st.rt.has_dview==rt->has_dview && (!rt->has_dview || !memcmp(&st.rt.dview,&rt->dview,sizeof rt->dview));
+            for(int i=0;same && i<st.rt.ncolor;i++)
+                same=st.rt.color[i]==(NvnTexture *)(uintptr_t)rt->tex[i] && st.rt.has_cview[i]==rt->has_view[i] &&
+                    (!rt->has_view[i] || !memcmp(&st.rt.cview[i],&rt->views[i],sizeof rt->views[i]));
+            const char *force=ENV("LARECOMP_RT_REBIND_PASSES");
+            // Rebinding the same targets neither ends a pass nor consumes their pending clears.
+            // Keep any independently dirty state; only this redundant bind is skipped.
+            if(same && !(force && atoi(force)))break;
             flush_load_clears();  // (a deferred clear belongs to the targets being replaced)
             memset(&st.rt, 0, sizeof st.rt);
             st.rt.ncolor = (int)r->x[0];
