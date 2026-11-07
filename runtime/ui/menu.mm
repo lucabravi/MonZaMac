@@ -532,10 +532,6 @@ static void tab_display(void) {
     float scale = ImGui::GetFontSize() / 34;
     opt_begin("##video", scale);
     opt_section("Display");
-    const char *aspects[] = {"Unlocked", "Original 16:9"};
-    opt_choice("Aspect ratio", &g_settings.aspect, aspects, 2, ASPECT_ORIGINAL,
-               "Unlocked: the view fills the window, so wider (or taller) windows show more of the world - up to "
-               "ultrawide. Original 16:9: the game's own framing, with bars.");
     bool fs = g_settings.fullscreen;
     if (opt_toggle("Fullscreen", &fs, false, "Fills the screen. Also: F11, Alt+Enter or Cmd+Ctrl+F.")) {
         g_settings.fullscreen = fs;
