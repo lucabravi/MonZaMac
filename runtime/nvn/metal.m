@@ -9,6 +9,7 @@
 #import <MetalFX/MetalFX.h>
 #include "output_scale.h"
 #include "frame_generation.h"
+#include "temporal_upscale.h"
 #include "frame_generation_present.h"
 #include "frame_generation_display.h"
 #include "../devlog.h"
@@ -28,7 +29,7 @@ static SDL_Window *window;
 static atomic_bool ui_ready;
 char g_window_shot_request[256];  // test hooks: the next presented frame is saved to this path
 
-static id<MTLRenderPipelineState> present_pipe;
+static id<MTLRenderPipelineState> present_pipe,present_linear_pipe;
 static id<MTLSamplerState> present_sampler;
 id<MTLBuffer> g_guest_buffer;  // wraps the guest heap so GPU addresses map to buffer offsets
 uint64_t g_guest_buffer_base;
@@ -669,6 +670,8 @@ static const char *present_src =
     "  float2 uv = float2(p.x, pv[0].x > 0.5 ? p.y : 1.0 - p.y); o.uv = pv[1].xy + uv * pv[1].zw; return o; }\n"
     "fragment float4 fs(V in [[stage_in]], texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]]) {\n"
     "  return float4(t.sample(s, in.uv).rgb, 1.0); }\n"
+    "fragment float4 fs_linear(V in [[stage_in]], texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]]) {\n"
+    "  float3 c=max(t.sample(s,in.uv).rgb,0.f);return float4(select(c*12.92f,1.055f*pow(c,float3(1.f/2.4f))-.055f,c>.0031308f),1); }\n"
     "fragment float4 fs_a(V in [[stage_in]], texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]]) {\n"
     "  float a = t.sample(s, in.uv).a; return float4(a, a, a, 1.0); }\n";
 
@@ -689,6 +692,8 @@ void backend_init(void) {
     pd.fragmentFunction = [lib newFunctionWithName:@"fs"];
     pd.colorAttachments[0].pixelFormat = layer.pixelFormat;
     present_pipe = [dev newRenderPipelineStateWithDescriptor:pd error:&err];
+    pd.fragmentFunction=[lib newFunctionWithName:@"fs_linear"];
+    present_linear_pipe=[dev newRenderPipelineStateWithDescriptor:pd error:&err];
     MTLSamplerDescriptor *sd = [MTLSamplerDescriptor new];
     sd.minFilter = sd.magFilter = MTLSamplerMinMagFilterLinear;
     present_sampler = [dev newSamplerStateWithDescriptor:sd];
@@ -812,7 +817,7 @@ static PresentEffects *present_effects(bool generated) {
 }
 static id<MTLTexture> metalfx_upscale(id<MTLCommandBuffer> cb, id<MTLTexture> in, double ow_d, double oh_d, PresentEffects *effects) {
     (void)cb;
-    if (g_settings.upscaler != UPSCALE_METALFX) return nil;
+    if (g_settings.upscaler != UPSCALE_METALFX && g_settings.upscaler != UPSCALE_METALFX_TEMPORAL) return nil;
     static int supported = -1;
     if (supported < 0) {
         supported = [MTLFXSpatialScalerDescriptor supportsDevice:dev] ? 1 : 0;
@@ -1157,14 +1162,14 @@ static id<MTLTexture> present_postprocess(id<MTLCommandBuffer> cb,id<MTLTexture>
 }
 
 static void fg_draw_present(id<MTLCommandBuffer> cb,id<MTLTexture> target,id<MTLTexture> image,
-                            double vx,double vy,double vw,double vh,const float crop[4]) {
+                            double vx,double vy,double vw,double vh,const float crop[4],bool linear) {
     MTLRenderPassDescriptor *rp=[MTLRenderPassDescriptor renderPassDescriptor];
     rp.colorAttachments[0].texture=target;
     rp.colorAttachments[0].loadAction=MTLLoadActionClear;
     rp.colorAttachments[0].storeAction=MTLStoreActionStore;
     rp.colorAttachments[0].clearColor=MTLClearColorMake(0,0,0,1);
     id<MTLRenderCommandEncoder> e=[cb renderCommandEncoderWithDescriptor:rp];
-    [e setViewport:(MTLViewport){vx,vy,vw,vh,0,1}];[e setRenderPipelineState:present_pipe];
+    [e setViewport:(MTLViewport){vx,vy,vw,vh,0,1}];[e setRenderPipelineState:linear?present_linear_pipe:present_pipe];
     float pv[8]={renderer_origin_lower_left()?1:0,0,0,0,crop[0],crop[1],crop[2],crop[3]};
     [e setVertexBytes:pv length:sizeof pv atIndex:0];[e setFragmentTexture:image atIndex:0];
     [e setFragmentSamplerState:present_sampler atIndex:0];[e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[e endEncoding];
@@ -1204,17 +1209,18 @@ void backend_present(NvnTexture *t) {
     if (b) b->presented = true;
     @autoreleasepool {
         int fg_mode=settings_frame_generation();
+        bool temporal_requested=ts_enabled();
         int screen_hz=atomic_load_explicit(&fg_screen_hz,memory_order_relaxed);
         bool fg_display=fg_mode && screen_hz >= (fg_mode==1?59:119) && atomic_load_explicit(&fg_window_visible,memory_order_relaxed);
         // Diagnostic capture can run offscreen while the window/session is hidden.
         const char *capture_env=getenv("LARECOMP_FG_CAPTURE_ONLY");
         bool fg_capture_only=fg_mode && capture_env && atoi(capture_env);
         bool fg_process=fg_display || fg_capture_only;
-        static int last_fg_mode;
+        static int last_fg_mode;static bool last_temporal;
         static NSUInteger last_fg_width,last_fg_height;
         NSUInteger width=(NSUInteger)layer.drawableSize.width,height=(NSUInteger)layer.drawableSize.height;
-        if(last_fg_mode!=(fg_display?fg_mode:0) || last_fg_width!=width || last_fg_height!=height) {
-            fg_reset();fg_display_reset();last_fg_mode=fg_display?fg_mode:0;
+        if(last_temporal!=temporal_requested || last_fg_mode!=(fg_display?fg_mode:0) || last_fg_width!=width || last_fg_height!=height) {
+            fg_reset();fg_display_reset();ts_reset();last_temporal=temporal_requested;last_fg_mode=fg_display?fg_mode:0;
             last_fg_width=width;last_fg_height=height;
         }
         bool framebuffer_only=!fg_display && !getenv("LARECOMP_WINDOW_SHOT");
@@ -1285,10 +1291,24 @@ void backend_present(NvnTexture *t) {
             psx = sx, psy = sy, pdw = dw, pdh = dh;
         }
         renderer_set_scale((float)sx, (float)sy);
+        TemporalOutput temporal_output={0};bool temporal=false;
+        ts_output_extent((unsigned)llround(vw/crop_base[2]),(unsigned)llround(vh/crop_base[3]));
         if (b && b->tex) {
             id<MTLTexture> src = raw_view(b->tex);
+            if(ts_enabled()) {
+                [enc endEncoding];
+                FgCamera camera;FgRect rect={0};id<MTLTexture> scene=nil,z=nil;
+                if(!menu_is_open() && renderer_fg_inputs(t,&scene,&z,&camera,&rect)) {
+                    id<MTLTexture> scaled=ts_encode(cb,raw_view(scene),src,z,renderer_fg_motion(),&camera,&rect,
+                        (unsigned)llround(vw/crop_base[2]),(unsigned)llround(vh/crop_base[3]),renderer_present_count(),&temporal_output);
+                    if(scaled){src=scaled;temporal=true;}
+                } else ts_reset();
+                MTLRenderPassDescriptor *resume=[MTLRenderPassDescriptor renderPassDescriptor];
+                resume.colorAttachments[0].texture=present_target;resume.colorAttachments[0].loadAction=MTLLoadActionLoad;
+                resume.colorAttachments[0].storeAction=MTLStoreActionStore;enc=[cb renderCommandEncoderWithDescriptor:resume];
+            }
             // Split the pass only when SMAA runs or MetalFX actually upscales (not at 1:1, where plain sampling is right).
-            if(g_settings.antialias==AA_SMAA || metalfx_upscale(cb,src,vw/crop[2],vh/crop[3],present_effects(false))) {
+            if(!temporal && (g_settings.antialias==AA_SMAA || metalfx_upscale(cb,src,vw/crop[2],vh/crop[3],present_effects(false)))) {
                 [enc endEncoding];renderer_profile_pass_end("present-postprocess");
                 src=present_postprocess(cb,src,vw/crop[2],vh/crop[3],false);
                 MTLRenderPassDescriptor *rp2=[MTLRenderPassDescriptor renderPassDescriptor];
@@ -1297,9 +1317,10 @@ void backend_present(NvnTexture *t) {
             }
             float flip = renderer_origin_lower_left() ? 1.0f : 0.0f;
             [enc setViewport:(MTLViewport){vx, vy, vw, vh, 0, 1}];
-            [enc setRenderPipelineState:present_pipe];
-            float pv[8] = {flip, 0, 0, 0, crop[0], crop[1], crop[2], crop[3]};
-            memcpy(g_shot_crop, crop, sizeof crop);
+            [enc setRenderPipelineState:temporal?present_linear_pipe:present_pipe];
+            const float *image_crop=temporal?crop_base:crop;
+            float pv[8] = {flip, 0, 0, 0, image_crop[0], image_crop[1], image_crop[2], image_crop[3]};
+            memcpy(g_shot_crop, image_crop, sizeof crop);
             [enc setVertexBytes:pv length:sizeof pv atIndex:0];
             [enc setFragmentTexture:src atIndex:0];
             [enc setFragmentSamplerState:present_sampler atIndex:0];
@@ -1328,14 +1349,16 @@ void backend_present(NvnTexture *t) {
                 FgRect r={(unsigned)lround(g_present_crop[0]*kx),(unsigned)lround(g_present_crop[1]*ky),(unsigned)lround(g_present_crop[2]*kx),(unsigned)lround(g_present_crop[3]*ky)};
                 if(r.width && r.height && r.x+r.width<=fg_ui.width && r.y+r.height<=fg_ui.height)ui_rect=r;
             }
-            fg_image=fg_encode_view(cb,fg_source,fg_ui,&ui_rect,fg_z,&fg_rect,renderer_fg_motion(),&fg_camera,fg_mode,g_settings.frame_generation_performance?1920:0,fg_clock);
+            if(temporal){
+                fg_image=fg_encode_prepared(cb,temporal_output.scene,temporal_output.composited,&temporal_output.prepared,&fg_camera,fg_mode,fg_clock);
+            } else fg_image=fg_encode_view(cb,fg_source,fg_ui,&ui_rect,fg_z,&fg_rect,renderer_fg_motion(),&fg_camera,fg_mode,(!temporal_requested && g_settings.frame_generation_performance)?1920:0,fg_clock);
         } else fg_reset();
         if(fg_image) {
-            id<MTLTexture> filtered=fg_match_format(cb,fg_image,fg_source.pixelFormat);
-            if(filtered)filtered=present_postprocess(cb,filtered,vw/crop_base[2],vh/crop_base[3],true);
+            id<MTLTexture> filtered=fg_match_format(cb,fg_image,temporal?temporal_output.scene.pixelFormat:fg_source.pixelFormat);
+            if(filtered && !temporal)filtered=present_postprocess(cb,filtered,vw/crop_base[2],vh/crop_base[3],true);
             if(filtered)fg_window_image=fg_window_target(width,height);
             if(fg_window_image) {
-                fg_draw_present(cb,fg_window_image,filtered,vx,vy,vw,vh,crop_base);
+                fg_draw_present(cb,fg_window_image,filtered,vx,vy,vw,vh,crop_base,temporal);
                 menu_render_repeat(cb,fg_window_image);
             }
         }
@@ -1384,6 +1407,7 @@ void backend_present(NvnTexture *t) {
             if(getenv("LARECOMP_FG_DUMP"))fg_debug_dump("build/fg-debug");
             renderer_save_texture(fg_image,"build/fg-generated.png");
             renderer_save_texture(fg_source,"build/fg-scene.png");
+            if(fg_window_image)renderer_save_texture(fg_window_image,"build/fg-window.png");
             renderer_save_texture(raw_view(b->tex),"build/fg-real.png");
         }
 

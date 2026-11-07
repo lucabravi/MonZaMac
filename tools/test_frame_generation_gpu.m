@@ -217,6 +217,51 @@ static void geometry_motion_test(int mode) {
     assert(external_ref);fg_reset();[pending commit];[pending waitUntilCompleted];assert(!pending.error);
 }
 #endif
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
+API_AVAILABLE(macos(26.0))
+static void prepared_temporal_test(int mode) {
+    fg_reset();unsigned ow=W*3/2,oh=H*3/2;
+    MTLFXTemporalScalerDescriptor *d=[MTLFXTemporalScalerDescriptor new];
+    d.inputWidth=W;d.inputHeight=H;d.outputWidth=ow;d.outputHeight=oh;
+    d.colorTextureFormat=d.outputTextureFormat=MTLPixelFormatRGBA8Unorm;
+    d.depthTextureFormat=MTLPixelFormatR32Float;d.motionTextureFormat=MTLPixelFormatRG16Float;
+    id<MTLFXTemporalScaler> scaler=[d newTemporalScalerWithDevice:device];assert(scaler);
+    id<MTLTexture> z=depth(false,false);
+    MTLTextureDescriptor *md=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRG16Float width:W height:H mipmapped:NO];
+    md.usage=MTLTextureUsageShaderRead;id<MTLTexture> motion=[device newTextureWithDescriptor:md];
+    __fp16 *mv=calloc(W*H*2,sizeof(__fp16));for(unsigned i=0;i<W*H;i++)mv[i*2]=4;
+    [motion replaceRegion:MTLRegionMake2D(0,0,W,H) mipmapLevel:0 withBytes:mv bytesPerRow:W*4];free(mv);
+    FgCamera c=camera(0,false);id<MTLTexture> generated=nil;
+    for(unsigned i=0;i<5;i++) {
+        MTLTextureDescriptor *td=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:ow height:oh mipmapped:NO];
+        td.storageMode=MTLStorageModePrivate;td.usage=scaler.outputTextureUsage|MTLTextureUsageShaderRead;
+        id<MTLTexture> real=[device newTextureWithDescriptor:td];
+        id<MTLCommandBuffer> cb=[queue commandBuffer];
+        scaler.colorTexture=scene(i*4,false);scaler.depthTexture=z;scaler.motionTexture=motion;scaler.outputTexture=real;
+        scaler.inputContentWidth=W;scaler.inputContentHeight=H;scaler.reset=i==0;scaler.preExposure=1;
+        scaler.motionVectorScaleX=scaler.motionVectorScaleY=1;
+        [scaler encodeToCommandBuffer:cb];
+        FgPreparedInputs inputs={.depth=z,.motion=motion,.scaler=scaler,.reset=i==0};
+        generated=fg_encode_prepared(cb,real,nil,&inputs,&c,mode,60.+i/(mode==1?30.:60.));
+        assert(state && state->prepared && state->input_width==W && state->width==ow);
+        assert(state->previous->depth==z && state->previous->motion==motion);
+        if(i<2)assert(!generated);else assert(generated && generated.width==ow && generated.height==oh);
+        [cb commit];[cb waitUntilCompleted];assert(!cb.error);
+    }
+    NSData *data=readback_pixels(generated,4);const uint8_t *pixels=data.bytes;unsigned row=(ow*4+255)&~255;
+    double errors[5]={0};
+    for(unsigned shift=12;shift<=16;shift++)for(unsigned y=48;y<oh-48;y++)for(unsigned x=64;x<200;x++) {
+        double want=((x+.5)*W/ow-.5+shift)/255.;
+        errors[shift-12]+=fabs(pixels[y*row+x*4]/255.-want);
+    }
+    unsigned best=0;for(unsigned k=1;k<5;k++)if(errors[k]<errors[best])best=k;
+    fprintf(stderr,"prepared mode%d high-resolution midpoint best input shift%u expected14\n",mode,best+12);
+    assert(abs((int)best+12-14)<=1);
+    id<MTLCommandBuffer> cb=[queue commandBuffer];FgPreparedInputs invalid={.depth=z,.motion=motion};
+    assert(!fg_encode_prepared(cb,scaler.outputTexture,nil,&invalid,&c,mode,70.));assert(!state);
+    [cb commit];[cb waitUntilCompleted];assert(!cb.error);
+}
+#endif
 int main(void) {@autoreleasepool {
     device=MTLCreateSystemDefaultDevice(); queue=[device newCommandQueue];
     if(!fg_supported()){puts("SKIP: macOS 26 / supported MetalFX GPU required");return 0;}
@@ -225,6 +270,7 @@ int main(void) {@autoreleasepool {
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
     if(@available(macOS 26.0,*)) {
     geometry_motion_test(1);geometry_motion_test(2);
+    prepared_temporal_test(1);prepared_temporal_test(2);
     for(int mode=1;mode<=2;mode++) for(int reversed=0;reversed<=1;reversed++) for(int native=0;native<=1;native++) {
         fg_reset(); double dt=mode==1?1./30:1./60, now=1.;
         id<MTLTexture> z=depth(reversed,native);
