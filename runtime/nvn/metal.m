@@ -1378,7 +1378,8 @@ void backend_present(NvnTexture *t) {
         renderer_gpu_timing_mark_commit(gpu_present_timing);
         [cb commit];
         const char *fg_shot=getenv("LARECOMP_FG_SHOT_AT");
-        if(fg_image && fg_shot && frame==(uint64_t)strtoull(fg_shot,NULL,10)) {
+        static bool fg_shot_done;
+        if(fg_image && fg_shot && !fg_shot_done && frame>=(uint64_t)strtoull(fg_shot,NULL,10) && (fg_shot_done=true)) {
             if(getenv("LARECOMP_FG_DUMP"))fg_debug_dump("build/fg-debug");
             renderer_save_texture(fg_image,"build/fg-generated.png");
             renderer_save_texture(fg_source,"build/fg-scene.png");

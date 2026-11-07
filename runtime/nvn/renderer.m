@@ -4270,7 +4270,8 @@ static void draw(CmdRec *r, bool indexed) {
     [enc setViewport:(MTLViewport){vp[0] * vp_sx + vp_ox, vp[1] * vp_sy + vp_oy, vp[2] * vp_sx, vp[3] * vp_sy, zn, zf}];
     if (pr->vi->uses_fg_motion) {  // the motion is measured inside this viewport; every motion draw of a frame must share it
         float v[4]; fg_current_view(v);
-        [enc setFragmentBytes:v length:sizeof v atIndex:FG_PARAMS_BUFFER_INDEX];
+        const float shader_view[4] = {v[2], v[3], v[0], v[1]};  // the motion shader reads {width, height, x, y}
+        [enc setFragmentBytes:shader_view length:sizeof shader_view atIndex:FG_PARAMS_BUFFER_INDEX];
         if (!fg_geometry_view_set) { memcpy(fg_geometry_view, v, sizeof v); fg_geometry_view_set = true; }
         else if (fabsf(v[0]-fg_geometry_view[0])>.5f || fabsf(v[1]-fg_geometry_view[1])>.5f || fabsf(v[2]-fg_geometry_view[2])>.5f || fabsf(v[3]-fg_geometry_view[3])>.5f) fg_geometry_complete = false;
     }
