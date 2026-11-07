@@ -14,6 +14,7 @@ enum { UPSCALE_BILINEAR = 0, UPSCALE_METALFX = 1 /* macOS */, UPSCALE_FSR1 = 2 /
 #define UPSCALE_SHARP UPSCALE_FSR1
 #endif
 enum { AA_OFF = 0, AA_SMAA = 1 };
+enum { FRAME_GENERATION_OFF = 0, FRAME_GENERATION_30_60 = 1, FRAME_GENERATION_60_120 = 2 };
 enum { PROMPTS_AUTO = 0, PROMPTS_NINTENDO = 1, PROMPTS_XBOX = 2, PROMPTS_PLAYSTATION = 3, PROMPTS_KEYBOARD = 4 };  // (keyboard: Pokémon Z-A's font glyphs, runtime/hle/pl.c)
 // System language served to the game (runtime/services/am.c GetDesiredLanguage, services/hid_set.c GetLanguageCode):
 // the game picks its text language from it, as it would from the Switch's own system setting. LANG_AUTO follows the
@@ -37,7 +38,10 @@ typedef struct {
     bool show_fps;
     bool handheld;       // Pokémon Z-A: the game is told it runs handheld (720p, lighter settings), not docked (runtime/services/am.c)
     bool fps60;  // Pokémon Z-A: 60 fps with a dynamic world step down to 30 fps (runtime/hle/framepace.c)
+    bool frame_generation_performance; // cap only interpolated frames at 1920 pixels wide
+    int frame_generation; // FRAME_GENERATION_*: saved choice; settings_frame_generation() checks availability and conflicts
     bool developer;      // the Developer tab of the menu is shown (ini "developer = 1", LARECOMP_DEVELOPER, Cmd+Shift+D)
+    bool dev_log;        // Developer: the developer log (runtime/devlog.h) is on for every subject (LARECOMP_DEVLOG=<subjects> still works without it)
     bool dev_gpu_trace;  // Developer: the GPU time per present window in the log (LARECOMP_GPU_TIMING_TRACE adds a line per command buffer)
     bool dev_uncapped_fps; // Developer benchmark only: presentation uncapped, gameplay timing may be incorrect
     bool dev_frame_stats;  // Developer: CPU submit time and GPU busy time per frame on the F3 overlay
@@ -53,6 +57,7 @@ typedef struct {
     bool fxaa;           // Pokémon Z-A: its own FXAA anti-aliasing
     bool bloom;          // Pokémon Z-A: its bloom (glow around bright light)
     bool fov;            // Pokémon Z-A: a wider field of view (runtime/hle/za_mods.c rt_za_fov)
+    bool smooth_anim;    // Pokémon Z-A: distant characters animate every frame (rt_za_smooth_anim_install)
     bool lod;            // Pokémon Z-A: 8x anisotropic filtering and LOD bias -1.0 (the bias needs macOS 26) (rt_za_lod)
     bool shadows_4k;     // Pokémon Z-A: 4096 shadow map, only with LARECOMP_SHADOWS_4K=1 (rt_za_shadows_4k): no menu entry or ini key any more, see shadow_res
     int shadow_res;      // 1-4: the shadow maps are drawn at that many times the game's size, from the next start (runtime/nvn/metal.m)
@@ -78,6 +83,8 @@ extern Settings g_settings;
 void settings_load(void);
 void settings_save(void);
 bool settings_uncapped_fps(void); // LARECOMP_UNCAPPED_FPS overrides the Developer toggle
+int settings_frame_generation(void); // effective mode: off if unsupported, LARECOMP_FPS is set, or FPS is uncapped
+bool settings_real_fps60(void); // source game rate: environment override, effective generation mode, then saved fps60
 // The language code to serve the game ("es", "en-US", ...): the setting, or the host locale for LANG_AUTO
 const char *settings_language(void);
 // That code's name for the menu ("Spanish")

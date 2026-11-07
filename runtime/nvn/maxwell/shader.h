@@ -56,6 +56,7 @@ typedef struct {
     uint8_t xfb_void;       // (MSL vertex) rasterizer discard: Metal wants a void return then (outputs only go to the xfb buffers)
     uint32_t sint_slots, uint_slots; // sampled texture scalar kinds, indexed by the same handle slots
     uint8_t img_sint, img_uint;      // bound image scalar kinds, by image index ((handle offset - IMAGE_HANDLE_BASE) / 8)
+    uint8_t fg_motion;      // MSL: 1=vertex history/motion MRT, 2=fragment invalidation only; existing key padding
 } ShaderKey;
 
 typedef struct {
@@ -90,6 +91,7 @@ typedef struct {
     bool uses_rscale;       // reads the resolution-scale table (fragment/compute buffer 18): float4 [0] = render
                             // target scale, [1 + i] = allocation scale of texture i
     bool uses_xfb;          // (MSL vertex) writes transform feedback: per-draw buffer table at XFB_BUFFER_INDEX
+    bool uses_fg_motion;    // (MSL) reserves vertex stream slots 23..25; adds previous clip varying and motion MRT 7
     uint32_t local_mem;     // bytes of local memory
     uint32_t num_insts;
     bool structured_flow;  // forward control flow, without the PC dispatcher (diagnostic)
@@ -100,6 +102,10 @@ typedef struct {
 #define GMEM_BUFFER_INDEX 17
 // Vertex transform feedback: MSL binds a uint4 table {gmem word offset, size, on, -}; GLSL binds the output directly.
 #define XFB_BUFFER_INDEX 22
+#define FG_CURRENT_BUFFER_INDEX 23
+#define FG_PREVIOUS_BUFFER_INDEX 24
+#define FG_PARAMS_BUFFER_INDEX 25  // vertex uint4 {count, valid, frame+1 low/high}; fragment float2 target size
+#define FG_HISTORY_WORDS 6        // clip float4 bits followed by the 64-bit capture tag
 #define IMAGE_HANDLE_BASE 0x120  // NVN: image handles follow the 32 texture handles (0x20 + 8 * slot) in the driver cbuf
 // (MSL) Metal's sampler slots a stage. A shader with more textures takes its samplers as an array of all the slots
 // and the slot of each texture from a table of uints at SMAP_BUFFER_INDEX (fragment, compute; [i] = texture i's slot).

@@ -57,10 +57,10 @@ static void precompile_run(void) {
     LOG("[precompile] %u shaders in the game files (read in %.0f ms)\n", total, now_ms() - t0);
     backend_shader_precompile_progress(1, 0, total);
 
-    unsigned workers = prep_worker_count(NSProcessInfo.processInfo.activeProcessorCount, total, getenv("LARECOMP_SHADER_PREP_WORKERS"));
+    unsigned workers = prep_compilation_workers(total, getenv("LARECOMP_SHADER_PREP_WORKERS"));
     dispatch_semaphore_t slots = dispatch_semaphore_create(workers);
     dispatch_group_t group = dispatch_group_create();
-    __block unsigned done = 0, built = 0;
+    __block unsigned done = 0, built = 0, pipelines = 0;
     unsigned translated = 0;
     t0 = now_ms();
     backend_gwin_pick(); maxwell_gmem_base = g_gwin_base; maxwell_gmem_size = g_gwin_max;
@@ -73,6 +73,8 @@ static void precompile_run(void) {
         if (!bin) { @synchronized(group) { backend_shader_precompile_progress(1, ++done, total); } continue; }
         size_t co = [m[@"const_offset"] unsignedIntValue], cs = [m[@"const_size"] unsignedIntValue];
         ShaderKey k = {0}; if (stage == 1) k.vs_out_mask = 0xFFFFFFFFu;  // (every vertex output may be there)
+        // (every compute program of the game's recipes was sampled with texture slot 28 as a stencil and an unsigned view)
+        if (stage == 5) k.stencil_slots = k.uint_slots = CS_KEY_SLOTS;
         ShaderInfo *si = maxwell_translate_with_constants(bin.bytes, co ? co : 0x10000,
             stage == 0 ? STAGE_VERTEX : stage == 1 ? STAGE_FRAGMENT : STAGE_COMPUTE, &k, (const uint8_t *)bin.bytes + co, co ? cs : 0);
         if (!si->msl) { @synchronized(group) { backend_shader_precompile_progress(1, ++done, total); } continue; }
@@ -81,7 +83,16 @@ static void precompile_run(void) {
         dispatch_semaphore_wait(slots, DISPATCH_TIME_FOREVER);
         dispatch_group_async(group, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ @autoreleasepool {
             id<MTLLibrary> lib = [dev newLibraryWithSource:source options:game_shader_opts(stage == 0) error:nil];
-            @synchronized(group) { if (lib) built++; backend_shader_precompile_progress(1, ++done, total); }
+            bool pipe = false;
+            if (lib && stage == 5) {  // a compute program costs its pipeline too (the library alone left a 0.35 s stall in battle)
+                id<MTLFunction> f = [lib newFunctionWithName:@"main0"];
+                if (f) {
+                    MTLComputePipelineDescriptor *cd = [MTLComputePipelineDescriptor new];
+                    cd.computeFunction = f;
+                    pipe = [dev newComputePipelineStateWithDescriptor:cd options:MTLPipelineOptionNone reflection:nil error:nil] != nil;
+                }
+            }
+            @synchronized(group) { if (lib) built++; if (pipe) pipelines++; backend_shader_precompile_progress(1, ++done, total); }
             dispatch_semaphore_signal(slots);
         }});
     }
@@ -90,6 +101,7 @@ static void precompile_run(void) {
     backend_shader_prepare_progress(0, 0);
     if (stopped) { LOG("[precompile] stopped after %u of %u shaders (kept)\n", done, total); return; }
     precompile_write_stamp(root.UTF8String, built);
-    LOG("[precompile] %u shaders: %u translated, %u libraries compiled on %u workers in %.1f s\n", total, translated, built, workers,
-        (now_ms() - t0) / 1000);
+    LOG("[precompile] %u shaders: %u translated, %u libraries compiled (%u compute pipelines) on %u workers in %.1f s\n", total, translated, built,
+        pipelines, workers, (now_ms() - t0) / 1000);
+    if (getenv("LARECOMP_PRECOMPILE_EXIT")) { fflush(stderr); _exit(0); }  // (tests: leave the game before it runs anything)
 }

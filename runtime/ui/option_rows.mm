@@ -48,7 +48,7 @@ void opt_section(const char *title) {
 // One row: draws it, handles A / click and left / right while selected. Returns 2 (A / click), -1 / +1 (left / right) or 0.
 // arrows: ◀ value ▶ (a choice of several, or a stepper): left / right step it, and the arrows click too
 static int row(const char *label, const std::string &value, bool changed, const char *desc, bool upper = true,
-               bool arrows = false) {
+               bool arrows = false, int at_end = 0) {  // at_end: 1 = nothing further left, 2 = nothing further right (that arrow is not drawn)
     ImGui::PushID(label);
     if (g_indent) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + g_indent * 28 * g_scale);  // (an option of the row above)
     ImVec2 p = ImGui::GetCursorScreenPos();
@@ -102,8 +102,8 @@ static int row(const char *label, const std::string &value, bool changed, const 
         float aw = fs * 0.42f, gap = fs * 0.55f, cy = ty + fs * 0.52f;
         float rx = right - aw, lx = rx - gap - ImGui::CalcTextSize(value.c_str()).x - gap - aw;
         ImU32 ac = off ? IM_COL32(110, 110, 100, 255) : hov || foc ? kGold : IM_COL32(150, 168, 200, 255);
-        dl->AddTriangleFilled(ImVec2(lx, cy), ImVec2(lx + aw, cy - aw * 0.75f), ImVec2(lx + aw, cy + aw * 0.75f), ac);
-        dl->AddTriangleFilled(ImVec2(rx + aw, cy), ImVec2(rx, cy - aw * 0.75f), ImVec2(rx, cy + aw * 0.75f), ac);
+        if (!(at_end & 1)) dl->AddTriangleFilled(ImVec2(lx, cy), ImVec2(lx + aw, cy - aw * 0.75f), ImVec2(lx + aw, cy + aw * 0.75f), ac);
+        if (!(at_end & 2)) dl->AddTriangleFilled(ImVec2(rx + aw, cy), ImVec2(rx, cy - aw * 0.75f), ImVec2(rx, cy + aw * 0.75f), ac);
         if (clicked && !off) {
             float mx = ImGui::GetIO().MousePos.x, hit = gap;
             if (mx >= lx - hit && mx <= lx + aw + hit) step = -1;
@@ -128,7 +128,7 @@ bool opt_toggle(const char *label, bool *v, bool def, const char *desc) {
 
 bool opt_choice(const char *label, int *v, const char *const *names, int n, int def, const char *desc, bool wrap) {
     int cur = *v >= 0 && *v < n ? *v : 0;
-    int step = row(label, names[cur], cur != def, desc, true, true);
+    int step = row(label, names[cur], cur != def, desc, true, true, wrap ? 0 : (cur == 0 ? 1 : 0) | (cur == n - 1 ? 2 : 0));
     if (!step) return false;
     int nv = cur + (step == 2 ? 1 : step);
     nv = wrap ? (nv + n) % n : nv < 0 ? 0 : nv >= n ? n - 1 : nv;
@@ -140,7 +140,7 @@ bool opt_choice(const char *label, int *v, const char *const *names, int n, int 
 bool opt_slider(const char *label, float *v, float lo, float hi, float step, float def, const char *fmt, const char *desc) {
     char buf[32];
     snprintf(buf, sizeof buf, fmt, *v);
-    int s = row(label, buf, fabsf(*v - def) > step * 0.01f, desc, true, true);
+    int s = row(label, buf, fabsf(*v - def) > step * 0.01f, desc, true, true, (*v <= lo + step * 0.01f ? 1 : 0) | (*v >= hi - step * 0.01f ? 2 : 0));
     if (!s) return false;
     float eps = step * 0.01f, n = roundf(*v / step) * step + (s == 2 ? step : s * step);
     if (s == 2 && n > hi + eps) n = lo;  // (A / click past the top wraps to the bottom; left / right stop at the ends)
@@ -153,7 +153,7 @@ bool opt_int(const char *label, int *v, int lo, int hi, int step, int def, const
     char buf[48];
     if (lo_name && *v == lo) snprintf(buf, sizeof buf, "%s", lo_name);
     else snprintf(buf, sizeof buf, fmt, *v);
-    int s = row(label, buf, *v != def, desc, true, true);
+    int s = row(label, buf, *v != def, desc, true, true, (*v <= lo ? 1 : 0) | (*v >= hi ? 2 : 0));
     if (!s) return false;
     int d = s == 2 ? step : s * step * (g_held && hi - lo > 40 * step ? 10 : 1);
     int n = *v + d;

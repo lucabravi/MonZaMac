@@ -6,7 +6,7 @@ extern "C" {
 #endif
 // Bump when a precompile has to be redone: the translator's output changed (the libraries it made no longer match what the
 // game asks for) or the precompile covers more kinds of shader than before.
-#define SHADER_PRECOMPILE_VERSION 1
+#define SHADER_PRECOMPILE_VERSION 4
 
 typedef enum { PRECOMPILE_NOT_DONE, PRECOMPILE_CURRENT, PRECOMPILE_OUTDATED } PrecompileState;
 

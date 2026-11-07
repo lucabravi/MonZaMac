@@ -451,6 +451,22 @@ static int32_t clamp_axis(int32_t v) { return v > 32767 ? 32767 : v < -32767 ? -
 
 // NpadFullKeyState / NpadHandheldState / NpadJoy*State share this layout (0x28 bytes):
 // {int64 sampling, u64 buttons, AnalogStick L {x,y}, AnalogStick R {x,y}, u32 attributes}
+// Route recording: every change of the pad state goes to a file, with the frame counted from the start of the
+// recording (Developer tab, or LARECOMP_INPUT_REC=<file> from the start of the run). LARECOMP_INPUT_REPLAY=<file>
+// plays such a file back from LARECOMP_INPUT_REPLAY_AT (default 0) on.
+static FILE *g_rec;
+static uint64_t g_rec_origin;
+
+bool route_record_start(const char *file) {
+    extern uint64_t renderer_present_count(void);
+    if (g_rec) fclose(g_rec);
+    g_rec = fopen(file, "w");
+    g_rec_origin = renderer_present_count();
+    return g_rec != NULL;
+}
+void route_record_stop(void) { if (g_rec) fclose(g_rec); g_rec = NULL; }
+bool route_recording(void) { return g_rec != NULL; }
+
 static void fill_state(Cpu *c) {
     uint8_t *s = (uint8_t *)(uintptr_t)c->x[0];
     uint32_t id = *(uint32_t *)(uintptr_t)c->x[1];
@@ -510,15 +526,19 @@ static void fill_state(Cpu *c) {
     {   // LARECOMP_INPUT_REC=<file>: log every change of the pad state (presented frame, buttons, sticks);
         // LARECOMP_INPUT_REPLAY=<file>: play such a log back exactly (the state at frame N is the last entry <= N)
         extern uint64_t renderer_present_count(void);
-        static FILE *rec;
         static int rec_on = -1;
+        static uint64_t replay_at;
         static struct { uint64_t f, b; int32_t lx, ly, rx, ry; } *tape;
         static size_t ntape;
         if (rec_on < 0) {
-            rec_on = getenv("LARECOMP_INPUT_REC") != NULL;
-            if (rec_on) rec = fopen(getenv("LARECOMP_INPUT_REC"), "w");
-            if (getenv("LARECOMP_INPUT_REPLAY")) {
-                FILE *rf = fopen(getenv("LARECOMP_INPUT_REPLAY"), "r");
+            rec_on = 1;
+            if (getenv("LARECOMP_INPUT_REC")) route_record_start(getenv("LARECOMP_INPUT_REC"));
+            if (getenv("LARECOMP_INPUT_REPLAY_AT")) replay_at = strtoull(getenv("LARECOMP_INPUT_REPLAY_AT"), NULL, 10);
+            char rpath[200];
+            const char *replay = getenv("LARECOMP_INPUT_REPLAY");
+            if (getenv("LARECOMP_ROUTE")) snprintf(rpath, sizeof rpath, "routes/%s/route.txt", getenv("LARECOMP_ROUTE")), replay = rpath;
+            if (replay) {
+                FILE *rf = fopen(replay, "r");
                 unsigned long long f, bb;
                 int l1, l2, r1, r2;
                 size_t cap = 0;
@@ -527,20 +547,21 @@ static void fill_state(Cpu *c) {
                     tape[ntape].f = f; tape[ntape].b = bb; tape[ntape].lx = l1; tape[ntape].ly = l2; tape[ntape].rx = r1; tape[ntape++].ry = r2;
                 }
                 if (rf) fclose(rf);
-                LOG("[input] replaying %zu pad states from %s\n", ntape, getenv("LARECOMP_INPUT_REPLAY"));
+                LOG("[input] replaying %zu pad states from %s\n", ntape, replay);
             }
         }
         uint64_t fr = renderer_present_count();
-        if (ntape) {
+        if (ntape && fr >= replay_at) {  // (before it a scripted LARECOMP_INPUT can take the save to where the route starts)
             b = 0; lx = ly = rx = ry = 0;
+            fr -= replay_at;
             size_t lo = 0, hi = ntape;  // last entry with f <= fr
             while (lo < hi) { size_t mid = (lo + hi) / 2; if (tape[mid].f <= fr) lo = mid + 1; else hi = mid; }
             if (lo) { b = tape[lo - 1].b; lx = tape[lo - 1].lx; ly = tape[lo - 1].ly; rx = tape[lo - 1].rx; ry = tape[lo - 1].ry; }
         }
         static uint64_t pb; static int32_t plx, ply, prx, pry;
-        if (rec && (b != pb || lx != plx || ly != ply || rx != prx || ry != pry)) {
-            fprintf(rec, "%llu %llx %d %d %d %d\n", (unsigned long long)fr, (unsigned long long)b, lx, ly, rx, ry);
-            fflush(rec);
+        if (g_rec && (b != pb || lx != plx || ly != ply || rx != prx || ry != pry)) {
+            fprintf(g_rec, "%llu %llx %d %d %d %d\n", (unsigned long long)(renderer_present_count() - g_rec_origin), (unsigned long long)b, lx, ly, rx, ry);
+            fflush(g_rec);
             pb = b; plx = lx; ply = ly; prx = rx; pry = ry;
         }
     }

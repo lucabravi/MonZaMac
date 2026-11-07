@@ -37,14 +37,25 @@ controller input, and a guided setup that prepares your own game files on your M
 **Fully open source, under the MIT license, and open to contributions.** Help us improve performance, test on more
 Macs, fix bugs or make the documentation better. You do not have to be a developer to [get involved](#get-involved).
 
-- **Sharper graphics:** internal resolution from 25% to 4× the game's native image. In docked mode, 1× is 1080p,
-  2× is 4K and 4× is 8K at 16:9. Match display and GPU-driven dynamic resolution are available too.
-- **Smooth presentation:** 30 or 60 fps modes, SMAA anti-aliasing, MetalFX upscaling and anisotropic filtering.
-  Actual performance depends on your Mac, settings and scene; see [Status](#status) for a measured example.
-- **Your controls and saves:** remappable keyboard/controller input, docked or handheld mode, and multiple named
-  save slots managed from the start screen.
-- **A Mac app you can set up yourself:** download the app, select your game files and let the guided setup build
-  everything locally. No development tools need to be installed to use the release app.
+## Why play it here
+
+- 🖼️ **Sharper than the Switch.** Render from 25% up to **4× the game's image** (8K in docked mode), let the app pick a
+  resolution that holds your frame rate (**Dynamic**), or match your display. **SMAA**, **MetalFX upscaling**,
+  anisotropic filtering and sharper textures are one click away, and so are bigger, crisper **shadows**.
+- ⚡ **Smooth.** A **60 fps** mode whose world step follows the real frame time, so the game speed stays steady, and
+  **smooth distant animation**: characters and Pokémon far from the camera animate every frame instead of in visible steps.
+- 🎞️ **Frame generation up to 120 fps** *(optional, experimental)*. MetalFX adds an intermediate frame: **30 real fps are
+  shown at 60, and 60 real fps at 120**. It needs macOS 26, a GPU with MetalFX frame interpolation and a 60 or 120 Hz
+  screen, and it is off by default. The game keeps its normal speed; fast edges can show artifacts and input does not
+  feel like native 120 fps. Details in [docs/frame-generation.md](docs/frame-generation.md).
+- 🧩 **Fewer stutters.** **Prepare all shaders** builds the game's shaders once (about five minutes) so scenes and
+  battle effects stall far less afterwards, and everything stays in a local cache on your Mac.
+- 🎮 **Your controls.** Remappable keyboard and controller input, camera on the mouse or trackpad, and docked or
+  handheld mode.
+- 💾 **Your saves.** Named save slots on the start screen, **import and export** as .zip, copies as backups, and
+  **Reload this save** from the in-game menu.
+- 📦 **A Mac app you can set up yourself.** Download the app, select your game files and let the guided setup build
+  everything locally. No development tools needed, and nothing is uploaded.
 
 MonZaMac uses **static recompilation**: the game's ARM64 code is translated ahead of time into C and compiled for
 macOS. Its runtime reimplements the Switch operating system services and NVN GPU interface on Metal. No emulator
@@ -69,28 +80,51 @@ You need a Mac with Apple Silicon (macOS 15 or later) and **your own copy of the
 5. When it is done, press **CONTINUE** (your most recent save) or **NEW GAME**. Your saves and settings are kept in
    `~/Library/Application Support/com.monzamac.app`, and stay there when you update the app.
 
-**Saves.** The start screen shows the save you played last. **SAVES** lists them all: pick one, start a new one, copy
+<details>
+<summary><strong>Saves</strong>: slots, backups, import and export</summary>
+
+<br>
+
+The start screen shows the save you played last. **SAVES** lists them all: pick one, start a new one, copy
 (a handy backup before trying something), rename, delete, **export** one as a .zip, or **import** a .zip or a folder
 with a Z-A save (a JKSV backup, a copy from a console) as a new save. In the game, **F1 > Saves** shows the save you are
-playing and the others, and can switch to another one. A save you already had is the first one in the list, called
-"Main save" until you rename it.
+playing and the others, and can switch to another one or reload the current one. A save you already had is the first
+one in the list, called "Main save" until you rename it.
 
-A new install starts with fullscreen, a dynamic-resolution preset capped at 1080p, 60 fps, SMAA, the original 16:9
+</details>
+
+<details>
+<summary><strong>Settings and controls</strong>: defaults, keys and the in-game menu</summary>
+
+<br>
+
+A new install starts with fullscreen, a fixed 1080p resolution, 60 fps, SMAA, the original 16:9
 picture and anisotropic filtering. **1080p is the initial preset, not the maximum supported resolution.** Choose
-higher internal resolutions or Match display in **SETTINGS**, available before and during play.
+higher internal resolutions, Dynamic, Match display or frame generation in **SETTINGS**, available before and during play.
 
 In the game: **F1** opens the menu (video, audio, controls), **F3** shows the frame rate and the render resolution.
 Default gameplay controls: WASD move, arrows d-pad, K / J = A / B, Q / E = L / R, Enter / Backspace = Plus / Minus;
 the numeric keypad controls the camera. Launcher/menu navigation uses Enter to confirm and Esc to go back.
 Bindings can be changed in **SETTINGS > Controls**.
 
+</details>
+
+<details>
+<summary><strong>Shaders</strong>: first-use stutter and how to avoid it</summary>
+
+<br>
+
 Shaders and pipelines compile as needed. A new scene or an update can cause brief first-use stutter; subsequent
-visits benefit from the local cache. The **Shaders** tab of the menu can prepare the ones a catalog knows before the
-game starts (**Prepare known shaders**), saves the ones the game had to build as hashes and numbers (**Collect new
-shader recipes**; nothing is uploaded) so you can share them by hand with **Export shader recipes** and the
-**Contribute recipes on GitHub** form, and fetches the official catalog only when you press **Update shader catalog**.
-No catalog is published yet. On the start screen, **All shaders** (top right) can compile every shader of the
+visits benefit from the local cache. On the start screen, **All shaders** (top right) can compile every shader of the
 game up front: about five minutes once and about 400 MB of Metal cache, and the first visit to a scene stalls far less.
+After some updates the badge turns yellow: run it again.
+
+The **Shaders** tab of the menu can also prepare the ones a catalog knows before the game starts (**Prepare known
+shaders**), saves the ones the game had to build as hashes and numbers (**Collect new shader recipes**; nothing is
+uploaded) so you can share them by hand with **Export shader recipes** and the **Contribute recipes on GitHub** form,
+and fetches the official catalog only when you press **Update shader catalog**. No catalog is published yet.
+
+</details>
 
 Building from source and the developer tools are in [docs/development.md](docs/development.md).
 
@@ -113,7 +147,8 @@ Working:
 - Audio, the game's menus, saves
 - Controller and keyboard input
 
-**Known limitations:** brief first-use shader-compilation stutter can occur. No persistent visual defects are
+**Known limitations:** brief first-use shader-compilation stutter can occur, and frame generation is experimental
+(it can show artifacts on fast-moving characters and particles). No persistent visual defects are
 currently known from the maintainer’s testing; later areas and other Mac configurations still need more coverage.
 
 Bugs and questions: [GitHub issues](https://github.com/lucabravi/MonZaMac/issues), see [CONTRIBUTING.md](CONTRIBUTING.md).

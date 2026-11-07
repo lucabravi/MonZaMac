@@ -31,7 +31,7 @@ requires matching shader content, specialization and descriptor state. The
 selected guest-memory window is included in in-process program identity.
 Unknown or changed variants retain normal first-use compilation.
 
-Preparation is serialized with drawing. Translation/cache access stays on the render thread; native Metal compilation uses an active-CPU-sized worker pool, bounded by program groups. It uses the current
+Preparation is serialized with drawing. Translation/cache access stays on the render thread; dedicated native Metal compilation uses a worker pool bounded by active CPUs, Metal's `maximumConcurrentCompilationTaskCount` and the number of jobs. If that Metal limit is unavailable or zero, it falls back to active CPUs. `LARECOMP_SHADER_PREP_WORKERS` can lower the limit. Gameplay's early-compilation worker policy is unchanged. It uses the current
 translator and compiler options, rather than loading translated code from a
 previous build. It does not move guest pointers onto a background worker.
 Shader overrides/debug probes disable the preparation path. In-place reboot
@@ -315,3 +315,17 @@ The runtime build and two focused preparation tests passed, including active
 CPU/job bounds, serial/two-worker overrides and malformed override handling.
 No unchanged repeated gameplay sweeps were run. Test instances were stopped;
 all source changes and numeric results remain local, without push/PR updates.
+
+## Live compute content reuse
+
+Live compute programs use the same content identity as prepared programs: shader code and compiler constants (including their boundary),
+texture/image types, workgroup dimensions and the guest-memory window. Identical inputs at another address reuse
+one program, including a cached failure. A registered address has a fast lookup; full content hashing occurs only
+when its registration or specialization changes. The registration identity survives the renderer's composed program,
+so two registered objects sharing an address keep independent fast entries. NVN shader inputs remain immutable until `nvnProgramSetShaders`
+or its Ext form registers them again. Local dimensions are checked before the lookup, so changing the control
+section's workgroup size cannot reuse the previous specialization. Both live caches are cleared on renderer reset.
+
+The asset-free Metal `compute-content-cache` case checks another address, workgroup changes, and code replaced at
+its old address through actual NVN shader registration. `compute-preparation` checks reuse of a program built in
+advance. These tests do not measure memory growth or hitching in a long Z-A session.

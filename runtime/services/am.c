@@ -9,6 +9,13 @@
 
 #define AM_NO_MESSAGE MAKE_RESULT(128, 3)
 #define AM_NO_DATA MAKE_RESULT(128, 2)
+#define AM_INVALID_ARGUMENT MAKE_RESULT(128, 500)
+#define AM_INVALID_STATE MAKE_RESULT(128, 512)
+#define AM_UNSUPPORTED MAKE_RESULT(10, 221)  // CMIF: invalid/unsupported command
+#define AM_MAX_STORAGE_SIZE (1024u * 1024u)  // bounded storage for this headless error-applet implementation
+
+static void am_objects_reset(void);
+static uint32_t launchable_event_handle(void);
 
 static uint32_t msg_event_r, msg_event_w;
 static KEvent *msg_event;
@@ -21,6 +28,7 @@ RT_ON_RESET(am_reset) {  // (reboot: the message queue starts over with FocusSta
     msg_event_r = msg_event_w = 0;
     msg_count = 0;
     preselected_popped = false;
+    am_objects_reset();
 }
 
 static void am_init_once(void) {
@@ -91,7 +99,7 @@ static void self_controller(Service *s, IpcReq *req, IpcResp *resp) {
     (void)s;
     switch (req->cmd) {
     case 0: LOG("[am] application requested exit\n"); exit(0);
-    case 9: resp->copy_handles[resp->ncopy++] = new_event(); break;
+    case 9: resp->copy_handles[resp->ncopy++] = launchable_event_handle(); break;
     case 40: OUT(uint64_t, 0) = 1; resp_size(resp, 8); break;  // CreateManagedDisplayLayer
     case 69: OUT(uint8_t, 0) = 0; resp_size(resp, 1); break;
     default: UNHANDLED("ISelfController");
@@ -112,43 +120,244 @@ static void generic_ok(Service *s, IpcReq *req, IpcResp *resp) {
 }
 
 // ------------------------------------------------------------------ IStorage / IStorageAccessor
-typedef struct { uint8_t *data; uint64_t size; } AmStorage;
+typedef struct AmStorage {
+    uint8_t *data;
+    uint64_t size;
+    unsigned refs;
+    struct AmStorage *next;
+} AmStorage;
+static AmStorage *storages;
+
+static void storage_release(AmStorage *st) {
+    if (--st->refs) return;
+    AmStorage **p = &storages;
+    while (*p && *p != st) p = &(*p)->next;
+    if (*p) *p = st->next;
+    free(st->data);
+    free(st);
+}
+
+static void storage_close(Service *s) {
+    if (s->state) storage_release(s->state);
+    s->state = NULL;
+}
+
+static Service *storage_service(const char *name, ServiceHandler handler, AmStorage *st) {
+    Service *s = service_new(name, handler, st);
+    st->refs++;
+    s->on_close = storage_close;
+    return s;
+}
 
 static void storage_accessor(Service *s, IpcReq *req, IpcResp *resp) {
     AmStorage *st = s->state;
+    if (!st) { resp->result = AM_INVALID_STATE; return; }
     switch (req->cmd) {
     case 0: OUT(int64_t, 0) = (int64_t)st->size; resp_size(resp, 8); break;  // GetSize
-    case 10: {  // Write(offset, A)
-        int64_t off = IN(int64_t, 0);
-        IpcBuf *a = in_buf(req, 0);
-        uint64_t n = a->size;
-        if ((uint64_t)off + n > st->size) n = st->size - (uint64_t)off;
-        memcpy(st->data + off, (void *)(uintptr_t)a->addr, n);
+    case 10: case 11: {  // Write(offset, A) / Read(offset, B)
+        if (!req->data || req->data_size < 8) { resp->result = AM_INVALID_ARGUMENT; break; }
+        int64_t off;
+        memcpy(&off, req->data, sizeof off);
+        IpcBuf *b = req->cmd == 10 ? in_buf(req, 0) : out_buf(req, 0);
+        if (off < 0 || (uint64_t)off > st->size || !b || (b->size && !b->addr) ||
+            b->addr > UINTPTR_MAX || b->size > UINTPTR_MAX - b->addr) {
+            resp->result = AM_INVALID_ARGUMENT;
+            break;
+        }
+        uint64_t n = b->size < st->size - (uint64_t)off ? b->size : st->size - (uint64_t)off;
+        if (n && req->cmd == 10) memcpy(st->data + off, (void *)(uintptr_t)b->addr, n);
+        if (n && req->cmd == 11) memcpy((void *)(uintptr_t)b->addr, st->data + off, n);
         break;
     }
-    case 11: {  // Read(offset, B)
-        int64_t off = IN(int64_t, 0);
-        IpcBuf *b = out_buf(req, 0);
-        uint64_t n = b->size;
-        if ((uint64_t)off + n > st->size) n = st->size - (uint64_t)off;
-        memcpy((void *)(uintptr_t)b->addr, st->data + off, n);
-        break;
-    }
-    default: LOG("[am] IStorageAccessor cmd %u (ok)\n", req->cmd);
+    default: resp->result = AM_UNSUPPORTED;
     }
 }
 
 static void am_storage(Service *s, IpcReq *req, IpcResp *resp) {
-    if (req->cmd == 0) ipc_return_object(resp, service_new("IStorageAccessor", storage_accessor, s->state));
-    else LOG("[am] IStorage cmd %u (ok)\n", req->cmd);
+    if (!s->state) { resp->result = AM_INVALID_STATE; return; }
+    if (req->cmd == 0) ipc_return_object(resp, storage_service("IStorageAccessor", storage_accessor, s->state));
+    else resp->result = AM_UNSUPPORTED;
 }
 
 static Service *new_am_storage(const void *data, uint64_t size) {
     AmStorage *st = calloc(1, sizeof *st);
+    if (!st) return NULL;
     st->data = calloc(1, size);
+    if (!st->data) { free(st); return NULL; }
     st->size = size;
     if (data) memcpy(st->data, data, size);
-    return service_new("IStorage", am_storage, st);
+    st->next = storages;
+    storages = st;
+    return storage_service("IStorage", am_storage, st);
+}
+
+// ------------------------------------------------------------------ ILibraryAppletCreator / ILibraryAppletAccessor
+// Only the error applet is acknowledged without UI. Other applets require real user interaction/results.
+typedef struct AmAppletEvent {
+    KEvent *event;
+    struct AmAppletEvent *next;
+} AmAppletEvent;
+static AmAppletEvent *applet_events;
+static AmAppletEvent *launchable_event;
+
+typedef struct AmApplet {
+    Service *owner;
+    AmAppletEvent *state_event, *output_event, *interactive_event;
+    AmStorage *inputs[16];
+    unsigned ninputs;
+    bool completed;
+    struct AmApplet *next;
+} AmApplet;
+static AmApplet *applets;
+
+static AmAppletEvent *applet_event(void) {
+    AmAppletEvent *e = calloc(1, sizeof *e);
+    uint32_t writable, readable;  // Internal owner handles remain valid when a guest closes its returned handle.
+    e->event = kernel_create_event_pair(&writable, &readable);
+    e->next = applet_events;
+    applet_events = e;
+    return e;
+}
+
+static uint32_t launchable_event_handle(void) {
+    if (!launchable_event) {
+        launchable_event = applet_event();
+        pthread_mutex_lock(&g_klock);
+        kernel_signal(launchable_event->event);
+        pthread_mutex_unlock(&g_klock);
+    }
+    return kernel_new_handle(launchable_event->event);
+}
+
+static void applet_release_inputs(AmApplet *a) {
+    for (unsigned i = 0; i < a->ninputs; i++) storage_release(a->inputs[i]);
+    a->ninputs = 0;
+}
+
+static void applet_close(Service *s) {
+    AmApplet *a = s->state;
+    if (!a) return;
+    AmApplet **p = &applets;
+    while (*p && *p != a) p = &(*p)->next;
+    if (*p) *p = a->next;
+    applet_release_inputs(a);
+    // Returned event handles can outlive the accessor; the events are retained until reboot.
+    free(a);
+    s->state = NULL;
+}
+
+static void am_objects_reset(void) {
+    while (applets) applet_close(applets->owner);
+    while (storages) {
+        AmStorage *st = storages;
+        storages = st->next;
+        free(st->data);
+        free(st);
+    }
+    // Reset hooks run with guest threads stopped, immediately before the kernel discards its handles.
+    while (applet_events) {
+        AmAppletEvent *e = applet_events;
+        applet_events = e->next;
+        free(e->event);
+        free(e);
+    }
+    launchable_event = NULL;
+}
+
+static void applet_log_error(const AmApplet *a) {
+    if (a->ninputs < 2) return;  // Common library-applet arguments precede the error arguments.
+    const AmStorage *st = a->inputs[1];
+    // Public libnx ErrorCommonArg / ErrorApplicationArg layout; never log message strings or context bytes.
+    // https://github.com/switchbrew/libnx/blob/master/nx/include/switch/applets/error.h
+    if (st->size == 0x1014 && st->data[0] == 2) {
+        uint32_t number;
+        memcpy(&number, st->data + 8, 4);
+        LOG("[am] error applet: application error_number=%u\n", number);
+    } else if (st->size == 0x14 && st->data[0] == 0) {
+        uint32_t low, desc, result;
+        memcpy(&low, st->data + 8, 4);
+        memcpy(&desc, st->data + 12, 4);
+        memcpy(&result, st->data + 16, 4);
+        LOG("[am] error applet: result=0x%08x error_code=%u-%u\n", result, low, desc);
+    }
+}
+
+static void applet_accessor(Service *s, IpcReq *req, IpcResp *resp) {
+    AmApplet *a = s->state;
+    if (!a) { resp->result = AM_INVALID_STATE; return; }
+    if (req->cmd != 100 && (req->nmove || req->ncopy || req->ndomain_in)) {
+        resp->result = AM_INVALID_ARGUMENT;
+        return;
+    }
+    switch (req->cmd) {
+    // IPC serializes copy-handle numbers without duplicating them, so each query needs a fresh guest handle.
+    case 0: resp->copy_handles[resp->ncopy++] = kernel_new_handle(a->state_event->event); break;
+    case 1: OUT(uint8_t, 0) = a->completed; resp_size(resp, 1); break;
+    case 10:  // Start: headless acknowledgement, with no native dialog.
+        if (a->completed) { resp->result = AM_INVALID_STATE; break; }
+        applet_log_error(a);
+        applet_release_inputs(a);
+        pthread_mutex_lock(&g_klock);
+        a->completed = true;
+        kernel_signal(a->state_event->event);
+        pthread_mutex_unlock(&g_klock);
+        LOG("[am] error applet: acknowledged without UI\n");
+        break;
+    case 30: if (!a->completed) resp->result = AM_INVALID_STATE; break;
+    case 100: {  // PushInData: bind the actual moved session or domain input object.
+        if (a->completed || a->ninputs == 16) { resp->result = AM_INVALID_STATE; break; }
+        Service *input = ipc_input_object(req, 0);
+        if (req->ncopy || (req->domain ? req->ndomain_in != 1 : req->nmove != 1) ||
+            !input || input->handler != am_storage || !input->state) {
+            resp->result = AM_INVALID_ARGUMENT;
+            break;
+        }
+        AmStorage *st = input->state;
+        st->refs++;
+        a->inputs[a->ninputs++] = st;
+        break;
+    }
+    case 101: case 104: resp->result = AM_NO_DATA; break;
+    case 105: case 106: {
+        AmAppletEvent **e = req->cmd == 105 ? &a->output_event : &a->interactive_event;
+        if (!*e) *e = applet_event();
+        resp->copy_handles[resp->ncopy++] = kernel_new_handle((*e)->event);
+        break;
+    }
+    default: resp->result = AM_UNSUPPORTED;
+    }
+}
+
+static void library_applet_creator(Service *s, IpcReq *req, IpcResp *resp) {
+    (void)s;
+    if (req->nmove || req->ncopy || req->ndomain_in) { resp->result = AM_INVALID_ARGUMENT; return; }
+    switch (req->cmd) {
+    case 0: {  // CreateLibraryApplet(id, mode): error applet, AllForeground only.
+        uint32_t args[2];
+        if (!req->data || req->data_size < sizeof args) { resp->result = AM_INVALID_ARGUMENT; break; }
+        memcpy(args, req->data, sizeof args);
+        if (args[0] != 0x0e || args[1] != 0) { resp->result = AM_UNSUPPORTED; break; }
+        AmApplet *a = calloc(1, sizeof *a);
+        a->state_event = applet_event();
+        a->owner = service_new("ILibraryAppletAccessor", applet_accessor, a);
+        a->owner->on_close = applet_close;
+        a->next = applets;
+        applets = a;
+        ipc_return_object(resp, a->owner);
+        break;
+    }
+    case 10: {  // CreateStorage(size); transfer-memory/handle storage have different ABIs and remain unsupported.
+        int64_t size;
+        if (!req->data || req->data_size < sizeof size) { resp->result = AM_INVALID_ARGUMENT; break; }
+        memcpy(&size, req->data, sizeof size);
+        if (size <= 0 || size > AM_MAX_STORAGE_SIZE) { resp->result = AM_INVALID_ARGUMENT; break; }
+        Service *storage = new_am_storage(NULL, (uint64_t)size);
+        if (storage) ipc_return_object(resp, storage);
+        else resp->result = AM_INVALID_STATE;
+        break;
+    }
+    default: resp->result = AM_UNSUPPORTED;
+    }
 }
 
 extern const uint8_t g_user_id[16];
@@ -162,8 +371,11 @@ static void application_functions(Service *s, IpcReq *req, IpcResp *resp) {
             *(uint32_t *)p = 0xC79497CA;
             *(uint32_t *)(p + 4) = 1;
             memcpy(p + 8, g_user_id, 16);
-            preselected_popped = true;
-            ipc_return_object(resp, new_am_storage(p, sizeof p));
+            Service *storage = new_am_storage(p, sizeof p);
+            if (storage) {
+                preselected_popped = true;
+                ipc_return_object(resp, storage);
+            } else resp->result = AM_INVALID_STATE;
         } else {
             resp->result = AM_NO_DATA;
         }
@@ -192,7 +404,7 @@ static void application_proxy(Service *s, IpcReq *req, IpcResp *resp) {
         {3, "IAudioController", generic_ok},
         {4, "IDisplayController", generic_ok},
         {10, "IProcessWindingController", generic_ok},
-        {11, "ILibraryAppletCreator", generic_ok},
+        {11, "ILibraryAppletCreator", library_applet_creator},
         {20, "IApplicationFunctions", application_functions},
         {1000, "IDebugFunctions", generic_ok},
     };

@@ -11,6 +11,8 @@ build/
 /cache/
 save/
 saves/
+# recorded routes: a copy of a save and the pad, never committed
+/routes/
 save.*/
 /larecomp.ini
 # tools and Python environments (machine-specific)
@@ -28,5 +30,7 @@ __pycache__/
 extracted-202/
 extracted-100/
 work-202/
+# local notes and investigation write-ups that must not be published (any clone or worktree, any tool)
+/docs-private/
 # your own keys (local only)
 .keys/

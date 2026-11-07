@@ -660,6 +660,7 @@ NVN(nvnProgramSetDebugLabel) { (void)c; static int seen_; if (!seen_++ && getenv
 NVN(nvnProgramSetSampleShading) { (void)c; static int seen_; if (!seen_++ && getenv("LARECOMP_LOG_NOOP")) LOG("[nvn] no-op called: nvnProgramSetSampleShading\n"); }
 NVN(nvnProgramSetSubroutineLinkage) { RET(1); }
 static void set_shaders(Cpu *c, int stride) {
+    static uint64_t generation;
     NvnProgram *p = HOST(NvnProgram, A(0));
     int n = (int)A(1);
     const uint8_t *data = AP(2);  // NVNshaderData[n] = {u64 data (GPU addr), const void* control}
@@ -686,6 +687,7 @@ static void set_shaders(Cpu *c, int stride) {
         p->stages[stage].control = control;
         p->stages[stage].const_offset = *(const uint32_t *)(control + 0x700);
         p->stages[stage].const_size = *(const uint32_t *)(control + 0x6FC);
+        p->stages[stage].generation = __atomic_add_fetch(&generation, 1, __ATOMIC_RELAXED);
         p->stage_mask |= 1u << stage;
         if (shader_trace_enabled()) shader_trace_stage(c, &p->stages[stage], A(0));
         renderer_shader_registered(&p->stages[stage]);

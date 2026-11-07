@@ -883,6 +883,11 @@ static void filesystem(Service *s, IpcReq *req, IpcResp *resp) {
 static Service *open_host_fs(const char *sub) {
     HostFs *fs = calloc(1, sizeof *fs);
     if (getenv("LARECOMP_SAVE_DIR")) g_save_dir = getenv("LARECOMP_SAVE_DIR");  // test runs use a scratch copy
+    if (getenv("LARECOMP_ROUTE")) {  // replaying a recorded route: on a fresh copy of its starting save
+        extern const char *saves_route_replay_dir(const char *);
+        const char *d = saves_route_replay_dir(getenv("LARECOMP_ROUTE"));
+        if (d) g_save_dir = d;
+    }
     snprintf(fs->root, sizeof fs->root, "%s/%s", g_save_dir, sub);
     char cmd[1200];
     snprintf(cmd, sizeof cmd, "%s", fs->root);

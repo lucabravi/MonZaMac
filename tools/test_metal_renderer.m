@@ -9,6 +9,7 @@ void metal_test_bootstrap(void);
 void metal_test_preparation_page(void);
 void metal_test_texture_dump(void);
 void metal_test_next_texture_frame(void);
+void metal_test_frame_generation_filters(void);
 void renderer_set_scale(float sx, float sy);
 
 #define CHECK(c, message) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d: %s\n", __func__, __LINE__, message); exit(1); } } while (0)
@@ -244,6 +245,18 @@ static void safe_math_compute(void) {
 static void integer_opcode_semantics(void) {
 #define REG_OP(top, flags) (((uint64_t)(top) << 48) | 9ull | (1ull << 8) | (7ull << 16) | (2ull << 20) | (flags))
     static const struct { const char *name; uint64_t opcode; uint32_t input[3], want; bool predicate; uint32_t want_gpr; } cases[] = {
+        {"FSET.FTZ positive subnormal", REG_OP(0x5800, (1ull << 55) | (2ull << 48) | (7ull << 39)), {1, 0, 0}, 0xffffffff},
+        {"FSET.FTZ negative subnormal", REG_OP(0x5800, (1ull << 55) | (2ull << 48) | (7ull << 39)), {0x807fffff, 0, 0}, 0xffffffff},
+        {"FSET.FTZ both subnormal operands", REG_OP(0x5800, (1ull << 55) | (2ull << 48) | (7ull << 39)), {1, 0x807fffff, 0}, 0xffffffff},
+        {"FSET.FTZ smallest normal", REG_OP(0x5800, (1ull << 55) | (2ull << 48) | (7ull << 39)), {0x00800000, 0, 0}, 0},
+        {"FSET.FTZ infinity", REG_OP(0x5800, (1ull << 55) | (2ull << 48) | (7ull << 39)), {0x7f800000, 0, 0}, 0},
+        {"FSET.FTZ NaN condition", REG_OP(0x5800, (1ull << 55) | (2ull << 48) | (7ull << 39)), {0x7fc12345, 0, 0}, 0},
+        {"FSET.FTZ signed zero", REG_OP(0x5800, (1ull << 55) | (2ull << 48) | (7ull << 39)), {0x80000000, 0, 0}, 0xffffffff},
+        {"FSETP.FTZ subnormal", (0x5bb0ull << 48) | (1ull << 47) | (2ull << 48) | (7ull << 39) | (2ull << 20) | (7ull << 16) | (1ull << 8) | 7,
+            {0x80000001, 0, 0}, 1, true},
+        {"FCMP.FTZ preserves selected subnormal", REG_OP(0x5ba0, (1ull << 47) | (2ull << 48) | (3ull << 39)), {0x80000001, 0x12345678, 1}, 0x80000001},
+        {"FCMP.FTZ preserves selected NaN bits", REG_OP(0x5ba0, (1ull << 47) | (2ull << 48) | (3ull << 39)), {0x7fc12345, 0x12345678, 0x80000001}, 0x7fc12345},
+        {"FCMP.FTZ normal condition", REG_OP(0x5ba0, (1ull << 47) | (2ull << 48) | (3ull << 39)), {0x80000001, 0x12345678, 0x00800000}, 0x12345678},
         {"SHF.R.U64 register 40", REG_OP(0x5cf8, (3ull << 39) | (2ull << 37)), {0, 40, 0x100}, 1},
         {"SHF.L.U64 register 40", REG_OP(0x5bf8, (3ull << 39) | (2ull << 37)), {1, 40, 0}, 0x100},
         {"SHF.R.S64 clamps 64", REG_OP(0x5cf8, (3ull << 39) | (3ull << 37)), {0, 64, 0x80000000}, 0xffffffff},
@@ -1640,6 +1653,10 @@ static void shader_preparation(void) {
     setenv("LARECOMP_SHADER_RECORD", "recipes.jsonl", 1);
     NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
     bind_targets(&color, NULL, NULL); prepare_draw();
+    ShaderKey ordinary_key={0}, motion_key={.fg_motion=1};
+    CHECK(prep_program_record(st.program,&motion_key,&ordinary_key)==nil &&
+          prep_program_record(st.program,&ordinary_key,&motion_key)==nil,
+          "runtime motion variants cannot alias ordinary shaders in the shared recipe cache");
     NSMutableDictionary *shaders = [NSMutableDictionary new];
     for (int i = 0; i < 2; i++) {
         NvnShaderStage *stage = &st.program->stages[i];
@@ -2160,6 +2177,65 @@ static NvnProgram *compute_image_fixture(bool reduction, bool array) {
 
 // A compute program is recorded as hash + texture masks + workgroup size, rebuilt from its input before it is asked for,
 // and found by the dispatch (no translation or compile at first use).
+static void compute_content_cache(void) {
+    static uint64_t code[2][34]; static NvnProgram programs[2];
+    static uint8_t control[0x800];
+    uint64_t ops[] = {0x010000000007f004ull | (4ull << 20)};
+    for (unsigned i = 0; i < 2; i++) compute_fixture(code[i], &programs[i], ops, 1);
+    CsProg *first = compute_program(&programs[0]);
+    CHECK(first && !first->failed, "synthetic compute compiles");
+    CHECK(compute_program(&programs[0]) == first, "same registration reuses its program");
+    CHECK(compute_program(&programs[1]) == first, "identical code at a new address reuses the live program");
+    programs[0].stages[5].control = control;
+    uint32_t local[] = {2, 1, 1}; memcpy(control + 0x748, local, sizeof local);
+    CsProg *wide = compute_program(&programs[0]);
+    CHECK(wide && wide != first && wide->local[0] == 2, "changed workgroup dimensions cannot hit the old program");
+    CHECK(compute_program(&programs[1]) == first, "the other address retains the original specialization");
+    // Exercise the actual registration path rather than inventing an invalidation signal.
+    *(uint32_t *)(control + 0x700) = 32 * sizeof(uint64_t);
+    uint64_t object = (uint64_t)&programs[0], descriptor[] = {(uint64_t)code[0], (uint64_t)control};
+    Cpu cpu = {0}; cpu.x[0] = (uint64_t)&object; cpu.x[1] = 1; cpu.x[2] = (uint64_t)descriptor;
+    HostFn register_shader = hle_lookup_impl("nvnProgramSetShaders");
+    CHECK(register_shader != NULL, "NVN shader registration is linked");
+    register_shader(&cpu);
+    uint64_t generation = programs[0].stages[5].generation;
+    CHECK(generation && compute_program(&programs[0]) == wide, "unchanged code re-registration reuses its content");
+    code[0][1] ^= 1ull << 20; // other immediate, at the same code address
+    cpu.x[0] = (uint64_t)&object; register_shader(&cpu);
+    CsProg *changed = compute_program(&programs[0]);
+    CHECK(programs[0].stages[5].generation != generation && changed && changed != wide,
+          "new code registered at the old address cannot reuse its previous pipeline");
+    code[0][1] ^= 1ull << 20;
+    cpu.x[0] = (uint64_t)&object; register_shader(&cpu);
+    CHECK(compute_program(&programs[0]) == wide, "restoring previous content reuses its pipeline");
+    *(uint32_t *)(control + 0x6fc) = sizeof(uint64_t);
+    code[0][32] = 17;
+    cpu.x[0] = (uint64_t)&object; register_shader(&cpu);
+    CsProg *constants = compute_program(&programs[0]);
+    code[0][32] = 23;
+    cpu.x[0] = (uint64_t)&object; register_shader(&cpu);
+    CsProg *partition = compute_program(&programs[0]);
+    CHECK(constants && partition != constants, "compiler constants participate in content identity");
+    *(uint32_t *)(control + 0x700) += sizeof(uint64_t);
+    *(uint32_t *)(control + 0x6fc) = 0; // same total bytes, different code/constants split
+    cpu.x[0] = (uint64_t)&object; register_shader(&cpu);
+    CsProg *split = compute_program(&programs[0]);
+    CHECK(split && split != partition, "the code/constants partition participates in content identity");
+    NvnProgram alias = {0}; object = (uint64_t)&alias;
+    cpu.x[0] = (uint64_t)&object; register_shader(&cpu);
+    [g_cs_progs removeAllObjects];
+    // CMD_BIND_PROGRAM composes every source into this one renderer-owned object.
+    g_comp_prog.stages[5] = programs[0].stages[5];
+    CHECK(compute_program(&g_comp_prog) == split, "restore the first registration's fast path");
+    id memo = g_cs_progs.allValues.firstObject;
+    g_comp_prog.stages[5] = alias.stages[5];
+    CHECK(compute_program(&g_comp_prog) == split, "two registered programs can share a code address");
+    CHECK(g_cs_progs.count == 2 && [g_cs_progs.allValues indexOfObjectIdenticalTo:memo] != NSNotFound,
+          "shared code registrations retain independent fast entries instead of rehashing each other");
+    renderer_reset();
+    CHECK(!g_cs_progs.count && !g_cs_content.count, "reset drops address and content identities");
+}
+
 static void compute_preparation(void) {
     static uint64_t code[32]; static NvnProgram prog;
     uint64_t ops[] = {0x010000000007f000ull | (4ull << 20) | 4};
@@ -2474,6 +2550,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"live-shader-pipeline", "live", live_shader_pipeline},
     {"break-reconvergence", "flow", break_reconvergence},
     {"structured-brx", "flow", structured_brx},
+    {"compute-content-cache", "compute-cache", compute_content_cache},
     {"compute-preparation", "preparation", compute_preparation},
     {"precompile-stamp", "preparation", precompile_stamp_rules},
     {"blind-libraries", "preparation", blind_libraries},
@@ -2557,6 +2634,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"feedback-mip-depth", "feedback", feedback_mip_depth},
     {"feedback-base-alias", "feedback", feedback_base_alias},
     {"preparation-page", "preparation", metal_test_preparation_page},
+    {"frame-generation-filters", "frame-generation", metal_test_frame_generation_filters},
 };
 
 int metal_renderer_test_main(int argc, char **argv) { @autoreleasepool {

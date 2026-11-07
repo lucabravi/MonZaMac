@@ -33,6 +33,7 @@ extern "C" {
 #include "../settings.h"
 #include "menu.h"
 #include "../nvn/output_scale.h"
+#include "../nvn/frame_generation_present.h"
 void input_reset(void);
 void controls_bindings_draw(float scale);  // controls_ui.mm
 #include "../input_bind.h"
@@ -48,6 +49,8 @@ static std::atomic<bool> g_want_fullscreen_apply{false};
 
 #ifdef __APPLE__
 extern "C" unsigned renderer_recipe_count(void);
+extern "C" bool rt_za_smooth_anim_supported(void);  // (runtime/hle/za_mods.c)
+extern "C" bool fg_supported(void);  // runtime/nvn/frame_generation.m
 extern "C" bool renderer_export_recipes(const char *, char *, size_t);
 extern "C" bool renderer_update_catalog(char *, size_t);
 extern "C" int renderer_check_catalog(void);
@@ -529,10 +532,6 @@ static void tab_display(void) {
     float scale = ImGui::GetFontSize() / 34;
     opt_begin("##video", scale);
     opt_section("Display");
-    const char *aspects[] = {"Unlocked", "Original 16:9"};
-    opt_choice("Aspect ratio", &g_settings.aspect, aspects, 2, ASPECT_ORIGINAL,
-               "Unlocked: the view fills the window, so wider (or taller) windows show more of the world - up to "
-               "ultrawide. Original 16:9: the game's own framing, with bars.");
     bool fs = g_settings.fullscreen;
     if (opt_toggle("Fullscreen", &fs, false, "Fills the screen. Also: F11, Alt+Enter or Cmd+Ctrl+F.")) {
         g_settings.fullscreen = fs;
@@ -552,12 +551,39 @@ static void tab_display(void) {
     }
     {   // Pokémon Z-A's frame mode (runtime/hle/framepace.c rt_za_frame_cfg): applies from the next frame
         if (za_rows()) {
-            int fr = g_settings.fps60 ? 1 : 0;
+            int fg = settings_frame_generation();
+            int fr = (fg ? settings_real_fps60() : g_settings.fps60) ? 1 : 0;
             static const char *rates[] = {"30 fps (Switch)", "60 fps"};
+            if (fg) opt_disable_next();
             if (opt_choice("Frame rate", &fr, rates, 2, 0,
                            "30 fps: as on the Switch. 60 fps: smoother motion, with the world step adapting to the "
-                           "time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU."))
+                           "time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU. "
+                           "Frame generation selects its own source rate; turning it off restores your choice here."))
                 g_settings.fps60 = fr == 1;
+            bool supported = false;
+#ifdef __APPLE__
+            supported = fg_supported();
+#endif
+            const char *fps_override = ENV("LARECOMP_FPS");
+            const char *reason = !supported ? "Unavailable: requires macOS 26 and a GPU supporting MetalFX frame interpolation. " :
+                                 fps_override && *fps_override ? "Inactive: unset LARECOMP_FPS to use frame generation. " :
+                                 settings_uncapped_fps() ? "Inactive: turn off Uncapped FPS (benchmark), including LARECOMP_UNCAPPED_FPS. " : "";
+            char description[768];
+            snprintf(description, sizeof description, "%sAdds an intermediate frame between real game frames: 30 real to 60 displayed, "
+                     "or 60 real to 120 displayed. The game keeps its original speed. Falls back to real frames when scene inputs "
+                     "are unavailable. Camera motion is reconstructed; moving characters and particles may show artifacts.", reason);
+            static const char *generation[] = {"Off", "30 -> 60 fps", "60 -> 120 fps"};
+            if (!supported) opt_disable_next();
+            opt_choice("Frame generation", &g_settings.frame_generation, generation, 3, FRAME_GENERATION_OFF, description);
+            static const char *quality[] = {"Native", "Performance"};
+            int fg_quality=g_settings.frame_generation_performance?1:0;
+            if(!supported || !g_settings.frame_generation)opt_disable_next();
+            if(opt_choice("Frame generation quality", &fg_quality, quality, 2, 0,
+                          "Native uses the rendering resolution for generated frames. Performance caps only generated frames "
+                          "at 1920 pixels wide (1080p at 16:9) to reduce GPU cost. Real frames keep the selected rendering "
+                          "resolution. Intermediate images may look softer. Applies immediately."))
+                g_settings.frame_generation_performance=fg_quality==1;
+
         }
     }
 
@@ -606,7 +632,7 @@ static void tab_display(void) {
         if (is_dyn) snprintf(d + n, sizeof d - n, " Dynamic: %.0f%% of its top resolution right now.", output_scale_dynamic_factor() * 100);
         static const char *modes[] = {"Fixed", "Dynamic"};
         int mi = is_dyn;
-        if (opt_choice("Resolution mode", &mi, modes, 2, 1, d, false) && mi != (int)is_dyn) {
+        if (opt_choice("Resolution mode", &mi, modes, 2, 0, d, false) && mi != (int)is_dyn) {
             // the nearest of the other kind: Match display <-> this screen, 1x and below <-> 1080p, above <-> 1620p
             int m = g_settings.res_mode;
             if (mi) g_settings.res_mode = m == RES_MATCH ? RES_DYNAMIC : (m == 1 || m == RES_Q25 || m == RES_Q50 || m == RES_Q75) ? RES_DYNAMIC_X1 : RES_DYNAMIC_X15;
@@ -668,6 +694,14 @@ static void tab_display(void) {
                        "The game's glow around bright light. Off: no glow, a plainer image.");
             opt_toggle("Wider view", &g_settings.fov, false,
                        "The camera's field of view a little wider: more of the scene at the sides. Off: the game's own.");
+            {   // (only the 2.0.2 build is patched: on the others the row shows the setting but cannot change it)
+                ImGui::BeginDisabled(!rt_za_smooth_anim_supported());
+                opt_toggle("Smooth distant animation", &g_settings.smooth_anim, true,
+                           "Characters and Pokémon away from the camera animate every frame, as those close by do, instead of "
+                           "in visible steps. Costs a little CPU in crowded places. Off: the game's own. Game version 2.0.2 "
+                           "only.");
+                ImGui::EndDisabled();
+            }
             opt_toggle("Sharper textures", &g_settings.lod, true,
                        "Textures stay sharp on ground and walls seen at a slant, and (macOS 26 or later) farther away too. "
                        "Off: the game's own.");
@@ -677,7 +711,7 @@ static void tab_display(void) {
                 if (opt_choice("Shadow resolution", &si, sz, 4, 0,
                                "The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024). Higher: "
                                "smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory "
-                               "(4x: about 240 MB, 2x: 60 MB). From the next start."))
+                               "(4x: about 240 MB, 2x: 60 MB). Applies at once."))
                     g_settings.shadow_res = si + 1;
                 int sh = g_settings.shadow_sharp - 1;
                 if (g_settings.shadow_res == 1) opt_disable_next();  // (nothing to narrow at the game's size)
@@ -789,20 +823,26 @@ static void tab_quit(float scale, bool in_game) {
 
 // Developer: switches for diagnostics, shown with "developer = 1" in the ini (or LARECOMP_DEVELOPER=1, or Cmd+Shift+D).
 // Each applies at once; LARECOMP_* variables still work and win where a feature has one.
-static void tab_developer(void) {
+void saves_route_entry(void);
+void saves_route_dialog(float, ImFont *, ImFont *);
+static void tab_developer(float scale) {
     opt_begin("##developer", ImGui::GetFontSize() / 34);
     opt_section("Diagnostics");
     opt_toggle("Frame times in F3", &g_settings.dev_frame_stats, false,
                "Adds to the F3 overlay the time the CPU spends translating and submitting a frame's commands (the game's "
                "thread) and the time the GPU is busy per frame (smoothed). If the CPU number is close to the frame time, "
                "the CPU is the limit; if the GPU number is, the GPU is.");
+    opt_toggle("Developer log", &g_settings.dev_log, false,
+               "Writes the warnings the developers look for (a shader the precompilation does not cover, ...) to logs/devlog.txt "
+               "with the time of each, apart from the normal log. Nothing is written when it is off. LARECOMP_DEVLOG=<subjects> "
+               "turns single subjects on without this switch.");
     opt_toggle("GPU timing log", &g_settings.dev_gpu_trace, false,
                "Writes the GPU time of each frame's present window to the log, two lines per frame. For measuring. "
                "LARECOMP_GPU_TIMING_TRACE=1 also writes a line per command buffer (about 140 a frame).");
     opt_section("Experimental");
     opt_toggle("Uncapped FPS (benchmark)", &g_settings.dev_uncapped_fps, false,
                "For throughput measurements only. Removes frame pacing and display sync. Gameplay, animations and "
-               "timers may run too fast. Turn off for normal play; this overrides the selected frame rate.");
+               "timers may run too fast. Turn off for normal play; this overrides the selected frame rate and disables frame generation.");
     opt_toggle("CPU/GPU overlap", &g_settings.gpu_overlap, true,
                "The game waits for each frame's GPU work right after sending it, so the CPU and the GPU take turns. On: the "
                "wait is one frame late, so the CPU prepares the next frame while the GPU draws this one: a higher frame "
@@ -814,10 +854,13 @@ static void tab_developer(void) {
                "stays open and a barrier orders the data instead, about 1 ms less GPU time a frame in the tested scenes "
                "(4% at 1.5x, one test went from 38 to 42 fps). Applies at once. Risk: if the ordering is not enough, characters can "
                "look deformed or missing for a frame. Turn it off if anything looks wrong, and tell us where.");
+    opt_section("Tests");
+    saves_route_entry();
     opt_section("Menu");
     opt_toggle("Show this tab", &g_settings.developer, false,
                "Off hides the Developer tab again (Cmd+Shift+D or \"developer = 1\" in larecomp.ini bring it back).");
     opt_end();
+    saves_route_dialog(scale, g_font_big, g_font);
 }
 
 static void tab_about(void) {
@@ -1064,7 +1107,7 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
                 case 12: tab_shaders(); break;
                 case 8: tab_about(); break;
                 case 9: tab_quit(scale, in_game); break;
-                case 10: tab_developer(); break;
+                case 10: tab_developer(scale); break;
                 case 11: {  // (true: the game restarts with another save)
                     bool saves_ingame_tab(float, ImFont *, ImFont *);
                     if (saves_ingame_tab(scale, g_font_big, g_font)) set_open(false);
@@ -1095,7 +1138,9 @@ void menu_tabs_draw(float scale, ImFont *font, ImFont *font_big, bool in_game, v
 }
 
 #ifdef __APPLE__
+static bool overlay_draw_data_valid;
 void menu_render(id<MTLDevice> dev, id<MTLCommandBuffer> cb, id<MTLTexture> target) {
+    overlay_draw_data_valid = false;
     const double tw = target.width, th = target.height;
 #else
 void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
@@ -1153,7 +1198,13 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         ImGui::SetNextWindowBgAlpha(0.5f);
         ImGui::Begin("##fps", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
                                         ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing);
-        ImGui::Text("%.0f fps", io.Framerate);
+#ifdef __APPLE__
+        double fg_fps=0;
+        if(!open && settings_frame_generation() && fg_presentation_active(&fg_fps))
+            ImGui::Text("%.0ffps -> FG %.0ffps",io.Framerate,fg_fps);
+        else
+#endif
+            ImGui::Text("%.0ffps",io.Framerate);
         if (settings_uncapped_fps()) ImGui::TextUnformatted("BENCHMARK: game speed may change");
         if (g_stats.load()) {  // F3: what the 3D image renders at (the game's own size times the output scale)
             extern int g_out_present_interval;
@@ -1168,6 +1219,8 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
                 ImGui::Text("dynamic %.0f%%  (frame %.1f ms, gpu %.1f ms%s)", output_scale_dynamic_factor() * 100, fm, gm, gok ? "" : ", not used");
             }
             ImGui::Text("present interval %d", g_out_present_interval);
+
+
             if (g_settings.dev_frame_stats) {  // Developer: where the frame's time goes
                 extern double g_stat_cpu_ms, g_stat_gpu_ms;
                 ImGui::Text("submit cpu %.1f ms   gpu %.1f ms   (frame %.1f ms)", g_stat_cpu_ms, g_stat_gpu_ms, 1000.0 / fmax(io.Framerate, 1.0f));
@@ -1235,6 +1288,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
     ImGui::Render();
     g_text_busy = open && ui_text_busy();
 #ifdef __APPLE__
+    overlay_draw_data_valid = true;
     id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:rp];
     ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), cb, enc);
     [enc endEncoding];
@@ -1243,3 +1297,16 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), (VkCommandBuffer)cmd);  // inside the window image's rendering
 #endif
 }
+
+#ifdef __APPLE__
+void menu_render_repeat(id<MTLCommandBuffer> cb, id<MTLTexture> target) {
+    if (!overlay_draw_data_valid || !g_inited) return;
+    ImGui::SetCurrentContext(g_ctx);
+    MTLRenderPassDescriptor *rp=[MTLRenderPassDescriptor renderPassDescriptor];
+    rp.colorAttachments[0].texture=target;
+    rp.colorAttachments[0].loadAction=MTLLoadActionLoad;rp.colorAttachments[0].storeAction=MTLStoreActionStore;
+    id<MTLRenderCommandEncoder> enc=[cb renderCommandEncoderWithDescriptor:rp];
+    ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(),cb,enc);[enc endEncoding];
+    renderer_profile_pass_end("overlay-repeat");
+}
+#endif

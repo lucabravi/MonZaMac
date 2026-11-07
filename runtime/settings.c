@@ -7,6 +7,10 @@
 #include "hle.h"
 #include "input_bind.h"
 
+#ifdef __APPLE__
+extern bool fg_supported(void); // runtime/nvn/frame_generation.m: OS and GPU support
+#endif
+
 #define SETTINGS_FILE settings_file()
 
 // LARECOMP_SETTINGS=<path>: another settings file (test runs never touch the player's larecomp.ini)
@@ -19,14 +23,15 @@ Settings g_settings = {
     .collect_shader_recipes = true,
     .early_shaders = true,
     .aspect = ASPECT_ORIGINAL,
-    // the defaults of a new player (an existing larecomp.ini keeps its own): fullscreen, dynamic resolution, 60 fps, SMAA,
+    // the defaults of a new player (an existing larecomp.ini keeps its own): fullscreen, fixed 1080p, 60 fps, SMAA,
     // authentic 16:9, sharper textures (anisotropic filtering)
     .fullscreen = true,
     .mouse_speed = 1.0f,
     .mouse_camera = MOUSE_CAM_HOLD,
     .mouse_camera_button = MOUSE_BTN_RIGHT,
-    .res_mode = RES_DYNAMIC_X1,  // (dynamic up to the game's own 1080p: holds the frame rate on most Macs)
+    .res_mode = 1,  // (fixed at the game's own 1080p; Dynamic is one choice away in Video)
     .fps60 = true,
+    .frame_generation = FRAME_GENERATION_OFF,
     .antialias = AA_SMAA,
     .volume = 1.0f,
     .reverb = true,
@@ -36,6 +41,7 @@ Settings g_settings = {
     .fxaa = true,
     .bloom = true,
     .fov = false,        // (changes the framing: off by default)
+    .smooth_anim = true,
     .lod = true,
     .gpu_overlap = true,
     .xfb_barrier = true,
@@ -97,15 +103,22 @@ void settings_load(void) {
     bool tip_key = false, aspect_key = false, shadow_key = false, shadows_4k_old = false;
     while (fgets(line, sizeof line, f)) {
         char key[64];
-        char val[128];
+        char val[128] = {0};
         if (sscanf(line, " %63[^= ] = %127[^\n]", key, val) < 1) continue;
-        if (!strcmp(key, "aspect")) g_settings.aspect = !strcmp(val, "original") ? ASPECT_ORIGINAL : ASPECT_UNLOCKED;
+        if (!strcmp(key, "aspect")) {}  // (not read for now: the picture is always the original 16:9, see the end of this function)
         else if (!strcmp(key, "fullscreen")) g_settings.fullscreen = atoi(val) != 0;
         else if (!strcmp(key, "volume")) g_settings.volume = (float)atof(val);
         else if (!strcmp(key, "reverb")) g_settings.reverb = atoi(val) != 0;
         else if (!strcmp(key, "movie_audio")) g_settings.movie_audio = atoi(val) != 0;
         else if (!strcmp(key, "show_fps")) g_settings.show_fps = atoi(val) != 0;
         else if (!strcmp(key, "fps60")) g_settings.fps60 = atoi(val) != 0;
+        else if (!strcmp(key, "frame_generation_performance")) g_settings.frame_generation_performance = atoi(val) != 0;
+        else if (!strcmp(key, "frame_generation")) {
+            char *end;
+            long mode = strtol(val, &end, 10);
+            while (*end == ' ' || *end == '\t' || *end == '\r') end++;
+            g_settings.frame_generation = end != val && !*end && mode >= FRAME_GENERATION_OFF && mode <= FRAME_GENERATION_60_120 ? (int)mode : FRAME_GENERATION_OFF;
+        }
         else if (!strcmp(key, "fps60_steady")) {}  // retired: fps60 alone selects the dynamic 60 fps mode
         else if (!strcmp(key, "game_mode")) g_settings.handheld = !strcmp(val, "handheld");
         else if (!strcmp(key, "collect_shader_recipes")) g_settings.collect_shader_recipes = atoi(val) != 0;
@@ -116,6 +129,7 @@ void settings_load(void) {
         else if (!strcmp(key, "xfb_barrier")) g_settings.xfb_barrier = atoi(val) != 0;
         else if (!strcmp(key, "game_dynamic_res")) g_settings.game_drs = atoi(val) != 0;
         else if (!strcmp(key, "developer")) g_settings.developer = atoi(val) != 0;
+        else if (!strcmp(key, "dev_log")) g_settings.dev_log = atoi(val) != 0;
         else if (!strcmp(key, "dev_gpu_trace")) g_settings.dev_gpu_trace = atoi(val) != 0;
         else if (!strcmp(key, "dev_uncapped_fps")) g_settings.dev_uncapped_fps = atoi(val) != 0;
         else if (!strcmp(key, "dev_frame_stats")) g_settings.dev_frame_stats = atoi(val) != 0;
@@ -123,6 +137,7 @@ void settings_load(void) {
         else if (!strcmp(key, "game_fxaa")) g_settings.fxaa = atoi(val) != 0;
         else if (!strcmp(key, "bloom")) g_settings.bloom = atoi(val) != 0;
         else if (!strcmp(key, "game_fov")) g_settings.fov = atoi(val) != 0;
+        else if (!strcmp(key, "game_smooth_anim")) g_settings.smooth_anim = atoi(val) != 0;
         else if (!strcmp(key, "game_lod")) g_settings.lod = atoi(val) != 0;
         else if (!strcmp(key, "game_shadows_4k")) shadows_4k_old = atoi(val) != 0;  // (the option is gone: see below)
         else if (!strcmp(key, "shadow_resolution")) { int v = atoi(val); g_settings.shadow_res = v < 1 ? 1 : v > 4 ? 4 : v; shadow_key = true; }
@@ -171,6 +186,7 @@ void settings_load(void) {
     if (!tip_key) g_settings.menu_tip_seen = true;  // (a settings file from before the note: not a first launch)
     if (!aspect_key) g_settings.aspect_asked = true;  // (likewise: the aspect ratio was chosen already)
     if (shadows_4k_old && !shadow_key) g_settings.shadow_res = g_settings.shadow_sharp = 4;  // ("4K shadows" of the earlier versions: the same, 4x at both)
+    g_settings.aspect = ASPECT_ORIGINAL;  // (for now every save of the settings is shown in the original 16:9; no option)
     if (g_settings.volume < 0) g_settings.volume = 0;
     if (g_settings.volume > 2) g_settings.volume = 2;
     LOG("[settings] loaded %s\n", SETTINGS_FILE);
@@ -187,6 +203,7 @@ void settings_save(void) {
     fprintf(f, "movie_audio = %d\n", g_settings.movie_audio);
     fprintf(f, "show_fps = %d\n", g_settings.show_fps);
     fprintf(f, "fps60 = %d\n", g_settings.fps60);
+    fprintf(f, "frame_generation = %d\nframe_generation_performance = %d\n", g_settings.frame_generation, g_settings.frame_generation_performance);
     fprintf(f, "game_mode = %s\n", g_settings.handheld ? "handheld" : "docked");
     fprintf(f, "collect_shader_recipes = %d\n", g_settings.collect_shader_recipes);
     fprintf(f, "early_shaders = %d\n", g_settings.early_shaders);
@@ -196,6 +213,7 @@ void settings_save(void) {
     fprintf(f, "xfb_barrier = %d\n", g_settings.xfb_barrier);
     fprintf(f, "game_dynamic_res = %d\n", g_settings.game_drs);
     fprintf(f, "developer = %d\n", g_settings.developer);
+    fprintf(f, "dev_log = %d\n", g_settings.dev_log);
     fprintf(f, "dev_gpu_trace = %d\n", g_settings.dev_gpu_trace);
     fprintf(f, "dev_uncapped_fps = %d\n", g_settings.dev_uncapped_fps);
     fprintf(f, "dev_frame_stats = %d\n", g_settings.dev_frame_stats);
@@ -203,6 +221,7 @@ void settings_save(void) {
     fprintf(f, "game_fxaa = %d\n", g_settings.fxaa);
     fprintf(f, "bloom = %d\n", g_settings.bloom);
     fprintf(f, "game_fov = %d\n", g_settings.fov);
+    fprintf(f, "game_smooth_anim = %d\n", g_settings.smooth_anim);
     fprintf(f, "game_lod = %d\n", g_settings.lod);
     fprintf(f, "shadow_resolution = %d\nshadow_sharpness = %d\n", g_settings.shadow_res, g_settings.shadow_sharp);
     fprintf(f, "upscaler = %s\n", g_settings.upscaler == UPSCALE_METALFX ? "metalfx" : g_settings.upscaler == UPSCALE_FSR1 ? "fsr1" : "bilinear");
@@ -240,4 +259,21 @@ void settings_save(void) {
 bool settings_uncapped_fps(void) {
     const char *e = ENV("LARECOMP_UNCAPPED_FPS");
     return e ? atoi(e) != 0 : g_settings.dev_uncapped_fps;
+}
+
+int settings_frame_generation(void) {
+#ifdef __APPLE__
+    int mode = g_settings.frame_generation;
+    const char *fps = ENV("LARECOMP_FPS");
+    if (mode >= FRAME_GENERATION_30_60 && mode <= FRAME_GENERATION_60_120 &&
+        !(fps && *fps) && !settings_uncapped_fps() && fg_supported()) return mode;
+#endif
+    return FRAME_GENERATION_OFF;
+}
+
+bool settings_real_fps60(void) {
+    const char *fps = ENV("LARECOMP_FPS");
+    if (fps && *fps) return atoi(fps) >= 60;
+    int mode = settings_frame_generation();
+    return mode ? mode == FRAME_GENERATION_60_120 : g_settings.fps60;
 }

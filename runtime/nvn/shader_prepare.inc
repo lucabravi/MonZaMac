@@ -134,6 +134,8 @@ static MTLRenderPipelineDescriptor *prep_descriptor(id d, Prog *pr) {
 }
 
 static NSDictionary *prep_program_record(NvnProgram *p, const ShaderKey *vk, const ShaderKey *fk) {
+    // Runtime-only motion instrumentation is outside the shared recipe key schema.
+    if(vk->fg_motion || fk->fg_motion)return nil;
     NSString *vs = prep_stage_hash(&p->stages[0]);
     NSString *fs = p->stage_mask & 2 ? prep_stage_hash(&p->stages[1]) : @"";
     if (!vs || !fs) return nil;
@@ -152,6 +154,10 @@ static NSDictionary *prep_compute_record(NSString *hash, const ShaderKey *k, con
 }
 static NSString *prep_compute_id(NSDictionary *record) {  // (the translation embeds the memory window, as for graphics)
     return prep_digest(prep_json(@[record, @(g_gwin_base), @(g_gwin_max)]));
+}
+static NSString *prep_compute_stage_id(NSDictionary *record, const NvnShaderStage *s) {
+    // Equal complete byte spans can still have different code/constants partitions.
+    return prep_digest(prep_json(@[prep_compute_id(record), @(s->const_offset), @(s->const_size)]));
 }
 static bool prep_enabled(void) {
     if (getenv("LARECOMP_FS_OVERRIDE") || getenv("LARECOMP_FS_OVERRIDE_HASH") ||
@@ -212,11 +218,23 @@ static unsigned prep_worker_count(NSUInteger cpus, NSUInteger jobs, const char *
     return (unsigned)capacity;
 }
 
+// Dedicated preparation waits on synchronous Metal compiles. More workers than
+// Metal can execute just compete for CPU/memory; gameplay's background policy is separate.
+static unsigned prep_compilation_workers(NSUInteger jobs, const char *override) {
+    NSUInteger capacity = NSProcessInfo.processInfo.activeProcessorCount;
+    if (@available(macOS 13.3, *)) {
+        if ([dev respondsToSelector:@selector(maximumConcurrentCompilationTaskCount)]) {
+            NSUInteger metal = dev.maximumConcurrentCompilationTaskCount;
+            if (metal) capacity = MIN(capacity, metal);
+        }
+    }
+    return prep_worker_count(capacity, jobs, override);
+}
+
 // Translation and address-keyed caches stay on the render thread. Each worker
 // owns one translated program and all its PSOs; nothing escapes until the join.
 static unsigned prep_compile(NSDictionary *jobs, NSDictionary *cs_jobs, unsigned total, unsigned missed) {
-    unsigned workers = prep_worker_count(NSProcessInfo.processInfo.activeProcessorCount, jobs.count + cs_jobs.count,
-                                         getenv("LARECOMP_SHADER_PREP_WORKERS"));
+    unsigned workers = prep_compilation_workers(jobs.count + cs_jobs.count, getenv("LARECOMP_SHADER_PREP_WORKERS"));
     dispatch_semaphore_t slots = dispatch_semaphore_create(workers);
     dispatch_group_t group = dispatch_group_create();
     __block unsigned completed = missed, failures = missed, active = 0, peak = 0;
@@ -313,8 +331,6 @@ static bool prep_run(NSString *path, NSString *dir) {
             NSString *hash = r[@"compute"][@"cs"];
             ShaderKey sk = {0};
             sk.stencil_slots = kv[0]; sk.sint_slots = kv[1]; sk.uint_slots = kv[2]; sk.img_sint = kv[3]; sk.img_uint = kv[4];
-            NSString *cid = prep_compute_id(prep_compute_record(hash, &sk, lv));
-            if (g_prep_cs[cid] || cs_jobs[cid]) { missed++; continue; }
             NvnShaderStage ss = {0};
             NSData *bytes = inputs[hash];
             if (!bytes) {
@@ -327,7 +343,10 @@ static bool prep_run(NSString *path, NSString *dir) {
                 else ss = (NvnShaderStage){.stage = 5, .code_addr = (uint64_t)(uintptr_t)bytes.bytes,
                     .const_offset = [meta[@"const_offset"] unsignedIntValue], .const_size = [meta[@"const_size"] unsignedIntValue]};
             }
-            CsProg *cp = bytes ? calloc(1, sizeof *cp) : NULL;
+            if (!bytes) { missed++; continue; }
+            NSString *cid = prep_compute_stage_id(prep_compute_record(hash, &sk, lv), &ss);
+            if (g_prep_cs[cid] || cs_jobs[cid]) { missed++; continue; }
+            CsProg *cp = calloc(1, sizeof *cp);
             if (!cp || !cs_translate(cp, &ss, &sk, lv)) { free(cp); missed++; continue; }
             cs_jobs[cid] = [NSValue valueWithPointer:cp];
             continue;

@@ -65,6 +65,7 @@ typedef struct {
     uint32_t vs_in_comp[32];
     bool uses_branches, uses_cc, uses_local, uses_vid, uses_iid, uses_frag_coord, uses_front_facing, uses_lane, uses_layer;
     uint8_t out_comp[32];  // vertex: output components written per varying (transform feedback order)
+    uint32_t shadow_matrix_pc, shadow_mul_pc[2];  // guarded Z-A cascade PCF pattern
     bool uses_rscale;  // resolution-scale table (fragment/compute only)
     uint32_t txq_z;    // (MSL) texture slots whose TXQ dimension reads z: tz<slot>(level) is emitted with the final type
     bool warned_surface;  // a dropped bindless surface op was noted
@@ -75,6 +76,7 @@ typedef struct {
     int tex_slot[8192];           // texture index -> Metal slot + 1
     bool tex_weak[64];            // slot type only guessed (from a size query): the next sample decides
     bool fail;
+    bool uses_ftz; // comparison operands explicitly flushed to signed zero
     bool branchy;  // program uses the pc state machine
     int ipa_mode;  // interpolation mode of the IPA being translated (-1 for plain loads)
     int ipa_mul;   // its multiplier register (mode 1: the result is the "pass" value attr/w times this register)
@@ -246,6 +248,14 @@ static const char *fneg_abs(const char *e, bool neg, bool abs_, char *buf) {
     return buf;
 }
 #define NA(e, n, a) fneg_abs((e), (n), (a), alloca(600))
+
+static const char *ftz_operand(Ctx *c, const char *expr, bool flush, char *out) {
+    if (!flush) return expr;
+    c->uses_ftz = true;
+    snprintf(out, 640, "ftz(%s)", expr);
+    return out;
+}
+#define FTZ(e, on) ftz_operand(c, (e), (on), alloca(640))
 
 static const char *fresult(const char *e, bool sat, char *buf) {
     if (sat) sprintf(buf, "as_type<uint>(saturate(%s))", e);
@@ -1305,6 +1315,100 @@ static void emit_tex(Ctx *c, uint64_t w, bool bindless) {
     write_tex_result(c, slot, call, mask, d, RZ, false, false);
 }
 
+// Z-A uses one texel-radius PCF kernel for cascades with different world footprints.
+// Recognise the complete constant-buffer ABI and both reciprocal-size products before
+// changing anything. A partial match stays byte-for-byte unchanged (including GLSL).
+static bool has_flow_target(uint64_t w);
+static void shadow_cascade_plan(Ctx *c, const uint64_t *code, size_t end) {
+    const char *env = getenv("LARECOMP_SHADOW_CASCADE_FILTER");
+    if (c->stage != STAGE_FRAGMENT || c->glsl || (env && !atoi(env))) return;
+    unsigned splits = 0, matrix_mask = 0, matrix_addr = RZ, radius = RZ, products = 0, texture = 0;
+    uint32_t matrix_pc = 0, radius_pc = 0, mul_pc[2] = {0};
+    // TXQ texture+axis, then I2F (bit 2), then reciprocal (bit 3).
+    unsigned dimension[256] = {0};
+    uint32_t dimension_pc[256] = {0}, setup_pc = 0;
+    bool matrix_index[256] = {0};
+    for (size_t i = 1; i < end; i++) {
+        if (!(i % 4)) continue;
+        uint64_t w = code[i], op = w & 0xfff8000000000000ull;
+        unsigned d = bits(w,0,8), a = bits(w,8,8), b = bits(w,20,8);
+        bool always = bits(w,16,4) == PT, radius_load = false, product = false;
+        unsigned tag = 0; uint32_t tag_pc = 0;
+        if ((w >> 60) == 4 && bits(w,34,5) == 3) {
+            unsigned off = bits(w,20,14) * 4;
+            if (off >= 0x850 && off <= 0x858) splits |= 1u << ((off - 0x850) / 4);
+        }
+        bool matrix_load = op == 0xef90000000000000ull && always && bits(w,36,5) == 6 &&
+                           a != RZ && matrix_index[a] && bits(w,48,3) == 5 &&
+                           bits(w,20,16) < 64 && !(bits(w,20,16) % 8);
+        // All eight rows must be in one straight-line block. The helper reads them together.
+        if (matrix_mask && matrix_mask != 255 && !matrix_load) return;
+        if (matrix_load) {
+            if (matrix_addr != RZ && matrix_addr != a) return;
+            if (d == a || d + 1 == a) return;
+            matrix_addr = a;
+            matrix_mask |= 1u << (bits(w,20,16) / 8);
+            if (!matrix_pc) matrix_pc = (uint32_t)i * 8;
+        }
+        if (op == 0xef90000000000000ull && always && bits(w,36,5) == 3 && bits(w,20,16) == 2452 &&
+            a != RZ && matrix_mask == 255) {
+            if (radius != RZ || bits(w,48,3) != 4) return;
+            radius = d; radius_pc = (uint32_t)i * 8; radius_load = true;
+        } else if (op == 0x5c68000000000000ull && always && radius != RZ && products < 2) {
+            unsigned other = a == radius ? b : b == radius ? a : RZ;
+            if (other != RZ && (dimension[other] & 8)) {
+                unsigned axis = (dimension[other] & 3) - 1, tex = dimension[other] >> 4;
+                if (axis > 1 || mul_pc[axis] || (texture && texture != tex) || (d == radius && products != 1)) return;
+                if (!setup_pc || dimension_pc[other] < setup_pc) setup_pc = dimension_pc[other];
+                texture = tex; mul_pc[axis] = (uint32_t)i * 8; products++; product = true;
+            }
+        }
+        if (radius != RZ && products < 2 && !radius_load && !product &&
+            (d == radius || (op == 0xef90000000000000ull && bits(w,48,3) == 5 && d+1 == radius))) return;
+        if (always && op == 0x5cb8000000000000ull && bits(w,10,2) == 2 && bits(w,8,2) != 1 &&
+            !bits(w,45,1) && !bits(w,49,1) && dimension[b] && !(dimension[b] & 12)) tag = dimension[b] | 4;
+        if (always && op == 0x5080000000000000ull && bits(w,20,4) == 4 && (dimension[a] & 4) &&
+            !bits(w,48,1) && !bits(w,46,1)) tag = (dimension[a] & ~4u) | 8;
+        if (tag) tag_pc = op == 0x5cb8000000000000ull ? dimension_pc[b] : dimension_pc[a];
+        dimension[d] = tag; dimension_pc[d] = tag_pc;
+        matrix_index[d] = always && (w & 0xfef8000000000000ull) == 0x3848000000000000ull &&
+                          !bits(w,56,1) && bits(w,20,19) == 6;
+        if (op == 0xef90000000000000ull && bits(w,48,3) == 5 && d < RZ) {
+            dimension[d+1] = 0; matrix_index[d+1] = false;
+        }
+        if (op == 0xdf48000000000000ull) {
+            unsigned mask = bits(w,31,4), out = d;
+            for (unsigned axis = 0; axis < 4; axis++) if (mask & (1u << axis)) {
+                if (out >= RZ || (radius != RZ && products < 2 && out == radius)) return;
+                dimension[out] = always && bits(w,22,6) == 1 && axis < 2 ?
+                    ((bits(w,36,13) + 1) << 4) | (axis + 1) : 0;
+                dimension_pc[out++] = (uint32_t)i * 8;
+            }
+        } else if ((w >> 60) == 0xc || (w >> 60) == 0xd || (w & 0xff00000000000000ull) == 0xee00000000000000ull) {
+            // Texture/global-memory instructions can write multiple registers; discard pending provenance.
+            memset(dimension, 0, sizeof dimension);
+        }
+    }
+    if (splits != 7 || matrix_mask != 255 || products != 2) return;
+    if (!setup_pc || radius_pc < setup_pc) setup_pc = radius_pc;
+    unsigned last = mul_pc[0] > mul_pc[1] ? mul_pc[0] : mul_pc[1];
+    for (size_t i = 1; i < end; i++) {
+        if (!(i % 4)) continue;
+        uint64_t w = code[i], op = w & 0xfff0000000000000ull;
+        unsigned pc = (unsigned)i * 8;
+        // Dimension/radius definitions and products must be straight-line and have no bypassing entry.
+        if (pc > setup_pc && pc <= last && op >= 0xe200000000000000ull && op <= 0xe3f0000000000000ull) return;
+        if (op == 0xe250000000000000ull) return; // indirect branch: entry cannot be established here
+        if (has_flow_target(w)) {
+            unsigned to = norm_target((int64_t)pc + 8 + sbits(w,20,24));
+            if (to > matrix_pc && to <= last && (pc < matrix_pc || pc > last)) return;
+            if (to > setup_pc && to <= last && (pc < setup_pc || pc > last)) return;
+        }
+    }
+    c->shadow_matrix_pc = matrix_pc;
+    memcpy(c->shadow_mul_pc, mul_pc, sizeof mul_pc);
+}
+
 // ------------------------------------------------------------------ instruction translation
 static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
     char t[2048], u[2048];
@@ -1390,6 +1494,8 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         int n = sz == 5 ? 2 : 1;
         char rb[16];
         const char *dyn = a == RZ ? NULL : reg(c, a, rb);
+        if (pc == c->shadow_matrix_pc)
+            sp(&c->body, "    shadow_radius_scale = shadow_cascade_ratio(cb6, %s >> 6);\n", dyn);
         // LDC.64 R4, c[i][R4 + x]: the address register is also a destination. Read it once before the writes, or
         // the second word comes from c[i][<first word> + x + 4]
         bool overlap = dyn && n > 1 && a >= d && a < d + n;
@@ -1532,6 +1638,9 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         sprintf(t, bits(w, 44, 2) == 2 ? "(fmz_mul(%s, %s)%s)" : "(%s * %s%s)", F(R(a)), NA(F(B(true)), bits(w, 48, 1), false),
                 scale[bits(w, 41, 3)]);
         set_reg(c, d, FRES(t, bits(w, 50, 1)));
+        for (int axis = 0; axis < 2; axis++)
+            if (pc == c->shadow_mul_pc[axis])
+                sp(&c->body, "    r%d = as_type<uint>(as_type<float>(r%d) * shadow_radius_scale.%c);\n", d, d, axis ? 'y' : 'x');
     } else if (OPM(0x1e00000000000000ull, 0xff00000000000000ull)) {  // FMUL32I
         sprintf(t, bits(w, 53, 2) == 2 ? "fmz_mul(%s, as_type<float>(0x%08xu))" : "(%s * as_type<float>(0x%08xu))", F(R(a)),
                 (uint32_t)bits(w, 20, 32));
@@ -1557,6 +1666,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
     } else if (OPM(0x5bb0000000000000ull, 0xfff0000000000000ull) || OPM(0x4bb0000000000000ull, 0xfff0000000000000ull) ||
                OPM(0x36b0000000000000ull, 0xfef0000000000000ull)) {  // FSETP
         const char *x = NA(F(R(a)), bits(w, 43, 1), bits(w, 7, 1)), *y = NA(F(B(true)), bits(w, 6, 1), bits(w, 44, 1));
+        x = FTZ(x, bits(w, 47, 1)); y = FTZ(y, bits(w, 47, 1));
         char cmp[512];
         fcmp_expr(cmp, (int)bits(w, 48, 4), x, y);
         int p = (int)bits(w, 3, 3), q = (int)bits(w, 0, 3), bo = (int)bits(w, 45, 2);
@@ -1568,6 +1678,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
     } else if (OPM(0x5800000000000000ull, 0xff00000000000000ull) || OPM(0x4800000000000000ull, 0xfe00000000000000ull) ||
                OPM(0x3000000000000000ull, 0xfe00000000000000ull)) {  // FSET
         const char *x = NA(F(R(a)), bits(w, 43, 1), bits(w, 54, 1)), *y = NA(F(B(true)), bits(w, 53, 1), bits(w, 44, 1));
+        x = FTZ(x, bits(w, 55, 1)); y = FTZ(y, bits(w, 55, 1));
         char cmp[512];
         fcmp_expr(cmp, (int)bits(w, 48, 4), x, y);
         sprintf(t, "((%s) %s %s)", cmp, bool_op((int)bits(w, 45, 2)), P((int)bits(w, 39, 3), bits(w, 42, 1)));
@@ -1584,7 +1695,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             bv = operand_b(c, w, true, bb);
             cv = R((int)bits(w, 39, 8));
         }
-        fcmp_expr(cmp, (int)bits(w, 48, 4), F(cv), "0.0f");
+        fcmp_expr(cmp, (int)bits(w, 48, 4), FTZ(F(cv), bits(w, 47, 1)), "0.0f");
         sprintf(t, "(%s ? %s : %s)", cmp, R(a), bv);
         set_reg(c, d, t);
     } else if (OPM(0x5c98000000000000ull, 0xfff8000000000000ull) || OPM(0x4c98000000000000ull, 0xfff8000000000000ull) ||
@@ -2664,6 +2775,8 @@ static ShaderInfo *glsl_finish(Ctx *c, bool any_branch, bool dbg) {
     int set = stage == STAGE_FRAGMENT ? 1 : 0;
     Str s = {0};
     sp(&s, "%s", glsl_prelude);
+    if (c->uses_ftz)
+        sp(&s, "float ftz(float a) { uint v = floatBitsToUint(a); return uintBitsToFloat((v & 0x7f800000u) == 0u ? (v & 0x80000000u) : v); }\n");
     for (int i = 0; i < 18; i++) {
         if (!(info->cbuf_mask & (1u << i))) continue;
         uint32_t n = info->cbuf_size[i] / 16;
@@ -2903,6 +3016,7 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
     }
     uint32_t *regions = any_branch ? break_regions((const uint64_t *)code, end) : NULL;
     if (any_branch && !regions) fail(c, "allocating break regions");
+    shadow_cascade_plan(c, (const uint64_t *)code, end);
     // translate
     bool dbg = maxwell_dbg_code && blob == maxwell_dbg_code && stage == STAGE_FRAGMENT;
     static int annotate = -1;
@@ -2944,10 +3058,22 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
         fail(c, "%d textures in a vertex shader (Metal: %d samplers)", info->ntex, MSL_MAX_SAMPLERS);
     if (c->fail) { free(c->body.buf); free(c); return info; }
     if (c->glsl) return glsl_finish(c, any_branch, dbg);
+    bool fg_motion = key && (key->fg_motion == 1 || (key->fg_motion == 2 && stage == STAGE_FRAGMENT)) &&
+                     !key->xfb_void && (stage == STAGE_VERTEX || stage == STAGE_FRAGMENT);
+    bool fg_history = fg_motion && key->fg_motion == 1;
+    if (fg_motion && stage == STAGE_FRAGMENT && (c->omap_target & 0xf0000000u)) {
+        fail(c, "frame generation motion clashes with color target 7");
+        free(c->body.buf); free(c); return info;
+    }
+    info->uses_fg_motion = fg_motion;
 
     // ---------------------------------------------------------- MSL source
     Str s = {0};
     sp(&s, "#include <metal_stdlib>\nusing namespace metal;\n");
+    // Test exponent bits so fast math cannot turn a subnormal comparison into
+    // an ordinary compare. Preserve the sign of zero, infinities and NaN payloads.
+    if (c->uses_ftz)
+        sp(&s, "static inline float ftz(float a) { uint v = as_type<uint>(a); return as_type<float>((v & 0x7f800000u) == 0u ? (v & 0x80000000u) : v); }\n");
     sp(&s, "static inline uint cbr(constant uint4 *cb, uint off) { return cb[off >> 4][(off >> 2) & 3]; }\n");
     sp(&s, "static inline uint bfe_u(uint v, uint ctl) { uint pos = ctl & 0xFFu, len = (ctl >> 8) & 0xFFu; if (len == 0u) return 0u; if (pos >= 32u) return 0u; return extract_bits(v, pos, min(len, 32u - pos)); }\n");
     sp(&s, "static inline uint bfe_s(uint v, uint ctl) { uint pos = ctl & 0xFFu, len = (ctl >> 8) & 0xFFu; if (len == 0u) return 0u; if (pos >= 32u) return (int(v) < 0) ? 0xFFFFFFFFu : 0u; return uint(extract_bits(int(v), pos, min(len, 32u - pos))); }\n");
@@ -2984,11 +3110,13 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
         sp(&s, "struct VOut {\n  float4 pos [[position, invariant]];\n");  // depth pre-pass + EQUAL test needs identical positions
         for (int i = 0; i < 32; i++)
             if (c->out_attr_mask & (1u << i)) sp(&s, "  float4 v%d [[user(locn%d)]];\n", i, i);
+        if (fg_history) sp(&s, "  float4 fgPreviousClip [[user(fgPreviousClip)]];\n  float fgHistoryValid [[user(fgHistoryValid)]];\n");
         if (info->writes_point_size) sp(&s, "  float psize [[point_size]];\n");
         if (info->writes_layer) sp(&s, "  uint layer [[render_target_array_index]];\n");
         sp(&s, "};\n");
     } else if (stage == STAGE_FRAGMENT) {
         sp(&s, "struct FIn {\n  float4 pos [[position]];\n");
+        if (fg_history) sp(&s, "  float4 fgPreviousClip [[user(fgPreviousClip)]];\n  float fgHistoryValid [[user(fgHistoryValid), center_no_perspective]];\n");
         for (int i = 0; i < 32; i++) {
             if (!(c->in_attr_mask & (1u << i))) continue;
             const char *interp = (c->flat_mask & (1u << i)) ? " [[flat]]" : (c->noperspective_mask & (1u << i)) ? " [[center_no_perspective]]" : "";
@@ -3002,6 +3130,7 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
             sp(&s, "  %s4 c%d [[color(%d)]];\n", kind == 1 ? "int" : kind == 2 ? "uint" : "float", rt, rt);
         }
         if (c->omap_depth) { sp(&s, "  float depth [[depth(any)]];\n"); info->writes_depth = true; }
+        if (fg_motion) sp(&s, "  float4 fgMotion [[color(7)]];\n");
         sp(&s, "};\n");
     }
 
@@ -3010,6 +3139,11 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
     if (xfb) { info->uses_gmem = true; info->uses_gmem_store = true; info->uses_xfb = true; }
     // entry point
     Str args = {0};
+    if (fg_motion && stage == STAGE_VERTEX)
+        sp(&args, ", device atomic_uint *fgCurrent [[buffer(%d)]], device const uint *fgPrevious [[buffer(%d)]], constant uint4 &fgParams [[buffer(%d)]]",
+           FG_CURRENT_BUFFER_INDEX, FG_PREVIOUS_BUFFER_INDEX, FG_PARAMS_BUFFER_INDEX);
+    if (fg_history && stage == STAGE_FRAGMENT)
+        sp(&args, ", constant float4 &fgViewport [[buffer(%d)]]", FG_PARAMS_BUFFER_INDEX);
     for (int i = 0; i < 18; i++)
         if (info->cbuf_mask & (1u << i)) sp(&args, ", constant uint4 *cb%d [[buffer(%d)]]", i, i);
     if (info->uses_gmem) {
@@ -3055,6 +3189,26 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
         else if (ty == TEXTYPE_2D_ARRAY || ty == TEXTYPE_CUBE_ARRAY || ty == TEXTYPE_1D_ARRAY) sp(&s, "#define tz%d(l) t%d.get_array_size()\n", i, i);
         else sp(&s, "#define tz%d(l) 1u\n", i);
     }
+    if (c->shadow_matrix_pc) sp(&s,
+        "static inline float2 shadow_cascade_uv_scale(constant uint4 *matrices, uint layer) {\n"
+        "    float4 a = as_type<float4>(matrices[layer * 4]);\n"
+        "    float4 b = as_type<float4>(matrices[layer * 4 + 1]);\n"
+        "    float4 c = as_type<float4>(matrices[layer * 4 + 2]);\n"
+        "    float4 d = as_type<float4>(matrices[layer * 4 + 3]);\n"
+        "    if ((as_type<uint>(a.w) & 0x7fffffffu) || (as_type<uint>(b.w) & 0x7fffffffu) ||\n"
+        "        (as_type<uint>(c.w) & 0x7fffffffu) || (as_type<uint>(d.w) & 0x7fffffffu) == 0u ||\n"
+        "        (as_type<uint>(d.w) & 0x7f800000u) == 0x7f800000u) return float2(0);\n"
+        "    float2 scale = float2(length(float3(a.x,b.x,c.x)),length(float3(a.y,b.y,c.y))) / abs(d.w);\n"
+        "    uint2 exponent = as_type<uint2>(scale) & 0x7f800000u;\n"
+        "    return any(exponent == 0x7f800000u) || any(scale <= 0.0f) ? float2(0) : scale;\n"
+        "}\n"
+        "static inline float2 shadow_cascade_ratio(constant uint4 *matrices, uint layer) {\n"
+        "    if (layer == 0u || layer > 2u) return float2(1);\n"
+        "    float2 near_scale = shadow_cascade_uv_scale(matrices,0u), selected_scale = shadow_cascade_uv_scale(matrices,layer);\n"
+        "    if (any(near_scale <= 0.0f) || any(selected_scale <= 0.0f)) return float2(1);\n"
+        "    return min(selected_scale / near_scale,float2(1));\n"
+        "}\n"
+    );
     if (stage == STAGE_VERTEX) {
         sp(&s, "vertex %s main0(VIn in [[stage_in]], uint vid [[vertex_id]], uint iid [[instance_id]], uint biid [[base_instance]]%s%s) {\n",
            key && key->xfb_void ? "void" : "VOut",
@@ -3072,6 +3226,7 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
            c->uses_lane ? ", uint lane [[thread_index_in_simdgroup]]" : "", args.buf ? args.buf : "");
     }
     free(args.buf);
+    if (c->shadow_matrix_pc) sp(&s, "  float2 shadow_radius_scale = float2(1);\n");
     if (smap)
         for (int i = 0; i < info->ntex; i++) sp(&s, "  sampler s%d = ss[smap[%d]];\n", i, i);
     for (int i = 0; i < 256; i++)
@@ -3110,6 +3265,20 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
         if (key && key->flip_y) sp(&s, "  out.pos.y = -out.pos.y;\n");
         if (key && key->flip_x) sp(&s, "  out.pos.x = -out.pos.x;\n");
         if (key && key->depth_minus_one) sp(&s, "  out.pos.z = (out.pos.z + out.pos.w) * 0.5f;\n");
+        if (fg_motion)
+            // Repeated indexed invocations write identical bits; component atomics avoid a data race.
+            sp(&s, "  out.fgPreviousClip = float4(0, 0, 0, -1); out.fgHistoryValid = 0;\n"
+                   "  if (vid < fgParams.x) {\n"
+                   "    uint fgIndex = vid * %uu;\n"
+                   "    uint4 fgBits = as_type<uint4>(out.pos);\n"
+                   "    for (uint c = 0; c < 4; ++c) atomic_store_explicit(fgCurrent + fgIndex + c, fgBits[c], memory_order_relaxed);\n"
+                   "    atomic_store_explicit(fgCurrent + fgIndex + 4u, fgParams.z, memory_order_relaxed);\n"
+                   "    atomic_store_explicit(fgCurrent + fgIndex + 5u, fgParams.w, memory_order_relaxed);\n"
+                   "    if (fgParams.y != 0u && fgPrevious[fgIndex+4u] == fgParams.z-1u && fgPrevious[fgIndex+5u] == fgParams.w-uint(fgParams.z==0u)) {\n"
+                   "      out.fgPreviousClip = as_type<float4>(uint4(fgPrevious[fgIndex], fgPrevious[fgIndex+1u], fgPrevious[fgIndex+2u], fgPrevious[fgIndex+3u]));\n"
+                   "      out.fgHistoryValid = 1;\n"
+                   "    }\n"
+                   "  }\n", FG_HISTORY_WORDS);
         if (maxwell_dbg_vs && blob == maxwell_dbg_vs) sp(&s, "  if (iid < 64u && vid < 8u) { dbgout[iid * 8u + vid] = out.pos; dbgout[512u + iid * 8u + vid] = %s; }\n", (c->out_attr_mask & 2u) ? "out.v1" : "float4(0)");
         sp(&s, key && key->xfb_void ? "  return;\n}\n" : "  return out;\n}\n");
     } else if (stage == STAGE_FRAGMENT) {
@@ -3139,6 +3308,12 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
             if (c->reg_used[r + 1]) sp(&s, "  o.depth = as_type<float>(r%d);\n", r + 1);
             else sp(&s, "  o.depth = in.pos.z;\n");
         }
+        if (fg_motion) sp(&s, "  o.fgMotion = float4(65504, 65504, 0, 0);\n");
+        if (fg_history)
+            sp(&s, "  if (in.fgHistoryValid > 0.999999f && in.fgPreviousClip.w > 0.0f) {\n"
+                   "    float2 fgPreviousUV = (in.fgPreviousClip.xy / in.fgPreviousClip.w) * float2(0.5f, -0.5f) + 0.5f;\n"
+                   "    o.fgMotion = float4(fgViewport.zw + fgPreviousUV * fgViewport.xy - in.pos.xy, 0, 0);\n"
+                   "  }\n");
         sp(&s, "  return o;\n}\n");
     } else {
         sp(&s, "  return;\n}\n");
