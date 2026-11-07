@@ -24,7 +24,16 @@ Histories reset on menu/loading gaps, size/upscaler/frame-generation changes and
 
 On Apple M5/macOS 26.5.1, native GPU tests cover matrix/coordinate invariants, both depth formats, input validation, scale/menu eligibility, resets, queued-resource lifetime and resize. Frame-generation tests cover both source rates and a known interpolation midpoint with low-resolution depth/motion and higher-resolution color associated with the temporal scaler. Existing renderer and settings tests cover the unchanged default paths and saved preferences.
 
-A preliminary station-walk screen with a 2880x1620 picture, 2x shadows, and the 60 -> 120 target measured approximately 42 real / 84 displayed FPS at native 1.5x with standalone frame generation, versus 49 / 94 at 1x with temporal reconstruction plus frame generation. Median reported GPU busy time was 23.77 versus 20.28 ms. This is one screen, not a repeatability guarantee: the game's adaptive timestep and live scene can affect a presented-frame-based route. Standalone temporal feasibility had previously saved only about 1.2 ms against native 1.5x; the combined path is a separate configuration.
+The following station-walk screens used Apple M5/macOS 26.5.1, a 2880x1620 picture, 2x shadows and no shader compilation/skipped draws in the sampled window. Values are medians; real/displayed FPS and GPU samples use the same walking window (present counts650–1025).
+
+| Configuration | Render input | Real FPS | Displayed FPS | GPU busy ms |
+| --- | --- | ---: | ---: | ---: |
+| Native, frame generation off | 2880x1620 | 75.5 | 75.5 | 13.21 |
+| Temporal, frame generation off | 1920x1080 | 82.7 | 82.7 | 11.96 |
+| Native + standalone frame generation | 2880x1620 | 42.1 | 84.5 | 23.77 |
+| Temporal + frame generation | 1920x1080 | 48.5 | 97.4 | 20.28 |
+
+The first pair is Developer-uncapped with FG off; the second has the60->120 source target with uncapped disabled. Do not treat the two pairs as an identical pacing configuration. Combined mode reduced measured GPU busy time about14.7% against standalone FG in this screen. This is one run per configuration, not a repeatability guarantee: adaptive game timing and live scene content can affect a presented-frame-based route. Some character-edge/disocclusion artifacts remain visible in generated images. Handheld1280x720 within a1920x1080 allocation,30->60 generation and menu fallback were checked separately; those are functional checks, not additional matched performance comparisons. No claim of complete combat/foliage correctness.
 
 Run native tests without game data:
 
