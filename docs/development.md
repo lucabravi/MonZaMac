@@ -100,7 +100,8 @@ In a running development build, write `gpuprofile 30` to `build/dbgcmd` to colle
 The `[gpu-profile]` lines count guest draws, clear requests, compute dispatches, feedback copies, and the reasons
 actual render encoders and command buffers ended. Empty close/submit requests do not count. This is off until
 requested; it changes no render state and does not wait for the GPU. See [GPU measurements](docs/performance-gpu.md)
-for scope, results and limitations.
+for scope, results and limitations. [CPU ceilings](docs/performance-cpu-ceilings.md) records which CPU-side costs
+of the profile were measured to be worth nothing, so they are not reopened.
 
 **Frame times of a scene.** `LARECOMP_PERF_LOG=60` logs a `[perf] frame N cpu X gpu Y` line every 60 presented frames:
 the smoothed CPU submit time and GPU busy time per frame, the two numbers of the F3 overlay (Developer tab, "Frame
