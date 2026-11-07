@@ -30,7 +30,7 @@ static bool rigid_view(const float *view) {
 }
 
 bool fg_camera_decode(const void *bytes, size_t size, FgCamera *out) {
-    if (!bytes || !out || size < 544) return false;
+    if (!bytes || !out || size < 384) return false;
     // Shader bank 5 / guest binding 2: VP, V, P, inverse VP, inverse V, inverse P.
     float matrices[96];
     memcpy(matrices, bytes, sizeof matrices);

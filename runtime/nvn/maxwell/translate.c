@@ -3058,6 +3058,14 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
         fail(c, "%d textures in a vertex shader (Metal: %d samplers)", info->ntex, MSL_MAX_SAMPLERS);
     if (c->fail) { free(c->body.buf); free(c); return info; }
     if (c->glsl) return glsl_finish(c, any_branch, dbg);
+    bool fg_motion = key && (key->fg_motion == 1 || (key->fg_motion == 2 && stage == STAGE_FRAGMENT)) &&
+                     !key->xfb_void && (stage == STAGE_VERTEX || stage == STAGE_FRAGMENT);
+    bool fg_history = fg_motion && key->fg_motion == 1;
+    if (fg_motion && stage == STAGE_FRAGMENT && (c->omap_target & 0xf0000000u)) {
+        fail(c, "frame generation motion clashes with color target 7");
+        free(c->body.buf); free(c); return info;
+    }
+    info->uses_fg_motion = fg_motion;
 
     // ---------------------------------------------------------- MSL source
     Str s = {0};
@@ -3102,11 +3110,13 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
         sp(&s, "struct VOut {\n  float4 pos [[position, invariant]];\n");  // depth pre-pass + EQUAL test needs identical positions
         for (int i = 0; i < 32; i++)
             if (c->out_attr_mask & (1u << i)) sp(&s, "  float4 v%d [[user(locn%d)]];\n", i, i);
+        if (fg_history) sp(&s, "  float4 fgPreviousClip [[user(fgPreviousClip)]];\n  float fgHistoryValid [[user(fgHistoryValid)]];\n");
         if (info->writes_point_size) sp(&s, "  float psize [[point_size]];\n");
         if (info->writes_layer) sp(&s, "  uint layer [[render_target_array_index]];\n");
         sp(&s, "};\n");
     } else if (stage == STAGE_FRAGMENT) {
         sp(&s, "struct FIn {\n  float4 pos [[position]];\n");
+        if (fg_history) sp(&s, "  float4 fgPreviousClip [[user(fgPreviousClip)]];\n  float fgHistoryValid [[user(fgHistoryValid), center_no_perspective]];\n");
         for (int i = 0; i < 32; i++) {
             if (!(c->in_attr_mask & (1u << i))) continue;
             const char *interp = (c->flat_mask & (1u << i)) ? " [[flat]]" : (c->noperspective_mask & (1u << i)) ? " [[center_no_perspective]]" : "";
@@ -3120,6 +3130,7 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
             sp(&s, "  %s4 c%d [[color(%d)]];\n", kind == 1 ? "int" : kind == 2 ? "uint" : "float", rt, rt);
         }
         if (c->omap_depth) { sp(&s, "  float depth [[depth(any)]];\n"); info->writes_depth = true; }
+        if (fg_motion) sp(&s, "  float4 fgMotion [[color(7)]];\n");
         sp(&s, "};\n");
     }
 
@@ -3128,6 +3139,11 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
     if (xfb) { info->uses_gmem = true; info->uses_gmem_store = true; info->uses_xfb = true; }
     // entry point
     Str args = {0};
+    if (fg_motion && stage == STAGE_VERTEX)
+        sp(&args, ", device atomic_uint *fgCurrent [[buffer(%d)]], device const uint *fgPrevious [[buffer(%d)]], constant uint4 &fgParams [[buffer(%d)]]",
+           FG_CURRENT_BUFFER_INDEX, FG_PREVIOUS_BUFFER_INDEX, FG_PARAMS_BUFFER_INDEX);
+    if (fg_history && stage == STAGE_FRAGMENT)
+        sp(&args, ", constant float2 &fgResolution [[buffer(%d)]]", FG_PARAMS_BUFFER_INDEX);
     for (int i = 0; i < 18; i++)
         if (info->cbuf_mask & (1u << i)) sp(&args, ", constant uint4 *cb%d [[buffer(%d)]]", i, i);
     if (info->uses_gmem) {
@@ -3249,6 +3265,20 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
         if (key && key->flip_y) sp(&s, "  out.pos.y = -out.pos.y;\n");
         if (key && key->flip_x) sp(&s, "  out.pos.x = -out.pos.x;\n");
         if (key && key->depth_minus_one) sp(&s, "  out.pos.z = (out.pos.z + out.pos.w) * 0.5f;\n");
+        if (fg_motion)
+            // Repeated indexed invocations write identical bits; component atomics avoid a data race.
+            sp(&s, "  out.fgPreviousClip = float4(0, 0, 0, -1); out.fgHistoryValid = 0;\n"
+                   "  if (vid < fgParams.x) {\n"
+                   "    uint fgIndex = vid * %uu;\n"
+                   "    uint4 fgBits = as_type<uint4>(out.pos);\n"
+                   "    for (uint c = 0; c < 4; ++c) atomic_store_explicit(fgCurrent + fgIndex + c, fgBits[c], memory_order_relaxed);\n"
+                   "    atomic_store_explicit(fgCurrent + fgIndex + 4u, fgParams.z, memory_order_relaxed);\n"
+                   "    atomic_store_explicit(fgCurrent + fgIndex + 5u, fgParams.w, memory_order_relaxed);\n"
+                   "    if (fgParams.y != 0u && fgPrevious[fgIndex+4u] == fgParams.z-1u && fgPrevious[fgIndex+5u] == fgParams.w-uint(fgParams.z==0u)) {\n"
+                   "      out.fgPreviousClip = as_type<float4>(uint4(fgPrevious[fgIndex], fgPrevious[fgIndex+1u], fgPrevious[fgIndex+2u], fgPrevious[fgIndex+3u]));\n"
+                   "      out.fgHistoryValid = 1;\n"
+                   "    }\n"
+                   "  }\n", FG_HISTORY_WORDS);
         if (maxwell_dbg_vs && blob == maxwell_dbg_vs) sp(&s, "  if (iid < 64u && vid < 8u) { dbgout[iid * 8u + vid] = out.pos; dbgout[512u + iid * 8u + vid] = %s; }\n", (c->out_attr_mask & 2u) ? "out.v1" : "float4(0)");
         sp(&s, key && key->xfb_void ? "  return;\n}\n" : "  return out;\n}\n");
     } else if (stage == STAGE_FRAGMENT) {
@@ -3278,6 +3308,12 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
             if (c->reg_used[r + 1]) sp(&s, "  o.depth = as_type<float>(r%d);\n", r + 1);
             else sp(&s, "  o.depth = in.pos.z;\n");
         }
+        if (fg_motion) sp(&s, "  o.fgMotion = float4(65504, 65504, 0, 0);\n");
+        if (fg_history)
+            sp(&s, "  if (in.fgHistoryValid > 0.999999f && in.fgPreviousClip.w > 0.0f) {\n"
+                   "    float2 fgPreviousUV = (in.fgPreviousClip.xy / in.fgPreviousClip.w) * float2(0.5f, -0.5f) + 0.5f;\n"
+                   "    o.fgMotion = float4(fgPreviousUV * fgResolution - in.pos.xy, 0, 0);\n"
+                   "  }\n");
         sp(&s, "  return o;\n}\n");
     } else {
         sp(&s, "  return;\n}\n");

@@ -112,6 +112,7 @@ void settings_load(void) {
         else if (!strcmp(key, "movie_audio")) g_settings.movie_audio = atoi(val) != 0;
         else if (!strcmp(key, "show_fps")) g_settings.show_fps = atoi(val) != 0;
         else if (!strcmp(key, "fps60")) g_settings.fps60 = atoi(val) != 0;
+        else if (!strcmp(key, "frame_generation_performance")) g_settings.frame_generation_performance = atoi(val) != 0;
         else if (!strcmp(key, "frame_generation")) {
             char *end;
             long mode = strtol(val, &end, 10);
@@ -201,7 +202,7 @@ void settings_save(void) {
     fprintf(f, "movie_audio = %d\n", g_settings.movie_audio);
     fprintf(f, "show_fps = %d\n", g_settings.show_fps);
     fprintf(f, "fps60 = %d\n", g_settings.fps60);
-    fprintf(f, "frame_generation = %d\n", g_settings.frame_generation);
+    fprintf(f, "frame_generation = %d\nframe_generation_performance = %d\n", g_settings.frame_generation, g_settings.frame_generation_performance);
     fprintf(f, "game_mode = %s\n", g_settings.handheld ? "handheld" : "docked");
     fprintf(f, "collect_shader_recipes = %d\n", g_settings.collect_shader_recipes);
     fprintf(f, "early_shaders = %d\n", g_settings.early_shaders);

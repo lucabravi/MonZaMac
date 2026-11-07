@@ -14,6 +14,22 @@ static id<MTLTexture> private_image(id<MTLDevice> device) {
 // deterministic. GPU copying below still executes the production copy helper.
 static void queue_fixture(void) { pending=[NSMutableArray new]; worker_ready=true; }
 static void *reset_soon(void *unused) { (void)unused; usleep(10000); fg_display_reset(); return NULL; }
+static void assert_cadence(CAMetalLayer *layer, id<MTLTexture> image, int mode,
+                           double source_period, double arrival_period, double expected_step, bool generated) {
+    assert(fg_display_submit(layer,image,generated?image:nil,mode,source_period,fg_display_epoch()));
+    FgDisplayPacket *p=pending.lastObject;
+    [pending removeAllObjects];
+    double phase=0, previous=0, step=packet_step(p);
+    for(unsigned pair=0;pair<100;pair++) {
+        double ready=100+pair*arrival_period;
+        for(unsigned slot=0;slot<(generated?2u:1u);slot++) {
+            double deadline=phase+step, now=fmax(ready,deadline);
+            if(previous)assert(fabs(now-previous-expected_step)<1e-8);
+            phase=tick_phase(deadline,step,now);
+            previous=ready=now;
+        }
+    }
+}
 
 int main(void) {@autoreleasepool {
     id<MTLDevice> device=MTLCreateSystemDefaultDevice();
@@ -47,27 +63,45 @@ int main(void) {@autoreleasepool {
     pthread_once(&once,queue_fixture);
     CAMetalLayer *layer=[CAMetalLayer new]; layer.device=device; layer.framebufferOnly=NO;
     uint64_t epoch=fg_display_epoch();
-    assert(!fg_display_submit(layer,target,nil,0,epoch));
-    assert(!fg_display_submit(layer,nil,nil,1,epoch));
-    assert(!fg_display_submit(layer,target,nil,1,epoch-1));
+    assert(!fg_display_submit(layer,target,nil,0,1./30,epoch));
+    assert(!fg_display_submit(layer,nil,nil,1,1./30,epoch));
+    assert(!fg_display_submit(layer,target,nil,1,1./30,epoch-1));
     __weak id<MTLTexture> first_real, first_generated;
     @autoreleasepool {
         id<MTLTexture> real=private_image(device), generated=private_image(device);
         first_real=real; first_generated=generated;
-        assert(fg_display_submit(layer,real,generated,1,epoch));
+        assert(fg_display_submit(layer,real,generated,1,1./30,epoch));
     }
     assert(first_real && first_generated);
     for(int i=0;i<2;i++) @autoreleasepool {
-        assert(fg_display_submit(layer,private_image(device),private_image(device),1,epoch));
+        assert(fg_display_submit(layer,private_image(device),private_image(device),1,1./30,epoch));
     }
     assert(pending.count==2 && dropped_count==1 && !first_real && !first_generated);
     fg_display_reset(); assert(fg_display_epoch()!=epoch && !pending.count);
-    assert(!fg_display_submit(layer,target,nil,1,epoch));
+    assert(!fg_display_submit(layer,target,nil,1,1./30,epoch));
     worker_ready=false;
-    assert(!fg_display_submit(layer,target,nil,1,fg_display_epoch())); // startup failure fails closed
+    assert(!fg_display_submit(layer,target,nil,1,1./30,fg_display_epoch())); // startup failure fails closed
     worker_ready=true;
-    assert(fg_display_submit(layer,target,nil,2,fg_display_epoch()));
+    assert(fg_display_submit(layer,target,nil,2,1./60,fg_display_epoch()));
     fg_display_reset();
+
+    // Each generated image is the midpoint of its actual source pair, including
+    // when rendering misses the selected source rate. Nominal deadlines alone
+    // produce 8.33/13.89 ms at 45 fps and 8.33/11.67/5/15 ms at 50 fps.
+    assert_cadence(layer,target,1,1./30,1./30,1./60,true);
+    assert_cadence(layer,target,2,1./60,1./60,1./120,true);
+    assert_cadence(layer,target,2,1./45,1./45,1./90,true);
+    assert_cadence(layer,target,2,1./50,1./50,1./100,true);
+    assert_cadence(layer,target,1,1./22.5,1./22.5,1./45,true);
+    assert_cadence(layer,target,2,1./45,1./45,1./45,false);
+    // Faster samples cannot exceed the selected mode; invalid samples and long
+    // gaps restart with its nominal cadence instead of stretching stale history.
+    for(int mode=1;mode<=2;mode++) {
+        double nominal=1./(mode==1?30:60);
+        double invalid[]={0,-1,NAN,INFINITY,.251,1./240};
+        for(unsigned i=0;i<sizeof invalid/sizeof *invalid;i++)
+            assert_cadence(layer,target,mode,invalid[i],nominal,nominal*.5,true);
+    }
 
     for(int mode=1;mode<=2;mode++) {
         double step=1./(mode==1?60:120), phase=100, initial=phase;
@@ -98,6 +132,6 @@ int main(void) {@autoreleasepool {
     uint64_t real, generated; double fps;
     fg_presentation_stats(&real,&generated,&fps);
     assert(!real && !generated && fps==0); // queued/copied work never counts as displayed
-    puts("PASS: native private copy, retained inputs, bounded whole-packet drops, epochs/failure, absolute 60/120 cadence, interruptible reset, presentation-only counters");
+    puts("PASS: native private copy, retained inputs, bounded whole-packet drops, epochs/failure, source-paced 30/60/45/50 cadence, nominal caps/gap fallback, interruptible reset, presentation-only counters");
     return 0;
 }}

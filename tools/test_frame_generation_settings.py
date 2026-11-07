@@ -29,6 +29,7 @@ int main(int argc, char **argv) {
     supported = atoi(argv[6]);
     settings_load();
     assert(g_settings.frame_generation == atoi(argv[1]));
+    assert(g_settings.frame_generation_performance == (getenv("TEST_FG_PERFORMANCE") && atoi(getenv("TEST_FG_PERFORMANCE"))));
     assert(g_settings.fps60 == atoi(argv[2]));
     assert(settings_frame_generation() == atoi(argv[3]));
     assert(settings_real_fps60() == atoi(argv[4]));
@@ -113,6 +114,14 @@ with tempfile.TemporaryDirectory(prefix='frame-generation-settings-') as name:
             text = ini.read_text()
             assert f'frame_generation = {saved}\n' in text
             assert f'fps60 = {pref}\n' in text
+            cases += 1
+        for raw, expected in ((None, 0), ('0', 0), ('1', 1), ('junk', 0)):
+            ini.write_text('fps60 = 1\nframe_generation = 0\n' +
+                           (f'frame_generation_performance = {raw}\n' if raw is not None else ''))
+            env = {k: v for k, v in os.environ.items() if not k.startswith('LARECOMP_')}
+            env.update(LARECOMP_SETTINGS=str(ini), TEST_FG_PERFORMANCE=str(expected))
+            subprocess.run([str(binary), '0', '1', '0', '1', '0', '1'], env=env, check=True, capture_output=True)
+            assert f'frame_generation_performance = {expected}\n' in ini.read_text()
             cases += 1
         if not portable:
             ini.write_text('fps60 = 0\nframe_generation = 2\n')

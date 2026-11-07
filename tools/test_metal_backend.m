@@ -80,6 +80,33 @@ void metal_test_bootstrap(void) {
 // Advance only the upload-cache frame for ownership regressions; no window or fake renderer is needed.
 void metal_test_next_texture_frame(void) { g_frame_counter++; }
 
+void metal_test_frame_generation_filters(void) {
+    int old_aa=g_settings.antialias,old_upscale=g_settings.upscaler;
+    g_settings.antialias=AA_SMAA;g_settings.upscaler=UPSCALE_METALFX;
+    id<MTLTexture> inputs[2];
+    for(unsigned i=0;i<2;i++) {
+        unsigned w=i?128:256,h=i?96:192;
+        MTLTextureDescriptor *d=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:w height:h mipmapped:NO];
+        d.usage=MTLTextureUsageShaderRead;inputs[i]=[dev newTextureWithDescriptor:d];
+        uint8_t *pixels=calloc(w*h,4);memset(pixels,127,w*h*4);
+        [inputs[i] replaceRegion:MTLRegionMake2D(0,0,w,h) mipmapLevel:0 withBytes:pixels bytesPerRow:w*4];free(pixels);
+    }
+    id<MTLRenderPipelineState> pipelines[2]={nil,nil};id<MTLFXSpatialScaler> scalers[2]={nil,nil};
+    id<MTLTexture> outputs[2]={nil,nil};
+    for(unsigned frame=0;frame<3;frame++) {
+        id<MTLCommandBuffer> cb=[queue commandBuffer];
+        for(unsigned i=0;i<2;i++) {
+            id<MTLTexture> output=present_postprocess(cb,inputs[i],320,240,i!=0);
+            PresentEffects *effects=present_effects(i!=0);
+            assert(effects->pe && effects->fx && output.width==320 && output.height==240);
+            if(frame)assert(effects->pe==pipelines[i] && effects->fx==scalers[i] && output==outputs[i]);
+            pipelines[i]=effects->pe;scalers[i]=effects->fx;outputs[i]=output;
+        }
+        assert(outputs[0]!=outputs[1]);[cb commit];[cb waitUntilCompleted];assert(!cb.error);
+    }
+    g_settings.antialias=old_aa;g_settings.upscaler=old_upscale;
+}
+
 // A native page must not need a Metal present or touch the overlay's ImGui context.
 void metal_test_preparation_page(void) {
     setenv("LARECOMP_HIDDEN", "1", 1);

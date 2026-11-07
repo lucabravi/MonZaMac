@@ -13,7 +13,7 @@
     CAMetalLayer *layer;
     id<MTLTexture> real, generated;
     id<MTLCommandQueue> queue;
-    int mode;
+    double source_period;
     uint64_t epoch;
 }
 @end
@@ -73,6 +73,10 @@ static double tick_phase(double deadline, double step, double now) {
     // worker so it never bursts through an old backlog of missed ticks.
     return now-deadline>step*.5?now:deadline;
 }
+static double packet_step(FgDisplayPacket *p) {
+    // A generated image bisects the actual source interval, including under load.
+    return p->generated?p->source_period*.5:p->source_period;
+}
 static id<MTLCommandBuffer> copy_image(id<MTLCommandQueue> queue, id<MTLTexture> image, id<MTLTexture> target) {
     id<MTLCommandBuffer> cb=[queue commandBuffer];
     id<MTLBlitCommandEncoder> blit=[cb blitCommandEncoder];
@@ -131,7 +135,7 @@ static void *display_worker(void *unused) {
         pthread_mutex_unlock(&lock);
         if(fg_display_epoch()!=p->epoch)continue;
         if(epoch!=p->epoch) { epoch=p->epoch; last_tick=0; }
-        double period=1./(p->mode==1?30:60), step=p->generated?period*.5:period;
+        double step=packet_step(p);
         if(p->generated) {
             if(!present_image(p,p->queue,p->generated,true,&last_tick,step))continue;
         }
@@ -146,7 +150,7 @@ static void start_worker(void) {
     if(worker_ready)pthread_detach(worker);
 }
 bool fg_display_submit(CAMetalLayer *layer, id<MTLTexture> real,
-                       id<MTLTexture> generated, int mode, uint64_t epoch) {
+                       id<MTLTexture> generated, int mode, double source_period, uint64_t epoch) {
     if(!layer || !real || (mode!=1 && mode!=2) || fg_display_epoch()!=epoch ||
        real.device!=layer.device || real.pixelFormat!=MTLPixelFormatBGRA8Unorm ||
        real.textureType!=MTLTextureType2D || real.sampleCount!=1 || real.framebufferOnly ||
@@ -154,7 +158,9 @@ bool fg_display_submit(CAMetalLayer *layer, id<MTLTexture> real,
         generated.width!=real.width || generated.height!=real.height || generated.textureType!=MTLTextureType2D ||
         generated.sampleCount!=1 || generated.framebufferOnly)))return false;
     FgDisplayPacket *p=[FgDisplayPacket new];
-    p->layer=layer; p->real=real; p->generated=generated; p->mode=mode; p->epoch=epoch;
+    p->layer=layer; p->real=real; p->generated=generated; p->epoch=epoch;
+    double nominal=1./(mode==1?30:60);
+    p->source_period=isfinite(source_period) && source_period>0 && source_period<=.25?fmax(nominal,source_period):nominal;
     pthread_once(&once,start_worker);
     pthread_mutex_lock(&lock);
     bool accepted=worker_ready && fg_display_epoch()==epoch;

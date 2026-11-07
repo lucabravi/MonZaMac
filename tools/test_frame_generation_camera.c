@@ -87,7 +87,8 @@ int main(void) {
     unsigned char unaligned[545];
     memcpy(unaligned + 1, buffer, sizeof buffer);
     assert(fg_camera_decode(unaligned + 1, sizeof buffer, &camera));
-    rejected(buffer, sizeof buffer - 1);
+    assert(fg_camera_decode(buffer, 384, &camera));
+    rejected(buffer, 383);
     rejected(NULL, sizeof buffer);
     assert(!fg_camera_decode(buffer, sizeof buffer, NULL));
     buffer[0] += 1; rejected(buffer, sizeof buffer);

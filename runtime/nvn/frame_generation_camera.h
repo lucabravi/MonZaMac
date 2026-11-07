@@ -7,7 +7,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-// Decode the 544-byte scene camera binding; failure leaves out untouched.
+// Decode the first six matrices of the scene camera binding (384 bytes); failure leaves out untouched.
 bool fg_camera_decode(const void *bytes, size_t size, FgCamera *out);
 #ifdef __cplusplus
 }

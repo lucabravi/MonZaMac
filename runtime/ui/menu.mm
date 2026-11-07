@@ -579,6 +579,15 @@ static void tab_display(void) {
             static const char *generation[] = {"Off", "30 -> 60 fps", "60 -> 120 fps"};
             if (!supported) opt_disable_next();
             opt_choice("Frame generation", &g_settings.frame_generation, generation, 3, FRAME_GENERATION_OFF, description);
+            static const char *quality[] = {"Native", "Performance"};
+            int fg_quality=g_settings.frame_generation_performance?1:0;
+            if(!supported || !g_settings.frame_generation)opt_disable_next();
+            if(opt_choice("Frame generation quality", &fg_quality, quality, 2, 0,
+                          "Native uses the rendering resolution for generated frames. Performance caps only generated frames "
+                          "at 1920 pixels wide (1080p at 16:9) to reduce GPU cost. Real frames keep the selected rendering "
+                          "resolution. Intermediate images may look softer. Applies immediately."))
+                g_settings.frame_generation_performance=fg_quality==1;
+
         }
     }
 

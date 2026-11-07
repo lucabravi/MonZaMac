@@ -791,11 +791,25 @@ static void save_png(id<MTLTexture> tex, const char *path) { renderer_save_textu
 
 // MetalFX spatial upscaling (Video tab "Upscaler" = MetalFX). metalfx_upscale() decides (and sets up the scaler for
 // this input / output size); metalfx_encode() runs it and returns the upscaled image.
-static id<MTLFXSpatialScaler> g_fx;
-static id<MTLTexture> g_fx_out;
-static NSUInteger g_fx_iw, g_fx_ih, g_fx_ow, g_fx_oh;
-static MTLPixelFormat g_fx_fmt;
-static id<MTLTexture> metalfx_upscale(id<MTLCommandBuffer> cb, id<MTLTexture> in, double ow_d, double oh_d) {
+// Real and interpolated images may have different resolutions. Keep their filters warm independently.
+@interface PresentEffects : NSObject {
+@public
+    id<MTLFXSpatialScaler> fx;
+    id<MTLTexture> fx_out, edges, weights, smaa_out;
+    id<MTLRenderPipelineState> pe, pw, pb;
+    NSUInteger fx_iw, fx_ih, fx_ow, fx_oh, smaa_w, smaa_h;
+    MTLPixelFormat fx_fmt, smaa_fmt;
+    bool smaa_failed;
+}
+@end
+@implementation PresentEffects
+@end
+static PresentEffects *present_effects(bool generated) {
+    static PresentEffects *states[2];
+    if(!states[generated])states[generated]=[PresentEffects new];
+    return states[generated];
+}
+static id<MTLTexture> metalfx_upscale(id<MTLCommandBuffer> cb, id<MTLTexture> in, double ow_d, double oh_d, PresentEffects *effects) {
     (void)cb;
     if (g_settings.upscaler != UPSCALE_METALFX) return nil;
     static int supported = -1;
@@ -808,23 +822,23 @@ static id<MTLTexture> metalfx_upscale(id<MTLCommandBuffer> cb, id<MTLTexture> in
     if (ow <= in.width + 1 && oh <= in.height + 1) return nil;  // not an upscale: plain sampling is right
     if (ow > 16384) ow = 16384;
     if (oh > 16384) oh = 16384;
-    if (!g_fx || g_fx_iw != in.width || g_fx_ih != in.height || g_fx_ow != ow || g_fx_oh != oh || g_fx_fmt != in.pixelFormat) {
+    if (!effects->fx || effects->fx_iw != in.width || effects->fx_ih != in.height || effects->fx_ow != ow || effects->fx_oh != oh || effects->fx_fmt != in.pixelFormat) {
         MTLFXSpatialScalerDescriptor *d = [MTLFXSpatialScalerDescriptor new];
         d.inputWidth = in.width; d.inputHeight = in.height;
         d.outputWidth = ow; d.outputHeight = oh;
         d.colorTextureFormat = in.pixelFormat;
         d.outputTextureFormat = in.pixelFormat;
         d.colorProcessingMode = MTLFXSpatialScalerColorProcessingModePerceptual;  // (gamma-encoded 8-bit image)
-        g_fx = [d newSpatialScalerWithDevice:dev];
+        effects->fx = [d newSpatialScalerWithDevice:dev];
         MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:in.pixelFormat width:ow height:oh mipmapped:NO];
-        td.usage = g_fx ? g_fx.outputTextureUsage | MTLTextureUsageShaderRead : MTLTextureUsageShaderRead;
+        td.usage = effects->fx ? effects->fx.outputTextureUsage | MTLTextureUsageShaderRead : MTLTextureUsageShaderRead;
         td.storageMode = MTLStorageModePrivate;
-        g_fx_out = [dev newTextureWithDescriptor:td];
-        g_fx_iw = in.width; g_fx_ih = in.height; g_fx_ow = ow; g_fx_oh = oh; g_fx_fmt = in.pixelFormat;
+        effects->fx_out = [dev newTextureWithDescriptor:td];
+        effects->fx_iw = in.width; effects->fx_ih = in.height; effects->fx_ow = ow; effects->fx_oh = oh; effects->fx_fmt = in.pixelFormat;
         LOG("[metalfx] %lux%lu -> %lux%lu (%s)\n", (unsigned long)in.width, (unsigned long)in.height, (unsigned long)ow,
-            (unsigned long)oh, g_fx ? "ok" : "FAILED");
+            (unsigned long)oh, effects->fx ? "ok" : "FAILED");
     }
-    return g_fx && g_fx_out ? g_fx_out : nil;
+    return effects->fx && effects->fx_out ? effects->fx_out : nil;
 }
 // SMAA 1x (Video tab "Anti-aliasing"; third_party/smaa, MIT; as runtime/nvn/vulkan/shaders.c / exec.c): luma edges ->
 // blending weights -> neighbourhood blending, at the game image's size, before the present / MetalFX. The reference
@@ -927,13 +941,9 @@ static void smaa_pass(id<MTLCommandBuffer> cb, id<MTLRenderPipelineState> p, id<
     renderer_profile_pass_end("smaa");
 }
 
-static id<MTLTexture> smaa_encode(id<MTLCommandBuffer> cb, id<MTLTexture> in) {
-    static bool failed;  // (shader / pipeline error: logged once, SMAA stays off)
-    static NSUInteger lw, lh;
-    static MTLPixelFormat lf;
-    static id<MTLRenderPipelineState> pe, pw, pb;
-    static id<MTLTexture> area, search, edges, weights, out;
-    if (failed) return in;
+static id<MTLTexture> smaa_encode(id<MTLCommandBuffer> cb, id<MTLTexture> in, PresentEffects *effects) {
+    static id<MTLTexture> area, search;
+    if (effects->smaa_failed) return in;
     if (!area) {  // the lookup textures (runtime/nvn/smaa_data.c), uploaded once
         extern const unsigned char *smaa_area_tex(void);
         extern const unsigned char *smaa_search_tex(void);
@@ -944,40 +954,40 @@ static id<MTLTexture> smaa_encode(id<MTLCommandBuffer> cb, id<MTLTexture> in) {
         search = [dev newTextureWithDescriptor:sd];
         [search replaceRegion:MTLRegionMake2D(0, 0, 64, 16) mipmapLevel:0 withBytes:smaa_search_tex() bytesPerRow:64];
     }
-    if (!pe || lw != in.width || lh != in.height || lf != in.pixelFormat) {
+    if (!effects->pe || effects->smaa_w != in.width || effects->smaa_h != in.height || effects->smaa_fmt != in.pixelFormat) {
         NSError *err = nil;
         id<MTLLibrary> lib = [dev newLibraryWithSource:smaa_msl(in.width, in.height) options:nil error:&err];
-        if (!lib) { LOG("[smaa] shader: %s\n", err.localizedDescription.UTF8String); failed = true; return in; }
+        if (!lib) { LOG("[smaa] shader: %s\n", err.localizedDescription.UTF8String); effects->smaa_failed = true; return in; }
         MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
         pd.vertexFunction = [lib newFunctionWithName:@"smaa_vs"];
         pd.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
         pd.fragmentFunction = [lib newFunctionWithName:@"smaa_edge"];
-        pe = [dev newRenderPipelineStateWithDescriptor:pd error:&err];
+        effects->pe = [dev newRenderPipelineStateWithDescriptor:pd error:&err];
         pd.fragmentFunction = [lib newFunctionWithName:@"smaa_weight"];
-        pw = pe ? [dev newRenderPipelineStateWithDescriptor:pd error:&err] : nil;
+        effects->pw = effects->pe ? [dev newRenderPipelineStateWithDescriptor:pd error:&err] : nil;
         pd.fragmentFunction = [lib newFunctionWithName:@"smaa_blend"];
         pd.colorAttachments[0].pixelFormat = in.pixelFormat;
-        pb = pw ? [dev newRenderPipelineStateWithDescriptor:pd error:&err] : nil;
-        if (!pb) { LOG("[smaa] pipeline: %s\n", err.localizedDescription.UTF8String); failed = true; return in; }
-        lw = in.width; lh = in.height; lf = in.pixelFormat;
+        effects->pb = effects->pw ? [dev newRenderPipelineStateWithDescriptor:pd error:&err] : nil;
+        if (!effects->pb) { LOG("[smaa] pipeline: %s\n", err.localizedDescription.UTF8String); effects->smaa_failed = true; return in; }
+        effects->smaa_w = in.width; effects->smaa_h = in.height; effects->smaa_fmt = in.pixelFormat;
         LOG("[smaa] %lux%lu\n", (unsigned long)in.width, (unsigned long)in.height);
     }
-    edges = smaa_target(edges, in.width, in.height, MTLPixelFormatRGBA8Unorm);
-    weights = smaa_target(weights, in.width, in.height, MTLPixelFormatRGBA8Unorm);
-    out = smaa_target(out, in.width, in.height, in.pixelFormat);
-    smaa_pass(cb, pe, edges, true, in, nil, nil);
-    smaa_pass(cb, pw, weights, true, edges, area, search);
-    smaa_pass(cb, pb, out, false, in, weights, nil);
-    return out;
+    effects->edges = smaa_target(effects->edges, in.width, in.height, MTLPixelFormatRGBA8Unorm);
+    effects->weights = smaa_target(effects->weights, in.width, in.height, MTLPixelFormatRGBA8Unorm);
+    effects->smaa_out = smaa_target(effects->smaa_out, in.width, in.height, in.pixelFormat);
+    smaa_pass(cb, effects->pe, effects->edges, true, in, nil, nil);
+    smaa_pass(cb, effects->pw, effects->weights, true, effects->edges, area, search);
+    smaa_pass(cb, effects->pb, effects->smaa_out, false, in, effects->weights, nil);
+    return effects->smaa_out;
 }
 
-static id<MTLTexture> metalfx_encode(id<MTLCommandBuffer> cb, id<MTLTexture> in) {
-    g_fx.colorTexture = in;
-    g_fx.inputContentWidth = in.width;
-    g_fx.inputContentHeight = in.height;
-    g_fx.outputTexture = g_fx_out;
-    [g_fx encodeToCommandBuffer:cb];
-    return g_fx_out;
+static id<MTLTexture> metalfx_encode(id<MTLCommandBuffer> cb, id<MTLTexture> in, PresentEffects *effects) {
+    effects->fx.colorTexture = in;
+    effects->fx.inputContentWidth = in.width;
+    effects->fx.inputContentHeight = in.height;
+    effects->fx.outputTexture = effects->fx_out;
+    [effects->fx encodeToCommandBuffer:cb];
+    return effects->fx_out;
 }
 
 
@@ -1138,9 +1148,10 @@ static id<MTLTexture> fg_match_format(id<MTLCommandBuffer> cb,id<MTLTexture> ima
     [e setFragmentSamplerState:present_sampler atIndex:0];[e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[e endEncoding];
     return output;
 }
-static id<MTLTexture> present_postprocess(id<MTLCommandBuffer> cb,id<MTLTexture> source,double width,double height) {
-    if(g_settings.antialias==AA_SMAA)source=smaa_encode(cb,source);
-    if(metalfx_upscale(cb,source,width,height))source=metalfx_encode(cb,source);
+static id<MTLTexture> present_postprocess(id<MTLCommandBuffer> cb,id<MTLTexture> source,double width,double height,bool generated) {
+    PresentEffects *effects=present_effects(generated);
+    if(g_settings.antialias==AA_SMAA)source=smaa_encode(cb,source,effects);
+    if(metalfx_upscale(cb,source,width,height,effects))source=metalfx_encode(cb,source,effects);
     return source;
 }
 
@@ -1194,6 +1205,10 @@ void backend_present(NvnTexture *t) {
         int fg_mode=settings_frame_generation();
         int screen_hz=atomic_load_explicit(&fg_screen_hz,memory_order_relaxed);
         bool fg_display=fg_mode && screen_hz >= (fg_mode==1?59:119) && atomic_load_explicit(&fg_window_visible,memory_order_relaxed);
+        // Diagnostic capture can run offscreen while the window/session is hidden.
+        const char *capture_env=getenv("LARECOMP_FG_CAPTURE_ONLY");
+        bool fg_capture_only=fg_mode && capture_env && atoi(capture_env);
+        bool fg_process=fg_display || fg_capture_only;
         static int last_fg_mode;
         static NSUInteger last_fg_width,last_fg_height;
         NSUInteger width=(NSUInteger)layer.drawableSize.width,height=(NSUInteger)layer.drawableSize.height;
@@ -1205,7 +1220,7 @@ void backend_present(NvnTexture *t) {
         if(layer.framebufferOnly!=framebuffer_only)layer.framebufferOnly=framebuffer_only;
         id<CAMetalDrawable> drawable=nil;
         id<MTLTexture> present_target=nil;
-        if(fg_display && width && height) present_target=fg_window_target(width,height);
+        if(fg_process && width && height) present_target=fg_window_target(width,height);
         else {
             drawable=[layer nextDrawable];present_target=drawable.texture;
         }
@@ -1271,9 +1286,9 @@ void backend_present(NvnTexture *t) {
         if (b && b->tex) {
             id<MTLTexture> src = raw_view(b->tex);
             // Split the pass only when SMAA runs or MetalFX actually upscales (not at 1:1, where plain sampling is right).
-            if(g_settings.antialias==AA_SMAA || metalfx_upscale(cb,src,vw/crop[2],vh/crop[3])) {
+            if(g_settings.antialias==AA_SMAA || metalfx_upscale(cb,src,vw/crop[2],vh/crop[3],present_effects(false))) {
                 [enc endEncoding];renderer_profile_pass_end("present-postprocess");
-                src=present_postprocess(cb,src,vw/crop[2],vh/crop[3]);
+                src=present_postprocess(cb,src,vw/crop[2],vh/crop[3],false);
                 MTLRenderPassDescriptor *rp2=[MTLRenderPassDescriptor renderPassDescriptor];
                 rp2.colorAttachments[0].texture=present_target;rp2.colorAttachments[0].loadAction=MTLLoadActionLoad;
                 rp2.colorAttachments[0].storeAction=MTLStoreActionStore;enc=[cb renderCommandEncoderWithDescriptor:rp2];
@@ -1296,12 +1311,18 @@ void backend_present(NvnTexture *t) {
         menu_render(dev, cb, present_target);
         id<MTLTexture> fg_image=nil, fg_source=nil, fg_z=nil, fg_window_image=nil;
         FgCamera fg_camera;
-        if(fg_display && !menu_is_open() && renderer_fg_inputs(t,&fg_source,&fg_z,&fg_camera)) {
-            fg_image=fg_encode(cb,fg_source,raw_view(b->tex),fg_z,&fg_camera,fg_mode,CACurrentMediaTime());
+        double fg_clock=CACurrentMediaTime();
+        static double fg_previous_source_time;static uint64_t fg_time_epoch;
+        uint64_t clock_epoch=fg_display_epoch();
+        double fg_source_period=fg_previous_source_time && clock_epoch==fg_time_epoch ? fg_clock-fg_previous_source_time : 1./(fg_mode==1?30:60);
+        fg_previous_source_time=fg_clock;fg_time_epoch=clock_epoch;
+        if(fg_process && !menu_is_open() && renderer_fg_inputs(t,&fg_source,&fg_z,&fg_camera)) {
+            fg_source=raw_view(fg_source);
+            fg_image=fg_encode(cb,fg_source,raw_view(b->tex),fg_z,renderer_fg_motion(),&fg_camera,fg_mode,g_settings.frame_generation_performance?1920:0,fg_clock);
         } else fg_reset();
         if(fg_image) {
             id<MTLTexture> filtered=fg_match_format(cb,fg_image,fg_source.pixelFormat);
-            if(filtered)filtered=present_postprocess(cb,filtered,vw/crop[2],vh/crop[3]);
+            if(filtered)filtered=present_postprocess(cb,filtered,vw/crop[2],vh/crop[3],true);
             if(filtered)fg_window_image=fg_window_target(width,height);
             if(fg_window_image) {
                 fg_draw_present(cb,fg_window_image,filtered,vx,vy,vw,vh,crop);
@@ -1309,7 +1330,7 @@ void backend_present(NvnTexture *t) {
             }
         }
         if(g_settings.frame_generation && frame%120==0 && devlog_on("framegen"))
-            devlog("framegen","frame %llu mode %d screen %d inputs %d generated %d",(unsigned long long)frame,fg_mode,screen_hz,fg_source!=nil,fg_window_image!=nil);
+            devlog("framegen","frame %llu mode %d screen %d visible %d menu %d inputs %d generated %d scene_format %lu ui_format %lu",(unsigned long long)frame,fg_mode,screen_hz,fg_display,menu_is_open(),fg_source!=nil,fg_window_image!=nil,(unsigned long)fg_source.pixelFormat,(unsigned long)(b?raw_view(b->tex).pixelFormat:0));
 
         static long win_shot = -1;  // LARECOMP_WINDOW_SHOT=<frame>: save the final window image (game + menu)
         if (win_shot < 0) win_shot = getenv("LARECOMP_WINDOW_SHOT") ? atol(getenv("LARECOMP_WINDOW_SHOT")) : 0;
@@ -1328,7 +1349,7 @@ void backend_present(NvnTexture *t) {
             uint64_t epoch=fg_display_epoch();
             [cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
                 if(done.status==MTLCommandBufferStatusCompleted &&
-                   !fg_display_submit(layer,present_target,fg_window_image,fg_mode,epoch) && fg_display_epoch()==epoch) {
+                   !fg_display_submit(layer,present_target,fg_window_image,fg_mode,fg_source_period,epoch) && fg_display_epoch()==epoch) {
                     // Worker/queue allocation failure: retain the real-frame path.
                     id<CAMetalDrawable> fallback=[layer nextDrawable];
                     if(fallback && !fallback.texture.framebufferOnly && fg_display_epoch()==epoch &&
@@ -1340,7 +1361,7 @@ void backend_present(NvnTexture *t) {
                     }
                 }
             }];
-        } else [cb presentDrawable:drawable];
+        } else if(drawable) [cb presentDrawable:drawable];
         RendererGpuTimingToken *gpu_present_timing = renderer_gpu_timing_submit(frame + 1, "present");
         [cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
             renderer_gpu_timing_complete(gpu_present_timing, done.GPUStartTime, done.GPUEndTime);
@@ -1349,6 +1370,7 @@ void backend_present(NvnTexture *t) {
         [cb commit];
         const char *fg_shot=getenv("LARECOMP_FG_SHOT_AT");
         if(fg_image && fg_shot && frame==(uint64_t)strtoull(fg_shot,NULL,10)) {
+            if(getenv("LARECOMP_FG_DUMP"))fg_debug_dump("build/fg-debug");
             renderer_save_texture(fg_image,"build/fg-generated.png");
             renderer_save_texture(fg_source,"build/fg-scene.png");
             renderer_save_texture(raw_view(b->tex),"build/fg-real.png");

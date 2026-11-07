@@ -38,6 +38,7 @@ typedef struct {
     bool show_fps;
     bool handheld;       // Pokémon Z-A: the game is told it runs handheld (720p, lighter settings), not docked (runtime/services/am.c)
     bool fps60;  // Pokémon Z-A: 60 fps with a dynamic world step down to 30 fps (runtime/hle/framepace.c)
+    bool frame_generation_performance; // cap only interpolated frames at 1920 pixels wide
     int frame_generation; // FRAME_GENERATION_*: saved choice; settings_frame_generation() checks availability and conflicts
     bool developer;      // the Developer tab of the menu is shown (ini "developer = 1", LARECOMP_DEVELOPER, Cmd+Shift+D)
     bool dev_log;        // Developer: the developer log (runtime/devlog.h) is on for every subject (LARECOMP_DEVLOG=<subjects> still works without it)

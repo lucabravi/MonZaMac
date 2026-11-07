@@ -62,9 +62,9 @@ static id<MTLTexture> depth(bool reversed, bool native) {
     }
     return t;
 }
-static id<MTLTexture> encode(id<MTLTexture> s,id<MTLTexture> ui,id<MTLTexture> z,FgCamera *c,int mode,double now) {
+static id<MTLTexture> encode_motion(id<MTLTexture> s,id<MTLTexture> ui,id<MTLTexture> z,id<MTLTexture> motion,FgCamera *c,int mode,double now) {
     id<MTLCommandBuffer> cb=[queue commandBuffer];
-    id<MTLTexture> out=fg_encode(cb,s,ui,z,c,mode,now);
+    id<MTLTexture> out=fg_encode(cb,s,ui,z,motion,c,mode,0,now);
     [cb commit]; [cb waitUntilCompleted];
     if(cb.error)fprintf(stderr,"%s\n",cb.error.description.UTF8String);
     assert(!cb.error);
@@ -74,6 +74,9 @@ static id<MTLTexture> encode(id<MTLTexture> s,id<MTLTexture> ui,id<MTLTexture> z
         assert(out.pixelFormat==(legacy && atoi(legacy)?MTLPixelFormatRGBA16Float:MTLPixelFormatRGBA8Unorm));
     }
     return out;
+}
+static id<MTLTexture> encode(id<MTLTexture> s,id<MTLTexture> ui,id<MTLTexture> z,FgCamera *c,int mode,double now) {
+    return encode_motion(s,ui,z,nil,c,mode,now);
 }
 static NSData *readback_pixels(id<MTLTexture> t, NSUInteger pixel_size) {
     NSUInteger row=(t.width*pixel_size+255)&~255;
@@ -103,16 +106,92 @@ static id<MTLTexture> crop(id<MTLTexture> t) {
     free(pixels);
     return out;
 }
-static double difference(NSData *data, int shift) {
+static double difference(NSData *data, int shift, unsigned inset) {
     const __fp16 *p=data.bytes;
     double sum=0;
-    for(unsigned y=0;y<H;y++)for(unsigned x=0;x<W;x++) {
+    for(unsigned y=inset;y<H-inset;y++)for(unsigned x=inset;x<W-inset;x++) {
         unsigned sx=(x+shift+W)%W, i=(y*W+x)*4;
         __fp16 expected[3]={(__fp16)(sx/255.f),(__fp16)(y/255.f),(__fp16)((((sx/24+y/24)&1)?220:25)/255.f)};
         for(unsigned k=0;k<3;k++)sum+=fabs((float)p[i+k]-(float)expected[k]);
     }
-    return sum/(W*H*3);
+    return sum/((W-2*inset)*(H-2*inset)*3);
 }
+static void assert_midpoint(NSData *data, int current_shift, int mode, bool reversed, bool native) {
+    // Exclude wraparound/disocclusion borders, including the retained frames' 28px shift.
+    const unsigned inset=32;
+    int midpoint=current_shift-2, best_shift=current_shift-4;
+    double previous=difference(data,current_shift-4,inset), current=difference(data,current_shift,inset);
+    double middle=difference(data,midpoint,inset), best=previous;
+    for(int shift=current_shift-3;shift<=current_shift;shift++) {
+        double error=difference(data,shift,inset);
+        if(error<best) { best=error; best_shift=shift; }
+    }
+    fprintf(stderr,"phase mode%d reversed%d native%d shift%d: midpoint %.6f, previous %.6f, current %.6f, best %d (expected %d)\n",
+        mode,reversed,native,current_shift,middle,previous,current,best_shift,midpoint);
+    assert(middle<previous && middle<current);
+    assert(abs(best_shift-midpoint)<=1);
+}
+static id<MTLTexture> geometry_field(bool gradient) {
+    MTLTextureDescriptor *d=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRG16Float width:W height:H mipmapped:NO];
+    d.usage=MTLTextureUsageShaderRead;
+    id<MTLTexture> t=[device newTextureWithDescriptor:d];
+    const __fp16 values[8][2]={{-6,2},{65504,0},{0,65504},{-65504,0},{NAN,1},{1,INFINITY},{-INFINITY,0},{0,0}};
+    __fp16 *pixels=malloc(W*H*4);
+    for(unsigned y=0;y<H;y++)for(unsigned x=0;x<W;x++) {
+        unsigned i=(y*W+x)*2, band=x/(W/8);
+        pixels[i]=gradient?(__fp16)(1+x*.125f):values[band][0];
+        pixels[i+1]=gradient?(__fp16)(-2+y*.125f):values[band][1];
+    }
+    [t replaceRegion:MTLRegionMake2D(0,0,W,H) mipmapLevel:0 withBytes:pixels bytesPerRow:W*4];
+    free(pixels);return t;
+}
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
+API_AVAILABLE(macos(26.0))
+static void geometry_motion_test(int mode) {
+    fg_reset();double now=20,dt=1./(mode==1?30:60);
+    id<MTLTexture> z=depth(false,false), geometry=geometry_field(false);
+    FgCamera c=camera(0,false);
+    assert(!encode(scene(0,false),nil,z,&c,mode,now));
+    c=camera(16.f/(W*(1.f/tanf(M_PI/6)/((float)W/H))),false);
+    assert(!encode(scene(4,false),nil,z,&c,mode,now+=dt));
+    c=camera(32.f/(W*(1.f/tanf(M_PI/6)/((float)W/H))),false);
+    assert(encode_motion(scene(8,false),nil,z,geometry,&c,mode,now+=dt)); // nil -> geometry keeps history
+    NSData *bytes=readback_pixels(state->previous->motion,4);const __fp16 *p=bytes.bytes;
+    for(unsigned band=0;band<8;band++) {
+        unsigned i=(H/2*W+band*(W/8)+W/16)*2;
+        float x=band==0?-6:band==7?0:4,y=band==0?2:0;
+        assert(fabsf((float)p[i]-x)<.01f && fabsf((float)p[i+1]-y)<.01f);
+    }
+    c=camera(48.f/(W*(1.f/tanf(M_PI/6)/((float)W/H))),false);
+    assert(encode(scene(12,false),nil,z,&c,mode,now+=dt)); // geometry -> nil keeps history
+    bytes=readback_pixels(state->previous->motion,4);p=bytes.bytes;
+    unsigned center=(H/2*W+W/2)*2;
+    assert(fabsf((float)p[center]-4)<.01f && fabsf((float)p[center+1])<.01f);
+    for(id<MTLTexture> invalid in @[crop(geometry),scene(0,false)]) {
+        assert(!encode_motion(scene(12,false),nil,z,invalid,&c,mode,now+=dt));
+        assert(!state);
+    }
+    assert(!encode(scene(12,false),nil,z,&c,mode,now+=dt));
+    assert(!encode(scene(12,false),nil,z,&c,mode,now+=dt));
+    assert(encode(scene(12,false),nil,z,&c,mode,now+=dt));
+
+    // Exercise scaled geometry selection through the real depth/motion conversion path.
+    id<MTLCommandBuffer> cb=[queue commandBuffer];
+    assert(!fg_encode(cb,scene(12,false),nil,z,geometry_field(true),&c,mode,W/2,now+=dt));
+    [cb commit];[cb waitUntilCompleted];assert(!cb.error);
+    bytes=readback_pixels(state->previous->motion,4);p=bytes.bytes;
+    unsigned sample=(23*(W/2)+17)*2; // nearest source (35,47), displacement scaled by 1/2
+    assert(fabsf((float)p[sample]-2.6875f)<.001f && fabsf((float)p[sample+1]-1.9375f)<.001f);
+
+    // Reset before submission must preserve the externally supplied field through completion.
+    fg_reset();id<MTLCommandBuffer> pending=[queue commandBuffer];__weak id<MTLTexture> external_ref;
+    @autoreleasepool {
+        id<MTLTexture> external=geometry_field(false);external_ref=external;
+        assert(!fg_encode(pending,scene(0,false),nil,z,external,&c,mode,0,now+=dt));
+    }
+    assert(external_ref);fg_reset();[pending commit];[pending waitUntilCompleted];assert(!pending.error);
+}
+#endif
 int main(void) {@autoreleasepool {
     device=MTLCreateSystemDefaultDevice(); queue=[device newCommandQueue];
     if(!fg_supported()){puts("SKIP: macOS 26 / supported MetalFX GPU required");return 0;}
@@ -120,6 +199,7 @@ int main(void) {@autoreleasepool {
     unsetenv("LARECOMP_FG_OUTPUT_FP16");
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
     if(@available(macOS 26.0,*)) {
+    geometry_motion_test(1);geometry_motion_test(2);
     for(int mode=1;mode<=2;mode++) for(int reversed=0;reversed<=1;reversed++) for(int native=0;native<=1;native++) {
         fg_reset(); double dt=mode==1?1./30:1./60, now=1.;
         id<MTLTexture> z=depth(reversed,native);
@@ -147,13 +227,14 @@ int main(void) {@autoreleasepool {
             if(!retained_output) { retained_output=out; retained_data=bytes; }
             const __fp16 *p=bytes.bytes;
             for(unsigned k=0;k<W*H*4;k++)assert(isfinite((float)p[k]));
-            double current_difference=difference(bytes,i*4), previous_difference=difference(bytes,(i-1)*4);
+            double current_difference=difference(bytes,i*4,0), previous_difference=difference(bytes,(i-1)*4,0);
             assert(current_difference>.0001 && previous_difference>.0001);
+            assert_midpoint(bytes,i*4,mode,reversed,native);
             if(last)assert(![last isEqualToData:bytes]);
             last=bytes;
         }
         assert([readback(retained_output) isEqualToData:retained_data]);
-        assert(!fg_encode(nil,scene(12,false),nil,z,&c,mode,now));
+        assert(!fg_encode(nil,scene(12,false),nil,z,nil,&c,mode,0,now));
         assert(!encode(nil,nil,z,&c,mode,now+=dt));
         assert(!encode(scene(12,false),nil,z,&c,mode,now+=dt));
         assert(!encode(scene(12,false),nil,z,&c,mode,now+=dt));
@@ -207,27 +288,30 @@ int main(void) {@autoreleasepool {
 
     id<MTLCommandBuffer> completed=[queue commandBuffer];
     [completed commit]; [completed waitUntilCompleted];
-    assert(!fg_encode(completed,scene(0,false),nil,z,&c,2,3.));
+    assert(!fg_encode(completed,scene(0,false),nil,z,nil,&c,2,0,3.));
 
     // More pending frames than any fixed triple buffer, followed by a reset
     // before submission, verifies the ring and completion-owned generation.
-    fg_reset();
-    NSMutableArray<id<MTLCommandBuffer>> *pending=[NSMutableArray new];
-    NSMutableArray<id<MTLTexture>> *outputs=[NSMutableArray new];
-    for(int i=0;i<8;i++) {
-        id<MTLCommandBuffer> cb=[queue commandBuffer];
-        c=camera(i*16.f/(W*(1.f/tanf(M_PI/6)/((float)W/H))),false);
-        id<MTLTexture> out=fg_encode(cb,scene(i*4,false),nil,z,&c,1,3.+i/30.);
-        if(i<2)assert(!out); else { assert(out); [outputs addObject:out]; }
-        [pending addObject:cb];
-    }
-    assert(state->ring.count==8);
-    fg_reset();
-    for(id<MTLCommandBuffer> cb in pending)[cb commit];
-    for(id<MTLCommandBuffer> cb in pending) { [cb waitUntilCompleted]; assert(!cb.error); }
-    for(unsigned i=0;i<outputs.count;i++) {
-        NSData *bytes=readback(outputs[i]);
-        assert(difference(bytes,(i+2)*4)>.0001 && difference(bytes,(i+1)*4)>.0001);
+    for(int mode=1;mode<=2;mode++) {
+        fg_reset();
+        NSMutableArray<id<MTLCommandBuffer>> *pending=[NSMutableArray new];
+        NSMutableArray<id<MTLTexture>> *outputs=[NSMutableArray new];
+        for(int i=0;i<8;i++) {
+            id<MTLCommandBuffer> cb=[queue commandBuffer];
+            c=camera(i*16.f/(W*(1.f/tanf(M_PI/6)/((float)W/H))),false);
+            id<MTLTexture> out=fg_encode(cb,scene(i*4,false),nil,z,nil,&c,mode,0,3.+i/(mode==1?30.:60.));
+            if(i<2)assert(!out); else { assert(out); [outputs addObject:out]; }
+            [pending addObject:cb];
+        }
+        assert(state->ring.count==8);
+        fg_reset();
+        for(id<MTLCommandBuffer> cb in pending)[cb commit];
+        for(id<MTLCommandBuffer> cb in pending) { [cb waitUntilCompleted]; assert(!cb.error); }
+        for(unsigned i=0;i<outputs.count;i++) {
+            NSData *bytes=readback(outputs[i]);
+            assert(difference(bytes,(i+2)*4,0)>.0001 && difference(bytes,(i+1)*4,0)>.0001);
+            assert_midpoint(bytes,(i+2)*4,mode,false,false);
+        }
     }
     fg_reset();setenv("LARECOMP_FG_OUTPUT_FP16","1",1);
     { FgCamera c=camera(0,false);id<MTLTexture> z=depth(false,false);
@@ -235,7 +319,30 @@ int main(void) {@autoreleasepool {
       assert(!encode(scene(0,false),nil,z,&c,1,30.+1./30));
       assert(encode(scene(0,false),nil,z,&c,1,30.+2./30)); }
     unsetenv("LARECOMP_FG_OUTPUT_FP16");fg_reset();
-    puts("PASS: both modes, normal/reversed native/float depth, motion scenes, 4px X/-3px Y backward motion, private output distinct from endpoints, reset/gap/nil/off/UI/cut/resize, in-flight retention");
+    // Change generated resolution live while scene/depth/motion remain at native size.
+    {
+        id<MTLTexture> source=scene(0,false),ui=scene(0,true),z=depth(false,false),geometry=geometry_field(false);
+        FgCamera c=camera(0,false);
+        for(unsigned i=0;i<6;i++) {
+            unsigned limit=i<3?W/2:0;
+            id<MTLCommandBuffer> cb=[queue commandBuffer];
+            id<MTLTexture> out=fg_encode(cb,source,ui,z,geometry,&c,2,limit,40.+i/60.);
+            [cb commit];[cb waitUntilCompleted];assert(!cb.error);
+            assert(source.width==W && source.height==H);
+            if(i%3<2)assert(!out);
+            else {
+                assert(out.width==(limit?W/2:W) && out.height==(limit?H/2:H));
+                NSData *bytes=readback_pixels(state->previous->motion,4);
+                const __fp16 *v=bytes.bytes;
+                unsigned x=(unsigned)out.width/16,y=(unsigned)out.height/2;
+                NSUInteger row=(out.width*4+255)&~255;
+                const __fp16 *motion=(const __fp16 *)((const uint8_t *)v+y*row+x*4);
+                assert(fabs((float)motion[0]-(limit?-3:-6))<.01 && fabs((float)motion[1]-(limit?1:2))<.01);
+            }
+        }
+        fg_reset();
+    }
+    puts("PASS: both modes, normal/reversed native/float depth, motion scenes, 4px X/-3px Y backward motion, geometry override/sentinel/nonfinite fallback/scaling, interior midpoint within 1px, private output distinct from endpoints, reset/gap/nil/off/UI/cut/resize, in-flight retention");
     }
 #endif
     return 0;

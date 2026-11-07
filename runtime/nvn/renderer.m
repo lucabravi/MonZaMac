@@ -3,6 +3,7 @@
 #include "../devlog.h"
 #include <CommonCrypto/CommonDigest.h>
 #include <dirent.h>
+#include <errno.h>
 #include <unistd.h>
 #import <Metal/Metal.h>
 #include <mach/mach_time.h>
@@ -20,6 +21,7 @@
 #include "nvn.h"
 #include "renderer.h"
 #include "frame_generation_camera.h"
+#include "geometry_motion_history.h"
 #include "frame_generation_display.h"
 extern uint64_t renderer_present_count(void);
 #include "../paths.h"
@@ -571,6 +573,39 @@ static struct {
     uint32_t restart_index;
     uint64_t copy_row_stride, copy_image_stride;
 } st;
+// Animated geometry contributes actual previous-vertex motion; unknown draws keep their ordinary shaders.
+static bool g_xfb_on, g_raster_discard, g_xfb_dirty;
+static id<MTLTexture> fg_geometry_texture;
+static uint64_t fg_geometry_texture_frame=UINT64_MAX,fg_geometry_depth_address;
+static bool fg_geometry_attached;
+static bool fg_geometry_complete;
+static unsigned fg_geometry_writes;
+static uint64_t fg_geometry_source_frame=UINT64_MAX;
+static struct { Range range; uint64_t frame; } fg_skin_ranges[1024];
+static unsigned fg_skin_count;
+static bool fg_geometry_enabled(void) {
+    const char *e=ENV("LARECOMP_FG_VERTEX_MOTION");
+    return (!e || atoi(e)) && settings_frame_generation();
+}
+static void fg_geometry_begin(uint64_t frame) {
+    if(frame==fg_geometry_source_frame)return;
+    unsigned n=0;
+    for(unsigned i=0;i<fg_skin_count;i++)if(fg_skin_ranges[i].frame<=frame && frame-fg_skin_ranges[i].frame<=2)fg_skin_ranges[n++]=fg_skin_ranges[i];
+    fg_skin_count=n;fg_geometry_writes=0;fg_geometry_complete=true;fg_geometry_source_frame=frame;
+}
+static bool fg_geometry_target(void) {
+    if(!fg_geometry_enabled() || g_raster_discard || st.rt.ncolor<5 || st.rt.color[7] || !st.rt.depth)return false;
+    for(int i=1;i<=4;i++)if(!st.rt.color[i] || st.rt.color[i]->width!=1920 || st.rt.color[i]->height!=1080)return false;
+    return st.rt.color[1]->format==0x38 && st.rt.color[2]->format==0x25 && st.rt.color[3]->format==0x25 && st.rt.color[4]->format==0x3f;
+}
+static bool fg_geometry_skinned(Range position) {
+    for(unsigned i=0;i<fg_skin_count;i++) {
+        Range r=fg_skin_ranges[i].range;
+        if(position.addr>=r.addr && position.addr-r.addr<r.size && position.size<=r.size-(position.addr-r.addr))return true;
+    }
+    return false;
+}
+
 
 extern uint32_t g_window_origin_lower_left_hack;
 uint32_t nvn_window_origin(void);
@@ -1163,6 +1198,23 @@ static void begin_pass(void) {
             else { w = MIN(w, (int)tex.width); h = MIN(h, (int)tex.height); }
         }
     }
+    fg_geometry_attached=false;
+    if(fg_geometry_target() && w>0 && h>0) {
+        uint64_t frame=renderer_present_count();fg_geometry_begin(frame);
+        bool fresh=fg_geometry_texture_frame!=frame || fg_geometry_depth_address!=st.rt.depth->addr;
+        if(!fg_geometry_texture || fg_geometry_texture.width!=(NSUInteger)w || fg_geometry_texture.height!=(NSUInteger)h) {
+            MTLTextureDescriptor *d=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRG16Float width:w height:h mipmapped:NO];
+            d.storageMode=MTLStorageModePrivate;d.usage=MTLTextureUsageRenderTarget|MTLTextureUsageShaderRead;
+            fg_geometry_texture=[dev newTextureWithDescriptor:d];fresh=true;
+        }
+        if(fg_geometry_texture) {
+            rp.colorAttachments[7].texture=fg_geometry_texture;
+            rp.colorAttachments[7].loadAction=fresh?MTLLoadActionClear:MTLLoadActionLoad;
+            rp.colorAttachments[7].clearColor=MTLClearColorMake(65504,65504,0,0);
+            rp.colorAttachments[7].storeAction=MTLStoreActionStore;
+            fg_geometry_texture_frame=frame;fg_geometry_depth_address=st.rt.depth->addr;fg_geometry_attached=true;
+        }
+    }
     memset(g_lc, 0, sizeof g_lc);
     g_ld_on = g_ls_on = false;
     if (!w) {
@@ -1252,6 +1304,7 @@ static id<MTLLibrary> clear_lib(int index) {
 }
 
 static void attachment_formats(MTLRenderPipelineDescriptor *pd) {
+    if(fg_geometry_attached)pd.colorAttachments[7].pixelFormat=MTLPixelFormatRG16Float;
     for (int i = 0; i < st.rt.ncolor; i++)
         if (st.rt.color[i]) pd.colorAttachments[i].pixelFormat = view_texture(st.rt.color[i], &st.rt.cview[i], st.rt.has_cview[i], true, nil).pixelFormat;
     if (st.rt.depth) {
@@ -1956,7 +2009,7 @@ static void texture_key(int stage, ShaderKey *key) {
 
 // Transform feedback (Z-A skins its characters / runs its particles in vertex-only passes whose output later draws read as
 // vertex streams): BeginTransformFeedback .. End, with the buffers bound and rasterizer discard on.
-static bool g_xfb_on, g_raster_discard, g_xfb_dirty;
+
 static uint64_t g_xfb_addr[4], g_xfb_size[4];
 static uint64_t g_ind_off = UINT64_MAX;  // an indirect draw whose arguments the GPU fills in (offset in the gmem window)
 static NvnProgram g_comp_prog;  // the stages bound so far (a game may bind them from several programs)
@@ -2107,6 +2160,7 @@ static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
     h ^= fkey->sint_slots; h *= 0x100000001B3ull;
     h ^= fkey->uint_slots; h *= 0x100000001B3ull;
     h ^= (uint64_t)fkey->img_uint << 8 | fkey->img_sint; h *= 0x100000001B3ull;
+    if(fkey->fg_motion) { h ^= fkey->fg_motion; h *= 0x100000001B3ull; }
     if (!h) h = 1;
     uint32_t slot = (uint32_t)(h ^ (h >> 31)) & (PROG_TAB - 1);
     slot = nvn_cache_probe(prog_tab, PROG_TAB, h, slot);
@@ -2115,6 +2169,7 @@ static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
     NSString *key = [NSString stringWithFormat:@"%llx/%llx/%@/%@/%x/%x/%x/%x/%x%s", p->stages[0].code_addr, p->stages[1].code_addr,
                      vertex_key, [NSData dataWithBytes:fkey->rt_kind length:8],
                      fkey->stencil_slots, fkey->sint_slots, fkey->uint_slots, fkey->img_uint, fkey->img_sint, vkey->flip_x ? "/mirror" : ""];
+    if(fkey->fg_motion)key=[key stringByAppendingFormat:@"/fg%u",fkey->fg_motion];
     Prog *pr = cache[key];
     if (pr) {
         prog_tab[slot].key = h;
@@ -2929,6 +2984,12 @@ static void bind_textures(int stage, ShaderInfo *si) {
     }
 }
 
+// Frame generation must use the exact camera snapshot bound to the deferred draw.
+static bool fg_want_bound_model,fg_bound_model_valid;
+static uint64_t fg_bound_model_hash;
+static bool fg_want_bound_camera, fg_bound_camera_valid;
+static FgCamera fg_bound_camera;
+
 static void bind_cbufs(int stage, ShaderInfo *si) {
     for (int k = 0; k < 18; k++) {
         if (!(si->cbuf_mask & (1u << k))) continue;
@@ -2982,6 +3043,15 @@ static void bind_cbufs(int stage, ShaderInfo *si) {
         if (size > r.size && r.size) size = r.size;
         if (size < 16) size = 16;
         uint64_t off = ring_snapshot((void *)(uintptr_t)r.addr, size);  // snapshot, as later CPU writes must not leak in
+        if(stage==0 && fg_want_bound_model && (k==5 || k==9 || k==10) && size>=64) {
+            fg_bound_model_hash=hmix(fg_bound_model_hash,(const uint8_t *)ring.contents+off,64);
+            if(k==10)fg_bound_model_valid=true;
+        }
+        if(stage==1 && k==5 && fg_want_bound_camera) {
+            const void *bound=(const uint8_t *)ring.contents+off;
+            fg_bound_camera_valid=fg_camera_decode(bound,size,&fg_bound_camera);
+        }
+
         if (stage == 0) [enc setVertexBuffer:ring offset:off atIndex:k];
         else [enc setFragmentBuffer:ring offset:off atIndex:k];
     }
@@ -3489,6 +3559,7 @@ static bool vertex_stream_slots(const ShaderInfo *info, bool debug, uint32_t *st
     uint32_t used = info->cbuf_mask;
     if (info->uses_gmem) used |= 1u << GMEM_BUFFER_INDEX;
     if (info->uses_xfb) used |= 1u << XFB_BUFFER_INDEX;
+    if (info->uses_fg_motion)used|=(1u<<FG_CURRENT_BUFFER_INDEX)|(1u<<FG_PREVIOUS_BUFFER_INDEX)|(1u<<FG_PARAMS_BUFFER_INDEX);
     if (debug) used |= 1u << DBG_VS_BUFFER_INDEX;
     if (*streams & (1u << 31)) used |= 1u << 30; // constant default attributes
     for (int stream = 0; stream < 16; stream++) {
@@ -3526,6 +3597,7 @@ static uint64_t pipeline_state_hash(Prog *pr) {
     h = hmix(h, &st.color_state[0], sizeof st.color_state[0]);
     h = hmix(h, &st.ms[0xC], 1);
     h = hmix(h, &g_raster_discard, 1);
+    h = hmix(h, &fg_geometry_attached, sizeof fg_geometry_attached);
     return h ? h : 1;
 }
 
@@ -3535,6 +3607,81 @@ static bool dbg_budget(int *n, uint64_t *frame, int limit) {
     uint64_t f = renderer_present_count();
     if (*frame != f) { *frame = f; *n = 0; }
     return g_debug_frame && (*n)++ < limit;
+}
+
+// Opt-in identity audit: addresses/layouts only, never shader, geometry, or uniform bytes.
+static void fg_geometry_audit(Prog *pr, const CmdRec *r, bool indexed, uint32_t streams, const ShaderKey *vkey) {
+    static struct { bool checked; uint64_t start, end, last; unsigned rows; FILE *file; } a;
+    if (!a.checked) {
+        a.checked = true;
+        const char *setting = getenv("LARECOMP_FG_GEOMETRY_AUDIT");
+        if (!setting || *setting < '0' || *setting > '9') return;
+        char *next, *tail;
+        errno = 0;
+        uint64_t start = strtoull(setting, &next, 10);
+        if (errno || *next != ':' || next[1] < '0' || next[1] > '9') return;
+        uint64_t frames = strtoull(next + 1, &tail, 10);
+        if (errno || *tail || !frames) return;
+        if (frames > 40) frames = 40;
+        if (start > UINT64_MAX - frames) return;
+        a.start = start; a.end = start + frames;
+    }
+    if (!a.end || g_prep_active) return;
+    uint64_t frame = renderer_present_count();
+    if (frame >= a.end || (a.file && frame < a.last)) {
+        if (a.file) fclose(a.file);
+        a.file = NULL; a.end = 0;
+        return;
+    }
+    if (frame < a.start) return;
+    if (!a.file) {
+        mkdir("build", 0755);
+        a.file = fopen("build/fg-geometry.tsv", "w");
+        if (!a.file) { a.end = 0; return; }
+        setvbuf(a.file, NULL, _IOFBF, 65536);
+        fputs("frame\tordinal\tgeometry_key\tvs\tfs\tmode\tindexed\tindex_type\tindex_addr\tfirst\tcount\tbase_vertex\tbase_instance\tinstances\tindirect_offset\targs_known\tattr_mask\tused_streams\tattributes\tvbuffers\tcb9\tcb10\tcb13\tssbo15\txfb_on\tdiscard\txfb_ranges\trtargets\n", a.file);
+        a.last = UINT64_MAX;
+    }
+    if (frame != a.last) { fflush(a.file); a.last = frame; a.rows = 0; }
+    if (a.rows >= 8192) {
+        if (a.rows == 8192) { fprintf(a.file, "# truncated frame %llu after 8192 draws\n", (unsigned long long)frame); fflush(a.file); a.rows++; }
+        return;
+    }
+    uint64_t identity[] = {pr->vs_addr, pr->vi->attr_mask, streams};
+    uint64_t key = hmix(0xcbf29ce484222325ull, identity, sizeof identity);
+    for (int i = 0; i < st.nattrib && i < 16; i++)
+        if (pr->vi->attr_mask & (1u << i)) key = hmix(key, &st.attrib[i], sizeof st.attrib[i]);
+    for (int s = 0; s < 16; s++) if (streams & (1u << s)) {
+        key = hmix(key, &st.vbuf[s], sizeof st.vbuf[s]);
+        key = hmix(key, st.stream[s], sizeof st.stream[s]);
+    }
+    // GPU-indirect arguments can change after the CPU sizing copy; flag that copy rather than synchronizing/readback.
+    fprintf(a.file, "%llu\t%u\t%016llx\t%llx\t%llx\t%u\t%d\t%d\t%llx\t%u\t%u\t%d\t%u\t%u\t%llx\t%d\t%x\t%x\t",
+        (unsigned long long)frame, a.rows++, (unsigned long long)key, (unsigned long long)pr->vs_addr, (unsigned long long)pr->fs_addr,
+        (uint32_t)r->x[0], indexed, indexed ? (int)r->x[1] : -1, (unsigned long long)(indexed ? r->x[3] : 0),
+        indexed ? 0 : (uint32_t)r->x[1], (uint32_t)r->x[2], indexed ? (int32_t)r->x[4] : 0,
+        (uint32_t)(indexed ? r->x[5] : r->x[3]), (uint32_t)(indexed ? r->x[6] : r->x[4]),
+        (unsigned long long)g_ind_off, g_ind_off == UINT64_MAX, pr->vi->attr_mask, streams);
+    for (int i = 0; i < st.nattrib && i < 16; i++)
+        if (pr->vi->attr_mask & (1u << i)) fprintf(a.file, "%d:%x;", i, st.attrib[i]);
+    fputc('\t', a.file);
+    for (int s = 0; s < 16; s++) if (streams & (1u << s))
+        fprintf(a.file, "%d:%llx:%llu:%u:%u;", s, (unsigned long long)st.vbuf[s].addr, (unsigned long long)st.vbuf[s].size, st.stream[s][0], st.stream[s][1]);
+    const int bindings[] = {9, 10, 13};
+    for (unsigned i = 0; i < sizeof bindings / sizeof *bindings; i++) {
+        int slot = bindings[i] - cbuf_base;
+        Range b = slot >= 0 && slot < 18 && (pr->vi->cbuf_mask & (1u << bindings[i])) ? st.ubuf[0][slot] : (Range){0};
+        fprintf(a.file, "\t%llx:%llu", (unsigned long long)b.addr, (unsigned long long)b.size);
+    }
+    fprintf(a.file, "\t%llx:%llu\t%d\t%d\t", (unsigned long long)st.sbuf[0][15].addr, (unsigned long long)st.sbuf[0][15].size, g_xfb_on, g_raster_discard);
+    if (pr->vi->uses_xfb) for (int b = 0; b < 4; b++) if (vkey->xfb_count[b])
+        fprintf(a.file, "%d:%llx:%llu:%u:%u;", b, (unsigned long long)g_xfb_addr[b], (unsigned long long)g_xfb_size[b], vkey->xfb_stride[b], vkey->xfb_count[b]);
+    fputc('\t', a.file);
+    for (int i = 0; i < st.rt.ncolor; i++) if (st.rt.color[i]) {
+        NvnTexture *t = st.rt.color[i];
+        fprintf(a.file, "%d:%llx:%u:%u:%x;", i, (unsigned long long)t->addr, t->width, t->height, t->format);
+    }
+    fputc('\n', a.file);
 }
 
 // A draw of a handful of vertices - a full-screen pass: post-processing, a menu's backdrop, the composite into the
@@ -3622,6 +3769,24 @@ static void prog_skip_stat(Prog *pr, NvnProgram *p, CmdRec *r) {
     LOG("[metal] %llu draws so far used a program that never compiled (fs %llx)\n", stat_draws, fs);
 }
 
+static void fg_note_skin(Prog *pr) {
+    if(!fg_geometry_enabled() || !pr->vi->uses_xfb || !g_raster_discard || !st.program->stages[0].control)return;
+    const uint8_t *c=st.program->stages[0].control;
+    if(*(const uint32_t *)(c+0x4dc)!=3 || *(const uint16_t *)(c+0x6dc)!=12 || !g_xfb_addr[0] || !g_xfb_size[0])return;
+    uint64_t frame=renderer_present_count();fg_geometry_begin(frame);
+    Range range={g_xfb_addr[0],g_xfb_size[0]};
+    for(unsigned i=0;i<fg_skin_count;i++)if(fg_skin_ranges[i].range.addr==range.addr && fg_skin_ranges[i].range.size==range.size){fg_skin_ranges[i].frame=frame;return;}
+    if(fg_skin_count<1024){fg_skin_ranges[fg_skin_count].range=range;fg_skin_ranges[fg_skin_count++].frame=frame;}
+}
+static uint64_t fg_geometry_key(Prog *pr,const CmdRec *r) {
+    uint64_t fields[]={pr->vs_addr,r->x[0],r->x[1],r->x[2],r->x[3],r->x[4],r->x[5],r->x[6],pr->vi->attr_mask};
+    uint64_t key=hmix(0xcbf29ce484222325ull,fields,sizeof fields);uint32_t streams=0;
+    for(int i=0;i<st.nattrib && i<32;i++)if(pr->vi->attr_mask&(1u<<i)) {
+        key=hmix(key,&st.attrib[i],sizeof st.attrib[i]);unsigned stream=(st.attrib[i]>>8)&31;if(stream<16)streams|=1u<<stream;
+    }
+    for(int i=0;i<16;i++)if(streams&(1u<<i)){key=hmix(key,&st.vbuf[i],sizeof st.vbuf[i]);key=hmix(key,st.stream[i],sizeof st.stream[i]);}
+    return key?key:1;
+}
 static void fg_observe_draw(Prog *pr);
 static void draw(CmdRec *r, bool indexed) {
     if (!(uint32_t)(indexed ? r->x[6] : r->x[4])) return;
@@ -3665,6 +3830,34 @@ static void draw(CmdRec *r, bool indexed) {
     vkey.xfb_void = g_raster_discard || !(st.program->stage_mask & 2);
     Prog *pr = get_program(st.program, &vkey, &fkey);
     if (!prog_ready_or_wait(pr, r)) { prog_skip_stat(pr, st.program, r); return; }
+    FgGeometryBinding fg_binding={0};uint64_t fg_history_key=0;
+    bool fg_target=fg_geometry_target();
+    if(fg_target)fg_geometry_begin(renderer_present_count());
+    if(fg_geometry_target() && indexed && g_ind_off==UINT64_MAX && r->x[0]==4 && r->x[2] && r->x[6]==1 && !r->x[4] && !r->x[5] &&
+       !pr->vi->uses_xfb && !pr->vi->writes_layer && (pr->vi->cbuf_mask&(1u<<10)) && !(pr->fi->out_mask&0xf0000000u) &&
+       st.nattrib && (pr->vi->attr_mask&1) && !(st.attrib[0]>>13)) {
+        uint64_t frame=renderer_present_count();fg_geometry_begin(frame);unsigned stream=(st.attrib[0]>>8)&31;
+        if(stream<16 && st.stream[stream][0]==12 && !st.stream[stream][1] && fg_geometry_skinned(st.vbuf[stream])) {
+            ShaderKey mv=vkey,mf=fkey;mv.fg_motion=mf.fg_motion=1;
+            Prog *motion=get_program(st.program,&mv,&mf);
+            uint64_t vertices=st.vbuf[stream].size/12;
+            if(motion && motion->ready && !motion->failed && motion->vi->uses_fg_motion && motion->fi->uses_fg_motion && vertices<=262144) {
+                uint64_t key=fg_geometry_key(pr,r);
+                if(fg_geometry_acquire(dev,key,frame,(uint32_t)vertices,&fg_binding)) {fg_history_key=key;pr=motion;vkey=mv;fkey=mf;}
+            }
+        }
+    }
+
+    // A foreground draw without vertex history must erase covered background motion.
+    // While its invalidation variant compiles, fall back to camera motion for the frame.
+    if(fg_target && !pr->vi->uses_fg_motion) {
+        ShaderKey invalidating=fkey;invalidating.fg_motion=2;
+        Prog *clear_motion=pr->fi && !(pr->fi->out_mask&0xf0000000u)?get_program(st.program,&vkey,&invalidating):nil;
+        if(clear_motion && clear_motion->ready && !clear_motion->early_pending && !clear_motion->failed && clear_motion->fi->uses_fg_motion) {
+            pr=clear_motion;fkey=invalidating;
+        } else fg_geometry_complete=false;
+    }
+
     if (g_rt_plane < 0 && pr->vi->writes_layer && st.rt.ncolor && st.rt.color[0] && st.rt.color[0]->target == 2 &&
         st.rt.color[0]->depth > 1) {  // (target 2: 3D)
         uint32_t ni = indexed ? (uint32_t)r->x[6] : (uint32_t)r->x[4], nb = indexed ? (uint32_t)r->x[5] : (uint32_t)r->x[3];
@@ -3763,6 +3956,7 @@ static void draw(CmdRec *r, bool indexed) {
     snap_reason = "draw-colorwrite";
     for (int i = 0; i < st.rt.ncolor; i++)
         if (st.rt.color[i] && ((st.channel_mask >> (i * 4)) & 0xF)) snapshots_invalidate(st.rt.color[i]);
+    if(fg_geometry_target() && !fg_geometry_attached)st.rt_dirty=true;
     begin_pass();
     if (g_pt_cur >= 0 && !g_pt_meta[g_pt_cur].fs) g_pt_meta[g_pt_cur].fs = st.program->stages[1].code_addr;
 
@@ -3842,6 +4036,10 @@ static void draw(CmdRec *r, bool indexed) {
             ca.alphaBlendOperation = blend_op(b[6]);
         }
     }
+    if(fg_geometry_attached) {
+        pd.colorAttachments[7].blendingEnabled=NO;
+        pd.colorAttachments[7].writeMask=pr->fi->uses_fg_motion?(MTLColorWriteMaskRed|MTLColorWriteMaskGreen):MTLColorWriteMaskNone;
+    }
     pd.alphaToCoverageEnabled = st.ms[0xC] != 0;
     NSMutableString *pk = [NSMutableString stringWithFormat:@"%u %p %p %lu %lu", g_pipeline_gen, pr->vs, pr->fs,
                            (unsigned long)pd.depthAttachmentPixelFormat, (unsigned long)pd.stencilAttachmentPixelFormat];
@@ -3895,7 +4093,7 @@ static void draw(CmdRec *r, bool indexed) {
         if (pobj) { cache[pk] = pobj; g_archive_hits++; pipeline_archive_add([pd copy], pr); }  // the new file keeps what is still used
     }
     if (!pobj) {
-        if (sync_shaders() || r->x[2] <= 6) {  // a full-screen draw waits for its pipeline too, as for its program (prog_ready_or_wait)
+        if (sync_shaders() || pr->fi->uses_fg_motion || r->x[2] <= 6) {  // a full-screen draw waits for its pipeline too, as for its program (prog_ready_or_wait)
             NSError *err;
             double trace_start = now_ms();
             pobj = TIMED_COMPILE([dev newRenderPipelineStateWithDescriptor:pd error:&err]);
@@ -4016,8 +4214,25 @@ static void draw(CmdRec *r, bool indexed) {
     float zn = st.depth_range[0][0], zf = st.depth_range[0][1];
 
     // resources
+    fg_want_bound_camera=false;fg_bound_camera_valid=false;
+    fg_want_bound_model=pr->vi->uses_fg_motion;fg_bound_model_valid=false;fg_bound_model_hash=0xcbf29ce484222325ull;
+    if(settings_frame_generation() && pr->fi && pr->fi->msl) {
+        if(!pr->fg_source_hash)pr->fg_source_hash=fnv64(pr->fi->msl);
+        fg_want_bound_camera=pr->fg_source_hash==0x38299bbd2d7c353dull;
+    }
     bind_cbufs(0, pr->vi);
     bind_cbufs(1, pr->fi);
+    if(pr->vi->uses_fg_motion) {
+        bool model=fg_bound_model_valid && fg_geometry_model(fg_history_key,renderer_present_count(),fg_bound_model_hash);
+        uint64_t tag=renderer_present_count()+1;
+        uint32_t info[4]={fg_binding.vertex_count,model && fg_binding.has_previous,(uint32_t)tag,(uint32_t)(tag>>32)};
+        float resolution[2]={(float)fg_geometry_texture.width,(float)fg_geometry_texture.height};
+        [enc setVertexBuffer:fg_binding.current offset:0 atIndex:FG_CURRENT_BUFFER_INDEX];
+        [enc setVertexBuffer:fg_binding.previous offset:0 atIndex:FG_PREVIOUS_BUFFER_INDEX];
+        [enc setVertexBytes:info length:sizeof info atIndex:FG_PARAMS_BUFFER_INDEX];
+        [enc setFragmentBytes:resolution length:sizeof resolution atIndex:FG_PARAMS_BUFFER_INDEX];
+    }
+
     if (pr->vi->uses_gmem) [enc setVertexBuffer:g_guest_buffer offset:0 atIndex:GMEM_BUFFER_INDEX];
     if (pr->vi->uses_xfb) {  // (word offset in the gmem window, size in words, on) of each bound buffer
         uint32_t xt[4][4] = {{0}};
@@ -4202,6 +4417,12 @@ static void draw(CmdRec *r, bool indexed) {
         }
     }
     }  // runs
+    if(pr->vi->uses_fg_motion) {
+        fg_geometry_written(fg_history_key,renderer_present_count());
+        if(fg_binding.has_previous && fg_bound_model_valid)fg_geometry_writes++;
+    }
+    fg_note_skin(pr);
+    fg_geometry_audit(pr, r, indexed, used_streams, &vkey);
     fg_observe_draw(pr);
     stat_draws++;
     g_pt_draws++;
@@ -4225,14 +4446,26 @@ static uint64_t fg_camera_frame = UINT64_MAX, fg_scene_frame = UINT64_MAX;
 static FgCamera fg_camera;
 static id<MTLTexture> fg_depth, fg_scene;
 static NvnTexture *fg_canvas;
+static uint64_t fg_depth_address;
 static id<MTLTexture> fg_scene_ring[3];
 
 bool renderer_fg_inputs(NvnTexture *presented, id<MTLTexture> *scene, id<MTLTexture> *depth, FgCamera *camera) {
     uint64_t frame = renderer_present_count();
     bool valid = settings_frame_generation() && fg_camera_frame == frame && fg_scene_frame == frame &&
                  fg_canvas == presented && fg_depth && fg_scene;
+    if(!valid && devlog_on("framegen") && frame%120==0)
+        devlog("framegen","input miss frame %llu camera %llu scene %llu canvas %d textures %d/%d",(unsigned long long)frame,(unsigned long long)fg_camera_frame,(unsigned long long)fg_scene_frame,fg_canvas==presented,fg_depth!=nil,fg_scene!=nil);
     if (valid) { *scene = fg_scene; *depth = fg_depth; *camera = fg_camera; }
     return valid;
+}
+
+id<MTLTexture> renderer_fg_motion(void) {
+    uint64_t frame=renderer_present_count();
+    bool valid=fg_geometry_enabled() && fg_geometry_texture_frame==frame && fg_geometry_depth_address==fg_depth_address &&
+               fg_geometry_writes && fg_geometry_complete && fg_geometry_frame_valid(frame);
+    if(devlog_on("framegen") && fg_geometry_enabled() && frame%120==0)
+        devlog("framegen","geometry frame %llu writes %u valid %d depth %d skin ranges %u",(unsigned long long)frame,fg_geometry_writes,valid,fg_geometry_depth_address==fg_depth_address,fg_skin_count);
+    return valid?fg_geometry_texture:nil;
 }
 
 static void fg_observe_draw(Prog *pr) {
@@ -4242,8 +4475,8 @@ static void fg_observe_draw(Prog *pr) {
     uint64_t hash = pr->fg_source_hash, frame = renderer_present_count();
     // Verified Z-A deferred lighting: camera block and full-resolution sampled depth.
     if (hash == 0x38299bbd2d7c353dull && cbuf_base == 3 && st.ubuf[1][2].addr && st.ubuf[1][2].size >= 544) {
-        FgCamera camera;
-        if (!fg_camera_decode((const void *)(uintptr_t)st.ubuf[1][2].addr, st.ubuf[1][2].size, &camera)) return;
+        if(!fg_bound_camera_valid)return;
+        FgCamera camera=fg_bound_camera;
         NvnTexture *depth = NULL;
         for (int i = 0; i < pr->fi->ntex; i++)
             if (pr->fi->tex[i].handle_offset == 256) depth = shader_texture_object(1, &pr->fi->tex[i]);
@@ -4254,7 +4487,7 @@ static void fg_observe_draw(Prog *pr) {
             for (int col=0;col<4;col++) camera.view_projection[col*4+1] = -camera.view_projection[col*4+1];
             for (int row=0;row<4;row++) camera.inverse_view_projection[4+row] = -camera.inverse_view_projection[4+row];
         }
-        fg_camera = camera; fg_depth = texture; fg_camera_frame = frame;
+        fg_camera = camera; fg_depth = texture; fg_depth_address=depth->addr; fg_camera_frame = frame;
     }
     // This spatial FXAA draw writes the final colour canvas before HUD/text draws.
     if (hash == 0xee350631a7ed66ceull && fg_camera_frame == frame && st.rt.color[0] && fg_active_color) {
@@ -5107,7 +5340,9 @@ void renderer_reset(void) {
     fg_camera_frame = fg_scene_frame = UINT64_MAX;
     fg_depth = fg_scene = fg_active_color = nil; fg_canvas = NULL;
     for (int i = 0; i < 3; i++) fg_scene_ring[i] = nil;
-    fg_reset();fg_display_reset();
+    fg_reset();fg_display_reset();fg_geometry_reset();
+    fg_geometry_texture=nil;fg_geometry_texture_frame=fg_geometry_source_frame=UINT64_MAX;
+    fg_geometry_attached=false;fg_skin_count=fg_geometry_writes=0;
     early_reset();
     renderer_flush_reason("reset");
     gpu_profile_reset();
