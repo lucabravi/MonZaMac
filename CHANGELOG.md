@@ -5,7 +5,7 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
-- **Optional MetalFX frame generation** (macOS 26, experimental): Video offers 30 real → 60 displayed and 60 real → 120 displayed fps on supported GPUs/screens, off by default. Guest timing stays at the original rate, the HUD is composited separately, and missing inputs fall back to real frames. Skinned characters supply their previous vertex positions as motion (1080p game image only), the rest uses camera and depth, so small edge artifacts and particles can still show. A **Frame generation quality** option (Native or Performance) caps only the generated frames at 1920 pixels wide to save GPU time. GPU headroom is required. See `docs/frame-generation.md`.
+- **Optional MetalFX frame generation** (macOS 26, experimental): Video offers 30 real → 60 displayed and 60 real → 120 displayed fps on supported GPUs/screens, off by default. Guest timing stays at the original rate, the HUD is composited separately, and missing inputs fall back to real frames. Skinned characters supply their previous vertex positions as motion, the rest uses camera and depth, so small edge artifacts and particles can still show. A **Frame generation quality** option (Native or Performance) caps only the generated frames at 1920 pixels wide to save GPU time. GPU headroom is required. See `docs/frame-generation.md`.
 
 - **Consistent shadow filtering across cascades:** keeps the filter's world-space width consistent in both materials and the deferred shadow mask, removing the abrupt sharp-to-blurry boundary seen at the station. Cascade distances stay unchanged; distant shadow detail still depends on map resolution. See `docs/shadow-cascades.md`.
 

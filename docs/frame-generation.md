@@ -66,8 +66,8 @@ tradeoff, not a guarantee of 60 real / 120 displayed fps. The new Performance mo
 The presenter uses the measured source-frame interval, including below the nominal 30/60 rate; this avoids uneven
 midpoint spacing under GPU load. Camera data is decoded from the exact uniform snapshot bound to the deferred draw.
 The per-vertex path is enabled with frame generation; `LARECOMP_FG_VERTEX_MOTION=0` forces camera-only motion for diagnosis.
-Direct single-instance skinned draws with compatible layout and a free MRT7 are tracked, in the game's 1920x1080
-G-buffer only: other sizes (handheld mode, dynamic game resolution) use camera motion. Other G-buffer draws write
+Direct single-instance skinned draws with compatible layout and a free MRT7 are tracked, in the G-buffer, recognised by its
+formats and a common size for its targets and depth (handheld and dynamic game resolution included, not yet verified there). Other G-buffer draws write
 an invalid-motion sentinel, so covered background motion cannot leak into foreground objects. The motion variants of
 a shader compile when first drawn, so a new character can cause a short hitch. These limits do not establish
 artifact-free interpolation.

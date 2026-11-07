@@ -595,7 +595,12 @@ static void fg_geometry_begin(uint64_t frame) {
 }
 static bool fg_geometry_target(void) {
     if(!fg_geometry_enabled() || g_raster_discard || st.rt.ncolor<5 || st.rt.color[7] || !st.rt.depth)return false;
-    for(int i=1;i<=4;i++)if(!st.rt.color[i] || st.rt.color[i]->width!=1920 || st.rt.color[i]->height!=1080)return false;
+    // Any size, so handheld (720p) and dynamic game resolution qualify: the G-buffer is told apart by its four formats and
+    // by all its targets and the depth sharing one size.
+    for(int i=1;i<=4;i++)if(!st.rt.color[i])return false;
+    NvnTexture *g=st.rt.color[1];
+    if(!g->width || !g->height || st.rt.depth->width!=g->width || st.rt.depth->height!=g->height)return false;
+    for(int i=2;i<=4;i++)if(st.rt.color[i]->width!=g->width || st.rt.color[i]->height!=g->height)return false;
     return st.rt.color[1]->format==0x38 && st.rt.color[2]->format==0x25 && st.rt.color[3]->format==0x25 && st.rt.color[4]->format==0x3f;
 }
 static bool fg_geometry_skinned(Range position) {
