@@ -3,6 +3,10 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
+## Unreleased
+
+- The shader translator honors the directed rounding modes (toward negative infinity, toward positive infinity, toward zero) of 32-bit integer to float (`I2F`) and float to half (`F2F`) conversions, instead of always rounding to nearest. Conversions rounded to nearest, and every shader that does not use these modes, translate exactly as before. Whether the game's shaders use them, and what that changes on screen, was not measured. The translated code of shaders that use them changes, so **Prepare all shaders** has to be run again (the **All shaders** badge turns yellow; the precompile version is 5). Directed rounding of 64-bit integer conversions and of integer to half conversions is not covered yet.
+
 ## 0.1.6
 
 Optional frame generation up to 120 fps, shadows without the sharp-to-blurry step at the cascade boundary, smoother distant animation, simpler defaults, and shader work. **After updating, run Prepare all shaders again** (the **All shaders** badge turns yellow): the translated shaders changed.
