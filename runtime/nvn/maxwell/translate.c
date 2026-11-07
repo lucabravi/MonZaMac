@@ -85,7 +85,36 @@ typedef struct {
     bool uses_gmem_store;    // STG present: the gmem buffer is not readonly
     uint32_t cbuf_need[18];  // highest constant vec4 index + 1 per cbuf (array size of the GLSL block)
     bool rsc_track[256];  // only integer-fetch coordinates and their MOV/F2I inputs need runtime phase metadata
+    bool uses_i2f_round, uses_f2h_round;
 } Ctx;
+
+// Conversion modes: 0 nearest, 1 negative infinity, 2 positive infinity, 3 zero.
+// Keep helpers conditional so shaders without directed conversions retain their source/cache identity.
+static void conversion_rounding_helpers(Ctx *c, Str *s) {
+    const char *to_bits=c->glsl?"floatBitsToUint":"as_type<uint>";
+    const char *to_float=c->glsl?"uintBitsToFloat":"as_type<float>";
+    if(c->uses_i2f_round)sp(s,
+        "float i2f_round(uint v, bool sgn, uint mode, bool absolute, bool negate) {\n"
+        "  bool negative=sgn && (v & 0x80000000u)!=0u; uint magnitude=negative?0u-v:v;\n"
+        "  negative=(negative && !absolute)!=negate; float f=float(magnitude); uint b=%s(f);\n"
+        "  bool above=f>=4294967296.0f, below=false;\n"
+        "  if(!above) { uint back=uint(f); above=back>magnitude; below=back<magnitude; }\n"
+        "  bool smaller=mode==3u || (mode==1u && !negative) || (mode==2u && negative);\n"
+        "  if(smaller && above)b--; else if(!smaller && below)b++;\n"
+        "  return %s(b | (negative?0x80000000u:0u));\n}\n",to_bits,to_float);
+    if(c->uses_f2h_round)sp(s,
+        "uint f2h_round(float v, uint mode) {\n"
+        "  uint b=%s(v), a=b & 0x7fffffffu, sign=(b>>16)&0x8000u;\n"
+        "  if(a>=0x7f800000u)return %s;\n"
+        "  bool away=(mode==1u && sign!=0u) || (mode==2u && sign==0u);\n"
+        "  int e=int((a>>23)&255u)-112; uint m=a&0x7fffffu, h; bool remainder;\n"
+        "  if(e>=31)return sign | (away?0x7c00u:0x7bffu);\n"
+        "  if(e>0) { h=(uint(e)<<10)|(m>>13); remainder=(m&8191u)!=0u; }\n"
+        "  else if(e>=-10) { uint shift=uint(14-e), sig=m|0x800000u; h=sig>>shift; remainder=(sig&((1u<<shift)-1u))!=0u; }\n"
+        "  else { h=0u; remainder=a!=0u; }\n"
+        "  if(away && remainder)h++; return sign|h;\n}\n",to_bits,
+        c->glsl?"(packHalf2x16(vec2(v,0.0f)) & 65535u)":"uint(as_type<ushort>(half(v)))");
+}
 
 static uint64_t bits(uint64_t w, int lo, int n) { return (w >> lo) & ((n == 64) ? ~0ull : ((1ull << n) - 1)); }
 static int64_t sbits(uint64_t w, int lo, int n) {
@@ -1742,13 +1771,20 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         if (sz == 0) sprintf(src, sgn ? "int(char((%s >> %d) & 0xFF))" : "((%s >> %d) & 0xFFu)", bv, sel * 8);
         else if (sz == 1) sprintf(src, sgn ? "int(short((%s >> %d) & 0xFFFF))" : "((%s >> %d) & 0xFFFFu)", bv, sel * 8);
         else sprintf(src, sgn ? "int(%s)" : "%s", bv);
-        sprintf(u, "float(%s)", src);
-        if (bits(w, 8, 2) == 1) {  // F16 result in the low half
+        int rnd=(int)bits(w,39,2);
+        if(sz==2 && bits(w,8,2)==2 && rnd) {
+            c->uses_i2f_round=true;
+            sprintf(u,"i2f_round(uint(%s), %s, %du, %s, %s)",src,sgn?"true":"false",rnd,
+                    bits(w,49,1)?"true":"false",bits(w,45,1)?"true":"false");
+            set_reg(c,d,FRES(u,false));
+        } else if (bits(w, 8, 2) == 1) {  // F16 result in the low half
+            sprintf(u, "float(%s)", src);
             char h[700];
             snprintf(h, sizeof h, c->glsl ? "(packHalf2x16(vec2(%s, 0.0f)))" : "(uint(as_type<ushort>(half(%s))))",
                      NA(u, bits(w, 45, 1), bits(w, 49, 1)));
             set_reg(c, d, h);
         } else {
+            sprintf(u, "float(%s)", src);
             set_reg(c, d, FRES(NA(u, bits(w, 45, 1), bits(w, 49, 1)), false));
         }
     } else if (OPM(0x5ca8000000000000ull, 0xfff8000000000000ull) || OPM(0x4ca8000000000000ull, 0xfff8000000000000ull) ||
@@ -1770,8 +1806,12 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         }
         if (dfmt == 1) {  // F16 result in the low half, high half zero
             char h[1100];
-            snprintf(h, sizeof h, c->glsl ? "(packHalf2x16(vec2(%s, 0.0f)))" : "(uint(as_type<ushort>(half(%s))))",
-                     bits(w, 50, 1) ? (sprintf(u, "saturate(%s)", t), u) : t);
+            const char *value=bits(w,50,1)?(sprintf(u,"saturate(%s)",t),u):t;
+            int rnd=(int)bits(w,39,2);
+            if(sfmt==2 && rnd) {
+                c->uses_f2h_round=true;
+                snprintf(h,sizeof h,"f2h_round(%s, %du)",value,rnd);
+            } else snprintf(h, sizeof h, c->glsl ? "(packHalf2x16(vec2(%s, 0.0f)))" : "(uint(as_type<ushort>(half(%s))))",value);
             set_reg(c, d, h);
         } else {
             set_reg(c, d, FRES(t, bits(w, 50, 1)));
@@ -2775,6 +2815,7 @@ static ShaderInfo *glsl_finish(Ctx *c, bool any_branch, bool dbg) {
     int set = stage == STAGE_FRAGMENT ? 1 : 0;
     Str s = {0};
     sp(&s, "%s", glsl_prelude);
+    conversion_rounding_helpers(c,&s);
     if (c->uses_ftz)
         sp(&s, "float ftz(float a) { uint v = floatBitsToUint(a); return uintBitsToFloat((v & 0x7f800000u) == 0u ? (v & 0x80000000u) : v); }\n");
     for (int i = 0; i < 18; i++) {
@@ -3070,6 +3111,7 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
     // ---------------------------------------------------------- MSL source
     Str s = {0};
     sp(&s, "#include <metal_stdlib>\nusing namespace metal;\n");
+    conversion_rounding_helpers(c,&s);
     // Test exponent bits so fast math cannot turn a subnormal comparison into
     // an ordinary compare. Preserve the sign of zero, infinities and NaN payloads.
     if (c->uses_ftz)
