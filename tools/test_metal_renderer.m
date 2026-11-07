@@ -9,6 +9,7 @@ void metal_test_bootstrap(void);
 void metal_test_preparation_page(void);
 void metal_test_texture_dump(void);
 void metal_test_next_texture_frame(void);
+void metal_test_frame_generation_filters(void);
 void renderer_set_scale(float sx, float sy);
 
 #define CHECK(c, message) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d: %s\n", __func__, __LINE__, message); exit(1); } } while (0)
@@ -1652,6 +1653,10 @@ static void shader_preparation(void) {
     setenv("LARECOMP_SHADER_RECORD", "recipes.jsonl", 1);
     NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
     bind_targets(&color, NULL, NULL); prepare_draw();
+    ShaderKey ordinary_key={0}, motion_key={.fg_motion=1};
+    CHECK(prep_program_record(st.program,&motion_key,&ordinary_key)==nil &&
+          prep_program_record(st.program,&ordinary_key,&motion_key)==nil,
+          "runtime motion variants cannot alias ordinary shaders in the shared recipe cache");
     NSMutableDictionary *shaders = [NSMutableDictionary new];
     for (int i = 0; i < 2; i++) {
         NvnShaderStage *stage = &st.program->stages[i];
@@ -2629,6 +2634,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"feedback-mip-depth", "feedback", feedback_mip_depth},
     {"feedback-base-alias", "feedback", feedback_base_alias},
     {"preparation-page", "preparation", metal_test_preparation_page},
+    {"frame-generation-filters", "frame-generation", metal_test_frame_generation_filters},
 };
 
 int metal_renderer_test_main(int argc, char **argv) { @autoreleasepool {
