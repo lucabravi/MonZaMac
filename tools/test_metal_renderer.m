@@ -4,6 +4,7 @@ static double gpu_interval_sum_ms(const double *intervals, size_t count, double 
 static double gpu_interval_union_ms(const double *intervals, size_t count, double window_start, double window_end);
 #include "../runtime/nvn/renderer.m"
 #import <ImageIO/ImageIO.h>
+#include <malloc/malloc.h>
 
 void metal_test_bootstrap(void);
 void metal_test_preparation_page(void);
@@ -1422,6 +1423,12 @@ static void scaled_fragment_fetch(void) {
     CHECK(!bad, "scaled fragment texel fetch must preserve physical pixels and fixed-coordinate reads");
 }
 
+static ShaderInfo *owned_shader_info(const ShaderInfo *source) {
+    ShaderInfo *copy=malloc(sizeof *copy);CHECK(copy,"fixture metadata allocation");
+    *copy=*source;copy->msl=source->msl?strdup(source->msl):NULL;
+    return copy;
+}
+
 static void feedback_mip_chain(bool depth) {
     // Each pass reads the preceding mip of the same texture, as in a depth pyramid.
     static id<MTLLibrary> library;
@@ -1442,7 +1449,7 @@ static void feedback_mip_chain(bool depth) {
     NvnDescPool pool = {.entries = entries, .count = 2};
     ShaderInfo vi = {0}, fi = {.ntex = 1};
     fi.tex[0].handle_offset = 0x20; fi.tex[0].type = TEXTYPE_2D;
-    Prog *program = [Prog new]; program->vi = &vi; program->fi = &fi;
+    Prog *program = [Prog new]; program->vi = owned_shader_info(&vi); program->fi = owned_shader_info(&fi);
     st.tpool = &pool; st.tex[1][0] = 1;
     MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
     pd.vertexFunction = [library newFunctionWithName:@"mip_vs"];
@@ -1517,7 +1524,7 @@ static void feedback_base_alias(void) {
         NvnTexEntry entries[2] = {{0}, {.tex = &texture}};
         NvnDescPool pool = {.entries = entries, .count = 2};
         ShaderInfo vi = {0}, fi = {.ntex = 1}; fi.tex[0].handle_offset = 0x20;
-        Prog *program = [Prog new]; program->vi = &vi; program->fi = &fi;
+        Prog *program = [Prog new]; program->vi = owned_shader_info(&vi); program->fi = owned_shader_info(&fi);
         st.tpool = &pool; st.tex[1][0] = 1;
         resolve_feedback(program); check_gpu();
         CHECK(nfeedback == 1, "an effective mip-zero attachment still requires a feedback snapshot");
@@ -1540,7 +1547,38 @@ static Prog *source_program(const char *fragment) {
 }
 
 static void free_source_program(Prog *pr) {
-    free(pr->vi->msl); free(pr->fi->msl); free(pr->vi); free(pr->fi);
+    maxwell_free(pr->vi);maxwell_free(pr->fi);pr->vi=pr->fi=NULL;
+}
+
+static void shader_metadata_lifetime(void) {
+    @autoreleasepool { (void)[Prog new]; }
+    dispatch_block_t pending;
+    __weak Prog *pending_owner;
+    @autoreleasepool {
+        Prog *program=[Prog new];pending_owner=program;
+        program->vi=calloc(1,sizeof *program->vi);
+        program->vi->msl=strdup("retained synthetic source");
+        cache[@"metadata-lifetime-fixture"]=program;
+        pending=^{CHECK(!strcmp(program->vi->msl,"retained synthetic source"),"deferred work retains metadata across cache reset");};
+    }
+    renderer_reset();
+    CHECK(pending_owner,"deferred work retains the program after cache reset");
+    pending();pending=nil;
+    CHECK(!pending_owner,"finishing deferred work releases its program");
+    malloc_statistics_t before={0},after={0};
+    malloc_zone_statistics(NULL,&before);
+    __weak Prog *last;
+    for(unsigned i=0;i<12;i++) @autoreleasepool {
+        Prog *program=[Prog new];last=program;
+        program->vi=calloc(1,sizeof *program->vi);program->fi=calloc(1,sizeof *program->fi);
+        program->vi->msl=calloc(1,1u<<20);program->fi->msl=calloc(1,1u<<20);
+        CHECK(program->vi->msl && program->fi->msl,"synthetic metadata allocation");
+    }
+    CHECK(!last,"program owners are released");
+    malloc_zone_statistics(NULL,&after);
+    size_t growth=after.size_in_use>before.size_in_use?after.size_in_use-before.size_in_use:0;
+    printf("SHADER_METADATA retained_bytes=%zu after 12 program releases\n",growth);
+    CHECK(growth<(1u<<20),"released programs must free their translated shader metadata and source");
 }
 
 static void shader_early_snapshot(void) {
@@ -2554,7 +2592,7 @@ static void compute_image_feedback(void) {
     NvnTexEntry entries[2]={{0},{.tex=&image}};NvnDescPool pool={.entries=entries,.count=2};st.tpool=&pool;st.tex[1][0]=1;
     ShaderInfo vi={.stage=STAGE_VERTEX},fi={.stage=STAGE_FRAGMENT,.ntex=1};
     fi.tex[0]=(ShaderTexture){.handle_offset=0x20,.type=TEXTYPE_2D};
-    Prog *graphics=[Prog new];graphics->vi=&vi;graphics->fi=&fi;
+    Prog *graphics=[Prog new];graphics->vi=owned_shader_info(&vi);graphics->fi=owned_shader_info(&fi);
     resolve_feedback(graphics);check_gpu();
     CHECK(nfeedback==1,"fixture must create a real read-only render-target feedback snapshot");
     id<MTLTexture> snapshot=feedback_copy[0];
@@ -2721,6 +2759,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"feedback-base-alias", "feedback", feedback_base_alias},
     {"preparation-page", "preparation", metal_test_preparation_page},
     {"frame-generation-filters", "frame-generation", metal_test_frame_generation_filters},
+    {"shader-metadata-lifetime", "shader-memory", shader_metadata_lifetime},
 };
 
 int metal_renderer_test_main(int argc, char **argv) { @autoreleasepool {

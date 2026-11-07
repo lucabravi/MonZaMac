@@ -1501,7 +1501,7 @@ static int cbuf_base = 3, tex_base = 8;
 @interface Prog : NSObject {
 @public
     id<MTLFunction> vs, fs;
-    ShaderInfo *vi, *fi;
+    ShaderInfo *vi, *fi;  // owned translation metadata, retained through any asynchronous compile by Prog
     uint64_t fg_source_hash;  // computed once when frame generation observes a fragment program
     uint64_t vs_addr, fs_addr;  // guest shader code addresses, for failure logs
     _Atomic bool failed;  // published by async compilation, read by get_program and draw waits
@@ -1514,6 +1514,10 @@ static int cbuf_base = 3, tex_base = 8;
 }
 @end
 @implementation Prog
+- (void)dealloc {
+    maxwell_free(vi);
+    maxwell_free(fi);
+}
 @end
 
 static id<MTLBuffer> ring;
