@@ -5,6 +5,8 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+- The **Aspect ratio** option is gone for now: the picture is always the game's original 16:9, with bars on other windows. A saved "Unlocked" choice is ignored, so nobody is left on a framing the menu can no longer change. (The separate **Wider view** option is unchanged.)
+
 - New installs start with a **fixed 1080p** internal resolution instead of Dynamic up to 1080p. **Dynamic** is still one choice away in Video > Resolution mode, and an existing `larecomp.ini` keeps its own choice.
 
 - Sampled textures whose full contents are unchanged no longer recompute their sampled-change hash, which saves a little CPU per frame. Nothing visible changes: first uploads and changed textures still refresh both hashes.
