@@ -1944,6 +1944,91 @@ static void surface_handle_provenance(void) {
     CHECK(bad == 0, "a modified handle must not write to its former constant-buffer image");
 }
 
+static double half_value(uint16_t h) {
+    unsigned e=(h>>10)&31,m=h&1023;
+    double v=e==31?(m?NAN:INFINITY):e?ldexp(1024.+m,(int)e-25):ldexp((double)m,-24);
+    return h&0x8000?-v:v;
+}
+static uint16_t half_neighbor(uint16_t h,bool up) {
+    if(!(h&0x7fff))return up?1:0x8001;
+    return (uint16_t)(h+((up==!(h&0x8000))?1:-1));
+}
+static uint32_t rounding_reference(uint32_t input,unsigned kind,unsigned mode,unsigned modifiers) {
+    if(kind<2) {
+        double exact=kind?(double)(int32_t)input:(double)input;
+        if(modifiers&2)exact=fabs(exact);
+        if(modifiers&1)exact=-exact;
+        float value=(float)exact;
+        if((mode==1 && (double)value>exact) || (mode==3 && exact>=0 && (double)value>exact))value=nextafterf(value,-INFINITY);
+        if((mode==2 && (double)value<exact) || (mode==3 && exact<0 && (double)value<exact))value=nextafterf(value,INFINITY);
+        uint32_t bits;memcpy(&bits,&value,4);return bits;
+    }
+    float value;memcpy(&value,&input,4);
+    _Float16 nearest=(_Float16)value;uint16_t h;memcpy(&h,&nearest,2);
+    double rounded=half_value(h);
+    if((mode==1 && rounded>value) || (mode==3 && value>=0 && rounded>value))h=half_neighbor(h,false);
+    if((mode==2 && rounded<value) || (mode==3 && value<0 && rounded<value))h=half_neighbor(h,true);
+    return h;
+}
+static void directed_rounding(void) {
+    const uint32_t integers[]={0,1,0x00ffffff,0x01000000,0x01000001,0x01000002,0x01000003,
+        0x7fffff7f,0x7fffffff,0x80000000,0x80000001,0xfeffffff,0xfefffffd,0xffffff7f,0xffffff80,0xffffffff};
+    const uint32_t floats[]={0,0x80000000,1,0x80000001,0x007fffff,0x807fffff,0x33000000,0xb3000000,
+        0x33800000,0xb3800000,0x387fffff,0xb87fffff,0x38800000,0xb8800000,0x3f800000,0xbf800000,
+        0x3f801000,0xbf801000,0x3f801001,0xbf801001,0x477fe000,0xc77fe000,0x477ff000,0xc77ff000,
+        0x47800000,0xc7800000,0x7f7fffff,0xff7fffff,0x7f800000,0xff800000,0x7fc12345};
+    const char *dump=getenv("LARECOMP_TEST_ROUNDING_GLSL_DIR");
+    if(dump)[[NSFileManager defaultManager] createDirectoryAtPath:@(dump) withIntermediateDirectories:YES attributes:nil error:nil];
+    unsigned checked=0;
+    for(unsigned kind=0;kind<3;kind++)for(unsigned mode=0;mode<4;mode++)for(unsigned modifiers=0;modifiers<(kind<2?4u:1u);modifiers++) {
+        const uint32_t *values=kind<2?integers:floats;
+        unsigned count=kind<2?sizeof integers/sizeof *integers:sizeof floats/sizeof *floats;
+        uint64_t code[128]={0};NvnProgram program={0};
+        uint64_t cvt=(kind<2?0x5cb8ull:0x5ca8ull)<<48;
+        cvt|=(2ull<<10)|((kind<2?2ull:1ull)<<8)|(kind==1?1ull<<13:0)|(uint64_t)mode<<39|(2ull<<20)|(7ull<<16)|9;
+        cvt|=(modifiers&1?1ull<<45:0)|(modifiers&2?1ull<<49:0);
+        uint64_t ops[]={0x4c98000000000000ull|(2ull<<34)|(7ull<<16)|2,cvt,
+            0x4c98000000000000ull|(2ull<<34)|(1ull<<20)|(7ull<<16)|20,
+            0x4c98000000000000ull|(2ull<<34)|(2ull<<20)|(7ull<<16)|21,
+            0xeed8000000000000ull|(4ull<<48)|(1ull<<45)|(7ull<<16)|(20ull<<8)|9};
+        compute_fixture(code,&program,ops,sizeof ops/sizeof *ops);
+        ShaderKey key={0};maxwell_gmem_base=g_gwin_base;maxwell_gmem_size=g_gwin_max;
+        ShaderInfo *info=maxwell_translate((uint8_t *)code,sizeof code,STAGE_COMPUTE,&key);
+        CHECK(info && info->msl,"synthetic conversion translates");
+        if(!mode)CHECK(!strstr(info->msl,"i2f_round(") && !strstr(info->msl,"f2h_round("),"nearest conversion keeps the ordinary path");
+        NSError *error=nil;id<MTLLibrary> lib=[dev newLibraryWithSource:@(info->msl) options:game_shader_opts(false) error:&error];
+        if(!lib)fprintf(stderr,"%s\n",error.localizedDescription.UTF8String);
+        CHECK(lib,"conversion shader compiles");maxwell_free(info);
+        id<MTLComputePipelineState> pipe=[dev newComputePipelineStateWithFunction:[lib newFunctionWithName:@"main0"] error:&error];
+        CHECK(pipe,"conversion pipeline compiles");
+        id<MTLBuffer> input=[dev newBufferWithLength:count*256 options:MTLResourceStorageModeShared];
+        uint32_t *out=(uint32_t *)((uint8_t *)g_guest_buffer.contents+512);
+        for(unsigned i=0;i<count;i++) {
+            uint64_t address=g_gwin_base+512+i*4;uint32_t *row=(uint32_t *)((uint8_t *)input.contents+i*256);
+            row[0]=values[i];row[1]=(uint32_t)address;row[2]=(uint32_t)(address>>32);out[i]=0xdeadbeef;
+        }
+        id<MTLCommandBuffer> cb=[renderer_queue() commandBuffer];id<MTLComputeCommandEncoder> e=[cb computeCommandEncoder];
+        [e setComputePipelineState:pipe];[e setBuffer:g_guest_buffer offset:0 atIndex:GMEM_BUFFER_INDEX];
+        for(unsigned i=0;i<count;i++) {
+            [e setBuffer:input offset:i*256 atIndex:2];[e dispatchThreadgroups:MTLSizeMake(1,1,1) threadsPerThreadgroup:MTLSizeMake(1,1,1)];
+        }
+        [e endEncoding];[cb commit];[cb waitUntilCompleted];CHECK(!cb.error,"conversion execution completes");
+        for(unsigned i=0;i<count;i++) {
+            uint32_t want=rounding_reference(values[i],kind,mode,modifiers);
+            bool nan=kind==2 && (values[i]&0x7fffffff)>0x7f800000;
+            bool ok=nan?!(out[i]&0xffff0000) && (out[i]&0x7c00)==0x7c00 && (out[i]&1023):out[i]==want;
+            if(!ok)fprintf(stderr,"round kind%u mode%u modifiers%u input=%08x got=%08x want=%08x\n",kind,mode,modifiers,values[i],out[i],want);
+            CHECK(ok,"directed conversion matches the independent numeric reference");checked++;
+        }
+        if(dump) {
+            key.glsl=1;info=maxwell_translate((uint8_t *)code,sizeof code,STAGE_COMPUTE,&key);CHECK(info&&info->msl,"GLSL conversion translates");
+            NSString *path=[NSString stringWithFormat:@"%s/round-%u-%u-%u.comp",dump,kind,mode,modifiers];
+            CHECK([@(info->msl) writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil],"write synthetic GLSL fixture");maxwell_free(info);
+        }
+    }
+    printf("PASS: %u native conversion values, I2F U32/S32 and F2F F32-to-F16 in all four modes\n",checked);
+}
+
 static void audit_f2f(void) {
     const struct { uint64_t opcode; uint32_t input, want; } cases[] = {
         {0x5ca8048000270909ull,0x3fc00000,0x00003e00}, // half 1.5, exactly representable
@@ -2563,6 +2648,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"compute-image-atomic", "images", compute_image_atomic},
     {"compute-image-atomic-array", "images", compute_image_atomic_array},
     {"audit-f2f", "audit", audit_f2f},
+    {"directed-rounding", "rounding", directed_rounding},
     {"audit-shuffle", "audit", audit_shuffle},
     {"audit-shadow-array", "audit", audit_shadow_array},
     {"audit-sured-bytes", "audit", audit_sured_bytes},

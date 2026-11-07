@@ -226,7 +226,7 @@ static int run_cases(void) {
          "textureLod(t0, as_f(r1), 0.0f)", NULL},
         // F2F.F16.F32 with bits 39-40 = RM and bit 42 set: a conversion rounding mode, not floor()
         {"f2f f16.f32 no integer round", STAGE_FRAGMENT, false, 0, 0x5ca8ull << 48 | 1ull << 42 | 1ull << 39 | 2 << 20 | PT_ | 2 << 10 | 1 << 8, 0,
-         "half(as_type<float>(r2))", "floor(as_type"},
+         "f2h_round(as_type<float>(r2), 1u)", "floor(as_type"},
         // F2F.F32.F32.FLOOR: integer rounding without a format change
         {"f2f f32.f32 floor", STAGE_FRAGMENT, false, 0, 0x5ca8ull << 48 | 1ull << 42 | 1ull << 39 | 2 << 20 | PT_ | 2 << 10 | 2 << 8, 0,
          "floor(as_type<float>(r2))", NULL},
