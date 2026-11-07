@@ -41,6 +41,10 @@ Macs, fix bugs or make the documentation better. You do not have to be a develop
   2× is 4K and 4× is 8K at 16:9. Match display and GPU-driven dynamic resolution are available too.
 - **Smooth presentation:** 30 or 60 fps modes, SMAA anti-aliasing, MetalFX upscaling and anisotropic filtering.
   Actual performance depends on your Mac, settings and scene; see [Status](#status) for a measured example.
+- **Frame generation up to 120 fps (optional):** MetalFX adds an intermediate frame, so 30 real fps are shown at 60 and
+  60 real fps at 120. It needs macOS 26, a GPU that supports MetalFX frame interpolation and a 60 or 120 Hz screen, and
+  it is off by default. The game keeps its normal speed; fast-moving characters can show artifacts and input does not
+  feel like native 120 fps. See [docs/frame-generation.md](docs/frame-generation.md).
 - **Your controls and saves:** remappable keyboard/controller input, docked or handheld mode, and multiple named
   save slots managed from the start screen.
 - **A Mac app you can set up yourself:** download the app, select your game files and let the guided setup build

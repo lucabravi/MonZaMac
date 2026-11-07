@@ -134,6 +134,8 @@ static MTLRenderPipelineDescriptor *prep_descriptor(id d, Prog *pr) {
 }
 
 static NSDictionary *prep_program_record(NvnProgram *p, const ShaderKey *vk, const ShaderKey *fk) {
+    // Runtime-only motion instrumentation is outside the shared recipe key schema.
+    if(vk->fg_motion || fk->fg_motion)return nil;
     NSString *vs = prep_stage_hash(&p->stages[0]);
     NSString *fs = p->stage_mask & 2 ? prep_stage_hash(&p->stages[1]) : @"";
     if (!vs || !fs) return nil;

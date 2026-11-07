@@ -83,7 +83,7 @@ static void dynamic_steps(void) {
     uint64_t now = plat_now_ns();
     double dt = g_dynamic_last ? (now - g_dynamic_last) / 1e9 : 0;
     g_dynamic_last = now;
-    if (dt <= 0) return;
+    if (dt <= 0) { ST64(g_step60, STEP_NS60); return; }
     if (dt > 0.25) dt = 0.25;  // (a stall or a load: not the frame rate)
     g_dynamic_smooth = g_dynamic_smooth > 0 ? dt * 0.05 + g_dynamic_smooth * 0.95 : dt;
     int fps = (int)floor(1.0 / g_dynamic_smooth);
@@ -104,16 +104,16 @@ extern void rt_za_npc_capacity(void);
 int32_t rt_za_frame_cfg(int32_t cfg) {
     rt_za_npc_capacity();
     g_za_frame_hook = true;
-    static bool was_uncapped;
+    static bool was_uncapped, was_on;
     bool uncapped = settings_uncapped_fps();
-    if (uncapped != was_uncapped) {
+    bool on = settings_real_fps60();
+    if (uncapped != was_uncapped || on != was_on) {
         g_dynamic_last = 0;
         g_dynamic_smooth = 0;
         was_uncapped = uncapped;
+        was_on = on;
     }
     if (uncapped) return 0; // benchmark: force the fast frame mode without adapting game time
-    const char *e = ENV("LARECOMP_FPS");
-    bool on = e ? atoi(e) >= 60 : g_settings.fps60;
     static int logged = -1;
     if (logged != (int)on) { logged = on; LOG("[pace] game frame mode %d -> %d (%s)\n", cfg, on ? 0 : cfg, on ? "60 fps" : "as is"); }
     if (on) dynamic_steps();
