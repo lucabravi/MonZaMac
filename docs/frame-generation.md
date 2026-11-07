@@ -61,17 +61,13 @@ One station comparison on the same M5 at render scale 1.5x / shadows 2x / 60→1
 80.2 displayed fps (24.85 ms GPU), versus Performance at 49.1 / 98.7 (20.40 ms). This is a quality/performance
 tradeoff, not a guarantee of 60 real / 120 displayed fps. The new Performance mode still needs broader motion-quality testing.
 
-## Movement investigation
+## Presentation and diagnostics
 
 The presenter uses the measured source-frame interval, including below the nominal 30/60 rate; this avoids uneven
 midpoint spacing under GPU load. Camera data is decoded from the exact uniform snapshot bound to the deferred draw.
 The per-vertex path is enabled with frame generation; `LARECOMP_FG_VERTEX_MOTION=0` forces camera-only motion for diagnosis.
-Direct single-instance skinned draws with compatible layout and a free MRT7 are tracked. Other G-buffer draws write
-an invalid-motion sentinel, so covered background motion cannot leak into foreground objects. These limits do not
-establish artifact-free interpolation.
-
-Developer-only `LARECOMP_FG_CAPTURE_ONLY=1` permits selected-frame analysis without displaying generated images
-(for example, with a hidden window). Pair it with `LARECOMP_FG_SHOT_AT=<frame>`; `LARECOMP_FG_DUMP=1` also saves
-private previous/current colour, depth, motion and camera metadata under `build/fg-debug/`. These dumps are derived
-from the user's game and must never be committed or uploaded. `LARECOMP_FG_CAMERA_MOTION=0` is a diagnostic zero-vector
-comparison, not an approved quality fix.
+Direct single-instance skinned draws with compatible layout and a free MRT7 are tracked, in the game's 1920x1080
+G-buffer only: other sizes (handheld mode, dynamic game resolution) use camera motion. Other G-buffer draws write
+an invalid-motion sentinel, so covered background motion cannot leak into foreground objects. The motion variants of
+a shader compile when first drawn, so a new character can cause a short hitch. These limits do not establish
+artifact-free interpolation.

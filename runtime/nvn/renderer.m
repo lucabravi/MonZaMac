@@ -3609,81 +3609,6 @@ static bool dbg_budget(int *n, uint64_t *frame, int limit) {
     return g_debug_frame && (*n)++ < limit;
 }
 
-// Opt-in identity audit: addresses/layouts only, never shader, geometry, or uniform bytes.
-static void fg_geometry_audit(Prog *pr, const CmdRec *r, bool indexed, uint32_t streams, const ShaderKey *vkey) {
-    static struct { bool checked; uint64_t start, end, last; unsigned rows; FILE *file; } a;
-    if (!a.checked) {
-        a.checked = true;
-        const char *setting = getenv("LARECOMP_FG_GEOMETRY_AUDIT");
-        if (!setting || *setting < '0' || *setting > '9') return;
-        char *next, *tail;
-        errno = 0;
-        uint64_t start = strtoull(setting, &next, 10);
-        if (errno || *next != ':' || next[1] < '0' || next[1] > '9') return;
-        uint64_t frames = strtoull(next + 1, &tail, 10);
-        if (errno || *tail || !frames) return;
-        if (frames > 40) frames = 40;
-        if (start > UINT64_MAX - frames) return;
-        a.start = start; a.end = start + frames;
-    }
-    if (!a.end || g_prep_active) return;
-    uint64_t frame = renderer_present_count();
-    if (frame >= a.end || (a.file && frame < a.last)) {
-        if (a.file) fclose(a.file);
-        a.file = NULL; a.end = 0;
-        return;
-    }
-    if (frame < a.start) return;
-    if (!a.file) {
-        mkdir("build", 0755);
-        a.file = fopen("build/fg-geometry.tsv", "w");
-        if (!a.file) { a.end = 0; return; }
-        setvbuf(a.file, NULL, _IOFBF, 65536);
-        fputs("frame\tordinal\tgeometry_key\tvs\tfs\tmode\tindexed\tindex_type\tindex_addr\tfirst\tcount\tbase_vertex\tbase_instance\tinstances\tindirect_offset\targs_known\tattr_mask\tused_streams\tattributes\tvbuffers\tcb9\tcb10\tcb13\tssbo15\txfb_on\tdiscard\txfb_ranges\trtargets\n", a.file);
-        a.last = UINT64_MAX;
-    }
-    if (frame != a.last) { fflush(a.file); a.last = frame; a.rows = 0; }
-    if (a.rows >= 8192) {
-        if (a.rows == 8192) { fprintf(a.file, "# truncated frame %llu after 8192 draws\n", (unsigned long long)frame); fflush(a.file); a.rows++; }
-        return;
-    }
-    uint64_t identity[] = {pr->vs_addr, pr->vi->attr_mask, streams};
-    uint64_t key = hmix(0xcbf29ce484222325ull, identity, sizeof identity);
-    for (int i = 0; i < st.nattrib && i < 16; i++)
-        if (pr->vi->attr_mask & (1u << i)) key = hmix(key, &st.attrib[i], sizeof st.attrib[i]);
-    for (int s = 0; s < 16; s++) if (streams & (1u << s)) {
-        key = hmix(key, &st.vbuf[s], sizeof st.vbuf[s]);
-        key = hmix(key, st.stream[s], sizeof st.stream[s]);
-    }
-    // GPU-indirect arguments can change after the CPU sizing copy; flag that copy rather than synchronizing/readback.
-    fprintf(a.file, "%llu\t%u\t%016llx\t%llx\t%llx\t%u\t%d\t%d\t%llx\t%u\t%u\t%d\t%u\t%u\t%llx\t%d\t%x\t%x\t",
-        (unsigned long long)frame, a.rows++, (unsigned long long)key, (unsigned long long)pr->vs_addr, (unsigned long long)pr->fs_addr,
-        (uint32_t)r->x[0], indexed, indexed ? (int)r->x[1] : -1, (unsigned long long)(indexed ? r->x[3] : 0),
-        indexed ? 0 : (uint32_t)r->x[1], (uint32_t)r->x[2], indexed ? (int32_t)r->x[4] : 0,
-        (uint32_t)(indexed ? r->x[5] : r->x[3]), (uint32_t)(indexed ? r->x[6] : r->x[4]),
-        (unsigned long long)g_ind_off, g_ind_off == UINT64_MAX, pr->vi->attr_mask, streams);
-    for (int i = 0; i < st.nattrib && i < 16; i++)
-        if (pr->vi->attr_mask & (1u << i)) fprintf(a.file, "%d:%x;", i, st.attrib[i]);
-    fputc('\t', a.file);
-    for (int s = 0; s < 16; s++) if (streams & (1u << s))
-        fprintf(a.file, "%d:%llx:%llu:%u:%u;", s, (unsigned long long)st.vbuf[s].addr, (unsigned long long)st.vbuf[s].size, st.stream[s][0], st.stream[s][1]);
-    const int bindings[] = {9, 10, 13};
-    for (unsigned i = 0; i < sizeof bindings / sizeof *bindings; i++) {
-        int slot = bindings[i] - cbuf_base;
-        Range b = slot >= 0 && slot < 18 && (pr->vi->cbuf_mask & (1u << bindings[i])) ? st.ubuf[0][slot] : (Range){0};
-        fprintf(a.file, "\t%llx:%llu", (unsigned long long)b.addr, (unsigned long long)b.size);
-    }
-    fprintf(a.file, "\t%llx:%llu\t%d\t%d\t", (unsigned long long)st.sbuf[0][15].addr, (unsigned long long)st.sbuf[0][15].size, g_xfb_on, g_raster_discard);
-    if (pr->vi->uses_xfb) for (int b = 0; b < 4; b++) if (vkey->xfb_count[b])
-        fprintf(a.file, "%d:%llx:%llu:%u:%u;", b, (unsigned long long)g_xfb_addr[b], (unsigned long long)g_xfb_size[b], vkey->xfb_stride[b], vkey->xfb_count[b]);
-    fputc('\t', a.file);
-    for (int i = 0; i < st.rt.ncolor; i++) if (st.rt.color[i]) {
-        NvnTexture *t = st.rt.color[i];
-        fprintf(a.file, "%d:%llx:%u:%u:%x;", i, (unsigned long long)t->addr, t->width, t->height, t->format);
-    }
-    fputc('\n', a.file);
-}
-
 // A draw of a handful of vertices - a full-screen pass: post-processing, a menu's backdrop, the composite into the
 // window image - whose program is still compiling is waited for (a few ms, once) rather than skipped: skipping one left
 // the whole frame black. Scene draws are still skipped until ready. (As ZA Recomp's Vulkan wait_built, 302bd07.)
@@ -4422,7 +4347,6 @@ static void draw(CmdRec *r, bool indexed) {
         if(fg_binding.has_previous && fg_bound_model_valid)fg_geometry_writes++;
     }
     fg_note_skin(pr);
-    fg_geometry_audit(pr, r, indexed, used_streams, &vkey);
     fg_observe_draw(pr);
     stat_draws++;
     g_pt_draws++;
