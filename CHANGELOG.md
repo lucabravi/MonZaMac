@@ -7,6 +7,8 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 - The **Aspect ratio** option is gone for now: the picture is always the game's original 16:9, with bars on other windows. A saved "Unlocked" choice is ignored, so nobody is left on a framing the menu can no longer change. (The separate **Wider view** option is unchanged.)
 
+- New installs start with a **fixed 1080p** internal resolution instead of Dynamic up to 1080p. **Dynamic** is still one choice away in Video > Resolution mode, and an existing `larecomp.ini` keeps its own choice.
+
 - Sampled textures whose full contents are unchanged no longer recompute their sampled-change hash, which saves a little CPU per frame. Nothing visible changes: first uploads and changed textures still refresh both hashes.
 
 - **Optional MetalFX frame generation** (macOS 26, experimental): Video offers 30 real → 60 displayed and 60 real → 120 displayed fps on supported GPUs/screens, off by default. Guest timing stays at the original rate, the HUD is composited separately, and missing inputs fall back to real frames. Skinned characters supply their previous vertex positions as motion, the rest uses camera and depth, so small edge artifacts and particles can still show. A **Frame generation quality** option (Native or Performance) caps only the generated frames at 1920 pixels wide to save GPU time. GPU headroom is required. See `docs/frame-generation.md`.
