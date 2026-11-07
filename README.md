@@ -98,9 +98,9 @@ one in the list, called "Main save" until you rename it.
 
 <br>
 
-A new install starts with fullscreen, a dynamic-resolution preset capped at 1080p, 60 fps, SMAA, the original 16:9
+A new install starts with fullscreen, a fixed 1080p resolution, 60 fps, SMAA, the original 16:9
 picture and anisotropic filtering. **1080p is the initial preset, not the maximum supported resolution.** Choose
-higher internal resolutions, Match display or frame generation in **SETTINGS**, available before and during play.
+higher internal resolutions, Dynamic, Match display or frame generation in **SETTINGS**, available before and during play.
 
 In the game: **F1** opens the menu (video, audio, controls), **F3** shows the frame rate and the render resolution.
 Default gameplay controls: WASD move, arrows d-pad, K / J = A / B, Q / E = L / R, Enter / Backspace = Plus / Minus;
