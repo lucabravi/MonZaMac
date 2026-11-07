@@ -555,8 +555,9 @@ static void upload_texture(NvnTexture *t, TexBackend *b, id<MTLBlitCommandEncode
     }
     uint64_t h = hash_full(mem, total);
     b->full_frame = g_frame_counter;
-    b->sample_hash = fnv_sample(mem, total);
+    // Unchanged full contents already have a matching sample hash.
     if (b->uploaded && h == b->data_hash) return;
+    b->sample_hash = fnv_sample(mem, total);
     if (b->uploaded && h != b->data_hash) b->dynamic = true;
     b->data_hash = h;
     b->uploaded = true;
