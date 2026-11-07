@@ -636,7 +636,7 @@ static void tab_display(void) {
         if (is_dyn) snprintf(d + n, sizeof d - n, " Dynamic: %.0f%% of its top resolution right now.", output_scale_dynamic_factor() * 100);
         static const char *modes[] = {"Fixed", "Dynamic"};
         int mi = is_dyn;
-        if (opt_choice("Resolution mode", &mi, modes, 2, 1, d, false) && mi != (int)is_dyn) {
+        if (opt_choice("Resolution mode", &mi, modes, 2, 0, d, false) && mi != (int)is_dyn) {
             // the nearest of the other kind: Match display <-> this screen, 1x and below <-> 1080p, above <-> 1620p
             int m = g_settings.res_mode;
             if (mi) g_settings.res_mode = m == RES_MATCH ? RES_DYNAMIC : (m == 1 || m == RES_Q25 || m == RES_Q50 || m == RES_Q75) ? RES_DYNAMIC_X1 : RES_DYNAMIC_X15;
