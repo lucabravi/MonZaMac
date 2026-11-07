@@ -105,7 +105,7 @@ void settings_load(void) {
         char key[64];
         char val[128] = {0};
         if (sscanf(line, " %63[^= ] = %127[^\n]", key, val) < 1) continue;
-        if (!strcmp(key, "aspect")) g_settings.aspect = !strcmp(val, "original") ? ASPECT_ORIGINAL : ASPECT_UNLOCKED;
+        if (!strcmp(key, "aspect")) {}  // (not read for now: the picture is always the original 16:9, see the end of this function)
         else if (!strcmp(key, "fullscreen")) g_settings.fullscreen = atoi(val) != 0;
         else if (!strcmp(key, "volume")) g_settings.volume = (float)atof(val);
         else if (!strcmp(key, "reverb")) g_settings.reverb = atoi(val) != 0;
@@ -186,6 +186,7 @@ void settings_load(void) {
     if (!tip_key) g_settings.menu_tip_seen = true;  // (a settings file from before the note: not a first launch)
     if (!aspect_key) g_settings.aspect_asked = true;  // (likewise: the aspect ratio was chosen already)
     if (shadows_4k_old && !shadow_key) g_settings.shadow_res = g_settings.shadow_sharp = 4;  // ("4K shadows" of the earlier versions: the same, 4x at both)
+    g_settings.aspect = ASPECT_ORIGINAL;  // (for now every save of the settings is shown in the original 16:9; no option)
     if (g_settings.volume < 0) g_settings.volume = 0;
     if (g_settings.volume > 2) g_settings.volume = 2;
     LOG("[settings] loaded %s\n", SETTINGS_FILE);
