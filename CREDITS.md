@@ -13,6 +13,13 @@ MonZaMac and are not listed.
 - The Royale profile photo (texture read-back into guest memory) and skipping indirect draws with impossible
   parameters, both after their fixes
 
+**Lumiose Online** - the multiplayer mod behind the online edition, its server and its community are the work of the
+[Lumiose Online](https://lumioseonline.site) team; their PC integration is
+[PokeZ-ARecomp-Online](https://github.com/TheMagnumChad/PokeZ-ARecomp-Online). MonZaMac's online edition runs their mod
+(a `subsdk9` module that it downloads from their site, checked against the hash they publish) natively on the Mac and
+adds nothing of theirs to this repository: no module and no assets.
+They agreed to this and keep the download up to date. An independent fan project, not affiliated with Nintendo.
+
 **Contributors** - thank you to everyone who has sent code (GitHub handles, in order of first contribution):
 - **[@dvilelaf](https://github.com/dvilelaf)** - the System language setting (#15), packaging fix for the game code
   generator helper (#10), and the task forwarder fix for the level-transition crash (#34, issue #19)

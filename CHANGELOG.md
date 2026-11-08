@@ -3,6 +3,32 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
+## 0.2.0
+
+A new start screen, and **Lumiose Online**: optional online play with the multiplayer mod of the same name, in a separate online edition. The offline edition is the one you know, with the new start screen. **After updating, the game code is rebuilt once on its own (a few minutes, with a progress bar), because the generator changed.**
+
+### Start screen
+- **Landscape layout:** a header across the top (logo, name, **All shaders**, **Shader catalog**, **Legal notice**, **Settings** and **Quit**), the **Play offline** column in the middle (the save card, **Continue**, **New game**, **Saves**) and a bar along the bottom with the state of the game files and the version. The shader chips moved from the bottom to the header and show their state with an icon.
+- **Saves** now only chooses the save and goes back to the start screen; **Continue** and the card use the chosen save, or the most recent one.
+- **Settings** outside the game fill the window under the header, with a **Back** button instead of the X and more room around the rows. The in-game menu is unchanged.
+- When only the game code is out of date after an update, the **rebuild starts by itself** instead of waiting for **Update game code**.
+
+### Lumiose Online (online edition)
+- **Play online** in a second column: the first press asks for your consent (your game data is shared with Lumiose Online, a separate service run by its own team, not by MonZaMac), prepares the online version on your Mac (a few minutes, with a progress bar) and starts the game with the mod. It is available only with the game files of version 2.0.2.
+- Every later press first checks for a newer module from the Lumiose Online team (a download checked against the SHA-256 they publish) and prepares it before starting. The server is the team's, `lumioseonline.site`; offline play never contacts it.
+- The mod's text starts at 120% so it is less grainy at 1080p; a size you set yourself is kept.
+- **Quit to start screen** from an online session restarts the program, so **Continue** there plays offline, without the mod.
+- The online edition keeps the game code build (about 1.3 GB more on disk) to prepare the mod quickly; **Delete game files** removes it.
+- **Microphone** for the mod's voice chat: the game can use the Mac's microphone, and macOS asks for the permission the first time. The voice itself has not been heard by another player yet.
+- Not verified yet: chat text entry and delivery, play against Windows or Linux players, and every optional feature of MonZaMac together with the mod.
+
+### Defaults
+- New installs start with the **two-finger trackpad swipe turning the camera** (Controls > Mouse). An existing `larecomp.ini` keeps its own choice. The other graphics defaults are unchanged: fullscreen, fixed 1080p, 60 fps, SMAA, MetalFX spatial upscaling, smooth distant animation, sharper textures, frame generation off.
+
+### Fixes
+- Pressing **Esc** a few times with a controller connected could stop the app (an ImGui assertion in the menu). The menu now cancels a layer toggle it cannot finish.
+- The key **0** no longer does anything: it wrote a dump of the next frame into `build/` for every player. **F9** does it only with `LARECOMP_DEVTOOLS`.
+
 ## 0.1.7
 
 MetalFX temporal upscaling, a Video page in sections with a clearer help panel, a fix for animations flickering between two poses with smooth distant animation, and a shader translator fix. **After updating, run Prepare all shaders again.**
