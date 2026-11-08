@@ -118,8 +118,8 @@ int main(int argc, char **argv) {
     std::string text = frame();
     for (const auto &row : launcher_rows) assert(rows.at(row.first).id == row.second.id);
     size_t pos = 0;
-    for (const char *section : {"DISPLAY", "RENDERING RESOLUTION", "UPSCALING AND AA",
-                                "FRAME RATE AND GENERATION", "GAME EFFECTS", "SHADOWS"}) {
+    for (const char *section : {"DISPLAY", "RENDERING RESOLUTION", "FRAME RATE AND GENERATION",
+                                "UPSCALING AND AA", "GAME EFFECTS", "SHADOWS"}) {
         pos = text.find(section, pos);
         assert(pos != std::string::npos);
         pos++;

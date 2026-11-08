@@ -627,55 +627,7 @@ static void tab_display(void) {
                    "from Internal resolution > Dynamic.");
     }
 
-    opt_section("Upscaling and AA");
-    {   // saved choices survive capability fallback and switching between the platforms
-#ifdef __APPLE__
-        bool supported = temporal_supported();
-        const char *ups[] = {"Bilinear", "MetalFX spatial", supported ? "Temporal (Experimental)" : "Temporal unavailable"};
-        int ui = g_settings.upscaler == UPSCALE_BILINEAR ? 0 : g_settings.upscaler == UPSCALE_METALFX_TEMPORAL ? 2 : 1;
-        char ud[768];
-        snprintf(ud, sizeof ud, "%sBilinear is soft. MetalFX spatial sharpens the current frame. MetalFX temporal "
-                 "(Experimental) reconstructs detail across frames, replacing SMAA and Game FXAA without changing their "
-                 "saved choices.\n\nTemporal can leave trails on moving characters and particles. It falls back to spatial "
-                 "upscaling in menus, loading or when scene inputs are missing. Choose an internal resolution at or below "
-                 "the display; at Match display, temporal still smooths edges. Very low resolutions may exceed the GPU scaling range and use spatial fallback.",
-                 supported ? "" : "Temporal unavailable: needs macOS 13 or later and a GPU supporting MetalFX temporal scaling. "
-                                  "Your saved choice uses spatial upscaling here.\n\n");
-        if (opt_choice("Upscaler", &ui, ups, 3, 1, ud))
-            g_settings.upscaler = ui == 2 ? UPSCALE_METALFX_TEMPORAL : ui == 1 ? UPSCALE_METALFX : UPSCALE_BILINEAR;
-#else
-        static const char *ups[] = {"Bilinear", "AMD FSR 1"};
-        const char *ud = "How the image is scaled up to the window when it renders at a lower resolution. AMD FSR 1: "
-                         "edge-aware upscaling and sharpening, sharper. Bilinear: plain and soft.";
-        int ui = g_settings.upscaler == UPSCALE_BILINEAR ? 0 : 1;
-        char udm[512];
-        if (g_settings.res_mode == RES_MATCH) {  // (renders at the window's size: nothing to scale up)
-            snprintf(udm, sizeof udm, "%s\n\nNot used at Match display: the game already renders at your display's resolution.", ud);
-            ud = udm;
-            opt_disable_next();
-        }
-        if (opt_choice("Upscaler", &ui, ups, 2, 1, ud)) g_settings.upscaler = ui ? UPSCALE_SHARP : UPSCALE_BILINEAR;
-#endif
-    }
     bool temporal = settings_temporal_upscale();
-    static const char *aa[] = {"Off", "SMAA"};
-    if (temporal) opt_disable_next();
-    opt_choice("Anti-aliasing", &g_settings.antialias, aa, 2, AA_SMAA,
-               temporal ? "Inactive while MetalFX temporal supplies anti-aliasing. Your saved SMAA choice is restored when "
-                          "temporal is off, and may be used during spatial fallback in menus or loading." :
-               "Smooths jagged edges of the game image before it is scaled to the window. SMAA: finds the edges and "
-               "blends only along them, so textures stay sharp. Most useful at a lower internal resolution.");
-    {   // Pokémon Z-A's own effects (runtime/hle/za_mods.c): the same patch build as the frame mode
-        if (za_rows()) {
-            if (temporal) opt_disable_next();
-            opt_toggle("Game FXAA", &g_settings.fxaa, true,
-                       temporal ? "Inactive while MetalFX temporal supplies anti-aliasing. Your saved Game FXAA choice "
-                                  "is restored when temporal is off." :
-                       "The game's own anti-aliasing, a light blur over the whole image. Off: sharper, with more jagged "
-                       "edges (SMAA above can smooth them instead).");
-        }
-    }
-
     opt_section("Frame rate and generation");
     {   // Pokémon Z-A's frame mode (runtime/hle/framepace.c rt_za_frame_cfg): applies from the next frame
         if (za_rows()) {
@@ -716,6 +668,54 @@ static void tab_display(void) {
                           "resolution. Intermediate images may look softer. Applies immediately."))
                 g_settings.frame_generation_performance = fg_quality == 1;
 
+        }
+    }
+
+    opt_section("Upscaling and AA");
+    {   // saved choices survive capability fallback and switching between the platforms
+#ifdef __APPLE__
+        bool supported = temporal_supported();
+        const char *ups[] = {"Bilinear", "MetalFX spatial", supported ? "Temporal (Experimental)" : "Temporal unavailable"};
+        int ui = g_settings.upscaler == UPSCALE_BILINEAR ? 0 : g_settings.upscaler == UPSCALE_METALFX_TEMPORAL ? 2 : 1;
+        char ud[768];
+        snprintf(ud, sizeof ud, "%sBilinear is soft. MetalFX spatial sharpens the current frame. MetalFX temporal "
+                 "(Experimental) reconstructs detail across frames, replacing SMAA and Game FXAA without changing their "
+                 "saved choices.\n\nTemporal can leave trails on moving characters and particles. It falls back to spatial "
+                 "upscaling in menus, loading or when scene inputs are missing. Choose an internal resolution at or below "
+                 "the display; at Match display, temporal still smooths edges. Very low resolutions may exceed the GPU scaling range and use spatial fallback.",
+                 supported ? "" : "Temporal unavailable: needs macOS 13 or later and a GPU supporting MetalFX temporal scaling. "
+                                  "Your saved choice uses spatial upscaling here.\n\n");
+        if (opt_choice("Upscaler", &ui, ups, 3, 1, ud))
+            g_settings.upscaler = ui == 2 ? UPSCALE_METALFX_TEMPORAL : ui == 1 ? UPSCALE_METALFX : UPSCALE_BILINEAR;
+#else
+        static const char *ups[] = {"Bilinear", "AMD FSR 1"};
+        const char *ud = "How the image is scaled up to the window when it renders at a lower resolution. AMD FSR 1: "
+                         "edge-aware upscaling and sharpening, sharper. Bilinear: plain and soft.";
+        int ui = g_settings.upscaler == UPSCALE_BILINEAR ? 0 : 1;
+        char udm[512];
+        if (g_settings.res_mode == RES_MATCH) {  // (renders at the window's size: nothing to scale up)
+            snprintf(udm, sizeof udm, "%s\n\nNot used at Match display: the game already renders at your display's resolution.", ud);
+            ud = udm;
+            opt_disable_next();
+        }
+        if (opt_choice("Upscaler", &ui, ups, 2, 1, ud)) g_settings.upscaler = ui ? UPSCALE_SHARP : UPSCALE_BILINEAR;
+#endif
+    }
+    static const char *aa[] = {"Off", "SMAA"};
+    if (temporal) opt_disable_next();
+    opt_choice("Anti-aliasing", &g_settings.antialias, aa, 2, AA_SMAA,
+               temporal ? "Inactive while MetalFX temporal supplies anti-aliasing. Your saved SMAA choice is restored when "
+                          "temporal is off, and may be used during spatial fallback in menus or loading." :
+               "Smooths jagged edges of the game image before it is scaled to the window. SMAA: finds the edges and "
+               "blends only along them, so textures stay sharp. Most useful at a lower internal resolution.");
+    {   // Pokémon Z-A's own effects (runtime/hle/za_mods.c): the same patch build as the frame mode
+        if (za_rows()) {
+            if (temporal) opt_disable_next();
+            opt_toggle("Game FXAA", &g_settings.fxaa, true,
+                       temporal ? "Inactive while MetalFX temporal supplies anti-aliasing. Your saved Game FXAA choice "
+                                  "is restored when temporal is off." :
+                       "The game's own anti-aliasing, a light blur over the whole image. Off: sharper, with more jagged "
+                       "edges (SMAA above can smooth them instead).");
         }
     }
 
