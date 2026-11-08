@@ -683,16 +683,18 @@ static void tab_display(void) {
     {   // saved choices survive capability fallback and switching between the platforms
 #ifdef __APPLE__
         bool supported = temporal_supported();
-        const char *ups[] = {"Bilinear", "MetalFX spatial", supported ? "Temporal (Experimental)" : "Temporal unavailable"};
+        const char *ups[] = {"Bilinear", "MetalFX spatial", supported ? "MetalFX temporal" : "MetalFX temporal unavailable"};
         int ui = g_settings.upscaler == UPSCALE_BILINEAR ? 0 : g_settings.upscaler == UPSCALE_METALFX_TEMPORAL ? 2 : 1;
-        char ud[768];
+        char ud[1024];
         snprintf(ud, sizeof ud, "%sBilinear is soft. MetalFX spatial sharpens the current frame. MetalFX temporal "
-                 "(Experimental) reconstructs detail across frames, replacing SMAA and Game FXAA without changing their "
-                 "saved choices.\n\nTemporal can leave trails on moving characters and particles. It falls back to spatial "
-                 "upscaling in menus, loading or when scene inputs are missing. Choose an internal resolution at or below "
-                 "the display; at Match display, temporal still smooths edges. Very low resolutions may exceed the GPU scaling range and use spatial fallback.",
-                 supported ? "" : "Temporal unavailable: needs macOS 13 or later and a GPU supporting MetalFX temporal scaling. "
-                                  "Your saved choice uses spatial upscaling here.\n\n");
+                 "(experimental) builds a sharper picture from several frames: the game draws fewer pixels, and the motion and "
+                 "depth of the earlier frames fill in the detail, so a high output resolution costs less. It replaces SMAA and "
+                 "Game FXAA without changing their saved choices.\n\nIt can leave trails on moving characters and particles. "
+                 "It falls back to spatial upscaling in menus, loading or when scene inputs are missing. Choose an internal "
+                 "resolution at or below the display; at Match display, it still smooths edges. Very low resolutions may "
+                 "exceed the GPU scaling range and use spatial fallback.",
+                 supported ? "" : "MetalFX temporal unavailable: needs macOS 13 or later and a GPU supporting MetalFX temporal "
+                                  "scaling. Your saved choice uses spatial upscaling here.\n\n");
         if (opt_choice("Upscaler", &ui, ups, 3, 1, ud))
             g_settings.upscaler = ui == 2 ? UPSCALE_METALFX_TEMPORAL : ui == 1 ? UPSCALE_METALFX : UPSCALE_BILINEAR;
 #else

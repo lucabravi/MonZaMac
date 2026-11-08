@@ -77,4 +77,4 @@ artifact-free interpolation.
 
 ## Temporal reconstruction
 
-Frame generation can also consume reconstructed color from the optional [MetalFX temporal upscaler](temporal-upscaling.md), sharing its low-resolution depth/motion. Select Temporal in Video and then either generation target. Combined mode uses the reconstructed output resolution; the saved generated-frame Performance choice is restored when temporal is off. The option remains experimental because incomplete motion coverage can create edge artifacts.
+Frame generation can also consume reconstructed color from the optional [MetalFX temporal upscaler](temporal-upscaling.md), sharing its low-resolution depth/motion. Select MetalFX temporal in Video and then either generation target. Combined mode uses the reconstructed output resolution; the saved generated-frame Performance choice is restored when temporal is off. The option remains experimental because incomplete motion coverage can create edge artifacts.
