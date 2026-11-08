@@ -13778,6 +13778,7 @@ static void ImGui::NavUpdateWindowing()
             g.NavWindowingTimer = g.NavWindowingHighlightAlpha = 0.0f;
             g.NavWindowingAccumDeltaPos = g.NavWindowingAccumDeltaSize = ImVec2(0.0f, 0.0f);
             g.NavWindowingToggleLayer = start_windowing_with_gamepad ? true : false; // Gamepad starts toggling layer
+            g.NavWindowingToggleKey = start_windowing_with_gamepad ? ImGuiKey_NavGamepadMenu : ImGuiKey_None; // (MonZaMac: the layer toggle's key, so a key press while the pad's menu button is down finds one)
             g.NavInputSource = start_windowing_with_keyboard ? ImGuiInputSource_Keyboard : ImGuiInputSource_Gamepad;
             if (g.NavWindow == NULL)
                 just_started_windowing_from_null_focus = true;
@@ -13840,6 +13841,8 @@ static void ImGui::NavUpdateWindowing()
                 g.NavInputSource = ImGuiInputSource_Keyboard;
                 break;
             }
+    if (g.NavWindowingToggleLayer && g.NavWindowingToggleKey == ImGuiKey_None)
+        g.NavWindowingToggleLayer = false; // (MonZaMac: no key to toggle with: nothing to release, and IsKeyReleased(None) asserts)
     if (g.NavWindowingToggleLayer && g.NavInputSource == ImGuiInputSource_Keyboard)
     {
         // We cancel toggling nav layer when any text has been typed (generally while holding Alt). (See #370)
