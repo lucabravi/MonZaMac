@@ -25,11 +25,12 @@ Settings g_settings = {
     .early_shaders = true,
     .aspect = ASPECT_ORIGINAL,
     // the defaults of a new player (an existing larecomp.ini keeps its own): fullscreen, fixed 1080p, 60 fps, SMAA,
-    // authentic 16:9, sharper textures (anisotropic filtering)
+    // authentic 16:9, sharper textures (anisotropic filtering), a two-finger trackpad swipe turns the camera
     .fullscreen = true,
     .mouse_speed = 1.0f,
     .mouse_camera = MOUSE_CAM_HOLD,
     .mouse_camera_button = MOUSE_BTN_RIGHT,
+    .trackpad_camera = true,  // (two fingers on the trackpad turn the camera: a Mac's usual way to look around)
     .res_mode = 1,  // (fixed at the game's own 1080p; Dynamic is one choice away in Video)
     .fps60 = true,
     .frame_generation = FRAME_GENERATION_OFF,

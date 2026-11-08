@@ -22,6 +22,9 @@ A new start screen, and **Lumiose Online**: optional online play with the multip
 - **Microphone** for the mod's voice chat: the game can use the Mac's microphone, and macOS asks for the permission the first time. The voice itself has not been heard by another player yet.
 - Not verified yet: chat text entry and delivery, play against Windows or Linux players, and every optional feature of MonZaMac together with the mod.
 
+### Defaults
+- New installs start with the **two-finger trackpad swipe turning the camera** (Controls > Mouse). An existing `larecomp.ini` keeps its own choice. The other graphics defaults are unchanged: fullscreen, fixed 1080p, 60 fps, SMAA, MetalFX spatial upscaling, smooth distant animation, sharper textures, frame generation off.
+
 ### Fixes
 - Pressing **Esc** a few times with a controller connected could stop the app (an ImGui assertion in the menu). The menu now cancels a layer toggle it cannot finish.
 - The key **0** no longer does anything: it wrote a dump of the next frame into `build/` for every player. **F9** does it only with `LARECOMP_DEVTOOLS`.
