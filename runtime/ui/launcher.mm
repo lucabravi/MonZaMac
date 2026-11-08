@@ -628,8 +628,7 @@ static bool g_play_focused;  // PLAY has the controller's selection (false: put 
 static Uint64 g_fs_entered;  // SDL_GetTicks() when the window finished entering fullscreen
 void saves_screen_open(void);  // ui/saves_ui.mm
 int saves_screen_draw(float scale, ImFont *body, ImFont *small_);
-void saves_home_footer(float *x, float *y, float *w, float *u);  // where the lines under the panel go
-int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready, bool show_setup, bool focus_first);
+int saves_home_draw(ImFont *small_, bool ready, bool show_setup, bool focus_first, float rx, float ry, float rw, float rh);
 void saves_new_game_begin(void);
 bool saves_use_latest(void);
 void saves_name_glyphs(ImFontGlyphRangesBuilder *b);  // runtime/ui/saves_ui.mm
@@ -665,7 +664,54 @@ static float g_menu_gap = 0.35f;  // space under each item, in line heights
 static bool g_legal_test;  // LARECOMP_LAUNCHER_SHOT=<frame>:legal
 static bool g_precompile_test;  // LARECOMP_LAUNCHER_SHOT=<frame>:precompile
 static bool g_precompile_go;  // "Compile" was chosen: start the game, which precompiles every shader first
-static float g_catalog_badge_bottom = 64;  // (the next badge goes below the catalog's)
+
+// ---- the home page's frame (user 2026-11-08, a landscape layout): a header across the top (logo, name, Settings, Quit and
+// the legal notice), the column(s) in the middle, and a bar along the bottom (game files state, the shader chips, the
+// version). Metrics in pixels, set each frame by home_chrome and read by the chips below.
+static float g_hdr_h, g_bar_y, g_bar_h, g_chip_x, g_legal_right;
+
+// Draws the header and the bottom bar; returns 4 when Settings was chosen, 6 for Quit, else 0
+static int home_chrome(float s, ImVec2 ds) {
+    g_hdr_h = 84 * s;
+    g_bar_h = 80 * s;
+    g_bar_y = ds.y - g_bar_h;
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    const ImU32 glass = IM_COL32(4, 10, 26, 215), edge = IM_COL32(76, 100, 137, 180);
+    dl->AddRectFilled(ImVec2(0, 0), ImVec2(ds.x, g_hdr_h), glass);
+    dl->AddLine(ImVec2(0, g_hdr_h), ImVec2(ds.x, g_hdr_h), IM_COL32(72, 214, 255, 150), 1.5f * s);
+    dl->AddRectFilled(ImVec2(0, g_bar_y), ImVec2(ds.x, ds.y), glass);
+    dl->AddLine(ImVec2(0, g_bar_y), ImVec2(ds.x, g_bar_y), edge, 1.0f * s);
+    g_chip_x = 40 * s + 400 * s;
+
+    float ls = 56 * s, x = 40 * s, y = (g_hdr_h - ls) * 0.5f;
+    dl->AddImage(LOGO_TEXID, ImVec2(x, y), ImVec2(x + ls, y + ls));
+    float ts = 34 * s;
+    ImVec2 tp(x + ls + 16 * s, y - 2 * s);
+    for (float d : {3.0f, 1.5f}) dl->AddText(g_font_title, ts, ImVec2(tp.x + d, tp.y + d), IM_COL32(0, 4, 20, 140), "MonZaMac");
+    dl->AddText(g_font_title, ts, tp, IM_COL32(238, 244, 255, 255), "MonZaMac");
+    dl->AddText(g_font_small, 15 * s, ImVec2(tp.x + 2 * s, tp.y + ts + 2 * s), IM_COL32(166, 185, 207, 255), "Pok\xc3\xa9mon Legends: Z-A");
+
+    int act = 0;
+    ImVec2 saved = ImGui::GetCursorScreenPos();
+    float bh = 44 * s, by = (g_hdr_h - bh) * 0.5f, right = ds.x - 24 * s;
+    auto button = [&](const char *label, float w, const char *id) {
+        ImVec2 p(right - w, by), q(p.x + w, p.y + bh);
+        ImGui::SetCursorScreenPos(p);
+        bool clicked = ImGui::InvisibleButton(id, ImVec2(w, bh), ImGuiButtonFlags_EnableNav);
+        bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
+        dl->AddRectFilled(p, q, hot ? IM_COL32(25, 49, 78, 245) : IM_COL32(8, 18, 35, 225), 9 * s);
+        dl->AddRect(p, q, hot ? IM_COL32(72, 214, 255, 230) : edge, 9 * s);
+        ImVec2 t = g_font_small->CalcTextSizeA(18 * s, FLT_MAX, 0, label);
+        dl->AddText(g_font_small, 18 * s, ImVec2(p.x + (w - t.x) * 0.5f, p.y + (bh - t.y) * 0.5f), IM_COL32(238, 244, 255, 255), label);
+        right = p.x - 12 * s;
+        return clicked;
+    };
+    if (button("Quit", 110 * s, "##hdr-quit")) act = 6;
+    if (button("Settings", 150 * s, "##hdr-settings")) act = 4;
+    g_legal_right = right;
+    ImGui::SetCursorScreenPos(saved);
+    return act;
+}
 static void shader_catalog_badge(float s) {
 #ifdef __APPLE__
     static bool checked;
@@ -681,7 +727,6 @@ static void shader_catalog_badge(float s) {
     }
     // Nothing to show until the project has published a catalog (and it could be checked): no badge, and the one below moves up.
     if (state != CATALOG_CURRENT && state != CATALOG_AVAILABLE && state != CATALOG_UPDATING && state != CATALOG_UPDATE_ERROR) {
-        g_catalog_badge_bottom = 54;
         return;
     }
     const char *status = "Not checked";
@@ -698,24 +743,27 @@ static void shader_catalog_badge(float s) {
     ImVec2 ds = ImGui::GetIO().DisplaySize, saved = ImGui::GetCursorScreenPos();
     ImFont *font = g_font_small;
     float w = font->CalcTextSizeA(18 * s, FLT_MAX, 0, "Legal notice").x + 96 * s;
-    ImVec2 p(ds.x - w - 18 * s, 64 * s), q(p.x + w, p.y + (action ? 112 : 70) * s);
-    g_catalog_badge_bottom = q.y / s;
+    // a chip in the bottom bar; when there is something to do (update, check again) the whole chip is the button
+    float h = 56 * s;
+    ImVec2 p(g_chip_x, g_bar_y + (g_bar_h - h) * 0.5f), q(p.x + w, p.y + h);
+    g_chip_x = q.x + 12 * s;
     ImDrawList *dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(p, q, IM_COL32(8, 18, 35, 225), 9 * s);
-    dl->AddRect(p, q, IM_COL32(76, 100, 137, 180), 9 * s);
-    dl->AddText(font, 18 * s, ImVec2(p.x + 10 * s, p.y + 9 * s), IM_COL32(238, 244, 255, 255), "Shader catalog");
+    bool click = false, hot = false;
+    if (action) {
+        ImGui::SetCursorScreenPos(p);
+        click = ImGui::InvisibleButton("##catalog-quick-action", ImVec2(w, h), ImGuiButtonFlags_EnableNav);
+        hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
+    }
+    dl->AddRectFilled(p, q, hot ? IM_COL32(25, 49, 78, 245) : IM_COL32(8, 18, 35, 225), 9 * s);
+    dl->AddRect(p, q, hot ? IM_COL32(72, 214, 255, 230) : IM_COL32(76, 100, 137, 180), 9 * s);
+    dl->AddText(font, 18 * s, ImVec2(p.x + 10 * s, p.y + 6 * s), IM_COL32(238, 244, 255, 255), "Shader catalog");
     ImU32 color = state == CATALOG_CURRENT ? IM_COL32(125, 229, 165, 255) :
                   state == CATALOG_AVAILABLE ? IM_COL32(255, 201, 100, 255) : IM_COL32(166, 185, 207, 255);
-    dl->AddText(font, 14 * s, ImVec2(p.x + 10 * s, p.y + 40 * s), color, status);
+    dl->AddText(font, 14 * s, ImVec2(p.x + 10 * s, p.y + 31 * s), color, status);
     if (action) {
-        ImVec2 a(p.x + 10 * s, p.y + 66 * s), b(q.x - 10 * s, p.y + 102 * s);
-        ImGui::SetCursorScreenPos(a);
-        bool click = ImGui::InvisibleButton("##catalog-quick-action", ImVec2(b.x-a.x, b.y-a.y), ImGuiButtonFlags_EnableNav);
-        bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
-        dl->AddRectFilled(a, b, hot ? IM_COL32(32, 86, 121, 255) : IM_COL32(24, 52, 82, 255), 5 * s);
-        const char *label = (state == CATALOG_AVAILABLE || state == CATALOG_UPDATE_ERROR) ? "Update now" : "Check now";
+        const char *label = (state == CATALOG_AVAILABLE || state == CATALOG_UPDATE_ERROR) ? "Update" : "Check";
         ImVec2 text = font->CalcTextSizeA(15 * s, FLT_MAX, 0, label);
-        dl->AddText(font, 15 * s, ImVec2((a.x+b.x-text.x)*0.5f, (a.y+b.y-text.y)*0.5f), IM_COL32(238, 244, 255, 255), label);
+        dl->AddText(font, 15 * s, ImVec2(q.x - text.x - 12 * s, p.y + 31 * s), IM_COL32(238, 244, 255, 255), label);
         if (click) { if (state == CATALOG_AVAILABLE || state == CATALOG_UPDATE_ERROR) menu_catalog_update(); else checked = menu_catalog_check(); }
         if (hot) ImGui::SetTooltip("Official shader recipe catalog. No game data is uploaded. Compilation runs at game start or when shaders are registered.");
     }
@@ -728,8 +776,8 @@ static void legal_notice(float s) {
     ImFont *font = g_font_small;
     float fs = 18 * s, h = 40 * s;
     ImVec2 text = font->CalcTextSizeA(fs, FLT_MAX, 0, "Legal notice");
-    float w = text.x + 96 * s;  // (the three badges at the top right share this width)
-    ImVec2 p(ds.x - w - 18 * s, 16 * s), q(p.x + w, p.y + h);
+    float w = text.x + 62 * s;
+    ImVec2 p(g_legal_right - w, (g_hdr_h - h) * 0.5f), q(p.x + w, p.y + h);
     ImGui::SetCursorScreenPos(p);
     bool clicked = ImGui::InvisibleButton("Legal notice", ImVec2(w, h), ImGuiButtonFlags_EnableNav);
     bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
@@ -806,8 +854,9 @@ static void precompile_badge(float s) {
     bool good = state == PRECOMPILE_CURRENT;
     ImVec2 ds = ImGui::GetIO().DisplaySize, saved = ImGui::GetCursorScreenPos();
     ImFont *font = g_font_small;
-    float w = font->CalcTextSizeA(18 * s, FLT_MAX, 0, "Legal notice").x + 96 * s, h = 62 * s;
-    ImVec2 p(ds.x - w - 18 * s, (g_catalog_badge_bottom + 10) * s), q(p.x + w, p.y + h);
+    float w = font->CalcTextSizeA(18 * s, FLT_MAX, 0, "Legal notice").x + 96 * s, h = 56 * s;
+    ImVec2 p(g_chip_x, g_bar_y + (g_bar_h - h) * 0.5f), q(p.x + w, p.y + h);
+    g_chip_x = q.x + 12 * s;
     ImGui::SetCursorScreenPos(p);
     bool clicked = ImGui::InvisibleButton("##precompile-badge", ImVec2(w, h), ImGuiButtonFlags_EnableNav);
     bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
@@ -825,8 +874,8 @@ static void precompile_badge(float s) {
         dl->AddLine(ImVec2(c.x, c.y - 4.5f * s), ImVec2(c.x, c.y + 2.5f * s), IM_COL32(17, 25, 40, 255), 2 * s);
         dl->AddCircleFilled(ImVec2(c.x, c.y + 5.5f * s), 1.1f * s, IM_COL32(17, 25, 40, 255));
     }
-    dl->AddText(font, 18 * s, ImVec2(p.x + 39 * s, p.y + 9 * s), IM_COL32(238, 244, 255, 255), "All shaders");
-    dl->AddText(font, 14 * s, ImVec2(p.x + 39 * s, p.y + 36 * s), good ? IM_COL32(125, 229, 165, 255) : IM_COL32(255, 201, 100, 255),
+    dl->AddText(font, 18 * s, ImVec2(p.x + 39 * s, p.y + 6 * s), IM_COL32(238, 244, 255, 255), "All shaders");
+    dl->AddText(font, 14 * s, ImVec2(p.x + 39 * s, p.y + 31 * s), good ? IM_COL32(125, 229, 165, 255) : IM_COL32(255, 201, 100, 255),
                 good ? "Precompiled" : state == PRECOMPILE_OUTDATED ? "Out of date" : "Not done");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Compile every shader of the game before you play");
     ImGui::SetCursorScreenPos(saved);
@@ -1464,7 +1513,13 @@ extern "C" void launcher_run(const char *root) {
 
             if (page == MAIN) {
                 bool ready = status.empty();
-                int act = saves_home_draw(g_font_title, g_font_small, LOGO_TEXID, ready, !ready || busy, !g_play_focused);
+                int act = home_chrome(s, ds);  // (the header's Settings and Quit)
+                {   // the one column of the offline edition: centered in the middle, between the header and the bar
+                    float pad = 24 * s, cw = fminf(ds.x - 2 * pad, 640 * s), ch = g_bar_y - g_hdr_h - 2 * pad;
+                    int col = saves_home_draw(g_font_small, ready, !ready || busy, !g_play_focused,
+                                              (ds.x - cw) * 0.5f, g_hdr_h + pad, cw, ch);
+                    if (col) act = col;
+                }
                 g_play_focused = true;
                 bool pressed = act == 1;
                 if (pressed) saves_use_latest();  // CONTINUE: the most recent save
@@ -1834,8 +1889,7 @@ extern "C" void launcher_run(const char *root) {
             if (page == MAIN) {
             ImGui::PushFont(g_font_small);
             // (the lines under the home panel, the width of the panel: its left and right edges)
-            float fx, fy, fw, fu;
-            saves_home_footer(&fx, &fy, &fw, &fu);
+            float fx = 40 * s, fy = g_bar_y + 12 * s, fw = ds.x - 80 * s, fu = 22 * s;  // (the bottom bar's lines)
             x0 = fx;
             ImGui::SetWindowFontScale(fu * 0.8f / ImGui::GetFontSize());
             ImGui::SetCursorScreenPos(ImVec2(fx, fy));

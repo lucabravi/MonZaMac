@@ -731,36 +731,26 @@ static bool wide_button(ImDrawList *dl, const char *label, ImVec2 p, float w, fl
     return clicked && enabled;
 }
 
-// 1 CONTINUE, 2 NEW GAME, 3 SAVES, 4 SETTINGS, 5 SET UP GAME FILES, 6 QUIT; 0 nothing yet
-static float g_foot[4];  // x, y, width, unit of the lines under the panel
-void saves_home_footer(float *x, float *y, float *w, float *u) { *x = g_foot[0], *y = g_foot[1], *w = g_foot[2], *u = g_foot[3]; }
-
-int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready, bool show_setup, bool focus_first) {
+// The "Play offline" column of the start screen, in the rectangle (rx, ry, rw, rh) of the window: the last save's trainer
+// card and the buttons. 1 CONTINUE, 2 NEW GAME, 3 SAVES, 5 SET UP GAME FILES; 0 nothing yet. (The title, SETTINGS and
+// QUIT are in the header, runtime/ui/launcher.mm home_chrome.)
+int saves_home_draw(ImFont *small_, bool ready, bool show_setup, bool focus_first, float rx, float ry, float rw, float rh) {
     static int age = 1000;
     if (++age > 90) { reload(); age = 0; }
-    ImVec2 ds = ImGui::GetIO().DisplaySize, wp = ImGui::GetWindowPos();
     ImDrawList *dl = ImGui::GetWindowDrawList();
-    // one unit u: the small font's size, shrunk when the window is short (the whole column then fits)
-    int n = show_setup ? 6 : 5;
+    // one unit u: the small font's size, shrunk until the column's content fits its rectangle
+    int n = show_setup ? 4 : 3;
     const float card_u = 5.3f;  // the save card's height (room for the trainer's data)
-    float u = small_->FontSize, rows = 3.9f + card_u + 0.55f + n * 1.75f + 0.2f;
-    const float foot = 4.4f;  // (the panel's padding, the gap and the two lines under it, in units)
-    u *= fminf(1.0f, ds.y * 0.94f / ((rows + foot) * u));
-    float w = fminf(ds.x * 0.92f, u * 17.0f), x = wp.x + (ds.x - w) * 0.5f, y = wp.y + (ds.y - (rows + foot) * u) * 0.5f + u * 0.7f;
-    g_foot[0] = x, g_foot[1] = y + rows * u + u * 1.5f, g_foot[2] = w, g_foot[3] = u;
+    float u = small_->FontSize, rows = 1.7f + card_u + 0.55f + n * 1.75f + 0.2f;
+    u *= fminf(1.0f, fminf(rh / ((rows + 2.0f) * u), rw / (19.0f * u)));
+    float x = rx + u, w = rw - 2 * u, y = ry + u;
 
     // the glass panel behind it all
-    dl->AddRectFilled(ImVec2(x - u, y - u * 0.7f), ImVec2(x + w + u, y + rows * u + u * 0.7f), IM_COL32(4, 10, 26, 205), u * 0.8f);
-    dl->AddRect(ImVec2(x - u, y - u * 0.7f), ImVec2(x + w + u, y + rows * u + u * 0.7f), pal::edge, u * 0.8f, 0, 1.5f);
+    dl->AddRectFilled(ImVec2(rx, ry), ImVec2(rx + rw, ry + rh), IM_COL32(4, 10, 26, 205), u * 0.8f);
+    dl->AddRect(ImVec2(rx, ry), ImVec2(rx + rw, ry + rh), pal::edge, u * 0.8f, 0, 1.5f);
 
-    // logo and name
-    float ls = u * 3.2f;
-    if (logo) dl->AddImage(logo, ImVec2(x, y), ImVec2(x + ls, y + ls));
-    float ts = u * 2.0f;
-    ImVec2 tp(x + ls + u * 0.6f, y + (ls - ts) * 0.5f);
-    for (float d : {3.0f, 1.5f}) dl->AddText(title, ts, ImVec2(tp.x + d, tp.y + d), IM_COL32(0, 4, 20, 140), "MonZaMac");
-    dl->AddText(title, ts, tp, pal::text, "MonZaMac");
-    float ty = y + ls + u * 0.7f;
+    dl->AddText(small_, u * 0.8f, ImVec2(x, y + u * 0.1f), pal::sub, "PLAY OFFLINE");
+    float ty = y + u * 1.7f;
     dl->AddRectFilledMultiColor(ImVec2(x, ty - u * 0.35f), ImVec2(x + w, ty - u * 0.28f), pal::accent, IM_COL32(72, 214, 255, 0),
                                 IM_COL32(72, 214, 255, 0), pal::accent);
 
@@ -815,10 +805,8 @@ int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready,
 
     // the buttons
     float by = ty + ch + u * 0.55f, bh = u * 1.45f, step = u * 1.75f;
-    struct Item { const char *label; bool on; int act; } items[6] = {
-        {"CONTINUE", ready && any, 1}, {"NEW GAME", ready, 2}, {"SAVES", ready, 3}, {"SETTINGS", true, 4},
-        {"SET UP GAME FILES", true, 5}, {"QUIT", true, 6}};
-    if (!show_setup) items[4] = items[5];
+    struct Item { const char *label; bool on; int act; } items[4] = {
+        {"CONTINUE", ready && any, 1}, {"NEW GAME", ready, 2}, {"SAVES", ready, 3}, {"SET UP GAME FILES", true, 5}};
     int act = 0;
     bool first_focus = focus_first;
     for (int i = 0; i < n; i++) {
