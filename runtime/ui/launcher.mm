@@ -412,7 +412,8 @@ static void online_view(const std::string &files, bool busy, OnlineView *v) {
         v->on = true;
         break;
     case OU_SETUP:
-        snprintf(headline, sizeof headline, "Preparing the online version");
+        snprintf(headline, sizeof headline, "%s", !strcmp(st.step, "Checking for updates") ? "Checking for updates" :
+                                                  "Preparing the online version");
         snprintf(line, sizeof line, "%s", st.step[0] ? st.step : "Starting...");
         snprintf(button, sizeof button, "Preparing  %d%%", (int)(st.fraction * 100));
         v->progress = st.fraction;
@@ -427,8 +428,28 @@ static void online_view(const std::string &files, bool busy, OnlineView *v) {
 }
 
 // What a press does once the player has agreed: start online with the prepared version, or prepare it first
+// The app prepares from the game code build kept by the start screen (runtime/gamebuild.c): there and of the library in use
+static bool g_ou_rebuild_request, g_ou_after_rebuild;  // build the game code first (an install made before it was kept)
+static bool online_cache_ok() {
+    if (!g_ou_app) return true;
+    auto first_line = [](const std::string &path) {
+        std::string v;
+        if (FILE *f = fopen(path.c_str(), "rb")) {
+            char b[128] = "";
+            if (fgets(b, sizeof b, f)) v = b;
+            fclose(f);
+        }
+        while (!v.empty() && (v.back() == '\n' || v.back() == '\r')) v.pop_back();
+        return v;
+    };
+    std::string kept = first_line(g_root + "/.gamebuild/gamelib.id");
+    return !kept.empty() && kept == first_line(g_root + "/" GAMELIB_NAME ".id");
+}
+
+// After the consent: always through setup_online.py, which starts at once when the active version is of the newest
+// module and otherwise downloads and prepares it; then the game starts online
 static void online_proceed() {
-    if (g_ou == OU_READY) { online_launch(); return; }
+    if (!online_cache_ok()) { g_ou_rebuild_request = g_ou_after_rebuild = true; return; }
     g_ou_launch_after = true;
     g_ou = online_setup() ? OU_SETUP : OU_ERROR;
     if (g_ou == OU_ERROR) { g_ou_note = "Could not start the online setup."; g_ou_launch_after = false; }
@@ -1748,7 +1769,24 @@ extern "C" void launcher_run(const char *root) {
             io.ClearInputMouse();
             status = check_game_files(g_root);
             if (status.empty()) { load_background(dev); page = MAIN; }
+#ifdef LUMIOSE_ONLINE
+            if (g_ou_after_rebuild) {  // (built for Play online: go on with it)
+                g_ou_after_rebuild = false;
+                if (status.empty()) online_proceed();
+            }
+#endif
         }
+#ifdef LUMIOSE_ONLINE
+        if (g_ou_rebuild_request && !busy) {  // the game code build Play online needs, as Update game code does
+            g_ou_rebuild_request = false;
+            g_import_mode = 1; g_src.clear(); g_ownership = true;
+            g_busy = busy = true;
+            page = SETUP;
+            pthread_t th;
+            pthread_create(&th, NULL, extract_thread, NULL);
+            pthread_detach(th);
+        }
+#endif
         was_busy = busy;
 
 #ifdef __APPLE__

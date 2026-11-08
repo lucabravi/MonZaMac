@@ -55,7 +55,10 @@ A second column, **Lumiose Online**, beside the offline one. **Play online** is 
 there and are the 2.0.2 build (otherwise the column says what is missing, and the runtime itself refuses the module for any
 other build). The first press asks for consent (the game data goes to Lumiose Online, a separate service), prepares the
 version with `tools/lumiose/setup_online.py` (the button fills as it goes; `runtime/online_prep.c` follows its `PROGRESS` /
-`STATUS` lines) and then starts the game again with the module: offline and online are a restart apart. The relay is the Lumiose Online
+`STATUS` lines) and then starts the game again with the module: offline and online are a restart apart. Every later press first
+checks the published SHA-256 of the newest module: the same one starts at once, a newer one is downloaded and prepared
+first, and when the check cannot be made the active version starts. In the app, an install whose game code build was not
+kept yet (made before the online edition) builds the game code first, then goes on. The relay is the Lumiose Online
 team's (`lumioseonline.site:27777`, the machine their own launcher uses; `activate.py set-server` points elsewhere): the name is looked
 up when the version is read and the runtime is given only the resulting IPv4 address. When the name cannot be found the column says
 so and nothing is started. For now the scripts are found next to a

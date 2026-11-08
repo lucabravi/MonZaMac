@@ -102,6 +102,14 @@ def fetch(url, out, opener=None, allow_http=False, limit=LIMIT, sha256=None):
             raise
 
 
+def latest_sha256(url=DEFAULT_URL, opener=None):
+    """The SHA-256 the authors publish for the newest live module (<url>.sha256); OSError or ValueError when unknown."""
+    if not url.startswith('https://'):
+        raise ValueError('the module is downloaded over https only')
+    with (opener or default_opener())(url + '.sha256', timeout=30) as response:
+        return parse_sha256(response.read(1024).decode('ascii', 'replace'))
+
+
 def fetch_latest(out, url=DEFAULT_URL, opener=None, allow_http=False):
     """The newest live module under its published SHA-256 (<url>.sha256); same results as fetch()."""
     scheme_ok = url.startswith('https://') or (allow_http and url.startswith('http://'))

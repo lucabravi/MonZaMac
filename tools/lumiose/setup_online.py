@@ -17,7 +17,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 from prepare import report  # noqa: E402
-from fetch import fetch_latest  # noqa: E402
+from fetch import fetch_latest, latest_sha256  # noqa: E402
 from commands import tool  # noqa: E402
 
 
@@ -26,6 +26,18 @@ def find_module(*folders):
     """The newest regular file in these folders, or None."""
     found = [p for folder in folders for p in Path(folder).glob('*') if p.is_file() and not p.name.startswith('.')]
     return max(found, key=lambda p: p.stat().st_mtime) if found else None
+
+
+def active_module(root):
+    """(folder, SHA-256 of the module it was prepared from) of the active prepared version when it verifies, else None."""
+    state = subprocess.run([*tool('activate'), '--root', str(root), 'status'], capture_output=True, text=True)
+    info = next((json.loads(l[7:]) for l in state.stdout.splitlines() if l.startswith('STATUS ')), {})
+    if info.get('state') != 'ready':
+        return None
+    try:
+        return Path(info['dir']), json.loads((Path(info['dir']) / 'ready.json').read_text())['inputs']['module']
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def run_stage(argv, low, high, label):
@@ -59,8 +71,22 @@ def main():
     ap.add_argument('--cc')
     args = ap.parse_args()
     downloads = args.modules or ROOT / 'build/lumiose-modules'
-    module = args.module or (find_module(args.modules) if args.modules else
-                             find_module(*(base / f for base in (Path.cwd(), ROOT) for f in ('lumiose-module', 'build/lumiose-modules'))))
+    module = args.module
+    if not module:  # the newest live module: nothing to do when the active version was prepared from it
+        report(0.0, 'Checking for updates')
+        try:
+            latest = latest_sha256()
+        except (ValueError, OSError):
+            latest = None  # (offline: the active version, else a module already here)
+        active = active_module(args.root)
+        if active and (latest is None or active[1] == latest):
+            report(1.0, 'Ready', 'ready', dir=str(active[0]))
+            return 0
+        if latest:
+            module = next((p for p in Path(downloads).glob('subsdk9-' + latest[:16]) if p.is_file()), None)
+        else:
+            module = find_module(args.modules) if args.modules else find_module(
+                *(base / f for base in (Path.cwd(), ROOT) for f in ('lumiose-module', 'build/lumiose-modules')))
     if not module:
         report(0.0, 'Downloading the module')
         try:
