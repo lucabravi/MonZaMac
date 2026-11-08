@@ -853,10 +853,12 @@ static void tab_audio(void) {
             g_settings.mic_gain = mic / 100.0f;
         static bool testing;
         opt_toggle("Microphone test", &testing, false,
-                   "Shows what the chosen microphone hears while this is on. macOS asks for the microphone permission the first time.");
+                   "Shows what the chosen microphone hears while this is on. macOS asks for the microphone permission the first time.\n\n"
+                   "If you hear or see nothing, check the permission in macOS: System Settings > Privacy & Security > Microphone.");
         if (testing) {
             float level = audio_input_test_level();
             ImGui::ProgressBar(level > 1 ? 1 : level, ImVec2(-FLT_MIN, ImGui::GetFontSize() * 0.9f), "");
+            ImGui::TextDisabled("If nothing moves, check the permission in macOS: System Settings > Privacy & Security > Microphone.");
         }
     }
     opt_end();
