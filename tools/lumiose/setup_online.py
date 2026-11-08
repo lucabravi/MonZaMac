@@ -1,7 +1,8 @@
 """Everything the start screen's "set up online" does, as one job with one progress: find the module, prepare it, check
 that it starts, make it the active version. Prints PROGRESS lines (see prepare.py report()) and ends with state ready or
-error. No download happens here: the module is a file the user has put in <data>/lumiose-module/ (any name) or that
-tools/lumiose/fetch.py kept in build/lumiose-modules/.
+error. The module is a file the user has put in lumiose-module/ (any name) or that fetch.py kept in build/lumiose-modules/; with
+none, the newest live one is downloaded (fetch.py: the authors' fixed link, checked against their published SHA-256). The
+player has agreed before this runs: it is the only thing here that uses the network.
 
   setup_online.py --runtime monzamac --game extracted [--root build/lumiose-prepared] [--module FILE]
 """
@@ -15,6 +16,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 from prepare import report  # noqa: E402
+from fetch import fetch_latest  # noqa: E402
 
 FOLDERS = ('lumiose-module', 'build/lumiose-modules')
 
@@ -54,8 +56,12 @@ def main():
     py = sys.executable
     module = args.module or find_module(Path.cwd()) or find_module(ROOT)
     if not module:
-        report(0.0, 'No module', 'error', message='No Lumiose module found. Put the file in lumiose-module/ or run tools/lumiose/fetch.py.')
-        return 1
+        report(0.0, 'Downloading the module')
+        try:
+            module = fetch_latest(ROOT / 'build/lumiose-modules')[0]
+        except (ValueError, OSError) as e:
+            report(0.0, 'Download failed', 'error', message=f'Could not download the Lumiose module: {e}')
+            return 1
     report(0.01, 'Preparing the online version')
     ok, directory, message = run_stage([py, str(HERE / 'prepare.py'), '--module', str(module), '--runtime', str(args.runtime),
                                         '--source', str(args.source), '--out', str(args.root)], 0.01, 0.90, 'Preparing')

@@ -2,6 +2,7 @@
 from pathlib import Path
 import contextlib
 import functools
+import hashlib
 import http.server
 import importlib.util
 import sys
@@ -68,6 +69,34 @@ class FetchTests(unittest.TestCase):
                 with self.assertRaises(ValueError, msg=name):
                     fm.fetch(base + name, self.out, allow_http=True, limit=4000)
         self.assertEqual(list(self.out.iterdir()), [])
+
+    def test_a_given_sha256_must_match(self):
+        sha = hashlib.sha256(self.good).hexdigest()
+        with serve({'subsdk9': self.good}) as base:
+            path, got, _ = fm.fetch(base + 'subsdk9', self.out, allow_http=True, sha256=sha.upper())
+            self.assertEqual(got, sha)
+            with self.assertRaises(ValueError):
+                fm.fetch(base + 'subsdk9', self.out, allow_http=True, sha256='0' * 64)
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()), [path.name])  # (the mismatch left nothing)
+
+    def test_the_hash_file_is_a_sha256sum_line_or_a_bare_digest(self):
+        sha = 'ab' * 32
+        self.assertEqual(fm.parse_sha256(f'{sha}  subsdk9\n'), sha)
+        self.assertEqual(fm.parse_sha256(sha.upper()), sha)
+        for bad in ['', 'not a hash', 'ab' * 31, 'zz' * 32, '<html>' + sha]:
+            with self.assertRaises(ValueError): fm.parse_sha256(bad)
+
+    def test_latest_is_kept_only_under_its_published_hash(self):
+        sha = hashlib.sha256(self.good).hexdigest()
+        with serve({'subsdk9': self.good, 'subsdk9.sha256': f'{sha}  subsdk9\n'.encode()}) as base:
+            path, got, version = fm.fetch_latest(self.out, base + 'subsdk9', allow_http=True)
+        self.assertEqual((got, version), (sha, 'test-build'))
+        with serve({'subsdk9': self.good, 'subsdk9.sha256': (b'1' * 64) + b'  subsdk9\n'}) as base:
+            with self.assertRaises(ValueError): fm.fetch_latest(self.out, base + 'subsdk9', allow_http=True)
+        with serve({'subsdk9': self.good}) as base:  # (no hash file: no module)
+            with self.assertRaises(OSError): fm.fetch_latest(self.out, base + 'subsdk9', allow_http=True)
+        with self.assertRaises(ValueError): fm.fetch_latest(self.out, 'http://example.com/subsdk9')
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()), [path.name])
 
     def test_a_missing_file_is_an_error_not_a_module(self):
         with serve({}) as base:
