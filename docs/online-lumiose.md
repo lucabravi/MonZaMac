@@ -30,6 +30,21 @@ when it starts. This is what the runtime provides:
 The network is **off** unless `LUMIOSE_TEST_NETWORK=1` and `LUMIOSE_TEST_SERVER=<ipv4>:<port>` are set; only that
 endpoint is reachable. Traffic is logged (`lumiose-net` developer log) by destination and size, never by content.
 
+## Preparing a version (`tools/lumiose/`)
+
+Nothing runs from the network unless a command is run on purpose; none of these tools downloads anything except `fetch.py`.
+
+| Tool | What it does |
+|---|---|
+| `fetch.py` | Downloads the module (https only, size limit, NSO header, a build this tooling knows) into `build/lumiose-modules/`, under its own hash |
+| `prepare.py` | From the module and the 2.0.2 game: starts the game hidden and offline to capture what the module patches, generates and compiles the module and the patched `main`/`sdk` libraries (unchanged objects are reused), and writes `ready.json` with the hash of every output |
+| `activate.py` | Lists prepared versions, makes one the active one after verifying it (optionally after starting it hidden to see that it comes up), goes back to the previous one, sets or clears the relay endpoint (none is built in), prints the command that starts it |
+| `setup_online.py` | Does find, prepare, check and activate as one job with one progress (`PROGRESS` / `STATUS` lines) for a screen |
+| `versions.py` | The module builds studied so far (1.3.9, 1.4.3 build 2): reference offsets only, no module code. Any other build is refused until a profile is added |
+
+A prepared version never becomes active unless its files match their manifest and it started; the state file is replaced
+only as a whole, so a failure leaves the previous choice as it was.
+
 ## What is verified, and what is not
 
 - Native and ASan/UBSan tests for the kernel sessions, the HLE hooks, the UDP service and the texture uploads
@@ -41,8 +56,7 @@ endpoint is reachable. Traffic is logged (`lumiose-net` developer log) by destin
 
 ## Still to do (separate changes)
 
-- Preparing the patched library on the player's Mac (capture, generation, compilation) and choosing the version to use.
-- Fetching the module, with a check of what was downloaded.
+- Running the preparation from the start screen (a job runner that follows the progress).
 - The start screen: one Play online entry, consent, progress and errors; only for game version 2.0.2.
 - Packaging, and a statement of what is not our service.
 
