@@ -1137,8 +1137,11 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
             if (open) {
                 g_tab = t.id;
                 ImGui::Spacing();
-                ImGui::BeginChild("##page", ImVec2(0, 0), ImGuiChildFlags_None,  // (the rest of the window: no hint line)
+                // (the rest of the window: no hint line; outside the game the page's colour has room around the rows)
+                if (!in_game) ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(28 * scale, 18 * scale));
+                ImGui::BeginChild("##page", ImVec2(0, 0), in_game ? ImGuiChildFlags_None : ImGuiChildFlags_AlwaysUseWindowPadding,
                                   ImGuiWindowFlags_NavFlattened);
+                if (!in_game) ImGui::PopStyleVar();
                 // Down from the tab bar, pages that aren't option rows (Prelaunch, Controls): their first control
                 // (option-row pages: opt_focus_first)
                 if (down_from_tab && (t.id == -1 || t.id == 8)) {
