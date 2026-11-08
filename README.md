@@ -29,7 +29,8 @@
 ---
 
 <p align="center">
-  <img src="docs/screenshots/start-screen.png" alt="The MonZaMac start screen: the most recent save, and CONTINUE, NEW GAME, SAVES, SETTINGS and QUIT" width="380">
+  <img src="docs/screenshots/start-screen.png" alt="The MonZaMac start screen of the online edition: Play offline (your latest save, Continue, New game, Saves) next to Lumiose Online (service ready, Play online)" width="760"><br>
+  <sub>The start screen of the online edition. The standard edition has only the <b>Play offline</b> column.</sub>
 </p>
 
 Play **Pokémon Legends: Z-A on Apple Silicon**, with Metal graphics, higher internal resolutions, keyboard or
