@@ -22,6 +22,10 @@ A new start screen, and **Lumiose Online**: optional online play with the multip
 - **Microphone** for the mod's voice chat: the game can use the Mac's microphone, and macOS asks for the permission the first time. The voice itself has not been heard by another player yet.
 - Not verified yet: chat text entry and delivery, play against Windows or Linux players, and every optional feature of MonZaMac together with the mod.
 
+### Audio settings
+- **Microphone** section in Settings > Audio: the **input device** (the Mac's default or any microphone it finds), the **microphone volume** (0 to 200%) and a **Microphone test** with a live level bar, for the voice chat of Lumiose Online. If nothing is heard, the page says to check the permission in System Settings > Privacy & Security > Microphone.
+- **Room reverb** and **Movie audio** are gone from the Audio page: the first never did anything in this game, and the second's help text still spoke of the first game this project was made from. The movies keep their sound.
+
 ### Defaults
 - New installs start with the **two-finger trackpad swipe turning the camera** (Controls > Mouse). An existing `larecomp.ini` keeps its own choice. The other graphics defaults are unchanged: fullscreen, fixed 1080p, 60 fps, SMAA, MetalFX spatial upscaling, smooth distant animation, sharper textures, frame generation off.
 
