@@ -13,6 +13,33 @@
 #include "../hle.h"
 #include "../ipc.h"
 #include "../kernel.h"
+#include "../settings.h"
+
+// The recording devices' names, for the Audio settings (opens nothing)
+int audio_input_device_names(char names[][256], int max) {
+    if (!(SDL_WasInit(SDL_INIT_AUDIO) & SDL_INIT_AUDIO) && !SDL_InitSubSystem(SDL_INIT_AUDIO)) return 0;
+    int count = 0, written = 0;
+    SDL_AudioDeviceID *devices = SDL_GetAudioRecordingDevices(&count);
+    for (int i = 0; devices && i < count && written < max; i++) {
+        const char *name = SDL_GetAudioDeviceName(devices[i]);
+        if (name && *name) snprintf(names[written++], 256, "%s", name);
+    }
+    SDL_free(devices);
+    return written;
+}
+
+// The device chosen in the settings (by name), else the system's default
+static SDL_AudioDeviceID input_device(void) {
+    if (!g_settings.mic_device[0]) return SDL_AUDIO_DEVICE_DEFAULT_RECORDING;
+    int count = 0;
+    SDL_AudioDeviceID *devices = SDL_GetAudioRecordingDevices(&count), selected = SDL_AUDIO_DEVICE_DEFAULT_RECORDING;
+    for (int i = 0; devices && i < count; i++) {
+        const char *name = SDL_GetAudioDeviceName(devices[i]);
+        if (name && !strcmp(name, g_settings.mic_device)) { selected = devices[i]; break; }
+    }
+    SDL_free(devices);
+    return selected;
+}
 
 enum { INPUT_QUEUE = 64, MAX_INPUT_BYTES = 1024 * 1024, MAX_INPUTS = 8 };
 typedef struct { uint64_t tag, data; uint32_t size; } InputBuffer;
@@ -47,7 +74,8 @@ static void *input_thread(void *arg) {
         pthread_mutex_lock(&a->lock);
         if (!a->state && a->count && a->released_count < INPUT_QUEUE) {
             InputBuffer b = a->queued[0];
-            float gain = a->gain >= 0.0f && a->gain <= 192.0f ? a->gain : 1.0f;
+            float gain = a->gain * g_settings.mic_gain;
+            if (!(gain >= 0.0f && gain <= 192.0f)) gain = 1.0f;
             if (a->applied_gain != gain) { SDL_SetAudioStreamGain(a->stream, gain); a->applied_gain = gain; }
             int available = SDL_GetAudioStreamAvailable(a->stream);
             if (available >= (int)b.size || available < 0) {
@@ -204,7 +232,7 @@ SERVICE("audin:u", audin_u) {
         a->gain = 1.0f;
         a->applied_gain = -1.0f;
         SDL_AudioSpec spec = {SDL_AUDIO_S16, (int)a->channels, (int)a->rate};
-        a->stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_RECORDING, &spec, NULL, NULL);
+        a->stream = SDL_OpenAudioDeviceStream(input_device(), &spec, NULL, NULL);
         if (!a->stream) {
             LOG("[audin] microphone unavailable: %s\n", SDL_GetError());
             free(a);
@@ -240,4 +268,55 @@ SERVICE("audin:u", audin_u) {
     }
     default: LOG("[audin] unsupported manager cmd %u\n", req->cmd); resp->result = MAKE_RESULT(153, 1);
     }
+}
+
+// The settings' microphone test: the level (0..1) of what the chosen device hears, with a stream of its own opened while
+// the test is on. Nothing calls this once the page is left, so a timer closes the stream when it has not been asked
+// for a while (the Mac's microphone indicator must not stay lit).
+static SDL_AudioStream *test_stream;
+static float test_level;
+static Uint64 test_last;
+static SDL_TimerID test_timer;
+static pthread_mutex_t test_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void test_close(void) {  // (test_lock held)
+    if (test_stream) SDL_DestroyAudioStream(test_stream);
+    test_stream = NULL;
+    test_level = 0;
+}
+
+static Uint32 test_watchdog(void *userdata, SDL_TimerID id, Uint32 interval) {
+    (void)userdata; (void)id;
+    pthread_mutex_lock(&test_lock);
+    bool stale = SDL_GetTicks() - test_last > 600;
+    if (stale) { test_close(); test_timer = 0; }
+    pthread_mutex_unlock(&test_lock);
+    return stale ? 0 : interval;
+}
+
+float audio_input_test_level(void) {
+    float level = 0;
+    pthread_mutex_lock(&test_lock);
+    test_last = SDL_GetTicks();
+    if (!test_stream && SDL_InitSubSystem(SDL_INIT_AUDIO)) {
+        SDL_AudioSpec spec = {SDL_AUDIO_S16, 1, 48000};
+        test_stream = SDL_OpenAudioDeviceStream(input_device(), &spec, NULL, NULL);
+        if (test_stream) {
+            SDL_SetAudioStreamGain(test_stream, g_settings.mic_gain);
+            SDL_ResumeAudioStreamDevice(test_stream);
+            if (!test_timer) test_timer = SDL_AddTimer(300, test_watchdog, NULL);
+        }
+    }
+    if (test_stream) {
+        SDL_SetAudioStreamGain(test_stream, g_settings.mic_gain);
+        int16_t buf[2048];
+        int peak = 0, n;
+        while ((n = SDL_GetAudioStreamData(test_stream, buf, sizeof buf)) > 0)
+            for (int i = 0; i < n / 2; i++) { int v = buf[i] < 0 ? -buf[i] : buf[i]; if (v > peak) peak = v; }
+        float now = peak / 32768.0f;
+        test_level = now > test_level ? now : test_level * 0.85f;  // (quick up, slower down)
+        level = test_level;
+    }
+    pthread_mutex_unlock(&test_lock);
+    return level;
 }
