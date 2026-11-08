@@ -59,13 +59,28 @@ class ActivationTests(unittest.TestCase):
         self.assertEqual(act.read_state(self.root)['active'], self.b)
 
     def test_status_for_a_screen(self):
-        self.assertEqual(act.online_status(self.root), {'state': 'none', 'active': None, 'version': None, 'server': False, 'endpoint': ''})
-        act.activate(self.root, self.b); act.write_server(self.root, '203.0.113.5:1')
-        self.assertEqual(act.online_status(self.root), {'state': 'ready', 'active': self.b, 'version': '1.4.3-build2', 'server': True,
-                                                         'endpoint': '203.0.113.5:1', 'dir': str(self.root / self.b)})
-        (self.root / self.b / 'subsdk9').write_text('changed')
-        self.assertEqual(act.online_status(self.root)['state'], 'invalid')
-        self.assertEqual(act.online_status(self.root)['active'], self.b)
+        def lookup(host, port, family, kind): return [(family, kind, 17, '', ('203.0.113.9', port))]
+        real = act.socket.getaddrinfo; act.socket.getaddrinfo = lookup  # (no network in a test)
+        try:
+            self.assertEqual(act.online_status(self.root), {'state': 'none', 'active': None, 'version': None, 'server': act.DEFAULT_SERVER,
+                                                            'custom': False, 'endpoint': '203.0.113.9:27777'})
+            act.activate(self.root, self.b); act.write_server(self.root, '203.0.113.5:1')
+            self.assertEqual(act.online_status(self.root), {'state': 'ready', 'active': self.b, 'version': '1.4.3-build2', 'server': '203.0.113.5:1',
+                                                            'custom': True, 'endpoint': '203.0.113.5:1', 'dir': str(self.root / self.b)})
+            (self.root / self.b / 'subsdk9').write_text('changed')
+            self.assertEqual(act.online_status(self.root)['state'], 'invalid')
+            self.assertEqual(act.online_status(self.root)['active'], self.b)
+        finally:
+            act.socket.getaddrinfo = real
+
+    def test_a_name_that_does_not_resolve_leaves_no_endpoint(self):
+        def fail(*args): raise OSError('no such host')
+        real = act.socket.getaddrinfo; act.socket.getaddrinfo = fail
+        try:
+            self.assertEqual(act.online_status(self.root)['endpoint'], '')
+            self.assertEqual(act.online_status(self.root)['server'], act.DEFAULT_SERVER)
+        finally:
+            act.socket.getaddrinfo = real
 
     def test_damaged_state_is_read_as_empty(self):
         (self.root / 'state.json').write_text('{"active": 3}')
@@ -81,15 +96,32 @@ class ActivationTests(unittest.TestCase):
         env = act.command(Path('/v'), Path('/rt'), Path('/g'), '203.0.113.5:27777')[0]
         self.assertEqual((env['LUMIOSE_TEST_NETWORK'], env['LUMIOSE_TEST_SERVER']), ('1', '203.0.113.5:27777'))
 
-    def test_server_is_an_exact_ipv4_endpoint_kept_in_a_file(self):
+    def test_a_server_is_an_ipv4_address_or_a_name_with_a_port(self):
+        self.assertEqual(act.parse_server(' 203.0.113.005:27777 '), '203.0.113.5:27777')
+        self.assertEqual(act.parse_server('Example.ORG:27777'), 'example.org:27777')
+        for bad in ['', 'localhost:1', 'example.org', 'example.org:0', 'example.org:70000', '1.2.3:5', '1.2.3.4', '1.2.3.4:0',
+                    '256.1.1.1:5', '1.2.3.4:x', '1.2.3.4:5; rm', 'exa mple.org:5', '-a.org:5', 'a..org:5', 'http://a.org:5']:
+            with self.assertRaises(ValueError, msg=bad): act.parse_server(bad)
+
+    def test_a_name_is_looked_up_for_ipv4_only(self):
+        seen = []
+        def lookup(host, port, family, kind):
+            seen.append((host, port, family))
+            return [(act.socket.AF_INET6, kind, 17, '', ('::1', port, 0, 0)), (family, kind, 17, '', ('198.51.100.7', port))]
+        self.assertEqual(act.resolve_endpoint('Example.org:27777', lookup), '198.51.100.7:27777')
+        self.assertEqual(seen, [('example.org', 27777, act.socket.AF_INET)])
+        self.assertEqual(act.resolve_endpoint('203.0.113.5:1', lambda *a: self.fail('an address is not looked up')), '203.0.113.5:1')
+        with self.assertRaises(OSError): act.resolve_endpoint('example.org:1', lambda *a: [])
+
+    def test_the_server_is_kept_in_a_file_and_a_bad_one_changes_nothing(self):
         self.assertIsNone(act.read_server(self.root))
         act.write_server(self.root, ' 203.0.113.005:27777 ')
         self.assertEqual(act.read_server(self.root), '203.0.113.5:27777')
-        for bad in ['', 'example.com:1', '1.2.3:5', '1.2.3.4', '1.2.3.4:0', '1.2.3.4:70000', '256.1.1.1:5', '1.2.3.4:x',
-                    '1.2.3.4:5; rm']:
-            with self.assertRaises(ValueError): act.parse_server(bad)
+        act.write_server(self.root, 'Example.org:1')
+        self.assertEqual(act.read_server(self.root), 'example.org:1')
+        for bad in ['', 'example.org', '1.2.3.4:0', 'a b.org:5']:
             with self.assertRaises(ValueError): act.write_server(self.root, bad)
-        self.assertEqual(act.read_server(self.root), '203.0.113.5:27777')  # (a bad one changes nothing)
+        self.assertEqual(act.read_server(self.root), 'example.org:1')  # (a bad one changes nothing)
         (self.root / 'server.txt').write_text('garbage')
         self.assertIsNone(act.read_server(self.root))
 
