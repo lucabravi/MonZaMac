@@ -140,6 +140,7 @@ cat > "$C/Info.plist" <<EOF
     <key>LSArchitecturePriority</key><array><string>arm64</string></array>
     <key>LSApplicationCategoryType</key><string>public.app-category.games</string>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSMicrophoneUsageDescription</key><string>MonZaMac uses the microphone only when a game feature asks for it, such as the voice chat of Lumiose Online.</string>
 </dict>
 </plist>
 EOF
