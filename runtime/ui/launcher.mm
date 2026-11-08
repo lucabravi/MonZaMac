@@ -39,6 +39,10 @@ extern "C" {
 #include "platform.h"
 #include "paths.h"
 #include "gamebuild.h"
+#ifdef LUMIOSE_ONLINE
+#include "online_prep.h"
+#include "online_view.h"
+#endif
 #include "gameimport.h"
 #include "gamelib.h"
 #include "romfs_build.h"
@@ -223,6 +227,196 @@ static void set_job(const std::string &s, bool failed = false, const std::string
     g_job_hint = hint;
     pthread_mutex_unlock(&g_lock);
 }
+
+#ifdef LUMIOSE_ONLINE
+bool saves_use_latest(void);  // ui/saves_ui.mm (declared again below)
+
+// ---- PLAY ONLINE (tools/lumiose/, runtime/online_prep.c): one entry. The first time it prepares the online version (a
+// minute or more, with the bar), then it starts the game again with the module: the game library loads once per process,
+// so offline <-> online is a restart. For now a source checkout only: the scripts run with its Python (LUMIOSE_PYTHON, or
+// tools/venv); LUMIOSE_SOURCE names the checkout that owns the game's object cache when it is not the one holding the tools.
+enum OnlineStage { OU_START, OU_QUERY, OU_READY, OU_NEEDS, OU_SETUP, OU_ERROR, OU_OFF };
+static OnlineStage g_ou = OU_START;
+static OnlinePrepStatus g_ou_status;  // the last STATUS (ready: dir, version, endpoint)
+static std::string g_ou_note;         // why the last attempt stopped
+static bool g_ou_launch_after;        // the setup was started by a click: start the game when it is ready
+static std::string g_ou_tools, g_ou_python;
+
+static bool online_find_tools() {
+    if (!g_ou_tools.empty()) return true;
+    const char *env = getenv("LUMIOSE_TOOLS");
+    std::string dir = env ? env : "";
+    if (dir.empty()) {
+        char exe[4096];
+        if (!plat_exe_path(exe, sizeof exe)) return false;
+        dir = exe;
+        for (int i = 0; i < 6 && !dir.empty(); i++) {  // the checkout holding the build: a few folders up from the program
+            size_t slash = dir.rfind('/');
+            if (slash == std::string::npos || slash == 0) return false;
+            dir.resize(slash);
+            if (access((dir + "/tools/lumiose/setup_online.py").c_str(), F_OK) == 0) break;
+            if (i == 5) return false;
+        }
+    }
+    if (access((dir + "/tools/lumiose/setup_online.py").c_str(), F_OK) != 0) return false;
+    const char *py = getenv("LUMIOSE_PYTHON");
+    std::string python = py ? py : dir + "/tools/venv/bin/python";
+    if (access(python.c_str(), X_OK) != 0) return false;
+    g_ou_tools = dir; g_ou_python = python;
+    return true;
+}
+static std::string online_versions() { return g_ou_tools + "/build/lumiose-prepared"; }
+
+static bool online_query() {
+    std::string script = g_ou_tools + "/tools/lumiose/activate.py", root = online_versions();
+    const char *argv[] = {g_ou_python.c_str(), script.c_str(), "--root", root.c_str(), "status", NULL};
+    return online_prep_start(argv);
+}
+
+static bool online_setup() {
+    char exe[4096], game[4096];
+    if (!plat_exe_path(exe, sizeof exe) || !realpath(g_root.c_str(), game)) return false;
+    std::string script = g_ou_tools + "/tools/lumiose/setup_online.py", root = online_versions();
+    const char *src = getenv("LUMIOSE_SOURCE");
+    std::string source = src ? src : g_ou_tools;
+    const char *argv[] = {g_ou_python.c_str(), script.c_str(), "--runtime", exe, "--game", game, "--root", root.c_str(),
+                          "--source", source.c_str(), NULL};
+    return online_prep_start(argv);
+}
+
+// Said once, before the first online start: what goes where. The answer is kept in a marker file of the data folder.
+static bool online_consent() {
+    std::string marker = std::string(rt_data_root()) + "/lumiose-online-consent";
+    if (access(marker.c_str(), F_OK) == 0) return true;
+    SDL_MessageBoxButtonData buttons[] = {{SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Cancel"},
+                                          {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Continue"}};
+    SDL_MessageBoxData box = {SDL_MESSAGEBOX_INFORMATION, NULL, "Play online with Lumiose Online?",
+        "Lumiose Online is a separate service run by its own team, not by MonZaMac.\n\n"
+        "If you continue, your game data will be sent to Lumiose Online while you play. MonZaMac does not control it or what "
+        "it does with that.\n\nYou can play offline at any time.", 2, buttons, NULL};
+    int id = 0;
+    if (!SDL_ShowMessageBox(&box, &id) || id != 1) return false;
+    if (FILE *f = fopen(marker.c_str(), "w")) { fputs("accepted\n", f); fclose(f); }
+    return true;
+}
+
+// Start the game again with the active online version (this process only returns if that fails)
+static void online_launch() {
+    if (g_ou_status.endpoint[0] == 0) {
+        g_ou_note = "No server is set for Lumiose Online.";
+        return;
+    }
+    char exe[4096];
+    if (!plat_exe_path(exe, sizeof exe)) { g_ou_note = "Could not find the program to restart."; return; }
+    std::string dir = g_ou_status.dir;
+    setenv("LUMIOSE_TEST_MODULE", (dir + "/subsdk9").c_str(), 1);
+    setenv("LUMIOSE_TEST_LIBRARY", (dir + "/lumiose.dylib").c_str(), 1);
+    setenv("LARECOMP_GAME_LIB", (dir + "/lasgame.dylib").c_str(), 1);
+    setenv("LUMIOSE_TEST_NETWORK", "1", 1);
+    setenv("LUMIOSE_TEST_SERVER", g_ou_status.endpoint, 1);
+    saves_use_latest();  // the chosen save, else the most recent (as CONTINUE)
+    settings_save();
+    setenv("LARECOMP_PLAY_SAVE", g_settings.save_slot, 1);  // (--play would take the most recent one)
+    char *argv[] = {exe, (char *)"--play", NULL};
+    plat_exec(argv);
+    g_ou_note = "Could not restart the game for online play.";
+}
+
+// Once per frame on the home page: moves the state on and fills what the column shows. `files`: "" when the game files are
+// there and are the right version, else why not (the launcher's check: it needs the exact 2.0.2 build).
+static void online_view(const std::string &files, bool busy, OnlineView *v) {
+    static char headline[64], line[160], build[48], button[48];
+    *v = {headline, line, build, false, false, false, button, false, -1.0f};
+    snprintf(button, sizeof button, "Play online");
+    snprintf(build, sizeof build, "Not prepared yet");
+    snprintf(line, sizeof line, "Lumiose Online (separate service)");
+    if (const char *test = getenv("LARECOMP_ONLINE_STATE_TEST")) {  // (UI check: ready, needs, setup, error, noserver, off)
+        snprintf(headline, sizeof headline, "Set up on first play");
+        if (!strcmp(test, "ready")) { snprintf(headline, sizeof headline, "Service ready"); snprintf(build, sizeof build, "Ready \xc2\xb7 1.4.3"); v->good = v->build_good = v->on = true; }
+        else if (!strcmp(test, "setup")) { snprintf(headline, sizeof headline, "Preparing the online version"); snprintf(line, sizeof line, "Compiling the module"); snprintf(button, sizeof button, "Preparing  42%%"); v->progress = 0.42f; }
+        else if (!strcmp(test, "error")) { snprintf(headline, sizeof headline, "Could not prepare"); snprintf(line, sizeof line, "Unsupported Lumiose build."); snprintf(button, sizeof button, "Try again"); v->bad = v->on = true; }
+        else if (!strcmp(test, "noserver")) { snprintf(headline, sizeof headline, "No server set"); snprintf(line, sizeof line, "Set one with tools/lumiose/activate.py set-server"); snprintf(build, sizeof build, "Ready \xc2\xb7 1.4.3"); v->build_good = v->bad = true; }
+        else if (!strcmp(test, "off")) { snprintf(headline, sizeof headline, "Not available here"); snprintf(line, sizeof line, "This build has no online setup."); v->bad = true; }
+        else v->on = true;
+        return;
+    }
+    if (!files.empty() || busy) {
+        bool version = files.rfind("Wrong game version", 0) == 0;
+        snprintf(headline, sizeof headline, version ? "Needs game version 2.0.2" : "Game files needed");
+        snprintf(line, sizeof line, version ? "Your game files are another version." : "Set up the game files first.");
+        v->bad = version;
+        return;
+    }
+    if (g_ou == OU_START) {
+        if (!online_find_tools()) g_ou = OU_OFF;
+        else g_ou = online_query() ? OU_QUERY : OU_NEEDS;
+    }
+    OnlinePrepStatus st;
+    online_prep_get(&st);
+    if (g_ou == OU_QUERY && !st.running) {
+        bool ok = !strcmp(st.state, "ready");
+        g_ou_status = st;
+        g_ou = ok ? OU_READY : OU_NEEDS;
+        if (ok && g_ou_launch_after) { g_ou_launch_after = false; if (online_consent()) online_launch(); }
+    }
+    if (g_ou == OU_SETUP && !st.running) {
+        if (!strcmp(st.state, "ready")) { g_ou = OU_START; g_ou_launch_after = true; g_ou_note.clear(); }  // (read the status again)
+        else { g_ou = OU_ERROR; g_ou_note = st.message[0] ? st.message : "The online version could not be prepared."; g_ou_launch_after = false; }
+    }
+    switch (g_ou) {
+    case OU_OFF:
+        snprintf(headline, sizeof headline, "Not available here");
+        snprintf(line, sizeof line, "This build has no online setup.");
+        v->bad = true;
+        break;
+    case OU_START: case OU_QUERY:
+        snprintf(headline, sizeof headline, "Checking...");
+        break;
+    case OU_READY:
+        snprintf(build, sizeof build, "Ready \xc2\xb7 %s", g_ou_status.version);
+        v->build_good = true;
+        if (!g_ou_status.endpoint[0]) {
+            snprintf(headline, sizeof headline, "No server set");
+            snprintf(line, sizeof line, "Set one with tools/lumiose/activate.py set-server");
+            v->bad = true;
+        } else {
+            snprintf(headline, sizeof headline, g_ou_note.empty() ? "Service ready" : "Could not start");
+            if (!g_ou_note.empty()) snprintf(line, sizeof line, "%s", g_ou_note.c_str()), v->bad = true;
+            else v->good = true;
+            v->on = true;
+        }
+        break;
+    case OU_NEEDS:
+        snprintf(headline, sizeof headline, "Set up on first play");
+        snprintf(line, sizeof line, "Prepared once on this Mac; it takes a few minutes.");
+        v->on = true;
+        break;
+    case OU_SETUP:
+        snprintf(headline, sizeof headline, "Preparing the online version");
+        snprintf(line, sizeof line, "%s", st.step[0] ? st.step : "Starting...");
+        snprintf(button, sizeof button, "Preparing  %d%%", (int)(st.fraction * 100));
+        v->progress = st.fraction;
+        break;
+    case OU_ERROR:
+        snprintf(headline, sizeof headline, "Could not prepare");
+        snprintf(line, sizeof line, "%s", g_ou_note.c_str());
+        snprintf(button, sizeof button, "Try again");
+        v->bad = v->on = true;
+        break;
+    }
+}
+
+static void online_click() {
+    if (getenv("LARECOMP_ONLINE_STATE_TEST")) return;
+    if (g_ou != OU_READY && g_ou != OU_NEEDS && g_ou != OU_ERROR) return;
+    g_ou_note.clear();
+    if (!online_consent()) return;
+    if (g_ou == OU_READY) { online_launch(); return; }
+    g_ou_launch_after = true;
+    g_ou = online_setup() ? OU_SETUP : OU_ERROR;
+    if (g_ou == OU_ERROR) { g_ou_note = "Could not start the online setup."; g_ou_launch_after = false; }
+}
+#endif
 
 // SDL gives drop coordinates in window space; ImGui rows use that same logical coordinate space.
 static bool take_drop_on_item(std::string &path) {
@@ -643,7 +837,7 @@ void saves_screen_open(void);  // ui/saves_ui.mm
 int saves_screen_draw(float scale, ImFont *body, ImFont *small_);
 int saves_home_draw(ImFont *small_, bool ready, bool show_setup, bool focus_first, bool local_chip, float rx, float ry, float rw, float rh);
 #ifdef LUMIOSE_ONLINE
-int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, float rx, float ry, float rw, float rh);
+int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const OnlineView &v, float rx, float ry, float rw, float rh);
 #endif
 void saves_new_game_begin(void);
 bool saves_use_latest(void);
@@ -1570,7 +1764,9 @@ extern "C" void launcher_run(const char *root) {
                     float gap = 28 * s, cw = ds.x - 2 * pad - 20 * s, lw = (cw - gap) * 0.6f, x0 = (ds.x - cw) * 0.5f;
                     int col = saves_home_draw(g_font_small, ready, !ready || busy, !g_play_focused, false, x0, top, lw, ch);
                     if (col) act = col;
-                    if (saves_online_draw(g_font_small, BANNER_TEXID, g_banner_h ? 1400.0f / g_banner_h : 0, x0 + lw + gap, top, cw - lw - gap, ch)) act = 8;  // (wired in the Lumiose branch)
+                    OnlineView ov;
+                    online_view(status, busy, &ov);
+                    if (saves_online_draw(g_font_small, BANNER_TEXID, g_banner_h ? 1400.0f / g_banner_h : 0, ov, x0 + lw + gap, top, cw - lw - gap, ch)) online_click();
 #else
                     float cw = fminf(ds.x - 2 * pad, 835 * s);
                     int col = saves_home_draw(g_font_small, ready, !ready || busy, !g_play_focused, true, (ds.x - cw) * 0.5f, top, cw, ch);

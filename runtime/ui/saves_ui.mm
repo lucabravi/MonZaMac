@@ -839,11 +839,10 @@ int saves_home_draw(ImFont *small_, bool ready, bool show_setup, bool focus_firs
 }
 
 #ifdef LUMIOSE_ONLINE
-// The "Lumiose Online" column, beside the offline one: 1 PLAY ONLINE, 0 nothing. (Placeholder state until the online
-// preparation is merged here: LARECOMP_ONLINE_DEMO=ready shows a prepared build.)
-int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, float rx, float ry, float rw, float rh) {
+#include "online_view.h"
+// The "Lumiose Online" column, beside the offline one: 1 PLAY ONLINE, 0 nothing.
+int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const OnlineView &v, float rx, float ry, float rw, float rh) {
     ImDrawList *dl = ImGui::GetWindowDrawList();
-    bool ready = getenv("LARECOMP_ONLINE_DEMO") != NULL;
     float u = fminf(g_home_u ? g_home_u : small_->FontSize, fminf(rh / (20.4f), rw / 19.0f));
     float x = rx + u, w = rw - 2 * u, r = u * 0.8f;
     float ph = rh;  // (as tall as the offline column's panel)
@@ -880,41 +879,53 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, float rx,
     dl->AddRectFilled(ImVec2(x, cy), ImVec2(x + w, cy + ch), IM_COL32(14, 22, 48, 235), u * 0.5f);
     dl->AddRect(ImVec2(x, cy), ImVec2(x + w, cy + ch), pal::edge, u * 0.5f, 0, 1.5f);
     ImVec2 ic(x + u * 1.7f, cy + u * 1.6f);
-    dl->AddCircleFilled(ic, u * 0.95f, ready ? IM_COL32(70, 214, 110, 255) : IM_COL32(150, 172, 210, 255), 24);
-    if (ready) {
-        dl->AddLine(ImVec2(ic.x - u * 0.4f, ic.y), ImVec2(ic.x - u * 0.1f, ic.y + u * 0.32f), IM_COL32(8, 18, 35, 255), u * 0.16f);
-        dl->AddLine(ImVec2(ic.x - u * 0.1f, ic.y + u * 0.32f), ImVec2(ic.x + u * 0.42f, ic.y - u * 0.3f), IM_COL32(8, 18, 35, 255), u * 0.16f);
-    } else {
-        dl->AddText(small_, u * 1.1f, ImVec2(ic.x - u * 0.12f, ic.y - u * 0.62f), IM_COL32(8, 18, 35, 255), "i");
+    const ImU32 dot = v.good ? IM_COL32(70, 214, 110, 255) : v.bad ? IM_COL32(255, 170, 90, 255) : IM_COL32(150, 172, 210, 255);
+    const ImU32 dark = IM_COL32(8, 18, 35, 255);
+    dl->AddCircleFilled(ic, u * 0.95f, dot, 24);
+    if (v.good) {
+        dl->AddLine(ImVec2(ic.x - u * 0.4f, ic.y), ImVec2(ic.x - u * 0.1f, ic.y + u * 0.32f), dark, u * 0.16f);
+        dl->AddLine(ImVec2(ic.x - u * 0.1f, ic.y + u * 0.32f), ImVec2(ic.x + u * 0.42f, ic.y - u * 0.3f), dark, u * 0.16f);
+    } else {  // "!" for a problem, "i" otherwise
+        dl->AddText(small_, u * 1.1f, ImVec2(ic.x - u * (v.bad ? 0.1f : 0.12f), ic.y - u * 0.62f), dark, v.bad ? "!" : "i");
     }
-    dl->AddText(small_, u * 1.15f, ImVec2(x + u * 3.2f, cy + u * 0.55f), ready ? pal::accent2 : pal::text,
-                ready ? "Service ready" : "Set up on first play");
-    dl->AddText(small_, u * 0.85f, ImVec2(x + u * 3.2f, cy + u * 1.95f), pal::sub, "Lumiose Online (separate service)");
-    const char *rows[2][2] = {{"Build", ready ? "Ready \xc2\xb7 1.4.3" : "Prepared on first play"}, {"Save", "Same as offline"}};
+    char fit_line[96];
+    dl->AddText(small_, u * 1.15f, ImVec2(x + u * 3.2f, cy + u * 0.55f), v.good ? pal::accent2 : v.bad ? pal::warn : pal::text, v.headline);
+    dl->AddText(small_, u * 0.85f, ImVec2(x + u * 3.2f, cy + u * 1.95f), pal::sub, fit(small_, u * 0.85f, v.line, w - u * 4.2f, fit_line, sizeof fit_line));
+    const char *rows[2][2] = {{"Build", v.build}, {"Save", "Same as offline"}};
     for (int i = 0; i < 2; i++) {
         float ly = cy + u * (3.4f + 2.0f * i);
         dl->AddLine(ImVec2(x + u, ly), ImVec2(x + w - u, ly), pal::edge, 1.0f);
         dl->AddText(small_, u * 0.95f, ImVec2(x + u, ly + u * 0.5f), pal::text, rows[i][0]);
         ImVec2 vs = small_->CalcTextSizeA(u * 0.95f, FLT_MAX, 0, rows[i][1]);
-        dl->AddText(small_, u * 0.95f, ImVec2(x + w - u - vs.x, ly + u * 0.5f), i == 0 && ready ? pal::accent2 : pal::text, rows[i][1]);
+        dl->AddText(small_, u * 0.95f, ImVec2(x + w - u - vs.x, ly + u * 0.5f), i == 0 && v.build_good ? pal::accent2 : pal::text, rows[i][1]);
     }
     // PLAY ONLINE
     ImVec2 p(x, cy + ch + u * 0.9f + gap * 0.6f), q(x + w, p.y + u * 2.3f);
     ImGui::SetCursorScreenPos(p);
     ImGui::PushStyleColor(ImGuiCol_NavCursor, ImVec4(0, 0, 0, 0));
+    ImGui::BeginDisabled(!v.on);
     bool clicked = ImGui::InvisibleButton("##play-online", ImVec2(w, q.y - p.y), ImGuiButtonFlags_EnableNav);
-    bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
+    bool hot = v.on && (ImGui::IsItemHovered() || ImGui::IsItemFocused());
+    ImGui::EndDisabled();
     ImGui::PopStyleColor();
     if (hot) dl->AddRectFilled(ImVec2(p.x - 3, p.y - 3), ImVec2(q.x + 3, q.y + 3), IM_COL32(72, 214, 255, 50), u * 0.7f);
-    dl->AddRectFilled(p, q, hot ? IM_COL32(120, 232, 255, 255) : IM_COL32(60, 205, 255, 255), u * 0.55f);
-    const ImU32 ink = IM_COL32(6, 20, 44, 255);
-    ImVec2 ts = small_->CalcTextSizeA(u * 1.2f, FLT_MAX, 0, "Play online");
+    const ImU32 ink = v.on ? IM_COL32(6, 20, 44, 255) : IM_COL32(150, 172, 210, 255);
+    if (v.progress >= 0) {  // preparing: the button fills as it goes
+        dl->AddRectFilled(p, q, IM_COL32(20, 44, 78, 255), u * 0.55f);
+        dl->PushClipRect(p, ImVec2(p.x + (q.x - p.x) * fminf(1.0f, v.progress), q.y), true);
+        dl->AddRectFilled(p, q, IM_COL32(38, 128, 200, 255), u * 0.55f);
+        dl->PopClipRect();
+    } else {
+        dl->AddRectFilled(p, q, !v.on ? IM_COL32(22, 36, 64, 255) : hot ? IM_COL32(120, 232, 255, 255) : IM_COL32(60, 205, 255, 255), u * 0.55f);
+    }
+    ImVec2 ts = small_->CalcTextSizeA(u * 1.2f, FLT_MAX, 0, v.button);
     float tx0 = p.x + (w - ts.x - u * 1.8f) * 0.5f + u * 1.8f, my = (p.y + q.y) * 0.5f;
-    dl->AddText(small_, u * 1.2f, ImVec2(tx0, my - ts.y * 0.5f), ink, "Play online");
+    dl->AddText(small_, u * 1.2f, ImVec2(tx0, my - ts.y * 0.5f), v.progress >= 0 ? IM_COL32(255, 255, 255, 255) : ink, v.button);
     ImVec2 gc(tx0 - u * 1.0f, my);  // a globe
-    dl->AddCircle(gc, u * 0.62f, ink, 24, u * 0.12f);
-    dl->AddEllipse(gc, ImVec2(u * 0.28f, u * 0.62f), ink, 0, 24, u * 0.1f);
-    dl->AddLine(ImVec2(gc.x - u * 0.62f, gc.y), ImVec2(gc.x + u * 0.62f, gc.y), ink, u * 0.1f);
+    const ImU32 gink = v.progress >= 0 ? IM_COL32(255, 255, 255, 255) : ink;
+    dl->AddCircle(gc, u * 0.62f, gink, 24, u * 0.12f);
+    dl->AddEllipse(gc, ImVec2(u * 0.28f, u * 0.62f), gink, 0, 24, u * 0.1f);
+    dl->AddLine(ImVec2(gc.x - u * 0.62f, gc.y), ImVec2(gc.x + u * 0.62f, gc.y), gink, u * 0.1f);
     return clicked ? 1 : 0;
 }
 #endif
