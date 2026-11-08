@@ -54,6 +54,8 @@ git -C "$NSTOOL" submodule status >> "$C/Resources/nstool/source-revision.txt"
 mkdir "$C/Resources/gamelib-src"
 cp runtime/cpu.h runtime/simd.h runtime/simd_fp.h runtime/gamelib.h tools/gamelib_entry.c runtime/hle/hle_symbols.txt \
    "$C/Resources/gamelib-src/"
+[ -n "$LUMIOSE_ONLINE" ] && cp runtime/lumiose_cpu.h runtime/lumiose_rtld.h tools/lumiose/identity.c tools/lumiose_test_entry.c \
+   "$C/Resources/gamelib-src/"  # (what Play online builds the module with: lasgen online, runtime/ui/launcher.mm)
 cp docs/icon/icon.icns "$C/Resources/icon.icns"
 cp docs/icon/icon_1024.png "$C/Resources/icon.png"  # (window / Dock icon at run time)
 [ -n "$LUMIOSE_ONLINE" ] && cp docs/icon/lumiose_banner.jpg "$C/Resources/lumiose_banner.jpg"  # (the online column's background)

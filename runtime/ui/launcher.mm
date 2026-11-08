@@ -242,46 +242,76 @@ static std::string g_ou_note;         // why the last attempt stopped
 static bool g_ou_launch_after;        // the setup was started by a click: start the game when it is ready
 static std::string g_ou_tools, g_ou_python;
 
+// Where the online tools are: a source checkout's scripts with its Python (LUMIOSE_TOOLS, or a few folders up from the
+// program), else the app's bundled helper (Resources/lasgen: `lasgen online <tool>`) with its headers and compiler.
+static bool g_ou_app;                 // the app's helper (else a checkout)
+static std::string g_ou_include, g_ou_cc;  // (the app: Resources/gamelib-src, "<zig> cc")
+
 static bool online_find_tools() {
     if (!g_ou_tools.empty()) return true;
     const char *env = getenv("LUMIOSE_TOOLS");
     std::string dir = env ? env : "";
     if (dir.empty()) {
         char exe[4096];
-        if (!plat_exe_path(exe, sizeof exe)) return false;
-        dir = exe;
-        for (int i = 0; i < 6 && !dir.empty(); i++) {  // the checkout holding the build: a few folders up from the program
-            size_t slash = dir.rfind('/');
-            if (slash == std::string::npos || slash == 0) return false;
-            dir.resize(slash);
-            if (access((dir + "/tools/lumiose/setup_online.py").c_str(), F_OK) == 0) break;
-            if (i == 5) return false;
+        if (plat_exe_path(exe, sizeof exe)) {
+            dir = exe;
+            for (int i = 0; i < 6 && !dir.empty(); i++) {  // the checkout holding the build: a few folders up from the program
+                size_t slash = dir.rfind('/');
+                if (slash == std::string::npos || slash == 0) { dir.clear(); break; }
+                dir.resize(slash);
+                if (access((dir + "/tools/lumiose/setup_online.py").c_str(), F_OK) == 0) break;
+                if (i == 5) dir.clear();
+            }
         }
     }
-    if (access((dir + "/tools/lumiose/setup_online.py").c_str(), F_OK) != 0) return false;
     const char *py = getenv("LUMIOSE_PYTHON");
     std::string python = py ? py : dir + "/tools/venv/bin/python";
-    if (access(python.c_str(), X_OK) != 0) return false;
-    g_ou_tools = dir; g_ou_python = python;
+    if (!dir.empty() && access((dir + "/tools/lumiose/setup_online.py").c_str(), F_OK) == 0 && access(python.c_str(), X_OK) == 0) {
+        g_ou_tools = dir; g_ou_python = python;
+        return true;
+    }
+    char helper[1100], zig[1100], inc[1100];
+    if (!rt_resource("lasgen/lasgen", NULL, helper, sizeof helper) || !rt_resource("zig/zig", NULL, zig, sizeof zig) ||
+        !rt_resource("gamelib-src/lumiose_cpu.h", NULL, inc, sizeof inc))
+        return false;
+    *strrchr(inc, '/') = 0;
+    g_ou_app = true;
+    g_ou_tools = std::string(rt_data_root()) + "/lumiose-online";  // (the app: prepared versions and downloads)
+    g_ou_python = helper;
+    g_ou_include = inc;
+    g_ou_cc = "'" + std::string(zig) + "' cc";  // (prepare.py splits it as a shell would: the path may hold spaces)
     return true;
 }
-static std::string online_versions() { return g_ou_tools + "/build/lumiose-prepared"; }
+static std::string online_versions() { return g_ou_tools + (g_ou_app ? "/prepared" : "/build/lumiose-prepared"); }
+
+// argv of one tool (activate, setup_online), then its arguments; `keep` holds the strings
+static std::vector<const char *> online_tool(const char *tool, std::vector<std::string> &keep) {
+    if (g_ou_app) keep.insert(keep.begin(), {g_ou_python, "online", tool});
+    else keep.insert(keep.begin(), {g_ou_python, g_ou_tools + "/tools/lumiose/" + tool + ".py"});
+    std::vector<const char *> argv;
+    for (const std::string &k : keep) argv.push_back(k.c_str());
+    argv.push_back(NULL);
+    return argv;
+}
 
 static bool online_query() {
-    std::string script = g_ou_tools + "/tools/lumiose/activate.py", root = online_versions();
-    const char *argv[] = {g_ou_python.c_str(), script.c_str(), "--root", root.c_str(), "status", NULL};
-    return online_prep_start(argv);
+    std::vector<std::string> keep = {"--root", online_versions(), "status"};
+    return online_prep_start(online_tool("activate", keep).data());
 }
 
 static bool online_setup() {
     char exe[4096], game[4096];
     if (!plat_exe_path(exe, sizeof exe) || !realpath(g_root.c_str(), game)) return false;
-    std::string script = g_ou_tools + "/tools/lumiose/setup_online.py", root = online_versions();
-    const char *src = getenv("LUMIOSE_SOURCE");
-    std::string source = src ? src : g_ou_tools;
-    const char *argv[] = {g_ou_python.c_str(), script.c_str(), "--runtime", exe, "--game", game, "--root", root.c_str(),
-                          "--source", source.c_str(), NULL};
-    return online_prep_start(argv);
+    std::vector<std::string> keep = {"--runtime", exe, "--game", game, "--root", online_versions()};
+    if (g_ou_app) {  // the kept game code build (runtime/gamebuild.c), the bundled headers and compiler, downloads here
+        keep.insert(keep.end(), {"--cache", std::string(game) + "/.gamebuild", "--include", g_ou_include, "--cc", g_ou_cc,
+                                 "--modules", g_ou_tools + "/modules"});
+        mkdir(g_ou_tools.c_str(), 0755);
+    } else {
+        const char *src = getenv("LUMIOSE_SOURCE");
+        keep.insert(keep.end(), {"--source", src ? src : g_ou_tools});
+    }
+    return online_prep_start(online_tool("setup_online", keep).data());
 }
 
 // Said once, before the first online start (online_consent_popup, drawn with the legal notice): what goes where. The answer

@@ -17,7 +17,6 @@ A version that fails verification or the start-up check never becomes active, an
 whole, so a failure leaves the previous choice as it was.
 """
 import argparse
-import importlib.util
 import json
 import os
 import shlex
@@ -32,9 +31,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))  # (prepare.py imports its neighbours)
-spec = importlib.util.spec_from_file_location('lumiose_prepare', HERE / 'prepare.py')
-prep = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(prep)
+import prepare as prep  # noqa: E402  (also inside the bundled helper, where there is no file to load)
 
 STATE = 'state.json'
 SERVER = 'server.txt'

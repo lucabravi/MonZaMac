@@ -164,6 +164,9 @@ def main():
     flags = [f for f in shlex.split((build / 'gamelib-flags').read_text()) if f != '-Iruntime'] + ['-I' + str(include)]
     if '-O1' not in flags:
         raise ValueError('Expected the existing -O1 game cache')
+    if args.cache and not (build / 'gamelib.id').is_file():
+        raise ValueError('The game code build kept for online play is missing: build the game code again '
+                         '(Game Files, Update game code)')
     if args.cache:
         # The kept build must be the one the game library in use was linked from (same generator id).
         generation = (build / 'gamelib.id').read_text().strip()
