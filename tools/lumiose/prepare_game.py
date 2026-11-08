@@ -6,17 +6,17 @@ import gen
 from nso import Nso
 import argparse, shlex
 ap=argparse.ArgumentParser(description='Prepare selectively patched game sources from local snapshots')
-for name in ['source','build','generated','capture','module-table','out']:
+for name in ['game','build','generated','capture','module-table','objects','out']:
  ap.add_argument('--'+name,required=True,type=Path)
 a=ap.parse_args()
-SOURCE=a.source; BUILD=a.build; GENERATED=a.generated; CAPTURE=a.capture; MOD_TABLE=a.module_table; OUT=a.out
+GAME=a.game; OBJECTS=a.objects; BUILD=a.build; GENERATED=a.generated; CAPTURE=a.capture; MOD_TABLE=a.module_table; OUT=a.out
 OUT.mkdir(parents=True,exist_ok=True)
 index=json.loads((OUT/'source-index.json').read_text());hooks=json.loads((OUT/'hooks.json').read_text());scan=json.loads((OUT/'scan.json').read_text())
 (OUT/'stage').mkdir(exist_ok=True);(OUT/'src').mkdir(exist_ok=True)
-manifest={'generation_id':(BUILD/'lasgame.dylib.id').read_text().strip(),'sources':{},'compile':[],'object_replacements':{}}
+manifest={'generation_id':((BUILD/'gamelib.id') if (BUILD/'gamelib.id').exists() else (BUILD/'lasgame.dylib.id')).read_text().strip(),'sources':{},'compile':[],'object_replacements':{}}
 known_mod={int(x,16) for x in re.findall(r'void f_([0-9a-f]+)\(Cpu \*c\);',MOD_TABLE.read_text())}
 for name,base in [('main',0x7000000000),('sdk',0x7008000000)]:
- original=SOURCE/'extracted/exefs'/name;n=Nso(original);raw=original.read_bytes();image=(CAPTURE/(name+'.image')).read_bytes();lo,size=n.text
+ original=GAME/'exefs'/name;n=Nso(original);raw=original.read_bytes();image=(CAPTURE/(name+'.image')).read_bytes();lo,size=n.text
  header=bytearray(raw[:0x100]);struct.pack_into('<I',header,0xc,struct.unpack_from('<I',header,0xc)[0]&~7);payload=bytearray(header)
  for i in range(3):
   _,mem,length=struct.unpack_from('<III',header,0x10+16*i);segment=image[mem:mem+length] if i==0 else bytes(n.image[mem:mem+length])
@@ -53,7 +53,7 @@ for name,base in [('main',0x7000000000),('sdk',0x7008000000)]:
   # cpu.h must precede any new forward declarations.
   if extra_refs-declarations:text='#include "cpu.h"\n'+text
   output=source_dir/original_c.name;output.write_text(text);target=OUT/'obj'/name/(original_c.stem+'.o')
-  manifest['compile'].append([str(output),str(target)]);manifest['object_replacements']['build/za202/obj/'+name+'/'+original_c.stem+'.o']=str(target)
+  manifest['compile'].append([str(output),str(target)]);manifest['object_replacements'][original_c.stem]=str(target)  # (by name: main_012, the same in both layouts)
  # Additional original-return entries are independently translated from the captured code.
  batches=[];batch=[];chars=0
  for a in sorted(new):
@@ -68,17 +68,14 @@ for name,base in [('main',0x7000000000),('sdk',0x7008000000)]:
  all_addresses=sorted(known|new);text='#include "cpu.h"\n'+''.join('void f_%x(Cpu *c);\n'%a for a in all_addresses)
  text+='const uint64_t %s_fn_addrs[] = {\n'%name+',\n'.join('0x%xull'%a for a in all_addresses)+'\n};\n'
  text+='const GuestFn %s_fn_ptrs[] = {\n'%name+',\n'.join('f_%x'%a for a in all_addresses)+'\n};\nconst uint64_t %s_fn_count = %d;\n'%(name,len(all_addresses))
- output=source_dir/(name+'_table.c');output.write_text(text);target=OUT/'obj'/name/(name+'_table.o');manifest['compile'].append([str(output),str(target)]);manifest['object_replacements']['build/za202/obj/'+name+'/'+name+'_table.o']=str(target)
+ output=source_dir/(name+'_table.c');output.write_text(text);target=OUT/'obj'/name/(name+'_table.o');manifest['compile'].append([str(output),str(target)]);manifest['object_replacements'][name+'_table']=str(target)
  manifest['sources'][name]={'hooked_functions':len(parents),'new_returns':len(new),'changed_chunks':len(by_file),'extra_objects':extras,'largest_generated_function':max(map(len,functions.values())),'input_sha256':hashlib.sha256(raw).hexdigest(),'capture_text_sha256':hashlib.sha256(image[lo:lo+size]).hexdigest()}
  print(name,'hooks',len(parents),'return entries',len(new),'changed chunks',len(by_file),'largest function bytes',manifest['sources'][name]['largest_generated_function'],flush=True)
  del m
 objects=[]
-for old in shlex.split((BUILD/'lasgame.dylib.rsp').read_text()):
- original=Path(old)
- if not original.is_absolute():original=SOURCE/original
- rel=original.relative_to(BUILD).as_posix()
- key='build/za202/'+rel
- objects.append(manifest['object_replacements'].get(key,str(original)))
+# the objects the game library was linked from (absolute paths, one per line: prepare.py), patched ones swapped by name
+for old in OBJECTS.read_text().splitlines():
+ objects.append(manifest['object_replacements'].get(Path(old).stem,old))
 for value in manifest['sources'].values():objects+=value['extra_objects']
 manifest['objects']=objects;manifest['reuse_count']=len(objects)-len(manifest['compile'])
 (OUT/'manifest.json').write_text(json.dumps(manifest,indent=2))

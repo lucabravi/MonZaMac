@@ -42,6 +42,10 @@ Nothing uses the network unless a command is run on purpose: only `fetch.py`, an
 | `setup_online.py` | Does find (or download, when there is none), prepare, check and activate as one job with one progress (`PROGRESS` / `STATUS` lines) for a screen |
 | `versions.py` | The module builds studied so far (1.3.9, 1.4.3 build 2): reference offsets only, no module code. Any other build is refused until a profile is added |
 
+In the online app the start screen's game code build is kept (`.gamebuild` in the game folder: generated C, objects,
+link list, about 1.3 GB), and the tools read it with `--cache`, the bundled headers with `--include` and the bundled
+compiler with `--cc "<zig> cc"`; downloads go through `/usr/bin/curl` when Python has no TLS (the bundled helper).
+
 A prepared version never becomes active unless its files match their manifest and it started; the state file is replaced
 only as a whole, so a failure leaves the previous choice as it was.
 
