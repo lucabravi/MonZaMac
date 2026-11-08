@@ -1,9 +1,9 @@
 # Changelog
 
-Versions follow `v<major>.<minor>.<patch>`. The version shows on the start screen and in
+Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
-## 1.1.0
+## 0.2.0
 
 A new start screen, and **Lumiose Online**: optional online play with the multiplayer mod of the same name, in a separate online edition. The offline edition is the one you know, with the new start screen. **After updating, the game code is rebuilt once on its own (a few minutes, with a progress bar), because the generator changed.**
 
