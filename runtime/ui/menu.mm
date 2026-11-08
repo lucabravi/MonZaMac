@@ -545,7 +545,7 @@ static void tab_display(void) {
         g_settings.fullscreen = fs;
         g_want_fullscreen_apply.store(true);
     }
-    opt_toggle("Show FPS", &g_settings.show_fps, false, "Shows the frame rate in the top right corner. F3 does it for this run only, adding the render resolution.");
+    opt_toggle("Show FPS", &g_settings.show_fps, false, "Shows the frame rate in the top right corner.\n\nF3 does it for this run only, adding the render resolution.");
 
     opt_section("Rendering resolution");
     {   // Pokémon Z-A's game mode (runtime/services/am.c): the mode the game is told it runs in
@@ -553,8 +553,8 @@ static void tab_display(void) {
             int gm = g_settings.handheld ? 1 : 0;
             static const char *modes[] = {"Docked (1080p)", "Handheld (720p)"};
             if (opt_choice("Game mode", &gm, modes, 2, 0,
-                           "The mode the game believes it runs in. Handheld: it draws 720p with lighter effects, as on the "
-                           "Switch's own screen - far less work for the GPU, for slower Macs. Docked: 1080p. Also Cmd+Ctrl+H. "
+                           "The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter effects, as on the "
+                           "Switch's own screen - far less work for the GPU, for slower Macs.\nDocked: 1080p.\n\nAlso Cmd+Ctrl+H. "
                            "If the picture does not follow at once, restart the game."))
                 am_set_handheld(gm == 1);
         }
@@ -595,7 +595,7 @@ static void tab_display(void) {
         float sx, sy;
         renderer_get_scale(&sx, &sy);
         char d[640];
-        int n = snprintf(d, sizeof d, "Fixed: always the resolution you choose. Dynamic: as sharp as your GPU can draw while "
+        int n = snprintf(d, sizeof d, "Fixed: always the resolution you choose.\nDynamic: as sharp as your GPU can draw while "
                                       "keeping the frame rate, lowered when it can't, up to the resolution you choose.\n\n"
                                       "Rendering at %.0f x %.0f", 1920.0 * sx, 1080.0 * sy);
         // (the picture is 16:9 fitted in the window, as output_scale places it; ml is its height, 0 before there is a window)
@@ -614,14 +614,14 @@ static void tab_display(void) {
         char d2[480];
         if (is_dyn) {
             snprintf(d2, sizeof d2, "The sharpest the dynamic resolution goes: the game's own %s, %s (1.5x), or your "
-                                    "display's own resolution. It's lowered from there while your GPU can't keep the frame rate.",
+                                    "display's own resolution.\n\nIt's lowered from there while your GPU can't keep the frame rate.",
                      lines[0], lines[1]);
             int ri = dyn_def;
             for (int i = 0; i < NDYN; i++) if (dyn_mode[i] == g_settings.res_mode) ri = i;
             if (opt_choice("Internal resolution", &ri, dyn, NDYN, dyn_def, d2, false)) g_settings.res_mode = dyn_mode[ri];
         } else {
-            snprintf(d2, sizeof d2, "How sharp the 3D image is. Match display: your display's own resolution. %s: the game's "
-                                    "own image (%s mode), %s-%s: 1.5x to 4x that. The percentages: a share of the game's own image, "
+            snprintf(d2, sizeof d2, "How sharp the 3D image is.\n\nMatch display: your display's own resolution.\n%s: the game's "
+                                    "own image (%s mode).\n%s-%s: 1.5x to 4x that.\nThe percentages: a share of the game's own image, "
                                     "for slower Macs.", lines[0], g_settings.handheld ? "handheld" : "docked", lines[1], lines[4]);
             int ri = fixed_def;
             for (int i = 0; i < NFIXED; i++) if (fixed_mode[i] == g_settings.res_mode) ri = i;
@@ -630,7 +630,7 @@ static void tab_display(void) {
     }
     if (za_rows()) {
         opt_toggle("Game dynamic resolution", &g_settings.game_drs, false,
-                   "The game's own resolution scaling, which lowers the picture when it thinks the GPU is slow. Off: "
+                   "The game's own resolution scaling, which lowers the picture when it thinks the GPU is slow.\n\nOff: "
                    "it stays at full (a window in the background no longer makes it blurry for a while). Separate "
                    "from Internal resolution > Dynamic.");
     }
@@ -644,8 +644,8 @@ static void tab_display(void) {
             static const char *rates[] = {"30 fps (Switch)", "60 fps"};
             if (fg) opt_disable_next();
             if (opt_choice("Frame rate", &fr, rates, 2, 0,
-                           "30 fps: as on the Switch. 60 fps: smoother motion, with the world step adapting to the "
-                           "time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU. "
+                           "30 fps: as on the Switch.\n60 fps: smoother motion, with the world step adapting to the "
+                           "time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU.\n\n"
                            "Frame generation selects its own source rate; turning it off restores your choice here."))
                 g_settings.fps60 = fr == 1;
             bool supported = false;
@@ -653,12 +653,12 @@ static void tab_display(void) {
             supported = fg_supported();
 #endif
             const char *fps_override = ENV("LARECOMP_FPS");
-            const char *reason = !supported ? "Unavailable: requires macOS 26 and a GPU supporting MetalFX frame interpolation. " :
-                                 fps_override && *fps_override ? "Inactive: unset LARECOMP_FPS to use frame generation. " :
-                                 settings_uncapped_fps() ? "Inactive: turn off Uncapped FPS (benchmark), including LARECOMP_UNCAPPED_FPS. " : "";
+            const char *reason = !supported ? "Unavailable: requires macOS 26 and a GPU supporting MetalFX frame interpolation.\n\n" :
+                                 fps_override && *fps_override ? "Inactive: unset LARECOMP_FPS to use frame generation.\n\n" :
+                                 settings_uncapped_fps() ? "Inactive: turn off Uncapped FPS (benchmark), including LARECOMP_UNCAPPED_FPS.\n\n" : "";
             char description[768];
             snprintf(description, sizeof description, "%sAdds an intermediate frame between real game frames: 30 real to 60 displayed, "
-                     "or 60 real to 120 displayed. The game keeps its original speed. Falls back to real frames when scene inputs "
+                     "or 60 real to 120 displayed. The game keeps its original speed.\n\nFalls back to real frames when scene inputs "
                      "are unavailable. Camera motion is reconstructed; moving characters and particles may show artifacts.", reason);
             static const char *generation[] = {"Off", "30 -> 60 fps", "60 -> 120 fps"};
             if (!supported) opt_disable_next();
@@ -669,11 +669,11 @@ static void tab_display(void) {
             if (!supported || !g_settings.frame_generation || temporal) opt_disable_next();
             if (opt_choice("Frame generation quality", &fg_quality, temporal ? temporal_quality : quality, 2, 0,
                           temporal ? "With MetalFX temporal, frame generation uses the reconstructed output resolution. "
-                                     "Performance is inactive in this combination. Your saved quality choice is restored "
+                                     "Performance is inactive in this combination.\n\nYour saved quality choice is restored "
                                      "when temporal is off." :
-                          "Native uses the rendering resolution for generated frames. Performance caps only generated frames "
+                          "Native: uses the rendering resolution for generated frames.\nPerformance: caps only generated frames "
                           "at 1920 pixels wide (1080p at 16:9) to reduce GPU cost. Real frames keep the selected rendering "
-                          "resolution. Intermediate images may look softer. Applies immediately."))
+                          "resolution. Intermediate images may look softer.\n\nApplies immediately."))
                 g_settings.frame_generation_performance = fg_quality == 1;
 
         }
@@ -683,16 +683,21 @@ static void tab_display(void) {
     {   // saved choices survive capability fallback and switching between the platforms
 #ifdef __APPLE__
         bool supported = temporal_supported();
-        const char *ups[] = {"Bilinear", "MetalFX spatial", supported ? "Temporal (Experimental)" : "Temporal unavailable"};
+        const char *ups[] = {"Bilinear", "MetalFX spatial", supported ? "MetalFX temporal" : "MetalFX temporal unavailable"};
         int ui = g_settings.upscaler == UPSCALE_BILINEAR ? 0 : g_settings.upscaler == UPSCALE_METALFX_TEMPORAL ? 2 : 1;
-        char ud[768];
-        snprintf(ud, sizeof ud, "%sBilinear is soft. MetalFX spatial sharpens the current frame. MetalFX temporal "
-                 "(Experimental) reconstructs detail across frames, replacing SMAA and Game FXAA without changing their "
-                 "saved choices.\n\nTemporal can leave trails on moving characters and particles. It falls back to spatial "
-                 "upscaling in menus, loading or when scene inputs are missing. Choose an internal resolution at or below "
-                 "the display; at Match display, temporal still smooths edges. Very low resolutions may exceed the GPU scaling range and use spatial fallback.",
-                 supported ? "" : "Temporal unavailable: needs macOS 13 or later and a GPU supporting MetalFX temporal scaling. "
-                                  "Your saved choice uses spatial upscaling here.\n\n");
+        char ud[1024];
+        snprintf(ud, sizeof ud, "%sHow the image is scaled up to the window when the game draws fewer pixels than it shows.\n\n"
+                 "Bilinear: plain and soft.\n"
+                 "MetalFX spatial: sharpens the current frame.\n"
+                 "MetalFX temporal (experimental): builds a sharper picture from several frames. The game draws fewer "
+                 "pixels, and the motion and depth of the earlier frames fill in the detail, so a high output resolution "
+                 "costs less. It replaces SMAA and Game FXAA without changing their saved choices.\n\n"
+                 "Temporal can leave trails on moving characters and particles. It falls back to spatial upscaling in "
+                 "menus, loading or when scene inputs are missing.\n\n"
+                 "Choose an internal resolution at or below the display; at Match display, temporal still smooths edges. "
+                 "Very low resolutions may exceed the GPU scaling range and use spatial fallback.",
+                 supported ? "" : "MetalFX temporal unavailable: needs macOS 13 or later and a GPU supporting MetalFX temporal "
+                                  "scaling. Your saved choice uses spatial upscaling here.\n\n");
         if (opt_choice("Upscaler", &ui, ups, 3, 1, ud))
             g_settings.upscaler = ui == 2 ? UPSCALE_METALFX_TEMPORAL : ui == 1 ? UPSCALE_METALFX : UPSCALE_BILINEAR;
 #else
@@ -712,17 +717,17 @@ static void tab_display(void) {
     static const char *aa[] = {"Off", "SMAA"};
     if (temporal) opt_disable_next();
     opt_choice("Anti-aliasing", &g_settings.antialias, aa, 2, AA_SMAA,
-               temporal ? "Inactive while MetalFX temporal supplies anti-aliasing. Your saved SMAA choice is restored when "
+               temporal ? "Inactive while MetalFX temporal supplies anti-aliasing.\n\nYour saved SMAA choice is restored when "
                           "temporal is off, and may be used during spatial fallback in menus or loading." :
-               "Smooths jagged edges of the game image before it is scaled to the window. SMAA: finds the edges and "
+               "Smooths jagged edges of the game image before it is scaled to the window.\n\nSMAA: finds the edges and "
                "blends only along them, so textures stay sharp. Most useful at a lower internal resolution.");
     {   // Pokémon Z-A's own effects (runtime/hle/za_mods.c): the same patch build as the frame mode
         if (za_rows()) {
             if (temporal) opt_disable_next();
             opt_toggle("Game FXAA", &g_settings.fxaa, true,
-                       temporal ? "Inactive while MetalFX temporal supplies anti-aliasing. Your saved Game FXAA choice "
+                       temporal ? "Inactive while MetalFX temporal supplies anti-aliasing.\n\nYour saved Game FXAA choice "
                                   "is restored when temporal is off." :
-                       "The game's own anti-aliasing, a light blur over the whole image. Off: sharper, with more jagged "
+                       "The game's own anti-aliasing, a light blur over the whole image.\n\nOff: sharper, with more jagged "
                        "edges (SMAA above can smooth them instead).");
         }
     }
@@ -739,7 +744,7 @@ static void tab_display(void) {
             ImGui::BeginDisabled(!rt_za_smooth_anim_supported());
             opt_toggle("Smooth distant animation", &g_settings.smooth_anim, true,
                        "Characters and Pokémon away from the camera animate every frame, as those close by do, instead of "
-                       "in visible steps. Costs a little CPU in crowded places. Off: the game's own. Game version 2.0.2 "
+                       "in visible steps.\n\nCosts a little CPU in crowded places. Off: the game's own. Game version 2.0.2 "
                        "only.");
             ImGui::EndDisabled();
         }
@@ -751,7 +756,7 @@ static void tab_display(void) {
             static const char *sz[] = {"Game's", "2x", "3x", "4x"};
             int si = g_settings.shadow_res - 1;
             if (opt_choice("Shadow resolution", &si, sz, 4, 0,
-                           "The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024). Higher: "
+                           "The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024).\n\nHigher: "
                            "smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory "
                            "(4x: about 240 MB, 2x: 60 MB). Applies at once."))
                 g_settings.shadow_res = si + 1;
@@ -759,7 +764,7 @@ static void tab_display(void) {
             if (g_settings.shadow_res == 1) opt_disable_next();  // (nothing to narrow at the game's size)
             if (opt_choice("Shadow sharpness", &sh, sz, 4, 0,
                            "How soft the edges of the sun's shadows are: the game's own blur, or 2-4 times narrower, "
-                           "so sharper shadows. At most the shadow resolution (the blur is measured in the map's texels). "
+                           "so sharper shadows.\n\nAt most the shadow resolution (the blur is measured in the map's texels). "
                            "Changes at once."))
                 g_settings.shadow_sharp = sh + 1;
         }

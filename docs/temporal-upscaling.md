@@ -1,6 +1,6 @@
 # Experimental MetalFX temporal upscaling
 
-Choose **Video > Upscaler > Temporal (Experimental)** to reconstruct the scene from its color, depth, motion and earlier frames. Internal resolution controls how many pixels the game renders; the window determines the reconstructed output size. Unlike MetalFX spatial, this mode accumulates history and provides anti-aliasing.
+Choose **Video > Upscaler > MetalFX temporal** to reconstruct the scene from its color, depth, motion and earlier frames. Internal resolution controls how many pixels the game renders; the window determines the reconstructed output size. Unlike MetalFX spatial, this mode accumulates history and provides anti-aliasing.
 
 Temporal upscaling is opt-in and uses the temporal API available from macOS 13 on compatible MetalFX GPUs; MonZaMac’s own minimum macOS requirement still applies. Existing bilinear/spatial choices and defaults remain unchanged. It also works at equal input/output resolution as temporal anti-aliasing. Inputs larger than the output or outside the GPU's supported scaling range fall back to spatial processing. Menus, loading and missing scene inputs also use the spatial path. Hardware capability and scale limits are checked at runtime.
 
