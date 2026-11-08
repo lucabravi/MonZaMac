@@ -263,6 +263,19 @@ int main(int argc, char **argv) {
         const char *save_dir = g_save_dir;  // (a static buffer of saves.c, a literal or the environment's: outlives teardown)
         teardown();
         title = kind == RT_REBOOT_TITLE;
+        if (title && getenv("LUMIOSE_TEST_MODULE")) {
+            // Back to the start screen from an online session: the game library with the Lumiose module is loaded once per
+            // process, so a start without the module needs a fresh one (Play offline, or Play online again, as the player
+            // chooses). Its environment is the online one's; the start screen opens (no --play).
+            static const char *const online_env[] = {"LUMIOSE_TEST_MODULE", "LUMIOSE_TEST_LIBRARY", "LUMIOSE_TEST_NETWORK",
+                                                     "LUMIOSE_TEST_SERVER", "LARECOMP_GAME_LIB", "LARECOMP_PLAY_SAVE"};
+            for (size_t i = 0; i < sizeof online_env / sizeof *online_env; i++) unsetenv(online_env[i]);
+            char exe[1100];
+            if (plat_exe_path(exe, sizeof exe)) {
+                char *argv[] = {exe, (char *)root, NULL};
+                plat_exec(argv);
+            }
+        }
         if (!title) g_save_dir = save_dir;  // a reboot into the game keeps the save it had or was switched to (the Saves tab)
     }
 }
