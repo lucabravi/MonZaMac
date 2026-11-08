@@ -592,7 +592,10 @@ static void tab_display(void) {
         char d[640];
         int n = snprintf(d, sizeof d, "Fixed: always the resolution you choose. Dynamic: as sharp as your GPU can draw while "
                                       "keeping the frame rate, lowered when it can't, up to the resolution you choose.\n\n"
-                                      "Rendering at %.0f x %.0f.", 1920.0 * sx, 1080.0 * sy);
+                                      "Rendering at %.0f x %.0f", 1920.0 * sx, 1080.0 * sy);
+        // (the picture is 16:9 fitted in the window, as output_scale places it; ml is its height, 0 before there is a window)
+        if (ml && (int)lround(1080.0 * sy) != ml) n += snprintf(d + n, sizeof d - n, ", shown at %d x %d", (int)lround(ml * 16.0 / 9.0), ml);
+        n += snprintf(d + n, sizeof d - n, ".");
         if (is_dyn) snprintf(d + n, sizeof d - n, " Dynamic: %.0f%% of its top resolution right now.", output_scale_dynamic_factor() * 100);
         static const char *modes[] = {"Fixed", "Dynamic"};
         int mi = is_dyn;
