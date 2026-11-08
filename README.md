@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Pokémon Legends: Z-A, natively on your Mac</strong><br>
-  Apple Silicon &middot; Metal &middot; no emulator
+  Apple Silicon &middot; Metal &middot; no emulator &middot; optional online play with Lumiose Online
 </p>
 
 <p align="center">
@@ -17,6 +17,7 @@
 
 <p align="center">
   <a href="#download-and-play">Download</a> &middot;
+  <a href="#play-online-with-lumiose-online">Play online</a> &middot;
   <a href="#status">Status</a> &middot;
   <a href="#building-from-source">Build</a> &middot;
   <a href="#get-involved">Contribute</a> &middot;
@@ -32,7 +33,9 @@
 </p>
 
 Play **Pokémon Legends: Z-A on Apple Silicon**, with Metal graphics, higher internal resolutions, keyboard or
-controller input, and a guided setup that prepares your own game files on your Mac.
+controller input, and a guided setup that prepares your own game files on your Mac. And, if you want, **play it
+online** with other trainers through [Lumiose Online](#play-online-with-lumiose-online), a multiplayer mod made by a
+separate team.
 
 **Fully open source, under the MIT license, and open to contributions.** Help us improve performance, test on more
 Macs, fix bugs or make the documentation better. You do not have to be a developer to [get involved](#get-involved).
@@ -52,6 +55,9 @@ Macs, fix bugs or make the documentation better. You do not have to be a develop
   battle effects stall far less afterwards, and everything stays in a local cache on your Mac.
 - 🎮 **Your controls.** Remappable keyboard and controller input, camera on the mouse or trackpad, and docked or
   handheld mode.
+- 🌐 **Online play** *(optional, separate edition)*. **Play online** puts you in the same Lumiose City as every other
+  Lumiose Online player: chat, trading, voice chat and more, from the mod's own team. Details
+  [below](#play-online-with-lumiose-online).
 - 💾 **Your saves.** Named save slots on the start screen, **import and export** as .zip, copies as backups, and
   **Reload this save** from the in-game menu.
 - 📦 **A Mac app you can set up yourself.** Download the app, select your game files and let the guided setup build
@@ -65,19 +71,70 @@ runs at play time. The supported game version is **v2.0.2 with the Mega Dimensio
 > files, code, assets, shaders, keys or fonts are distributed with this project. The open-source license covers
 > the project software, not the game or its content.
 
+## Play online with Lumiose Online
+
+**[Lumiose Online](https://lumioseonline.site)** is an unofficial, fan-made multiplayer mod for Pokémon Legends: Z-A,
+built and run by its own team: players share Lumiose City, chat, trade and talk (voice chat), on one server for
+everyone, on a Switch, in the Eden emulator or on PC, and now on a Mac. **MonZaMac makes it possible to run that
+mod natively on a Mac. The mod, the server and the online features are the Lumiose Online team's work; MonZaMac only
+runs the mod, and does not operate, control or vouch for the service.** A great thank you to them for making it work
+with the Mac port: see [Credits](#credits-and-license).
+
+**Two editions.** The online features are in a separate download so that the standard app stays exactly what it was:
+
+| Edition | Download | What it is |
+|---|---|---|
+| **MonZaMac** | `MonZaMac-<version>-macOS.dmg` | The standard app: everything offline, nothing ever contacts the online service. |
+| **MonZaMac Online** | `MonZaMac-<version>-Online-macOS.dmg` | The same app with a second column on the start screen, **Lumiose Online**, and a **Play online** button. Offline play works as before. |
+
+**How it works.**
+
+1. Install the online edition and set up your game files as usual. Online play needs the game at **version 2.0.2**
+   (the one MonZaMac supports) and about **1.3 GB** more disk space, which the app keeps to prepare the mod quickly.
+2. Press **Play online**. The first time it tells you what is shared, asks for your consent, then prepares the mod
+   **on your Mac**, from your own game files (a few minutes, with a progress bar), and starts the game with it.
+3. Every later press checks for a newer version of the mod, downloaded from Lumiose Online's site and checked against
+   the hash they publish, and prepares it before starting. Without a connection it starts the version you have.
+4. **Quit to start screen** (in the in-game menu, F1) comes back to the start screen without the mod: **Continue** there
+   plays offline.
+
+**Your data, your choice.**
+
+- **Online play shares game data with Lumiose Online** while you play (the mod talks to its server at
+  `lumioseonline.site`). It is a separate service run by its own team; MonZaMac does not control it or what it does
+  with that data. The first press of **Play online** asks you to agree, and the **Legal notice** says it too.
+- **Offline play never contacts it.** Nothing is sent unless you press **Play online** and have agreed. The standard
+  edition has no **Play online** button and never starts the mod or the network.
+- Your **save is the same** online and offline (one slot, one `save_0`). The mod keeps its own settings next to it.
+  If you want to be careful, try the online mode with a copy of your save first.
+- **Voice chat** uses your Mac's microphone: macOS asks for the permission the first time. The mod decides when to
+  capture; its default is push to talk.
+
+**State of this feature.** Online play works end to end on the maintainer's Mac: connecting, seeing other players, the
+mod's lists and chat window, and voice chat sending and receiving. It is new: how the voice sounds on other setups, chat messages between Mac and other platforms, play against
+Windows or Linux players and every MonZaMac option together with the mod (frame generation, MetalFX temporal,
+smooth distant animation) have had less testing, so please report what you find. A mod update that changes how the
+mod patches the game needs a small compatibility update on our side before it works here; until then Play online says
+it cannot prepare that version and the offline game is unaffected.
+
+For the technical side (what the runtime does for the mod, how a version is prepared, and what is verified) see
+[docs/online-lumiose.md](docs/online-lumiose.md). Questions about the mod itself, the server or the community: the
+[Lumiose Online site](https://lumioseonline.site) and its Discord.
+
 ## Download and play
 
 You need a Mac with Apple Silicon (macOS 15 or later) and **your own copy of the game** (see above).
 
-1. Download `MonZaMac-<version>-macOS.dmg` from the [latest release](https://github.com/lucabravi/MonZaMac/releases/latest).
+1. Download `MonZaMac-<version>-macOS.dmg` from the [latest release](https://github.com/lucabravi/MonZaMac/releases/latest)
+   (or `MonZaMac-<version>-Online-macOS.dmg` if you want [online play](#play-online-with-lumiose-online)).
 2. Open it and drag **MonZaMac** onto **Applications**.
 3. Open MonZaMac. The app is not notarized by Apple. If macOS blocks it, use **System Settings > Privacy & Security >
    Open Anyway** after attempting to open it, then confirm the prompt.
-4. On the start screen choose **SET UP GAME FILES** and confirm that you own an original copy. Select your base game
+4. On the start screen choose **Set up game files** and confirm that you own an original copy. Select your base game
    (**NSP or XCI**), the **v2.0.2 update (NSP)** and your **prod.keys**. The app checks them, applies the update and
    builds the game on your Mac. Allow at least **27 GB of free space**; larger packages may need more, and setup
    checks the requirement before proceeding. The first build takes a while. No game files or keys are uploaded.
-5. When it is done, press **CONTINUE** (your most recent save) or **NEW GAME**. Your saves and settings are kept in
+5. When it is done, press **Continue** (your most recent save) or **New game**. Your saves and settings are kept in
    `~/Library/Application Support/com.monzamac.app`, and stay there when you update the app.
 
 <details>
@@ -85,7 +142,7 @@ You need a Mac with Apple Silicon (macOS 15 or later) and **your own copy of the
 
 <br>
 
-The start screen shows the save you played last. **SAVES** lists them all: pick one, start a new one, copy
+The start screen shows the save you played last. **Saves** lists them all: pick one (it becomes the one **Continue** plays), start a new one, copy
 (a handy backup before trying something), rename, delete, **export** one as a .zip, or **import** a .zip or a folder
 with a Z-A save (a JKSV backup, a copy from a console) as a new save. In the game, **F1 > Saves** shows the save you are
 playing and the others, and can switch to another one or reload the current one. A save you already had is the first
@@ -99,7 +156,8 @@ one in the list, called "Main save" until you rename it.
 <br>
 
 A new install starts with fullscreen, a fixed 1080p resolution, 60 fps, SMAA, the original 16:9
-picture and anisotropic filtering. **1080p is the initial preset, not the maximum supported resolution.** Choose
+picture, anisotropic filtering, and a two-finger trackpad swipe that turns the camera. **1080p is the initial
+preset, not the maximum supported resolution.** Choose
 higher internal resolutions, Dynamic, Match display or frame generation in **SETTINGS**, available before and during play.
 
 In the game: **F1** opens the menu (video, audio, controls), **F3** shows the frame rate and the render resolution.
@@ -115,7 +173,7 @@ Bindings can be changed in **SETTINGS > Controls**.
 <br>
 
 Shaders and pipelines compile as needed. A new scene or an update can cause brief first-use stutter; subsequent
-visits benefit from the local cache. On the start screen, **All shaders** (top right) can compile every shader of the
+visits benefit from the local cache. On the start screen, **All shaders** (in the header) can compile every shader of the
 game up front: about five minutes once and about 400 MB of Metal cache, and the first visit to a scene stalls far less.
 After some updates the badge turns yellow: run it again.
 
@@ -146,9 +204,11 @@ Working:
   culling (indirect draws), text, dialogue and UI
 - Audio, the game's menus, saves
 - Controller and keyboard input
+- Online play with Lumiose Online (online edition): connecting, other players, the mod's lists and chat, and voice chat, on the maintainer's Mac
 
-**Known limitations:** brief first-use shader-compilation stutter can occur, and frame generation is experimental
-(it can show artifacts on fast-moving characters and particles). No persistent visual defects are
+**Known limitations:** brief first-use shader-compilation stutter can occur, frame generation is experimental
+(it can show artifacts on fast-moving characters and particles), and online play is new (see
+[its state](#play-online-with-lumiose-online)). No persistent visual defects are
 currently known from the maintainer’s testing; later areas and other Mac configurations still need more coverage.
 
 Bugs and questions: [GitHub issues](https://github.com/lucabravi/MonZaMac/issues), see [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -179,6 +239,11 @@ MonZaMac is a fork of **[PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARec
 **Hexveil404**, the Pokémon Legends: Z-A port of **[LAS Recomp](https://github.com/peiikai/LASRecomp)** by **Peiikai**,
 whose recompiler, runtime and NVN/Maxwell shader work it builds on (made for *The Legend of Zelda: Link's Awakening*).
 Contributors and third-party components are listed in [CREDITS.md](CREDITS.md).
+
+**Online play is the work of the [Lumiose Online](https://lumioseonline.site) team.** The multiplayer mod, its server and
+its community are theirs (their PC integration is at
+[PokeZ-ARecomp-Online](https://github.com/TheMagnumChad/PokeZ-ARecomp-Online)). They agreed to this feature on the Mac and
+publish the files MonZaMac's online edition downloads. Thank you.
 
 MonZaMac’s project code is under the [MIT License](LICENSE); third-party components retain their respective
 licenses. Nintendo’s game and other protected content are not covered by that license. This is an independent fan
