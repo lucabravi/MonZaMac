@@ -284,21 +284,11 @@ static bool online_setup() {
     return online_prep_start(argv);
 }
 
-// Said once, before the first online start: what goes where. The answer is kept in a marker file of the data folder.
-static bool online_consent() {
-    std::string marker = std::string(rt_data_root()) + "/lumiose-online-consent";
-    if (access(marker.c_str(), F_OK) == 0) return true;
-    SDL_MessageBoxButtonData buttons[] = {{SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Cancel"},
-                                          {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Continue"}};
-    SDL_MessageBoxData box = {SDL_MESSAGEBOX_INFORMATION, NULL, "Play online with Lumiose Online?",
-        "Lumiose Online is a separate service run by its own team, not by MonZaMac.\n\n"
-        "If you continue, your game data will be sent to Lumiose Online while you play. MonZaMac does not control it or what "
-        "it does with that.\n\nYou can play offline at any time.", 2, buttons, NULL};
-    int id = 0;
-    if (!SDL_ShowMessageBox(&box, &id) || id != 1) return false;
-    if (FILE *f = fopen(marker.c_str(), "w")) { fputs("accepted\n", f); fclose(f); }
-    return true;
-}
+// Said once, before the first online start (online_consent_popup, drawn with the legal notice): what goes where. The answer
+// is kept in a marker file of the data folder.
+static bool g_ou_consent_open;  // the question is to be shown
+static std::string online_marker() { return std::string(rt_data_root()) + "/lumiose-online-consent"; }
+static bool online_consent_given() { return access(online_marker().c_str(), F_OK) == 0; }
 
 // Start the game again with the active online version (this process only returns if that fails)
 static void online_launch() {
@@ -357,7 +347,7 @@ static void online_view(const std::string &files, bool busy, OnlineView *v) {
         bool ok = !strcmp(st.state, "ready");
         g_ou_status = st;
         g_ou = ok ? OU_READY : OU_NEEDS;
-        if (ok && g_ou_launch_after) { g_ou_launch_after = false; if (online_consent()) online_launch(); }
+        if (ok && g_ou_launch_after) { g_ou_launch_after = false; online_launch(); }  // (the consent came with the click)
     }
     if (g_ou == OU_SETUP && !st.running) {
         if (!strcmp(st.state, "ready")) { g_ou = OU_START; g_ou_launch_after = true; g_ou_note.clear(); }  // (read the status again)
@@ -406,15 +396,20 @@ static void online_view(const std::string &files, bool busy, OnlineView *v) {
     }
 }
 
-static void online_click() {
-    if (getenv("LARECOMP_ONLINE_STATE_TEST")) return;
-    if (g_ou != OU_READY && g_ou != OU_NEEDS && g_ou != OU_ERROR) return;
-    g_ou_note.clear();
-    if (!online_consent()) return;
+// What a press does once the player has agreed: start online with the prepared version, or prepare it first
+static void online_proceed() {
     if (g_ou == OU_READY) { online_launch(); return; }
     g_ou_launch_after = true;
     g_ou = online_setup() ? OU_SETUP : OU_ERROR;
     if (g_ou == OU_ERROR) { g_ou_note = "Could not start the online setup."; g_ou_launch_after = false; }
+}
+
+static void online_click() {
+    if (getenv("LARECOMP_ONLINE_STATE_TEST")) return;
+    if (g_ou != OU_READY && g_ou != OU_NEEDS && g_ou != OU_ERROR) return;
+    g_ou_note.clear();
+    if (online_consent_given()) online_proceed();
+    else g_ou_consent_open = true;
 }
 #endif
 
@@ -1074,6 +1069,54 @@ static void legal_notice(float s) {
     ImGui::PopFont();
     ImGui::EndPopup();
 }
+
+#ifdef LUMIOSE_ONLINE
+// The first Play online asks once, in a window like the legal notice. Continue is remembered and goes on with what was pressed.
+static void online_consent_popup(float s) {
+    ImVec2 ds = ImGui::GetIO().DisplaySize;
+    if (g_ou_consent_open) { ImGui::OpenPopup("##online_consent"); g_ou_consent_open = false; }
+    ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(fminf(ds.x * 0.92f, 760 * s), fminf(ds.y * 0.9f, 400 * s)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(28 * s, 24 * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 16 * s);
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.04f, 0.07f, 0.14f, 1));
+    bool open = ImGui::BeginPopupModal("##online_consent", NULL, ImGuiWindowFlags_NoTitleBar |
+                                       ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+    if (!open) return;
+    ImGui::PushFont(g_font_small);
+    ImGui::SetWindowFontScale(0.82f);
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), "Play online with Lumiose Online?");
+    ImGui::Dummy(ImVec2(0, 12 * s));
+    ImGui::BeginChild("##online_consent_text", ImVec2(0, -68 * s), false);
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextWrapped("Lumiose Online is a separate service run by its own team, not by MonZaMac.");
+    ImGui::Dummy(ImVec2(0, 12 * s));
+    ImGui::TextWrapped("If you continue, your game data will be shared with Lumiose Online while you play. MonZaMac does not "
+                       "control it or what it does with that data.");
+    ImGui::Dummy(ImVec2(0, 12 * s));
+    ImGui::TextWrapped("The first time, the online version is prepared on this Mac (it can take a few minutes). You can play "
+                       "offline at any time.");
+    ImGui::PopTextWrapPos();
+    ImGui::EndChild();
+    ImGui::Dummy(ImVec2(0, 10 * s));
+    float bw = 190 * s, gap = 16 * s;
+    ImGui::SetCursorPosX((ImGui::GetWindowWidth() - 2 * bw - gap) * 0.5f);
+    bool back = ImGui::Button("Cancel", ImVec2(bw, 42 * s)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+                ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false);
+    ImGui::SameLine(0, gap);
+    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+    bool go = ImGui::Button("Continue", ImVec2(bw, 42 * s));
+    ImGui::PopFont();
+    if (back || go) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    if (go) {
+        if (FILE *f = fopen(online_marker().c_str(), "w")) { fputs("accepted\n", f); fclose(f); }
+        online_proceed();
+    }
+}
+#endif
 
 // "Prepare all shaders": a badge under the catalog's (green check: done and still good for this MonZaMac, macOS, GPU and
 // game files; yellow triangle: not done or out of date), and what clicking it says. Compile starts the game, which
@@ -1774,6 +1817,7 @@ extern "C" void launcher_run(const char *root) {
                     OnlineView ov;
                     online_view(status, busy, &ov);
                     if (saves_online_draw(g_font_small, BANNER_TEXID, g_banner_h ? 1400.0f / g_banner_h : 0, ov, x0 + lw + gap, top, cw - lw - gap, ch)) online_click();
+                    online_consent_popup(s);
 #else
                     float cw = fminf(ds.x - 2 * pad, 835 * s);
                     int col = saves_home_draw(g_font_small, ready, !ready || busy, !g_play_focused, true, (ds.x - cw) * 0.5f, top, cw, ch);
