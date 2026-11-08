@@ -880,6 +880,28 @@ static void filesystem(Service *s, IpcReq *req, IpcResp *resp) {
     }
 }
 
+// Lumiose Online draws its chat and lists into the game's own image, so at 1080p its text is small and grainy: the first
+// time (no text_size in its settings file yet) it starts at 120%. What the player sets afterwards is kept.
+static void lumiose_default_text_size(const char *sdcard) {
+    char path[1300], line[256];
+    snprintf(path, sizeof path, "%s/lumiose_settings.txt", sdcard);
+    bool has = false, newline = true;
+    FILE *f = fopen(path, "rb");
+    if (f) {
+        while (fgets(line, sizeof line, f)) {
+            has |= !strncmp(line, "text_size", 9);
+            newline = strchr(line, '\n') != NULL;
+        }
+        fclose(f);
+    }
+    if (has) return;
+    f = fopen(path, "ab");
+    if (f) {
+        fputs(newline ? "text_size=120\n" : "\ntext_size=120\n", f);
+        fclose(f);
+    }
+}
+
 static Service *open_host_fs(const char *sub) {
     HostFs *fs = calloc(1, sizeof *fs);
     if (getenv("LARECOMP_SAVE_DIR")) g_save_dir = getenv("LARECOMP_SAVE_DIR");  // test runs use a scratch copy
@@ -894,6 +916,7 @@ static Service *open_host_fs(const char *sub) {
     for (char *q = cmd + 1; *q; q++)
         if (*q == '/') { *q = 0; mkdir(cmd, 0755); *q = '/'; }
     mkdir(cmd, 0755);
+    if (!strcmp(sub, "sdcard") && getenv("LUMIOSE_TEST_MODULE")) lumiose_default_text_size(fs->root);
     LOG("[fs] mounted host directory %s\n", fs->root);
     return service_new("IFileSystem", filesystem, fs);
 }
