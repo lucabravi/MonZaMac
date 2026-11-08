@@ -317,7 +317,7 @@ static void online_launch() {
     saves_use_latest();  // the chosen save, else the most recent (as CONTINUE)
     settings_save();
     setenv("LARECOMP_PLAY_SAVE", g_settings.save_slot, 1);  // (--play would take the most recent one)
-    char *argv[] = {exe, (char *)"--play", NULL};
+    char *argv[] = {exe, (char *)g_root.c_str(), (char *)"--play", NULL};  // (the same game folder as this run)
     plat_exec(argv);
     g_ou_note = "Could not restart the game for online play.";
 }
@@ -1058,6 +1058,13 @@ static void legal_notice(float s) {
     ImGui::TextWrapped("Pokémon and related names, characters and trademarks belong to their respective owners. "
                        "The project's open-source license covers its software, not the game or its content. "
                        "This notice does not grant additional rights or replace applicable law.");
+#ifdef LUMIOSE_ONLINE
+    ImGui::Dummy(ImVec2(0, 12 * s));
+    ImGui::TextUnformatted("Online play (Lumiose Online)");
+    ImGui::TextWrapped("Play online is optional. If you use it, game data is shared with Lumiose Online while you play. "
+                       "Lumiose Online is a separate service run by its own team, not by MonZaMac, and MonZaMac does not "
+                       "control it or what it does with that data. Playing offline does not use it.");
+#endif
     ImGui::PopTextWrapPos();
     ImGui::EndChild();
     ImGui::Dummy(ImVec2(0, 10 * s));
