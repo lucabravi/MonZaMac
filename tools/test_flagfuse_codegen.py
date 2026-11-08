@@ -12,6 +12,7 @@ from lifter import Insn
 class FusionEmission(unittest.TestCase):
     def module(self):
         m = Module.__new__(Module)
+        m.name = 'main'
         m.lo, m.hi = 0x1000, 0x1010
         m.setjmp_stubs, m.stats = set(), Counter()
         m.flag_fusion = True

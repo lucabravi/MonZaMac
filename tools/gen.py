@@ -368,7 +368,7 @@ class Module:
                     tables[a] = jt
                     labels.update(jt)
                     self.stats['jumptables'] += 1
-                elif self.computed_target(a, entry):
+                elif self.name == 'lumiose' or self.computed_target(a, entry):
                     # unresolved table jump: allow jumping to any instruction of the function
                     tables[a] = 'all'
                     self.stats['br_all_labels'] += 1
@@ -513,6 +513,8 @@ class Module:
             out.append('L_dispatch:')
             cases = ' '.join(f'case {hx(t)}: goto L_{t:x};' for t in range(entry, end, 4))
             out.append(f'    switch (c->pc) {{ {cases} default: break; }}')
+            if self.name == 'lumiose':  # (a mod: where a computed jump lands that the table did not list)
+                out.append(f'    {{ extern void lumiose_test_branch(Cpu *, uint64_t, uint64_t); lumiose_test_branch(c, {hx(entry)}, {hx(end)}); }}')
             out.append('    __attribute__((musttail)) return rt_dispatch(c);')
         out.append('}')
         self._refs = refs
@@ -561,6 +563,18 @@ def main():
     else:
         print(f'{args.name}: build {build}: no game patches')
     starts = m.boundaries()
+    # A mod's extra entry points (jump table targets, hook sites), offsets from the base: LUMIOSE_TEST_ENTRIES_<NAME>
+    for value in os.environ.get('LUMIOSE_TEST_ENTRIES_' + args.name.upper(), '').split(','):
+        if value.strip():
+            target = args.base + int(value.strip(), 0)
+            if not m.in_text(target):
+                raise ValueError(f'extra entry outside module text: {target:#x}')
+            starts.append(target)
+    if args.name == 'lumiose':  # a mod without unwind tables: the entries the loader itself calls (DT_INIT, DT_FINI)
+        for tag in (12, 13):
+            target = args.base + m.nso.dyn.get(tag, 0)
+            if m.nso.dyn.get(tag) and m.in_text(target):
+                starts.append(target)
     hle = {}
     if args.hle and os.path.exists(args.hle):
         want = {l.strip() for l in open(args.hle) if l.strip() and not l.startswith('#')}
