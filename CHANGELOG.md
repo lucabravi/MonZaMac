@@ -5,6 +5,7 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+- **Smooth distant animation** no longer makes a Pokémon's head flicker between two poses at some camera positions (seen on a Totodile at the station). The option now relaxes the game's two per-frame animation channels together, through their four update policies, instead of forcing one flag at the update. Z-A v2.0.2 only, `LARECOMP_SMOOTH_ANIM=0` still turns it off for a run. The second channel now runs every frame too; its CPU cost was not measured.
 - The shader translator honors the directed rounding modes (toward negative infinity, toward positive infinity, toward zero) of 32-bit integer to float (`I2F`) and float to half (`F2F`) conversions, instead of always rounding to nearest. Conversions rounded to nearest, and every shader that does not use these modes, translate exactly as before. Whether the game's shaders use them, and what that changes on screen, was not measured. The translated code of shaders that use them changes, so **Prepare all shaders** has to be run again (the **All shaders** badge turns yellow; the precompile version is 5). Directed rounding of 64-bit integer conversions and of integer to half conversions is not covered yet.
 
 ## 0.1.6
