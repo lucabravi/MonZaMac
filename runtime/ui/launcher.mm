@@ -303,7 +303,7 @@ static bool online_consent() {
 // Start the game again with the active online version (this process only returns if that fails)
 static void online_launch() {
     if (g_ou_status.endpoint[0] == 0) {
-        g_ou_note = "No server is set for Lumiose Online.";
+        g_ou_note = "Could not find the Lumiose Online server. Check your connection.";
         return;
     }
     char exe[4096];
@@ -330,12 +330,12 @@ static void online_view(const std::string &files, bool busy, OnlineView *v) {
     snprintf(button, sizeof button, "Play online");
     snprintf(build, sizeof build, "Not prepared yet");
     snprintf(line, sizeof line, "Lumiose Online (separate service)");
-    if (const char *test = getenv("LARECOMP_ONLINE_STATE_TEST")) {  // (UI check: ready, needs, setup, error, noserver, off)
+    if (const char *test = getenv("LARECOMP_ONLINE_STATE_TEST")) {  // (UI check: ready, needs, setup, error, noserver (not found), off)
         snprintf(headline, sizeof headline, "Set up on first play");
         if (!strcmp(test, "ready")) { snprintf(headline, sizeof headline, "Service ready"); snprintf(build, sizeof build, "Ready \xc2\xb7 1.4.3"); v->good = v->build_good = v->on = true; }
         else if (!strcmp(test, "setup")) { snprintf(headline, sizeof headline, "Preparing the online version"); snprintf(line, sizeof line, "Compiling the module"); snprintf(button, sizeof button, "Preparing  42%%"); v->progress = 0.42f; }
         else if (!strcmp(test, "error")) { snprintf(headline, sizeof headline, "Could not prepare"); snprintf(line, sizeof line, "Unsupported Lumiose build."); snprintf(button, sizeof button, "Try again"); v->bad = v->on = true; }
-        else if (!strcmp(test, "noserver")) { snprintf(headline, sizeof headline, "No server set"); snprintf(line, sizeof line, "Set one with tools/lumiose/activate.py set-server"); snprintf(build, sizeof build, "Ready \xc2\xb7 1.4.3"); v->build_good = v->bad = true; }
+        else if (!strcmp(test, "noserver")) { snprintf(headline, sizeof headline, "Server not found"); snprintf(line, sizeof line, "Check your connection and try again."); snprintf(build, sizeof build, "Ready \xc2\xb7 1.4.3"); v->build_good = v->bad = true; }
         else if (!strcmp(test, "off")) { snprintf(headline, sizeof headline, "Not available here"); snprintf(line, sizeof line, "This build has no online setup."); v->bad = true; }
         else v->on = true;
         return;
@@ -376,8 +376,8 @@ static void online_view(const std::string &files, bool busy, OnlineView *v) {
         snprintf(build, sizeof build, "Ready \xc2\xb7 %s", g_ou_status.version);
         v->build_good = true;
         if (!g_ou_status.endpoint[0]) {
-            snprintf(headline, sizeof headline, "No server set");
-            snprintf(line, sizeof line, "Set one with tools/lumiose/activate.py set-server");
+            snprintf(headline, sizeof headline, "Server not found");  // (the name did not resolve: no network, most likely)
+            snprintf(line, sizeof line, "Check your connection and try again.");
             v->bad = true;
         } else {
             snprintf(headline, sizeof headline, g_ou_note.empty() ? "Service ready" : "Could not start");

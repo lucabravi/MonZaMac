@@ -9,9 +9,9 @@ versions folder records the active one and the one before it:
   activate <folder> [--smoke]   verify it (hashes, name), optionally start it hidden and offline to see that it comes
                                 up, then make it the active one; the old one becomes `previous`
   rollback                      make `previous` the active one again (verified first)
-  set-server <ip:port>          the relay the module may talk to (kept in server.txt; none is built in), or `clear-server`
-  launch                        print the command that starts the active version: online to the server set, else offline
-                                (`--offline` forces offline)
+  set-server <host:port>        another relay than the default (kept in server.txt), or `clear-server` to use the default again
+  launch                        print the command that starts the active version: online to the server (the name is looked up
+                                now and the runtime is given that one IPv4 address), `--offline` for offline
 
 A version that fails verification or the start-up check never becomes active, and the state file is replaced only as a
 whole, so a failure leaves the previous choice as it was.
@@ -21,7 +21,9 @@ import importlib.util
 import json
 import os
 import shlex
+import re
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -36,6 +38,9 @@ spec.loader.exec_module(prep)
 
 STATE = 'state.json'
 SERVER = 'server.txt'
+# The Lumiose Online team's relay, the same machine as its site (its own launcher passes this address too). The name is
+# looked up when starting; the runtime is only ever given the resulting IPv4 address and may reach nothing else.
+DEFAULT_SERVER = 'lumioseonline.site:27777'
 UP_MARKER = '[ui] installed'  # the module's UI came up: its initialization ran through
 BAD_MARKERS = ('FATAL', '[crash]', 'no function at')
 
@@ -73,10 +78,14 @@ def verify(root, name):
 
 def online_status(root):
     """What a screen needs to show the online entry: {'state': ready|none|invalid, 'active', 'version', 'dir' (of the
-    active version, when it verifies), 'server': bool, 'endpoint' (the server set, or '')}."""
+    active version, when it verifies), 'server' (host:port in use: the default or the one set), 'custom' (it was set),
+    'endpoint' (that server's IPv4:port as looked up now, '' when it could not be)}."""
     active = read_state(root)['active']
-    endpoint = read_server(root)
-    info = {'state': 'none', 'active': None, 'version': None, 'server': endpoint is not None, 'endpoint': endpoint or ''}
+    custom = read_server(root)
+    server = custom or DEFAULT_SERVER
+    try: endpoint = resolve_endpoint(server)
+    except OSError: endpoint = ''
+    info = {'state': 'none', 'active': None, 'version': None, 'server': server, 'custom': custom is not None, 'endpoint': endpoint}
     if not active:
         return info
     try:
@@ -89,13 +98,30 @@ def online_status(root):
 
 
 def parse_server(value):
-    """'a.b.c.d:port' as the runtime pins it (IPv4 and a port, exactly), or ValueError."""
-    host, sep, port = value.strip().partition(':')
+    """'host:port' with an IPv4 address or a host name and a port, or ValueError. Returns it normalized (IPv4 octets
+    without leading zeros, name in lower case)."""
+    host, sep, port = value.strip().rpartition(':')
+    if not sep or not port.isdigit() or not 0 < int(port) < 65536 or not host:
+        raise ValueError('the server is host:port, like 203.0.113.5:27777 or example.org:27777')
     octets = host.split('.')
-    if not sep or len(octets) != 4 or not all(o.isdigit() and len(o) <= 3 and int(o) <= 255 for o in octets) \
-            or not port.isdigit() or not 0 < int(port) < 65536:
-        raise ValueError('the server is an IPv4 address and a port, like 203.0.113.5:27777')
-    return '.'.join(str(int(o)) for o in octets) + ':' + str(int(port))
+    if len(octets) == 4 and all(o.isdigit() for o in octets):
+        if not all(len(o) <= 3 and int(o) <= 255 for o in octets):
+            raise ValueError('the server is host:port, like 203.0.113.5:27777 or example.org:27777')
+        host = '.'.join(str(int(o)) for o in octets)
+    elif not re.fullmatch(r'(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}', host.lower()):
+        raise ValueError('the server is host:port, like 203.0.113.5:27777 or example.org:27777')
+    return f'{host.lower()}:{int(port)}'
+
+
+def resolve_endpoint(server, resolver=None):
+    """The IPv4:port of a server (host:port) as the runtime pins it; OSError when a name has no IPv4 address."""
+    host, _, port = parse_server(server).rpartition(':')
+    if re.fullmatch(r'\d+\.\d+\.\d+\.\d+', host):
+        return f'{host}:{port}'
+    for family, _, _, _, address in (resolver or socket.getaddrinfo)(host, int(port), socket.AF_INET, socket.SOCK_DGRAM):
+        if family == socket.AF_INET:
+            return f'{address[0]}:{port}'
+    raise OSError(f'{host} has no IPv4 address')
 
 
 def read_server(root):
@@ -114,9 +140,9 @@ def write_server(root, value):
 def command(directory, runtime, game, server=None):
     env = {'LUMIOSE_TEST_MODULE': str(directory / 'subsdk9'), 'LUMIOSE_TEST_LIBRARY': str(directory / 'lumiose.dylib'),
            'LARECOMP_GAME_LIB': str(directory / 'lasgame.dylib')}
-    if server:  # only this exact endpoint is reachable (runtime/hle/lumiose_net.c); without it the network stays off
+    if server:  # only this exact IPv4:port is reachable (runtime/hle/lumiose_net.c); without it the network stays off
         env['LUMIOSE_TEST_NETWORK'] = '1'
-        env['LUMIOSE_TEST_SERVER'] = parse_server(server)
+        env['LUMIOSE_TEST_SERVER'] = resolve_endpoint(server)  # (an IPv4 address stays as it is)
     return env, [str(runtime), str(game), '--play']
 
 
@@ -217,16 +243,16 @@ def main():
             print(f'server: {read_server(root)}')
         elif args.cmd == 'clear-server':
             (root / SERVER).unlink(missing_ok=True)
-            print('server: none (offline)')
+            print(f'server: the default, {DEFAULT_SERVER}')
         else:
             state = read_state(root)
             if not state['active']: raise RuntimeError('no version is active; run activate first')
             if not (args.runtime and args.game): ap.error('launch needs --runtime and --game')
-            server = None if args.offline else read_server(root)
+            server = None if args.offline else read_server(root) or DEFAULT_SERVER
             env, argv = command(verify(root, state['active']), args.runtime.resolve(), args.game.resolve(), server)
             print(shlex.join(['env', *[f'{k}={v}' for k, v in env.items()], *argv]))
-            print('# ' + (f'online: only {server} is reachable' if server else 'offline'), file=sys.stderr)
-    except (ValueError, RuntimeError) as e:
+            print('# ' + (f'online: only {env["LUMIOSE_TEST_SERVER"]} ({server}) is reachable' if server else 'offline'), file=sys.stderr)
+    except (ValueError, RuntimeError, OSError) as e:
         print(f'{e}', file=sys.stderr)
         sys.exit(1)
 
