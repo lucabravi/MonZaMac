@@ -82,7 +82,7 @@ void input_reset(void) {
     recompute_keyboard();
 }
 
-volatile int g_debug_frame_request;  // F9 or 0: dump the next frame's passes (build/pass_*.png) + draw log
+volatile int g_debug_frame_request;  // F9 (LARECOMP_DEVTOOLS only): dump the next frame's passes (build/pass_*.png) + draw log
 
 // Events a test pushes (LARECOMP_HOST_INPUT type: / sdlkey: / sdlpad:) carry this device id: they go the whole way, menu first.
 #define TEST_DEVICE 0x7E57u
@@ -216,9 +216,11 @@ void input_handle_event(const SDL_Event *e) {
     }
     switch (e->type) {
     case SDL_EVENT_KEY_DOWN: case SDL_EVENT_KEY_UP:
-        // macOS sends F9 as a media key unless "use F keys as standard" is on, so plain 0 (unbound) works too
-        if (e->type == SDL_EVENT_KEY_DOWN && !e->key.repeat &&
-            (e->key.scancode == SDL_SCANCODE_F9 || e->key.scancode == SDL_SCANCODE_0)) g_debug_frame_request = 1;
+        // F9: dump the next frame's passes and draw log (developers: LARECOMP_DEVTOOLS=1; a player's key press must not write files)
+        static int devtools = -1;
+        if (devtools < 0) devtools = getenv("LARECOMP_DEVTOOLS") != NULL;
+        if (devtools && e->type == SDL_EVENT_KEY_DOWN && !e->key.repeat && e->key.scancode == SDL_SCANCODE_F9)
+            g_debug_frame_request = 1;
         if (e->key.scancode < SDL_SCANCODE_COUNT) keys_down[e->key.scancode] = e->type == SDL_EVENT_KEY_DOWN;
         recompute_keyboard();
         break;
