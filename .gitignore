@@ -34,3 +34,7 @@ work-202/
 /docs-private/
 # your own keys (local only)
 .keys/
+
+# run and build logs
+*.log
+logs/
