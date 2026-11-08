@@ -529,6 +529,13 @@ static bool za_rows(void) {
     return g_za_frame_hook || g_start_screen;
 }
 
+// Height of the 16:9 picture fitted in the window, as output_scale places it; 0 before there is a window
+static int shown_picture_height(void) {
+    int ww = 0, wh = 0;
+    if (ui_window()) SDL_GetWindowSizeInPixels(ui_window(), &ww, &wh);
+    return ww > 0 && wh > 0 ? (int)lround(fmin(ww / 1920.0, wh / 1080.0) * 1080.0) : 0;
+}
+
 static void tab_display(void) {
     float scale = ImGui::GetFontSize() / 34;
     opt_begin("##video", scale);
@@ -563,9 +570,7 @@ static void tab_display(void) {
     const double mul[5] = {1, 1.5, 2, 3, 4};
     for (int i = 0; i < 5; i++) snprintf(lines[i], sizeof lines[i], "%dp", (int)(base * mul[i]));
     for (int i = 0; i < 2; i++) snprintf(up[i], sizeof up[i], "Up to %s", lines[i]);
-    int ww = 0, wh = 0;
-    if (ui_window()) SDL_GetWindowSizeInPixels(ui_window(), &ww, &wh);
-    int ml = ww > 0 && wh > 0 ? (int)lround(fmin(ww / 1920.0, wh / 1080.0) * 1080.0) : 0;  // (as output_scale: 16:9 fitted)
+    int ml = shown_picture_height();
     const int pct[3] = {25, 50, 75};  // (of the game's own image)
     for (int i = 0; i < 3; i++) snprintf(share[i], sizeof share[i], "%dp (%d%%)", base * pct[i] / 100, pct[i]);
     if (ml) snprintf(match, sizeof match, "Match display (%dp)", ml), snprintf(up_match, sizeof up_match, "Up to match display (%dp)", ml);
@@ -592,7 +597,10 @@ static void tab_display(void) {
         char d[640];
         int n = snprintf(d, sizeof d, "Fixed: always the resolution you choose. Dynamic: as sharp as your GPU can draw while "
                                       "keeping the frame rate, lowered when it can't, up to the resolution you choose.\n\n"
-                                      "Rendering at %.0f x %.0f.", 1920.0 * sx, 1080.0 * sy);
+                                      "Rendering at %.0f x %.0f", 1920.0 * sx, 1080.0 * sy);
+        // (the picture is 16:9 fitted in the window, as output_scale places it; ml is its height, 0 before there is a window)
+        if (ml && (int)lround(1080.0 * sy) != ml) n += snprintf(d + n, sizeof d - n, ", shown at %d x %d", (int)lround(ml * 16.0 / 9.0), ml);
+        n += snprintf(d + n, sizeof d - n, ".");
         if (is_dyn) snprintf(d + n, sizeof d - n, " Dynamic: %.0f%% of its top resolution right now.", output_scale_dynamic_factor() * 100);
         static const char *modes[] = {"Fixed", "Dynamic"};
         int mi = is_dyn;
@@ -1245,7 +1253,12 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
             renderer_get_scale(&sx, &sy);
             extern bool g_za_frame_hook;
             bool hh = g_za_frame_hook && am_handheld();  // (the game's own size: handheld renders for 1280x720)
-            ImGui::Text("render %.0f x %.0f%s", (hh ? 1280.0 : 1920.0) * sx, (hh ? 720.0 : 1080.0) * sy, hh ? " (handheld)" : "");
+            double rw = (hh ? 1280.0 : 1920.0) * sx, rh = (hh ? 720.0 : 1080.0) * sy;
+            int shown = shown_picture_height();  // (the picture's size in the window; differs when an upscaler or the window scales it)
+            if (shown && (int)lround(rh) != shown)
+                ImGui::Text("render %.0f x %.0f -> %d x %d%s", rw, rh, (int)lround(shown * 16.0 / 9.0), shown, hh ? " (handheld)" : "");
+            else
+                ImGui::Text("render %.0f x %.0f%s", rw, rh, hh ? " (handheld)" : "");
             if (res_is_dynamic(g_settings.res_mode)) {
                 double fm, gm;
                 bool gok = output_scale_dynamic_stats(&fm, &gm);
