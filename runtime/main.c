@@ -36,7 +36,19 @@ static void module_init(Cpu *c, Module *m) {
 }
 
 static void rtld_init_sdk(Cpu *c) { module_init(c, &g_modules[1]); }
-static void rtld_init_main(Cpu *c) { module_init(c, &g_modules[0]); }
+static void rtld_init_main(Cpu *c) {
+    module_init(c, &g_modules[0]);
+    if (g_nmodules > 2) {  // the Lumiose module (loader.c), after main
+        extern int lumiose_test_initializing;
+        extern void lumiose_test_snapshot(void);
+        lumiose_test_initializing = 1;
+        module_init(c, &g_modules[2]);
+        lumiose_test_initializing = 0;
+        LOG("[lumiose] module initialization returned\n");
+        lumiose_test_snapshot();
+        if (lumiose_capture_only()) { LOG("[lumiose] offline capture complete\n"); exit(0); }
+    }
+}
 static void rtld_fini(Cpu *c) { (void)c; LOG("nnMain returned\n"); }
 
 // Claim the guest address range before anything else can map there. The host allocator places

@@ -2,20 +2,98 @@
 #include <pthread.h>
 #include <signal.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <unistd.h>
 
 #include "gamelib.h"
 #include "hle.h"
+#include "devlog.h"
 
 typedef struct { const uint64_t *addrs; const GuestFn *fns; uint64_t count, lo, hi; } FnTable;
-static FnTable tables[2];
+static FnTable tables[3];  // main, sdk, and the Lumiose module's (lumiose_module.c)
 
 // HLE stubs live at fake addresses HLE_BASE + 16*i
 #define MAX_HLE 4096
 typedef struct { const char *name; HostFn fn; } HleSlot;
 static HleSlot hle_slots[MAX_HLE];
-static int hle_count;
+static _Atomic int hle_count;
+static pthread_mutex_t hle_registry_lock = PTHREAD_MUTEX_INITIALIZER;
+static bool guest_code_enabled;
+// 39-bit target and optional scratch register are published together, never a half-written detour.
+static _Atomic uint64_t guest_detours[MAX_HLE];
+#define DETOUR_ADDR_MASK ((1ull << 39) - 1)
+_Static_assert(HLE_CODE_SIZE / HLE_CODE_STRIDE == MAX_HLE, "HLE veneer capacity");
+
+static void hle_veneer_words(unsigned i, uint32_t code[16]) {
+    for (int j = 0; j < 16; j++) code[j] = 0xd503201fu;  // nop
+    uint64_t pc = HLE_CODE_BASE + HLE_CODE_STRIDE * i + 32;
+    int64_t displacement = (int64_t)(HLE_BASE + 16ull * i) - (int64_t)pc;
+    code[8] = 0x14000000u | ((uint32_t)((uint64_t)displacement >> 2) & 0x3ffffffu);
+}
+
+static void hle_write_veneer(unsigned i) {
+    uint32_t code[16];hle_veneer_words(i, code);
+    uint64_t addr = HLE_CODE_BASE + HLE_CODE_STRIDE * i;
+    for (unsigned word = 0; word < 16; word++) lumiose_test_store(addr + word * 4, code[word], 4);
+}
+
+void hle_guest_code_init(bool enabled) {
+    pthread_mutex_lock(&hle_registry_lock);
+    guest_code_enabled = enabled;
+    for (int i = 0; i < MAX_HLE; i++) atomic_store_explicit(&guest_detours[i], 0, memory_order_relaxed);
+    if (enabled)
+        for (int i = 0; i < hle_count; i++) hle_write_veneer(i);
+    pthread_mutex_unlock(&hle_registry_lock);
+}
+
+bool hle_guest_code_range(uint64_t addr, uint64_t size) {
+    return guest_code_enabled && size && addr >= HLE_CODE_BASE && addr - HLE_CODE_BASE < HLE_CODE_SIZE &&
+           size <= HLE_CODE_SIZE - (addr - HLE_CODE_BASE);
+}
+
+static bool hle_decode_detour(uint64_t pc, const uint32_t code[16], uint64_t *detour) {
+    uint64_t target;
+    unsigned scratch = 0;
+    if ((code[0] & 0xfc000000u) == 0x14000000u) {
+        int64_t immediate = code[0] & 0x3ffffffu;
+        if (immediate & (1 << 25)) immediate -= 1 << 26;
+        target = pc + (uint64_t)(immediate * 4);
+    } else if ((code[0] & 0xff000000u) == 0x58000000u) {
+        unsigned reg = code[0] & 31;
+        int32_t immediate = (code[0] >> 5) & 0x7ffff;
+        if (immediate & (1 << 18)) immediate -= 1 << 19;
+        int32_t offset = immediate * 4;
+        if (reg == 31 || code[1] != (0xd61f0000u | reg << 5) || offset < 8 || offset > 24) return false;
+        memcpy(&target, (const uint8_t *)code + offset, sizeof target);
+        scratch = reg + 1;
+    } else return false;
+    if ((target & 3) || target < GUEST_LO || target >= GUEST_HI || target == pc) return false;
+    *detour = target | ((uint64_t)scratch << 40);
+    return true;
+}
+
+bool hle_guest_code_commit(uint64_t addr, uint64_t size) {
+    if (addr < HLE_CODE_BASE || addr >= HLE_CODE_BASE + HLE_CODE_SIZE) return true;
+    if (!hle_guest_code_range(addr, size) || (addr & (HLE_CODE_STRIDE - 1)) || (size & (HLE_CODE_STRIDE - 1))) return false;
+    unsigned first = (addr - HLE_CODE_BASE) / HLE_CODE_STRIDE;
+    unsigned last = (addr - HLE_CODE_BASE + size) / HLE_CODE_STRIDE;
+    unsigned count = (unsigned)hle_count;
+    if (last > count) last = count;
+    uint64_t next[MAX_HLE];
+    for (unsigned i = first; i < last; i++) {
+        uint32_t expected[16], actual[16];hle_veneer_words(i, expected);
+        uint64_t pc = HLE_CODE_BASE + HLE_CODE_STRIDE * i;
+        memcpy(actual, (void *)(uintptr_t)pc, sizeof actual);
+        next[i - first] = 0;
+        if (memcmp(expected, actual, sizeof actual) && !hle_decode_detour(pc, actual, &next[i - first])) {
+            devlog("lumiose-hle", "unsupported patch for HLE entry %s", hle_slots[i].name);
+            return false;
+        }
+    }
+    for (unsigned i = first; i < last; i++) atomic_store_explicit(&guest_detours[i], next[i - first], memory_order_release);
+    return true;
+}
 
 // Overrides of recompiled guest functions (by address)
 #define MAX_OVERRIDE 1024
@@ -36,6 +114,8 @@ __attribute__((section(".hle$z"), used)) static const HleImpl __stop_hle_impls[1
 #endif
 
 HostFn hle_lookup_impl(const char *name) {
+    if (!getenv("LUMIOSE_TEST_MODULE") && (!strncmp(name, "_ZN2nn6socket", 13) || !strncmp(name, "_ZN2nn4nifm", 11)))
+        return NULL;  // network services only with the Lumiose module
     const char *skip = getenv("LARECOMP_HLE_SKIP");  // debugging: disable HLE for names containing this
     if (skip && strstr(name, skip)) return NULL;
     const HleImpl *start = __start_hle_impls, *stop = __stop_hle_impls;
@@ -48,12 +128,19 @@ HostFn hle_lookup_impl(const char *name) {
 static void hle_unimplemented(Cpu *c);
 
 uint64_t hle_register(const char *name, HostFn fn) {
-    for (int i = 0; i < hle_count; i++)
-        if (!strcmp(hle_slots[i].name, name)) return HLE_BASE + 16ull * i;
-    if (hle_count == MAX_HLE) FATAL("too many HLE stubs\n");
-    hle_slots[hle_count].name = strdup(name);
-    hle_slots[hle_count].fn = fn;
-    return HLE_BASE + 16ull * hle_count++;
+    pthread_mutex_lock(&hle_registry_lock);
+    unsigned i;
+    for (i = 0; i < (unsigned)hle_count; i++) if (!strcmp(hle_slots[i].name, name)) break;
+    if (i == MAX_HLE) FATAL("too many HLE stubs\n");
+    if (i == (unsigned)hle_count) {
+        hle_slots[i].name = strdup(name);
+        hle_slots[i].fn = fn;
+        if (guest_code_enabled) hle_write_veneer(i);
+        hle_count++;
+    }
+    uint64_t addr = g_nmodules > 2 ? HLE_CODE_BASE + HLE_CODE_STRIDE * i : HLE_BASE + 16ull * i;
+    pthread_mutex_unlock(&hle_registry_lock);
+    return addr;
 }
 
 void hle_override(uint64_t addr, HostFn fn, const char *name) {
@@ -67,9 +154,11 @@ void hle_override(uint64_t addr, HostFn fn, const char *name) {
 static __thread uint64_t unimpl_pc;
 static int unimpl_counts[MAX_HLE];
 const char *hle_name_at(uint64_t pc) {
-    if (pc < HLE_BASE || pc >= HLE_BASE + HLE_SIZE) return NULL;
-    int i = (int)((pc - HLE_BASE) / 16);
-    return i >= 0 && i < hle_count ? hle_slots[i].name : NULL;
+    uint64_t index;
+    if (pc >= HLE_CODE_BASE && pc - HLE_CODE_BASE < HLE_CODE_SIZE) index = (pc - HLE_CODE_BASE) / HLE_CODE_STRIDE;
+    else if (pc >= HLE_BASE && pc - HLE_BASE < HLE_SIZE) index = (pc - HLE_BASE) / 16;
+    else return NULL;
+    return index < (unsigned)hle_count ? hle_slots[index].name : NULL;
 }
 static void hle_unimplemented(Cpu *c) {
     int i = (int)((unimpl_pc - HLE_BASE) / 16);
@@ -96,7 +185,7 @@ uint64_t guest_sym(const char *name) {
 }
 
 static uint64_t hle_next = HLE_HEAP;
-RT_ON_RESET(hle_heap_reset) { hle_next = HLE_HEAP; }  // (guest memory, wiped by the reboot)
+RT_ON_RESET(hle_heap_reset) { hle_next = HLE_HEAP; hle_guest_code_init(false); }  // (guest memory, wiped by the reboot)
 
 void *hle_alloc(uint64_t size) {
     static pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
@@ -115,10 +204,20 @@ void dispatch_init(void) {  // (after gamelib_load)
     uint64_t nm = *g->main_count, ns = *g->sdk_count;
     tables[0] = (FnTable){g->main_addrs, g->main_fns, nm, g->main_addrs[0], g->main_addrs[nm - 1]};
     tables[1] = (FnTable){g->sdk_addrs, g->sdk_fns, ns, g->sdk_addrs[0], g->sdk_addrs[ns - 1]};
+    memset(&tables[2], 0, sizeof tables[2]);
+    if (g_nmodules > 2) {
+        extern bool lumiose_load_table(uint64_t base, uint64_t text_size, const uint64_t **addrs, const GuestFn **fns, uint64_t *count);
+        const uint64_t *a;
+        const GuestFn *f;
+        uint64_t n;
+        if (!lumiose_load_table(g_modules[2].base, g_modules[2].text_size, &a, &f, &n))
+            FATAL("the Lumiose code library (LUMIOSE_TEST_LIBRARY) is missing or does not fit the module\n");
+        tables[2] = (FnTable){a, f, n, a[0], a[n - 1]};
+    }
 }
 
 GuestFn dispatch_lookup(uint64_t addr) {
-    for (int t = 0; t < 2; t++) {
+    for (int t = 0; t < 3; t++) {
         FnTable *ft = &tables[t];
         if (addr < ft->lo || addr > ft->hi) continue;
         uint64_t lo = 0, hi = ft->count;
@@ -149,7 +248,28 @@ RtJmp *rt_setjmp_site(Cpu *c, uint64_t ret) {
 }
 
 static GuestFn dispatch_slow(Cpu *c) {
+    unsigned redirects = 0;
+retry:
+    ;
     uint64_t pc = c->pc;
+    if (pc >= HLE_CODE_BASE && pc - HLE_CODE_BASE < HLE_CODE_SIZE) {
+        rt_unwind_point();
+        unsigned i = (pc - HLE_CODE_BASE) / HLE_CODE_STRIDE;
+        unsigned offset = (pc - HLE_CODE_BASE) % HLE_CODE_STRIDE;
+        if (i >= (unsigned)hle_count || (offset && (offset < 16 || offset > 32 || (offset & 3))))
+            FATAL("invalid guest HLE entry %llx\n", (unsigned long long)pc);
+        uint64_t detour = !offset && guest_code_enabled ? atomic_load_explicit(&guest_detours[i], memory_order_acquire) : 0;
+        if (detour) {
+            if (++redirects > 8) FATAL("cyclic guest HLE hook\n");
+            c->pc = detour & DETOUR_ADDR_MASK;
+            unsigned scratch = detour >> 40;
+            if (scratch) c->x[scratch - 1] = c->pc;
+            goto retry;
+        }
+        if (hle_slots[i].fn) return hle_slots[i].fn;
+        unimpl_pc = HLE_BASE + 16ull * i;
+        return hle_unimplemented;
+    }
     if (pc >= HLE_BASE && pc < HLE_BASE + HLE_SIZE) {
         rt_unwind_point();  // (HLE calls aren't cached below, so every one passes here: a reboot's safe point)
         int i = (int)((pc - HLE_BASE) / 16);
@@ -200,10 +320,10 @@ const char *rt_host_fn_name(uint64_t pc, uint64_t *offset) {
     static uint64_t n;
     static __thread char name[32];
     if (!byhost) {
-        uint64_t total = tables[0].count + tables[1].count, k = 0;
+        uint64_t total = tables[0].count + tables[1].count + tables[2].count, k = 0;
         uint64_t (*v)[2] = malloc(total * sizeof *v);
         if (!v) return NULL;
-        for (int t = 0; t < 2; t++)
+        for (int t = 0; t < 3; t++)
             for (uint64_t i = 0; i < tables[t].count; i++) {
                 v[k][0] = (uint64_t)(uintptr_t)tables[t].fns[i];
                 v[k++][1] = tables[t].addrs[i];

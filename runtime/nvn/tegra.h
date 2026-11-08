@@ -40,3 +40,7 @@ void tegra_deswizzle(const uint8_t *src, uint8_t *dst, uint32_t wb, uint32_t hb,
                      uint32_t block_height_log2, uint32_t block_depth_log2);
 void tegra_swizzle(const uint8_t *src, uint8_t *dst, uint32_t wb, uint32_t hb, uint32_t d, uint32_t bpb,
                    uint32_t block_height_log2, uint32_t block_depth_log2);
+
+// Tightly packed rectangle into an uncompressed 2D block-linear level; rejects invalid bounds.
+bool tegra_swizzle_rect(const uint8_t *src, uint8_t *dst, uint32_t w, uint32_t h,
+                        uint32_t x, uint32_t y, uint32_t rw, uint32_t rh, uint32_t bpb, uint32_t bh_log2);
