@@ -21,6 +21,7 @@
 #include "nvn.h"
 #include "renderer.h"
 #include "frame_generation_camera.h"
+#include "temporal_upscale.h"
 #include "geometry_motion_history.h"
 #include "frame_generation_display.h"
 extern uint64_t renderer_present_count(void);
@@ -588,16 +589,18 @@ static struct { Range range; uint64_t frame; } fg_skin_ranges[1024];
 static unsigned fg_skin_count;
 static bool fg_geometry_enabled(void) {
     const char *e=ENV("LARECOMP_FG_VERTEX_MOTION");
-    return (!e || atoi(e)) && settings_frame_generation();
+    return (!e || atoi(e)) && (settings_frame_generation() || ts_enabled());
 }
+static float ts_width,ts_height;
+static uint64_t ts_extent_frame=UINT64_MAX;
 static void fg_geometry_begin(uint64_t frame) {
     if(frame==fg_geometry_source_frame)return;
     unsigned n=0;
     for(unsigned i=0;i<fg_skin_count;i++)if(fg_skin_ranges[i].frame<=frame && frame-fg_skin_ranges[i].frame<=2)fg_skin_ranges[n++]=fg_skin_ranges[i];
     fg_skin_count=n;fg_geometry_writes=0;fg_geometry_complete=true;fg_geometry_view_set=false;fg_geometry_source_frame=frame;
 }
-static bool fg_geometry_target(void) {
-    if(!fg_geometry_enabled() || g_raster_discard || st.rt.ncolor<5 || st.rt.color[7] || !st.rt.depth)return false;
+static bool scene_geometry_target(void) {
+    if(g_raster_discard || st.rt.ncolor<5 || st.rt.color[7] || !st.rt.depth)return false;
     // Any size, so handheld (720p) and dynamic game resolution qualify: the G-buffer is told apart by its four formats and
     // by all its targets and the depth sharing one size.
     for(int i=1;i<=4;i++)if(!st.rt.color[i])return false;
@@ -606,6 +609,7 @@ static bool fg_geometry_target(void) {
     for(int i=2;i<=4;i++)if(st.rt.color[i]->width!=g->width || st.rt.color[i]->height!=g->height)return false;
     return st.rt.color[1]->format==0x38 && st.rt.color[2]->format==0x25 && st.rt.color[3]->format==0x25 && st.rt.color[4]->format==0x3f;
 }
+static bool fg_geometry_target(void) { return fg_geometry_enabled() && scene_geometry_target(); }
 static bool fg_geometry_skinned(Range position) {
     for(unsigned i=0;i<fg_skin_count;i++) {
         Range r=fg_skin_ranges[i].range;
@@ -1154,7 +1158,7 @@ static void begin_pass(void) {
         renderer_mark_gpu_owned(t);
         id<MTLTexture> tex = view_texture(t, &st.rt.cview[i], st.rt.has_cview[i], true, nil);
         rp.colorAttachments[i].texture = tex;
-        if (i == 0 && g_settings.frame_generation) fg_active_color = tex;
+        if (i == 0 && (g_settings.frame_generation || ts_enabled())) fg_active_color = tex;
         layers = MIN(layers, texture_layers(tex));
         if (g_debug_frame) dbg_rt_tex[i] = tex;
         if (g_rt_plane >= 0 && tex.textureType == MTLTextureType3D) rp.colorAttachments[i].depthPlane = (NSUInteger)g_rt_plane;
@@ -1501,7 +1505,7 @@ static int cbuf_base = 3, tex_base = 8;
 @interface Prog : NSObject {
 @public
     id<MTLFunction> vs, fs;
-    ShaderInfo *vi, *fi;
+    ShaderInfo *vi, *fi;  // owned translation metadata, retained through any asynchronous compile by Prog
     uint64_t fg_source_hash;  // computed once when frame generation observes a fragment program
     uint64_t vs_addr, fs_addr;  // guest shader code addresses, for failure logs
     _Atomic bool failed;  // published by async compilation, read by get_program and draw waits
@@ -1514,6 +1518,10 @@ static int cbuf_base = 3, tex_base = 8;
 }
 @end
 @implementation Prog
+- (void)dealloc {
+    maxwell_free(vi);
+    maxwell_free(fi);
+}
 @end
 
 static id<MTLBuffer> ring;
@@ -3064,6 +3072,16 @@ static void bind_cbufs(int stage, ShaderInfo *si) {
             const void *bound=(const uint8_t *)ring.contents+off;
             fg_bound_camera_valid=fg_camera_decode(bound,size,&fg_bound_camera);
         }
+        if(ts_raster_active() && stage==1 && k==5 && (r.size>=384 || size>=384) && ts_extent_frame==renderer_present_count()) {
+            FgCamera camera;
+            const void *raw=(const void *)(uintptr_t)r.addr;
+            if(fg_camera_decode(raw,r.size>=384?r.size:size,&camera)) {
+                float matrices[96],jitter[2];memcpy(matrices,raw,sizeof matrices);ts_jitter(renderer_present_count(),jitter);
+                ts_camera_jitter(matrices,jitter,ts_width,ts_height,nvn_window_origin()==0);
+                // A distinct snapshot: never modify guest memory or the cached unjittered copy.
+                off=ring_alloc(raw,size);memcpy((uint8_t *)ring.contents+off,matrices,size<sizeof matrices?size:sizeof matrices);
+            }
+        }
 
         if (stage == 0) [enc setVertexBuffer:ring offset:off atIndex:k];
         else [enc setFragmentBuffer:ring offset:off atIndex:k];
@@ -3896,6 +3914,13 @@ static void draw(CmdRec *r, bool indexed) {
         if (st.rt.color[i] && ((st.channel_mask >> (i * 4)) & 0xF)) snapshots_invalidate(st.rt.color[i]);
     if(fg_geometry_target() && !fg_geometry_attached)st.rt_dirty=true;
     begin_pass();
+    bool temporal_target=ts_enabled() && scene_geometry_target();
+    if(temporal_target){
+        float view[4];fg_current_view(view);
+        if(ts_geometry_extent((unsigned)lroundf(view[2]),(unsigned)lroundf(view[3]),renderer_present_count())){
+            ts_width=view[2];ts_height=view[3];ts_extent_frame=renderer_present_count();
+        }
+    }
     if (g_pt_cur >= 0 && !g_pt_meta[g_pt_cur].fs) g_pt_meta[g_pt_cur].fs = st.program->stages[1].code_addr;
 
     uint32_t used_streams;
@@ -4154,7 +4179,7 @@ static void draw(CmdRec *r, bool indexed) {
     // resources
     fg_want_bound_camera=false;fg_bound_camera_valid=false;
     fg_want_bound_model=pr->vi->uses_fg_motion;fg_bound_model_valid=false;fg_bound_model_hash=0xcbf29ce484222325ull;
-    if(settings_frame_generation() && pr->fi && pr->fi->msl) {
+    if((settings_frame_generation() || ts_enabled()) && pr->fi && pr->fi->msl) {
         if(!pr->fg_source_hash)pr->fg_source_hash=fnv64(pr->fi->msl);
         fg_want_bound_camera=pr->fg_source_hash==0x38299bbd2d7c353dull;
     }
@@ -4267,10 +4292,12 @@ static void draw(CmdRec *r, bool indexed) {
             vp_oy = (ph - st.rt.color[0]->height * u) * 0.5f;
         }
     }
-    [enc setViewport:(MTLViewport){vp[0] * vp_sx + vp_ox, vp[1] * vp_sy + vp_oy, vp[2] * vp_sx, vp[3] * vp_sy, zn, zf}];
+    float temporal_jitter[2]={0};
+    if(ts_raster_active() && temporal_target)ts_jitter(renderer_present_count(),temporal_jitter);
+    [enc setViewport:(MTLViewport){vp[0] * vp_sx + vp_ox+temporal_jitter[0], vp[1] * vp_sy + vp_oy+temporal_jitter[1], vp[2] * vp_sx, vp[3] * vp_sy, zn, zf}];
     if (pr->vi->uses_fg_motion) {  // the motion is measured inside this viewport; every motion draw of a frame must share it
         float v[4]; fg_current_view(v);
-        const float shader_view[4] = {v[2], v[3], v[0], v[1]};  // the motion shader reads {width, height, x, y}
+        const float shader_view[4] = {v[2], v[3], v[0]+temporal_jitter[0], v[1]+temporal_jitter[1]};  // motion excludes raster jitter
         [enc setFragmentBytes:shader_view length:sizeof shader_view atIndex:FG_PARAMS_BUFFER_INDEX];
         if (!fg_geometry_view_set) { memcpy(fg_geometry_view, v, sizeof v); fg_geometry_view_set = true; }
         else if (fabsf(v[0]-fg_geometry_view[0])>.5f || fabsf(v[1]-fg_geometry_view[1])>.5f || fabsf(v[2]-fg_geometry_view[2])>.5f || fabsf(v[3]-fg_geometry_view[3])>.5f) fg_geometry_complete = false;
@@ -4393,7 +4420,7 @@ static id<MTLTexture> fg_scene_ring[3];
 
 bool renderer_fg_inputs(NvnTexture *presented, id<MTLTexture> *scene, id<MTLTexture> *depth, FgCamera *camera, FgRect *rect) {
     uint64_t frame = renderer_present_count();
-    bool valid = settings_frame_generation() && fg_camera_frame == frame && fg_scene_frame == frame &&
+    bool valid = (settings_frame_generation() || ts_enabled()) && fg_camera_frame == frame && fg_scene_frame == frame &&
                  fg_canvas == presented && fg_depth && fg_scene;
     if(!valid && devlog_on("framegen") && frame%120==0)
         devlog("framegen","input miss frame %llu camera %llu scene %llu canvas %d textures %d/%d",(unsigned long long)frame,(unsigned long long)fg_camera_frame,(unsigned long long)fg_scene_frame,fg_canvas==presented,fg_depth!=nil,fg_scene!=nil);
@@ -4413,7 +4440,7 @@ id<MTLTexture> renderer_fg_motion(void) {
 }
 
 static void fg_observe_draw(Prog *pr) {
-    if (!settings_frame_generation()) return;
+    if (!settings_frame_generation() && !ts_enabled()) return;
     if (!pr->fi || !pr->fi->msl) return; // vertex-only transform feedback has no fragment source
     if (!pr->fg_source_hash) pr->fg_source_hash = fnv64(pr->fi->msl);
     uint64_t hash = pr->fg_source_hash, frame = renderer_present_count();
@@ -5074,6 +5101,15 @@ static void exec_list(uint64_t handle, int depth) {
             }
             const struct { uint64_t tex[8]; NvnTextureView views[8]; uint8_t has_view[8]; uint64_t depth;
                            NvnTextureView dview; uint8_t has_dview; } *rt = x;
+            bool same=st.rt.ncolor==(int)r->x[0] && st.rt.depth==(NvnTexture *)(uintptr_t)rt->depth &&
+                st.rt.has_dview==rt->has_dview && (!rt->has_dview || !memcmp(&st.rt.dview,&rt->dview,sizeof rt->dview));
+            for(int i=0;same && i<st.rt.ncolor;i++)
+                same=st.rt.color[i]==(NvnTexture *)(uintptr_t)rt->tex[i] && st.rt.has_cview[i]==rt->has_view[i] &&
+                    (!rt->has_view[i] || !memcmp(&st.rt.cview[i],&rt->views[i],sizeof rt->views[i]));
+            const char *force=ENV("LARECOMP_RT_REBIND_PASSES");
+            // Rebinding the same targets neither ends a pass nor consumes their pending clears.
+            // Keep any independently dirty state; only this redundant bind is skipped.
+            if(same && !(force && atoi(force)))break;
             flush_load_clears();  // (a deferred clear belongs to the targets being replaced)
             memset(&st.rt, 0, sizeof st.rt);
             st.rt.ncolor = (int)r->x[0];

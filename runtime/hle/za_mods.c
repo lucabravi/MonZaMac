@@ -22,7 +22,7 @@ uint32_t rt_za_dof(uint32_t intensity) {
 // The game's FXAA: its two parameters at 0 turn it off
 uint32_t rt_za_fxaa(uint32_t param) {
     static int logged = -1;
-    return on("FXAA", ENV("LARECOMP_FXAA"), g_settings.fxaa, &logged) ? param : 0;
+    return on("FXAA", ENV("LARECOMP_FXAA"), g_settings.fxaa && !settings_temporal_upscale(), &logged) ? param : 0;
 }
 
 // Bloom: its intensity (0 skips the pass) and, called with 1, whether its extra call runs
@@ -111,32 +111,44 @@ void rt_za_npc_capacity(void) {
     LOG("[za] NPC appearance budgets %u/%u -> 64/64\n", logical, selection);
 }
 
-// Smooth distant animation. The game's per-frame animation update (0x7001dcdf40) reads one byte of each entity's context,
-// [[this+0x48]+0x1f4]: set, the entity is updated every frame; clear, it goes through the reduced path that makes distant
-// characters and Pokémon move in visible steps (an entry-selection pass, about 24 of 70 entities set at a time, chosen by
-// distance and view). Setting the byte for every entity before the update keeps the game's own logic and only removes the
-// reduction. It is applied by overriding the update and its vtable stub (0x7001dce6b8, which moves `this` by -0x20 and
-// jumps to the update directly, so the update alone is never reached through the table): no change to the game library.
-static void za_smooth_anim(uint64_t self) {
+// Smooth distant animation. Each animated entity runs two update channels per frame: 0x7001e732a0 (policy at ctx+0x180,
+// result at ctx+0x1f0/0x1f4, components' update at vtable +0x48), then 0x7001e73d60 (policy at ctx+0x1c0, result at
+// ctx+0x1f8/0x1fc, components' update at vtable +0x50). A policy updates only when the entity's rank (ctx+0x158, by distance
+// and view) is within a shared limit (ctx+0x1e0), which the second policy advances: that is what moves distant characters
+// and Pokémon in visible steps. Lowering the rank to the limit for the duration of the call keeps each policy's own timing,
+// accumulators and explicit skip rules. All four policies are overridden, because the channels have to agree: relaxing only
+// the first left the second on the reduced rate, and a Pokémon's head alternated between two poses every frame.
+static bool za_anim_ptr(uint64_t p, size_t size) {
+    return p >= 0x7000000000ull && p <= GUEST_HI - size;
+}
+static void za_smooth_anim_policy(Cpu *c, uint64_t address) {
     static int logged = -1;
     static const char *env;
     static bool env_read;
     if (!env_read) { env = ENV("LARECOMP_SMOOTH_ANIM"); env_read = true; }
-    if (self < 0x7000000000ull || self >= GUEST_HI - 0x50) return;
-    uint64_t ctx = LD64(self + 0x48);
-    if (ctx < 0x7000000000ull || ctx >= GUEST_HI - 0x200) return;
-    if (!on("smooth distant animation", env, g_settings.smooth_anim, &logged)) return;
-    uint8_t *flag = (uint8_t *)(uintptr_t)(ctx + 0x1f4);
-    if (!*flag) *flag = 1;
+    uint64_t rank_ptr = c->x[3];
+    uint32_t rank = 0;
+    bool changed = false;
+    if (on("smooth distant animation", env, g_settings.smooth_anim, &logged) && za_anim_ptr(rank_ptr, 4) &&
+        za_anim_ptr(c->x[5], 8)) {
+        uint64_t limit_ptr = LD64(c->x[5]);
+        if (za_anim_ptr(limit_ptr, 4)) {
+            rank = LD32(rank_ptr);
+            uint32_t limit = LD32(limit_ptr);
+            if ((int32_t)rank > (int32_t)limit) {
+                // The rank is a stack local of the caller, read synchronously by the policy.
+                ST32(rank_ptr, limit);
+                changed = true;
+            }
+        }
+    }
+    dispatch_lookup(address)(c);
+    if (changed) ST32(rank_ptr, rank);
 }
-static void za_smooth_anim_update(Cpu *c) {
-    za_smooth_anim(c->x[0]);
-    dispatch_lookup(0x7001dcdf40ull)(c);
-}
-static void za_smooth_anim_stub(Cpu *c) {
-    za_smooth_anim(c->x[0] - 0x20);
-    dispatch_lookup(0x7001dce6b8ull)(c);
-}
+static void za_smooth_anim_policy_main(Cpu *c) { za_smooth_anim_policy(c, 0x7001e70db4ull); }
+static void za_smooth_anim_policy_main2(Cpu *c) { za_smooth_anim_policy(c, 0x7001e70f04ull); }
+static void za_smooth_anim_policy_world(Cpu *c) { za_smooth_anim_policy(c, 0x70029019f8ull); }
+static void za_smooth_anim_policy_world2(Cpu *c) { za_smooth_anim_policy(c, 0x7002901a54ull); }
 
 // Whether the option has any effect: the override is only installed for the build it was checked on (the menu row is
 // greyed out on the others, and on the start screen, before the build is known)
@@ -152,6 +164,8 @@ void rt_za_smooth_anim_install(void) {
     static bool done;
     if (done || memcmp(g_game_build, b202, sizeof b202)) return;
     done = true;
-    hle_override(0x7001dcdf40ull, za_smooth_anim_update, "za_smooth_anim_update");
-    hle_override(0x7001dce6b8ull, za_smooth_anim_stub, "za_smooth_anim_stub");
+    hle_override(0x7001e70db4ull, za_smooth_anim_policy_main, "za_smooth_anim_policy_main");
+    hle_override(0x7001e70f04ull, za_smooth_anim_policy_main2, "za_smooth_anim_policy_main2");
+    hle_override(0x70029019f8ull, za_smooth_anim_policy_world, "za_smooth_anim_policy_world");
+    hle_override(0x7002901a54ull, za_smooth_anim_policy_world2, "za_smooth_anim_policy_world2");
 }

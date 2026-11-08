@@ -219,6 +219,28 @@ So the analysis is not repeated. Each line: what was tried, what it measured, wh
   replace the words equal in both with literals in its saved MSL, load it with `LARECOMP_FS_OVERRIDE_HASH`, time it
   with `gpupass`.
 
+## Passes that draw nothing (station walk, 1.5x, 2026-11-07)
+
+In a walking-scene `gpupass` capture four of the 106 tracked passes record no draws: #11 and #12 at 2880x1620, #27 and #36
+at 1440x810. Their approximate times (previous-pass-end to pass-end, so only a ranking) are 0.35, 0.14, 0.17 and 0.35 ms,
+about 1 ms of the 13.4 ms the tool reports. A debug frame with `build/passdump` (`build/nodump` keeps it fast) shows what
+makes them: the guest binds a render-target set, clears it (`CLEAR_COLOR` / `CLEAR_DEPTH_STENCIL`) and rebinds other
+targets without drawing into the first set. A deferred clear is flushed when its targets are replaced, so it becomes a
+clear-and-store pass of its own.
+
+Of the eight draw-less passes of that debug frame (89 passes, numbered by that capture, not by `gpupass`), five are
+cleared colour targets at 960x540 and 1920x1080 (two of them RGBA16F pairs) that no other pass of the frame binds as an
+attachment again. They are probably sampled later, which makes the clear required. One set (a 1920x1080 colour and its
+depth) is bound again and drawn into a few passes later, and one depth buffer is cleared in the first draw-less pass and
+drawn into by a later pass. Only these two could be folded into the pass that uses them.
+
+Not pursued. Skipping the clears of the never-rebound targets needs proof of what samples them, and folding the other two
+means keeping a pending clear per texture across rebinds and flushing it on every other access (sampling, copy, readback,
+a different view): a change to the renderer's texture ownership for at most one clear pass of one full-size set a frame
+(about 0.3 ms by the ranking above, 2% of a GPU-bound frame). The identical-target guard of the same area
+(`LARECOMP_RT_REBIND_PASSES`) already showed that removing pass boundaries does not move FPS here. Revisit with a
+consumer analysis (which pass reads each cleared target) if a scene shows many more draw-less passes.
+
 ## Next measurements
 
 Per-pass GPU time, bandwidth and top shader costs remain unmeasured; the pass-count table cannot substitute for

@@ -18,6 +18,7 @@ static uint64_t now = 1;
 uint64_t plat_now_ns(void) { return now; }
 void rt_za_npc_capacity(void) {}
 bool fg_supported(void) { return false; }
+bool temporal_supported(void) { return false; }
 bool bind_settings_load(const char *k,const char *v) { return false; }
 void bind_settings_save(FILE *f) {}
 extern int32_t rt_za_frame_cfg(int32_t);

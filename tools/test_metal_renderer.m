@@ -4,6 +4,7 @@ static double gpu_interval_sum_ms(const double *intervals, size_t count, double 
 static double gpu_interval_union_ms(const double *intervals, size_t count, double window_start, double window_end);
 #include "../runtime/nvn/renderer.m"
 #import <ImageIO/ImageIO.h>
+#include <malloc/malloc.h>
 
 void metal_test_bootstrap(void);
 void metal_test_preparation_page(void);
@@ -659,6 +660,67 @@ static void expect_depth_slice(NvnTexture *t, unsigned slice, float want) {
 }
 
 static void expect_depth(NvnTexture *t, float want) { expect_depth_slice(t, 0, want); }
+
+static void recorded_targets(const RtState *state) {
+    // Independent encoding of SetRenderTargets' existing command payload.
+    struct { uint64_t tex[8]; NvnTextureView views[8]; uint8_t has_view[8]; uint64_t depth;
+             NvnTextureView dview; uint8_t has_dview; } payload={0};
+    for(int i=0;i<state->ncolor;i++) {
+        payload.tex[i]=(uint64_t)state->color[i];payload.views[i]=state->cview[i];payload.has_view[i]=state->has_cview[i];
+    }
+    payload.depth=(uint64_t)state->depth;payload.dview=state->dview;payload.has_dview=state->has_dview;
+    uint64_t commands[(sizeof(CmdRec)*2+sizeof payload)/8]={0};
+    CmdRec *r=(CmdRec *)commands;r->op=CMD_SET_RENDER_TARGETS;r->size=sizeof *r+sizeof payload;r->x[0]=state->ncolor;
+    memcpy(r->extra,&payload,sizeof payload);((CmdRec *)((uint8_t *)r+r->size))->op=CMD_END;
+    exec_list((uint64_t)commands,0);
+}
+static void render_target_rebind(void) {
+    bool forced=getenv("LARECOMP_RT_REBIND_PASSES") && atoi(getenv("LARECOMP_RT_REBIND_PASSES"));
+    NvnTexture a=test_texture(1,4,4,1,1,0x25,1),b=test_texture(1,4,4,1,2,0x25,1);
+    NvnTexture depth=test_texture(1,4,4,1,1,0x35,1),other_depth=test_texture(1,4,4,1,1,0x33,1);
+    bind_targets(&a,&depth,NULL);prepare_draw();
+    const float red[4]={1,0,0,1},blue[4]={0,0,1,1};
+    clear(0,0,red,15,false,0,false,0,0);clear(-1,0,NULL,0,true,.25f,true,0x53,0xff);
+    CHECK(g_lc[0].on && g_ld_on && g_ls_on && !enc,"fixture has deferred colour/depth/stencil clears");
+    RtState same=st.rt;recorded_targets(&same);
+    CHECK(forced?(!g_lc[0].on && !g_ld_on && !g_ls_on):(g_lc[0].on && g_ld_on && g_ls_on),
+          "an identical binding preserves pending clears until the pass is needed");
+    renderer_flush();expect_rgba(&a,255,0,0);
+    id<MTLBuffer> planes=[dev newBufferWithLength:2048 options:MTLResourceStorageModeShared];
+    id<MTLCommandBuffer> read=[renderer_queue() commandBuffer];id<MTLBlitCommandEncoder> blit=[read blitCommandEncoder];
+    for(unsigned plane=0;plane<2;plane++)
+        [blit copyFromTexture:renderer_texture(&depth,nil,true) sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0)
+             sourceSize:MTLSizeMake(4,4,1) toBuffer:planes destinationOffset:plane*1024 destinationBytesPerRow:256 destinationBytesPerImage:1024
+             options:plane?MTLBlitOptionStencilFromDepthStencil:MTLBlitOptionDepthFromDepthStencil];
+    [blit endEncoding];[read commit];[read waitUntilCompleted];CHECK(!read.error,"combined depth/stencil readback");
+    for(unsigned y=0;y<4;y++)for(unsigned x=0;x<4;x++) {
+        CHECK(fabsf(*(float *)((uint8_t *)planes.contents+y*256+x*4)-.25f)<.00001f,"pending depth clear survives the identical bind");
+        CHECK(*((uint8_t *)planes.contents+1024+y*256+x)==0x53,"pending stencil clear survives the identical bind");
+    }
+    uint64_t passes=stat_passes;
+    st.scissor[0][0]=0;st.scissor[0][2]=2;fullscreen_draw(1);
+    recorded_targets(&same);
+    CHECK(st.rt_dirty==forced,"an identical active binding keeps the encoder clean");
+    st.scissor[0][0]=2;fullscreen_draw(1);renderer_flush();
+    CHECK(stat_passes-passes==(forced?2:1),"identical targets continue the existing pass");
+    expect_rgba(&a,0,255,0);
+    st.scissor[0][0]=0;st.scissor[0][2]=4;
+    clear(0,0,blue,15,false,0,false,0,0);RtState changed=st.rt;changed.color[0]=&b;
+    recorded_targets(&changed);CHECK(st.rt_dirty && !g_lc[0].on,"a different target consumes clears on the old target");
+    fullscreen_draw(1);renderer_flush();expect_rgba(&a,0,0,255);expect_rgba(&b,0,255,0);
+    clear(0,0,red,15,false,0,false,0,0);changed=st.rt;
+    changed.has_cview[0]=1;changed.cview[0]=(NvnTextureView){.setmask=1,.base_level=1,.num_levels=1};
+    recorded_targets(&changed);CHECK(st.rt_dirty && !g_lc[0].on,"a changed mip view consumes the old view's clear");
+    clear(0,0,blue,15,false,0,false,0,0);renderer_flush();expect_rgba(&b,255,0,0);
+    id<MTLBuffer> mip=read_texture(renderer_texture(&b,nil,true),0,1,4);
+    for(unsigned y=0;y<2;y++)for(unsigned x=0;x<2;x++) {
+        uint8_t *v=(uint8_t *)mip.contents+y*256+x*4;CHECK(v[0]==0 && v[1]==0 && v[2]==255 && v[3]==255,"the new mip is cleared independently");
+    }
+    changed=st.rt;changed.depth=&other_depth;recorded_targets(&changed);
+    CHECK(st.rt_dirty && st.rt.depth==&other_depth,"a changed depth target is never treated as identical");
+    recorded_targets(&changed);CHECK(st.rt_dirty,"an identical bind does not clear independently dirty state");
+    renderer_flush();destroy_texture(&a);destroy_texture(&b);destroy_texture(&depth);destroy_texture(&other_depth);
+}
 
 static void clear_bias(void) {
     NvnTexture color = test_texture(1, 4, 4, 1, 1, 0x25, 1);
@@ -1422,6 +1484,12 @@ static void scaled_fragment_fetch(void) {
     CHECK(!bad, "scaled fragment texel fetch must preserve physical pixels and fixed-coordinate reads");
 }
 
+static ShaderInfo *owned_shader_info(const ShaderInfo *source) {
+    ShaderInfo *copy=malloc(sizeof *copy);CHECK(copy,"fixture metadata allocation");
+    *copy=*source;copy->msl=source->msl?strdup(source->msl):NULL;
+    return copy;
+}
+
 static void feedback_mip_chain(bool depth) {
     // Each pass reads the preceding mip of the same texture, as in a depth pyramid.
     static id<MTLLibrary> library;
@@ -1442,7 +1510,7 @@ static void feedback_mip_chain(bool depth) {
     NvnDescPool pool = {.entries = entries, .count = 2};
     ShaderInfo vi = {0}, fi = {.ntex = 1};
     fi.tex[0].handle_offset = 0x20; fi.tex[0].type = TEXTYPE_2D;
-    Prog *program = [Prog new]; program->vi = &vi; program->fi = &fi;
+    Prog *program = [Prog new]; program->vi = owned_shader_info(&vi); program->fi = owned_shader_info(&fi);
     st.tpool = &pool; st.tex[1][0] = 1;
     MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
     pd.vertexFunction = [library newFunctionWithName:@"mip_vs"];
@@ -1517,7 +1585,7 @@ static void feedback_base_alias(void) {
         NvnTexEntry entries[2] = {{0}, {.tex = &texture}};
         NvnDescPool pool = {.entries = entries, .count = 2};
         ShaderInfo vi = {0}, fi = {.ntex = 1}; fi.tex[0].handle_offset = 0x20;
-        Prog *program = [Prog new]; program->vi = &vi; program->fi = &fi;
+        Prog *program = [Prog new]; program->vi = owned_shader_info(&vi); program->fi = owned_shader_info(&fi);
         st.tpool = &pool; st.tex[1][0] = 1;
         resolve_feedback(program); check_gpu();
         CHECK(nfeedback == 1, "an effective mip-zero attachment still requires a feedback snapshot");
@@ -1540,7 +1608,38 @@ static Prog *source_program(const char *fragment) {
 }
 
 static void free_source_program(Prog *pr) {
-    free(pr->vi->msl); free(pr->fi->msl); free(pr->vi); free(pr->fi);
+    maxwell_free(pr->vi);maxwell_free(pr->fi);pr->vi=pr->fi=NULL;
+}
+
+static void shader_metadata_lifetime(void) {
+    @autoreleasepool { (void)[Prog new]; }
+    dispatch_block_t pending;
+    __weak Prog *pending_owner;
+    @autoreleasepool {
+        Prog *program=[Prog new];pending_owner=program;
+        program->vi=calloc(1,sizeof *program->vi);
+        program->vi->msl=strdup("retained synthetic source");
+        cache[@"metadata-lifetime-fixture"]=program;
+        pending=^{CHECK(!strcmp(program->vi->msl,"retained synthetic source"),"deferred work retains metadata across cache reset");};
+    }
+    renderer_reset();
+    CHECK(pending_owner,"deferred work retains the program after cache reset");
+    pending();pending=nil;
+    CHECK(!pending_owner,"finishing deferred work releases its program");
+    malloc_statistics_t before={0},after={0};
+    malloc_zone_statistics(NULL,&before);
+    __weak Prog *last;
+    for(unsigned i=0;i<12;i++) @autoreleasepool {
+        Prog *program=[Prog new];last=program;
+        program->vi=calloc(1,sizeof *program->vi);program->fi=calloc(1,sizeof *program->fi);
+        program->vi->msl=calloc(1,1u<<20);program->fi->msl=calloc(1,1u<<20);
+        CHECK(program->vi->msl && program->fi->msl,"synthetic metadata allocation");
+    }
+    CHECK(!last,"program owners are released");
+    malloc_zone_statistics(NULL,&after);
+    size_t growth=after.size_in_use>before.size_in_use?after.size_in_use-before.size_in_use:0;
+    printf("SHADER_METADATA retained_bytes=%zu after 12 program releases\n",growth);
+    CHECK(growth<(1u<<20),"released programs must free their translated shader metadata and source");
 }
 
 static void shader_early_snapshot(void) {
@@ -1942,6 +2041,91 @@ static void surface_handle_provenance(void) {
         destroy_texture(&output); destroy_texture(&screen); st.tpool = NULL;
     }
     CHECK(bad == 0, "a modified handle must not write to its former constant-buffer image");
+}
+
+static double half_value(uint16_t h) {
+    unsigned e=(h>>10)&31,m=h&1023;
+    double v=e==31?(m?NAN:INFINITY):e?ldexp(1024.+m,(int)e-25):ldexp((double)m,-24);
+    return h&0x8000?-v:v;
+}
+static uint16_t half_neighbor(uint16_t h,bool up) {
+    if(!(h&0x7fff))return up?1:0x8001;
+    return (uint16_t)(h+((up==!(h&0x8000))?1:-1));
+}
+static uint32_t rounding_reference(uint32_t input,unsigned kind,unsigned mode,unsigned modifiers) {
+    if(kind<2) {
+        double exact=kind?(double)(int32_t)input:(double)input;
+        if(modifiers&2)exact=fabs(exact);
+        if(modifiers&1)exact=-exact;
+        float value=(float)exact;
+        if((mode==1 && (double)value>exact) || (mode==3 && exact>=0 && (double)value>exact))value=nextafterf(value,-INFINITY);
+        if((mode==2 && (double)value<exact) || (mode==3 && exact<0 && (double)value<exact))value=nextafterf(value,INFINITY);
+        uint32_t bits;memcpy(&bits,&value,4);return bits;
+    }
+    float value;memcpy(&value,&input,4);
+    _Float16 nearest=(_Float16)value;uint16_t h;memcpy(&h,&nearest,2);
+    double rounded=half_value(h);
+    if((mode==1 && rounded>value) || (mode==3 && value>=0 && rounded>value))h=half_neighbor(h,false);
+    if((mode==2 && rounded<value) || (mode==3 && value<0 && rounded<value))h=half_neighbor(h,true);
+    return h;
+}
+static void directed_rounding(void) {
+    const uint32_t integers[]={0,1,0x00ffffff,0x01000000,0x01000001,0x01000002,0x01000003,
+        0x7fffff7f,0x7fffffff,0x80000000,0x80000001,0xfeffffff,0xfefffffd,0xffffff7f,0xffffff80,0xffffffff};
+    const uint32_t floats[]={0,0x80000000,1,0x80000001,0x007fffff,0x807fffff,0x33000000,0xb3000000,
+        0x33800000,0xb3800000,0x387fffff,0xb87fffff,0x38800000,0xb8800000,0x3f800000,0xbf800000,
+        0x3f801000,0xbf801000,0x3f801001,0xbf801001,0x477fe000,0xc77fe000,0x477ff000,0xc77ff000,
+        0x47800000,0xc7800000,0x7f7fffff,0xff7fffff,0x7f800000,0xff800000,0x7fc12345};
+    const char *dump=getenv("LARECOMP_TEST_ROUNDING_GLSL_DIR");
+    if(dump)[[NSFileManager defaultManager] createDirectoryAtPath:@(dump) withIntermediateDirectories:YES attributes:nil error:nil];
+    unsigned checked=0;
+    for(unsigned kind=0;kind<3;kind++)for(unsigned mode=0;mode<4;mode++)for(unsigned modifiers=0;modifiers<(kind<2?4u:1u);modifiers++) {
+        const uint32_t *values=kind<2?integers:floats;
+        unsigned count=kind<2?sizeof integers/sizeof *integers:sizeof floats/sizeof *floats;
+        uint64_t code[128]={0};NvnProgram program={0};
+        uint64_t cvt=(kind<2?0x5cb8ull:0x5ca8ull)<<48;
+        cvt|=(2ull<<10)|((kind<2?2ull:1ull)<<8)|(kind==1?1ull<<13:0)|(uint64_t)mode<<39|(2ull<<20)|(7ull<<16)|9;
+        cvt|=(modifiers&1?1ull<<45:0)|(modifiers&2?1ull<<49:0);
+        uint64_t ops[]={0x4c98000000000000ull|(2ull<<34)|(7ull<<16)|2,cvt,
+            0x4c98000000000000ull|(2ull<<34)|(1ull<<20)|(7ull<<16)|20,
+            0x4c98000000000000ull|(2ull<<34)|(2ull<<20)|(7ull<<16)|21,
+            0xeed8000000000000ull|(4ull<<48)|(1ull<<45)|(7ull<<16)|(20ull<<8)|9};
+        compute_fixture(code,&program,ops,sizeof ops/sizeof *ops);
+        ShaderKey key={0};maxwell_gmem_base=g_gwin_base;maxwell_gmem_size=g_gwin_max;
+        ShaderInfo *info=maxwell_translate((uint8_t *)code,sizeof code,STAGE_COMPUTE,&key);
+        CHECK(info && info->msl,"synthetic conversion translates");
+        if(!mode)CHECK(!strstr(info->msl,"i2f_round(") && !strstr(info->msl,"f2h_round("),"nearest conversion keeps the ordinary path");
+        NSError *error=nil;id<MTLLibrary> lib=[dev newLibraryWithSource:@(info->msl) options:game_shader_opts(false) error:&error];
+        if(!lib)fprintf(stderr,"%s\n",error.localizedDescription.UTF8String);
+        CHECK(lib,"conversion shader compiles");maxwell_free(info);
+        id<MTLComputePipelineState> pipe=[dev newComputePipelineStateWithFunction:[lib newFunctionWithName:@"main0"] error:&error];
+        CHECK(pipe,"conversion pipeline compiles");
+        id<MTLBuffer> input=[dev newBufferWithLength:count*256 options:MTLResourceStorageModeShared];
+        uint32_t *out=(uint32_t *)((uint8_t *)g_guest_buffer.contents+512);
+        for(unsigned i=0;i<count;i++) {
+            uint64_t address=g_gwin_base+512+i*4;uint32_t *row=(uint32_t *)((uint8_t *)input.contents+i*256);
+            row[0]=values[i];row[1]=(uint32_t)address;row[2]=(uint32_t)(address>>32);out[i]=0xdeadbeef;
+        }
+        id<MTLCommandBuffer> cb=[renderer_queue() commandBuffer];id<MTLComputeCommandEncoder> e=[cb computeCommandEncoder];
+        [e setComputePipelineState:pipe];[e setBuffer:g_guest_buffer offset:0 atIndex:GMEM_BUFFER_INDEX];
+        for(unsigned i=0;i<count;i++) {
+            [e setBuffer:input offset:i*256 atIndex:2];[e dispatchThreadgroups:MTLSizeMake(1,1,1) threadsPerThreadgroup:MTLSizeMake(1,1,1)];
+        }
+        [e endEncoding];[cb commit];[cb waitUntilCompleted];CHECK(!cb.error,"conversion execution completes");
+        for(unsigned i=0;i<count;i++) {
+            uint32_t want=rounding_reference(values[i],kind,mode,modifiers);
+            bool nan=kind==2 && (values[i]&0x7fffffff)>0x7f800000;
+            bool ok=nan?!(out[i]&0xffff0000) && (out[i]&0x7c00)==0x7c00 && (out[i]&1023):out[i]==want;
+            if(!ok)fprintf(stderr,"round kind%u mode%u modifiers%u input=%08x got=%08x want=%08x\n",kind,mode,modifiers,values[i],out[i],want);
+            CHECK(ok,"directed conversion matches the independent numeric reference");checked++;
+        }
+        if(dump) {
+            key.glsl=1;info=maxwell_translate((uint8_t *)code,sizeof code,STAGE_COMPUTE,&key);CHECK(info&&info->msl,"GLSL conversion translates");
+            NSString *path=[NSString stringWithFormat:@"%s/round-%u-%u-%u.comp",dump,kind,mode,modifiers];
+            CHECK([@(info->msl) writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil],"write synthetic GLSL fixture");maxwell_free(info);
+        }
+    }
+    printf("PASS: %u native conversion values, I2F U32/S32 and F2F F32-to-F16 in all four modes\n",checked);
 }
 
 static void audit_f2f(void) {
@@ -2469,7 +2653,7 @@ static void compute_image_feedback(void) {
     NvnTexEntry entries[2]={{0},{.tex=&image}};NvnDescPool pool={.entries=entries,.count=2};st.tpool=&pool;st.tex[1][0]=1;
     ShaderInfo vi={.stage=STAGE_VERTEX},fi={.stage=STAGE_FRAGMENT,.ntex=1};
     fi.tex[0]=(ShaderTexture){.handle_offset=0x20,.type=TEXTYPE_2D};
-    Prog *graphics=[Prog new];graphics->vi=&vi;graphics->fi=&fi;
+    Prog *graphics=[Prog new];graphics->vi=owned_shader_info(&vi);graphics->fi=owned_shader_info(&fi);
     resolve_feedback(graphics);check_gpu();
     CHECK(nfeedback==1,"fixture must create a real read-only render-target feedback snapshot");
     id<MTLTexture> snapshot=feedback_copy[0];
@@ -2563,6 +2747,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"compute-image-atomic", "images", compute_image_atomic},
     {"compute-image-atomic-array", "images", compute_image_atomic_array},
     {"audit-f2f", "audit", audit_f2f},
+    {"directed-rounding", "rounding", directed_rounding},
     {"audit-shuffle", "audit", audit_shuffle},
     {"audit-shadow-array", "audit", audit_shadow_array},
     {"audit-sured-bytes", "audit", audit_sured_bytes},
@@ -2599,6 +2784,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"layer-mixed-depth", "layers", layer_mixed_depth},
     {"layer-depth-only", "layers", layer_depth_only},
     {"clear-layered", "clears", clear_layered},
+    {"render-target-rebind", "clears", render_target_rebind},
     {"clear-mip-extent", "clears", clear_mip_extent},
     {"clear-minimum-color-extent", "clears", clear_minimum_color_extent},
     {"clear-minimum-depth-extent", "clears", clear_minimum_depth_extent},
@@ -2635,6 +2821,7 @@ static const struct { const char *name, *group; TestFn run; bool needs_sampler26
     {"feedback-base-alias", "feedback", feedback_base_alias},
     {"preparation-page", "preparation", metal_test_preparation_page},
     {"frame-generation-filters", "frame-generation", metal_test_frame_generation_filters},
+    {"shader-metadata-lifetime", "shader-memory", shader_metadata_lifetime},
 };
 
 int metal_renderer_test_main(int argc, char **argv) { @autoreleasepool {
