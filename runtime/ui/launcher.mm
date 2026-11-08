@@ -1076,7 +1076,7 @@ static void online_consent_popup(float s) {
     ImVec2 ds = ImGui::GetIO().DisplaySize;
     if (g_ou_consent_open) { ImGui::OpenPopup("##online_consent"); g_ou_consent_open = false; }
     ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(fminf(ds.x * 0.92f, 760 * s), fminf(ds.y * 0.9f, 400 * s)));
+    ImGui::SetNextWindowSize(ImVec2(fminf(ds.x * 0.92f, 600 * s), fminf(ds.y * 0.9f, 300 * s)));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(28 * s, 24 * s));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 16 * s);
     ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.04f, 0.07f, 0.14f, 1));
@@ -1089,7 +1089,7 @@ static void online_consent_popup(float s) {
     ImGui::SetWindowFontScale(0.82f);
     ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), "Play online with Lumiose Online?");
     ImGui::Dummy(ImVec2(0, 12 * s));
-    ImGui::BeginChild("##online_consent_text", ImVec2(0, -68 * s), false);
+    ImGui::BeginChild("##online_consent_text", ImVec2(0, -60 * s), false);
     ImGui::PushTextWrapPos(0);
     ImGui::TextWrapped("Lumiose Online is a separate service run by its own team, not by MonZaMac.");
     ImGui::Dummy(ImVec2(0, 12 * s));
@@ -1101,13 +1101,13 @@ static void online_consent_popup(float s) {
     ImGui::PopTextWrapPos();
     ImGui::EndChild();
     ImGui::Dummy(ImVec2(0, 10 * s));
-    float bw = 190 * s, gap = 16 * s;
+    float bw = 170 * s, gap = 16 * s;
     ImGui::SetCursorPosX((ImGui::GetWindowWidth() - 2 * bw - gap) * 0.5f);
-    bool back = ImGui::Button("Cancel", ImVec2(bw, 42 * s)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+    bool back = ImGui::Button("Cancel", ImVec2(bw, 38 * s)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
                 ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false);
     ImGui::SameLine(0, gap);
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-    bool go = ImGui::Button("Continue", ImVec2(bw, 42 * s));
+    bool go = ImGui::Button("Continue", ImVec2(bw, 38 * s));
     ImGui::PopFont();
     if (back || go) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
