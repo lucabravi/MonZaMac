@@ -498,6 +498,20 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
         if (f) fclose(f);
     }
     free(units.u);
+#ifdef LUMIOSE_ONLINE
+    // The online edition keeps the C and the objects (about 1.3 GB): preparing Lumiose Online (tools/lumiose/prepare.py)
+    // rebuilds only the few files the module patches and reuses the rest. The compiler's cache is not needed for that.
+    if (ok) {
+        char path[1100];
+        snprintf(path, sizeof path, "%s" SEP "zig-cache", work);
+        if (t.zig) plat_remove_tree(path);
+        snprintf(path, sizeof path, "%s" SEP "gamelib-flags", work);
+        FILE *f = fopen(path, "wb");
+        if (f) { fprintf(f, "%s\n", GAMELIB_CFLAGS); fclose(f); }
+        snprintf(path, sizeof path, "%s" SEP "gamelib.id", work);
+        if ((f = fopen(path, "wb"))) { fprintf(f, "%s\n", GAMELIB_ID); fclose(f); }
+    } else
+#endif
     rt_remove_game_file(game_dir, ".gamebuild");  // the C, the objects, the logs
     LOG("[gamebuild] %s in %.0fs\n", ok ? "done" : "failed", (double)(plat_now_ns() - t0) / 1e9);
     if (ok && o->progress) o->progress(1, "Finishing...");
