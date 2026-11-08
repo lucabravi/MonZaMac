@@ -1421,6 +1421,19 @@ extern "C" void launcher_run(const char *root) {
         fprintf(stderr, "[launcher] delete %.1f GB: %s -> %s\n", gb, ok ? "ok" : "refused", status.c_str());
         if (!status.empty()) { g_bg = 0; page = SETUP; }
     }
+    // The game files are there and only the game code is missing or older than this release (a release that changes what it
+    // is built from needs it built again): rebuild it at once, as "Update game code" does, instead of waiting for a press.
+    // The files were already set up with the ownership confirmation. Once per start: if it fails the page says why and the
+    // button is still there. LARECOMP_NO_AUTO_REBUILD=1 turns it off.
+    if (!status.empty() && check_copied_files(g_root).empty() && !shot_at && !getenv("LARECOMP_LAUNCHER_SETUP") &&
+        !getenv("LARECOMP_LAUNCHER_DELETE") && !getenv("LARECOMP_NO_AUTO_REBUILD")) {
+        g_import_mode = 1; g_src.clear(); g_ownership = true;
+        g_busy = true;
+        page = SETUP;
+        pthread_t th;
+        pthread_create(&th, NULL, extract_thread, NULL);
+        pthread_detach(th);
+    }
     const bool test_busy = getenv("LARECOMP_LAUNCHER_SHOT") && strstr(getenv("LARECOMP_LAUNCHER_SHOT"), ":extracting");
     while (!play) {
         menu_apply_window_requests(win);  // (the Video tab's Fullscreen)
