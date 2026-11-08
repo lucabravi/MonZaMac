@@ -1,8 +1,7 @@
 # Online play with Lumiose Online
 
-Status: **experimental, off by default.** Nothing here is reachable from the start screen yet; the pieces land one pull
-request at a time on the `lumiose-online` branch. Lumiose Online is a separate service run by its own authors, not by
-MonZaMac.
+Status: **new, optional, in a separate online edition** (built with `LUMIOSE_ONLINE=1`; the standard app has none of it).
+Lumiose Online is a separate service run by its own authors, not by MonZaMac. For the user's view see the README.
 
 ## What Lumiose Online is
 
@@ -38,7 +37,7 @@ Nothing uses the network unless a command is run on purpose: only `fetch.py`, an
 |---|---|
 | `fetch.py` | Downloads the newest live module from the fixed link the Lumiose Online team keeps for it, and keeps it only if it matches the SHA-256 they publish next to it (https only, size limit, NSO header, a build this tooling knows), under its own hash in `build/lumiose-modules/` |
 | `prepare.py` | From the module and the 2.0.2 game: starts the game hidden and offline to capture what the module patches, generates and compiles the module and the patched `main`/`sdk` libraries (unchanged objects are reused), and writes `ready.json` with the hash of every output |
-| `activate.py` | Lists prepared versions, makes one the active one after verifying it (optionally after starting it hidden to see that it comes up), goes back to the previous one, sets or clears the relay endpoint (none is built in), prints the command that starts it |
+| `activate.py` | Lists prepared versions, makes one the active one after verifying it (optionally after starting it hidden to see that it comes up), goes back to the previous one, sets or clears the relay endpoint (the default is the team's `lumioseonline.site:27777`), prints the command that starts it |
 | `setup_online.py` | Does find (or download, when there is none), prepare, check and activate as one job with one progress (`PROGRESS` / `STATUS` lines) for a screen |
 | `versions.py` | The module builds studied so far (1.3.9, 1.4.3 build 2): reference offsets only, no module code. Any other build is refused until a profile is added |
 
@@ -74,10 +73,12 @@ source checkout; an app that does not have them says "not available here".
   visible in a two-client test, the mod's own interface. Not verified: chat text entry and delivery, play against
   Windows or Linux peers, every optional feature of this project with the patched library.
 
-## Still to do (separate changes)
+## Still to do
 
-- Finding the preparation tools in a packaged app (they are only found next to a source checkout).
-- Packaging, and a statement of what is not our service.
+- Chat text entry and delivery, play against Windows or Linux players, and every optional feature of this project with
+  the patched library are not verified.
+- A mod version that patches the game differently needs a profile in `tools/lumiose/versions.py` before it can be prepared.
+- The packaged online app was built and its pieces tried one by one; a complete first run on a clean Mac is still to be seen.
 
 ## Risks
 
