@@ -5,7 +5,7 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## 0.1.7
 
-MetalFX temporal upscaling, a Video page in sections with a clearer help panel, a fix for a Pokémon's head flickering with smooth distant animation, and a shader translator fix. **After updating, run Prepare all shaders again.**
+MetalFX temporal upscaling, a Video page in sections with a clearer help panel, a fix for animations flickering between two poses with smooth distant animation, and a shader translator fix. **After updating, run Prepare all shaders again.**
 
 ### Smoother
 - **MetalFX temporal** (experimental, macOS 13 or later; Video > Upscaling and AA), a new Upscaler choice next to bilinear and MetalFX spatial, which also works together with frame generation (30 to 60 and 60 to 120). The game is drawn at a lower resolution and rebuilt from the frames before it; the generated frames use the same motion and depth. Measured at a 2880x1620 picture on an Apple M5 in the station walk, one run per configuration: without frame generation 82.7 fps at 1920x1080 input against 75.5 native; with 60 to 120 generation 97.4 shown fps against 84.5. Small artifacts remain at character edges and where something uncovered appears; moving foliage, particles, water and transparency, combat and older Macs have not been checked. While it is selected the other anti-aliasing and the generated-frame Performance quality are inactive, and your saved choices are kept. Defaults are unchanged.
@@ -16,7 +16,7 @@ MetalFX temporal upscaling, a Video page in sections with a clearer help panel, 
 - The help text of the **Video** settings has paragraph and line breaks: one line per choice for Upscaler, Frame rate, Frame generation quality and Resolution mode, and a paragraph per idea elsewhere. No wording of the settings changes.
 
 ### Fixes
-- **Smooth distant animation** no longer makes a Pokémon's head flicker between two poses at some camera positions (seen on a Totodile at the station). The option now relaxes the game's two per-frame animation channels together, through their four update policies, instead of forcing one flag at the update. Z-A v2.0.2 only, `LARECOMP_SMOOTH_ANIM=0` still turns it off for a run. The second channel now runs every frame too; its CPU cost was not measured.
+- **Smooth distant animation** no longer makes some animated characters and Pokémon flicker between two poses at certain camera positions (a head, for example). The option now relaxes the game's two per-frame animation channels together, through their four update policies, instead of forcing one flag at the update. Z-A v2.0.2 only, `LARECOMP_SMOOTH_ANIM=0` still turns it off for a run. The second channel now runs every frame too; its CPU cost was not measured.
 - The shader translator honors the directed rounding modes (toward negative infinity, toward positive infinity, toward zero) of 32-bit integer to float (`I2F`) and float to half (`F2F`) conversions, instead of always rounding to nearest. Conversions rounded to nearest, and every shader that does not use these modes, translate exactly as before. Whether the game's shaders use them, and what that changes on screen, was not measured. The translated code of shaders that use them changes, so **Prepare all shaders** has to be run again (the **All shaders** badge turns yellow; the precompile version is 5). Directed rounding of 64-bit integer conversions and of integer to half conversions is not covered yet.
 
 ## 0.1.6
