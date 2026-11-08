@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Prepare local Lumiose libraries. Requires an existing compatible game/object cache.
+"""Prepare local Lumiose libraries. Requires an existing compatible game/object cache: a source checkout's (--source:
+build/za202, generated-202, extracted) or, in the app, the game code build kept by the start screen (--cache: its
+.gamebuild, with --game, --include and --cc for the bundled headers and compiler).
 
 No module, game bytes or generated output belongs in source control. This command never enables networking.
 """
@@ -24,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tools'))
 from nso import Nso
 from versions import GAME_PREFIX, full_build_id, profile
+from commands import FROZEN, generator, tool
 
 BASES = {'main': 0x7000000000, 'sdk': 0x7008000000, 'lumiose': 0x7006200000}
 REVISION = 1
@@ -128,45 +131,69 @@ def main():
     ap.add_argument('--out', type=Path, default=ROOT / 'build/lumiose-prepared')
     ap.add_argument('--jobs', type=int, default=min(os.cpu_count() or 1, 8))
     ap.add_argument('--timeout', type=float, default=60, help='Seconds allowed for offline initialization capture')
-    ap.add_argument('--cc', default='clang')
+    ap.add_argument('--cc', default='clang', help='The C compiler command (in the app: "<zig> cc")')
+    ap.add_argument('--cache', type=Path, help="The app's kept game code build (.gamebuild): its C, objects and link list")
+    ap.add_argument('--game', type=Path, help='The game folder (exefs/...) with its game library; default <source>/extracted')
+    ap.add_argument('--include', type=Path, help='The headers and C sources the module is built with (the app: '
+                                                  'gamelib-src); default the checkout runtime/ and tools/')
     args = ap.parse_args()
+    cc = shlex.split(args.cc)
     if not 1 <= args.jobs <= 64 or not 0 < args.timeout <= 600:
         ap.error('jobs must be 1..64 and capture timeout 0..600 seconds')
     source, runtime, module = args.source.resolve(), args.runtime.resolve(), args.module.resolve()
-    build, generated = (source / args.build).resolve(), (source / args.generated).resolve()
+    if args.cache:  # the app's layout: one folder (generated C in main/ sdk/, objects, link.rsp, gamelib-flags/.id)
+        build = generated = args.cache.resolve()
+    else:
+        build, generated = (source / args.build).resolve(), (source / args.generated).resolve()
+    include = args.include.resolve() if args.include else ROOT / 'runtime'
+    identity_source = include / 'identity.c' if args.include else ROOT / 'tools/lumiose/identity.c'
+    entry_source = include / 'lumiose_test_entry.c' if args.include else ROOT / 'tools/lumiose_test_entry.c'
     out = args.out.resolve()
     nso = Nso(module)
     version, tables = profile(nso.build_id)
     build_id = full_build_id(nso.build_id)  # (all 32 bytes, as the runtime compares them)
-    game = source / 'extracted'
+    game = args.game.resolve() if args.game else source / 'extracted'
     for name in ['main', 'sdk']:
         n = Nso(game / 'exefs' / name)
         if name == 'main' and not n.build_id.startswith(GAME_PREFIX):
             raise ValueError('Lumiose preparation requires the studied v2.0.2 game')
     if not runtime.is_file():
         raise ValueError('Runtime is missing; build the runtime first')
-    if out == ROOT or ROOT.is_relative_to(out) or module.is_relative_to(out):
+    if (not FROZEN and (out == ROOT or ROOT.is_relative_to(out))) or module.is_relative_to(out):
         raise ValueError('Output must not contain the checkout or the input module')
-    flags = shlex.split((build / 'gamelib-flags').read_text())
+    flags = [f for f in shlex.split((build / 'gamelib-flags').read_text()) if f != '-Iruntime'] + ['-I' + str(include)]
     if '-O1' not in flags:
         raise ValueError('Expected the existing -O1 game cache')
-    # Cache ownership: unchanged objects must have the same generator/headers as this runtime checkout.
-    required = ['runtime/cpu.h', 'runtime/simd.h', 'runtime/simd_fp.h', 'runtime/gamelib.h',
-                'tools/gen.py', 'tools/lifter.py', 'tools/patches.py', 'tools/flagfuse.py',
-                'tools/analyze.py', 'tools/nso.py', 'tools/passes.py', 'tools/simd_c.py',
-                'tools/gamelib_entry.c', 'runtime/hle/hle_symbols.txt']
-    for name in required:
-        if (ROOT / name).read_bytes() != (source / name).read_bytes():
-            raise ValueError('Vanilla object cache source differs: ' + name)
-    objects = [p if p.is_absolute() else source / p for p in map(Path, shlex.split((build / 'lasgame.dylib.rsp').read_text()))]
+    if args.cache:
+        # The kept build must be the one the game library in use was linked from (same generator id).
+        generation = (build / 'gamelib.id').read_text().strip()
+        if (game / 'lasgame.dylib.id').read_text().strip() != generation:
+            raise ValueError('The kept game code build does not match the game code in use; build the game code again')
+        objects = [Path(p) for p in shlex.split((build / 'link.rsp').read_text())]
+        game_lib = game / 'lasgame.dylib'
+        tools_digest = {'helper': digest(sys.executable) if FROZEN else digest(Path(__file__))}
+        tools_digest.update({p.name: digest(p) for p in [identity_source, entry_source, *sorted(include.glob('*.h'))]})
+    else:
+        # Cache ownership: unchanged objects must have the same generator/headers as this runtime checkout.
+        required = ['runtime/cpu.h', 'runtime/simd.h', 'runtime/simd_fp.h', 'runtime/gamelib.h',
+                    'tools/gen.py', 'tools/lifter.py', 'tools/patches.py', 'tools/flagfuse.py',
+                    'tools/analyze.py', 'tools/nso.py', 'tools/passes.py', 'tools/simd_c.py',
+                    'tools/gamelib_entry.c', 'runtime/hle/hle_symbols.txt']
+        for name in required:
+            if (ROOT / name).read_bytes() != (source / name).read_bytes():
+                raise ValueError('Vanilla object cache source differs: ' + name)
+        generation = (build / 'lasgame.dylib.id').read_text().strip()
+        objects = [p if p.is_absolute() else source / p for p in map(Path, shlex.split((build / 'lasgame.dylib.rsp').read_text()))]
+        game_lib = build / 'lasgame.dylib'
+        tools_digest = {str(p.relative_to(ROOT)): digest(p) for p in
+                        [*(ROOT / n for n in required), *sorted(Path(__file__).parent.glob('*.py')),
+                         identity_source, entry_source]}
     identity = {'revision': REVISION, 'module': digest(module), 'runtime': digest(runtime),
                 'game': {n: digest(game / 'exefs' / n) for n in ['main', 'sdk']},
-                'generation': (build / 'lasgame.dylib.id').read_text().strip(), 'flags': flags,
-                'compiler': subprocess.check_output([args.cc, '--version'], text=True),
-                'sources': {str(p.relative_to(ROOT)): digest(p) for p in
-                            [*(ROOT / n for n in required), *sorted(Path(__file__).parent.glob('*.py')),
-                             ROOT / 'tools/lumiose/identity.c', ROOT / 'tools/lumiose_test_entry.c']},
-                'objects': [(str(p.relative_to(build)), p.stat().st_size, p.stat().st_mtime_ns) for p in objects]}
+                'generation': generation, 'flags': [f for f in flags if not f.startswith('-I')],
+                'compiler': subprocess.check_output([*cc, '--version'], text=True),
+                'sources': tools_digest,
+                'objects': [(p.name, p.stat().st_size, p.stat().st_mtime_ns) for p in objects]}
     key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     out.mkdir(parents=True, exist_ok=True)
     final = out / (version + '-' + key[:16])
@@ -186,12 +213,12 @@ def main():
             work = Path(tmp)
             log = (work / 'prepare.log').open('wb')
             def run(command, env=None):
-                subprocess.run(command, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+                subprocess.run(command, cwd=work, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
             def compile_all(sources, target_dir, cflags):
                 target_dir.mkdir(exist_ok=True)
                 def compile_one(src):
                     obj = target_dir / (src.stem + '.o')
-                    run([args.cc, *cflags, '-c', str(src), '-o', str(obj)])
+                    run([*cc, *cflags, '-c', str(src), '-o', str(obj)])
                     return obj
                 with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
                     return list(pool.map(compile_one, sources))
@@ -208,19 +235,17 @@ def main():
                             raise ValueError('Module jump table does not match its compatibility profile')
                         seeds.add(target)
                 gen_dir = work / 'module-gen'
-                identity_source = ROOT / 'tools/lumiose/identity.c'
                 modflags = ['-O1', '-fno-strict-aliasing', '-Wno-return-type', '-Wno-unused-label',
-                            '-fvisibility=hidden', '-Iruntime', '-include', 'runtime/lumiose_cpu.h',
+                            '-fvisibility=hidden', '-I' + str(include), '-include', str(include / 'lumiose_cpu.h'),
                             '-DLUMIOSE_BUILD_ID="' + build_id + '"']
                 def build_module():
                     if gen_dir.exists(): shutil.rmtree(gen_dir)
                     env = os.environ.copy()
                     env['LUMIOSE_TEST_ENTRIES_LUMIOSE'] = ','.join(hex(x) for x in sorted(seeds))
-                    run([sys.executable, 'tools/gen.py', 'lumiose', str(stage / 'subsdk9'),
-                         hex(BASES['lumiose']), str(gen_dir)], env)
-                    objs = compile_all([*sorted(gen_dir.glob('*.c')), ROOT / 'tools/lumiose_test_entry.c', identity_source],
+                    run([*generator(), 'lumiose', str(stage / 'subsdk9'), hex(BASES['lumiose']), str(gen_dir)], env)
+                    objs = compile_all([*sorted(gen_dir.glob('*.c')), entry_source, identity_source],
                                        work / 'module-obj', modflags)
-                    run([args.cc, '-dynamiclib', '-undefined', 'dynamic_lookup', '-o', str(work / 'lumiose.dylib'), *map(str, objs)])
+                    run([*cc, '-shared', '-Wl,-undefined,dynamic_lookup', '-o', str(work / 'lumiose.dylib'), *map(str, objs)])
                 print('Preparing module bootstrap...', flush=True)
                 report(0.02, 'Preparing the module')
                 build_module()
@@ -231,13 +256,13 @@ def main():
                 env = {k: v for k, v in os.environ.items() if not k.startswith(('LARECOMP_', 'LUMIOSE_'))}
                 env.update(LARECOMP_DATA_ROOT=str(data), LARECOMP_SAVE_DIR=str(work / 'save'),
                            LARECOMP_NO_LAUNCHER='1', LARECOMP_NO_UPDATE_CHECK='1', LARECOMP_HIDDEN='1',
-                           LARECOMP_GAME_LIB=str(build / 'lasgame.dylib'), LUMIOSE_TEST_MODULE=str(work / 'subsdk9'),
+                           LARECOMP_GAME_LIB=str(game_lib), LUMIOSE_TEST_MODULE=str(work / 'subsdk9'),
                            LUMIOSE_TEST_LIBRARY=str(work / 'lumiose.dylib'), LUMIOSE_TEST_DUMP=str(capture),
                            LUMIOSE_TEST_CAPTURE_ONLY='1')
                 print('Capturing hooks offline...', flush=True)
                 report(0.12, 'Starting the module once, offline')
                 with (work / 'capture.log').open('wb') as capture_log:
-                    process = subprocess.Popen([str(runtime), str(game), '--play'], cwd=ROOT, env=env,
+                    process = subprocess.Popen([str(runtime), str(game), '--play'], cwd=work, env=env,
                                                stdout=capture_log, stderr=subprocess.STDOUT, start_new_session=True)
                     try:
                         if process.wait(timeout=args.timeout):
@@ -291,7 +316,8 @@ def main():
                 print('Translating captured module and patched game...', flush=True)
                 report(0.22, 'Translating the module and the patched game code')
                 build_module()
-                run([sys.executable, 'tools/lumiose/prepare_game.py', '--source', str(source), '--build', str(build),
+                (patched / 'objects.txt').write_text(''.join(str(p) + '\n' for p in objects))
+                run([*tool('prepare_game'), '--game', str(game), '--build', str(build), '--objects', str(patched / 'objects.txt'),
                      '--generated', str(generated), '--capture', str(capture), '--module-table', str(gen_dir / 'lumiose_table.c'),
                      '--out', str(patched)])
                 m = json.loads((patched / 'manifest.json').read_text())
@@ -300,7 +326,7 @@ def main():
                 report(0.32, f'Compiling {len(pairs)} changed game files' if pairs else 'Nothing to compile')
                 def compile_game(item):
                     src, obj = item; obj.parent.mkdir(exist_ok=True, parents=True)
-                    run([args.cc, *flags, '-c', str(src), '-o', str(obj)])
+                    run([*cc, *flags, '-c', str(src), '-o', str(obj)])
                     with count_lock:
                         done[0] += 1
                         if done[0] == len(pairs) or done[0] % max(1, len(pairs) // 40) == 0:
@@ -309,10 +335,10 @@ def main():
                     list(pool.map(compile_game, pairs))
                 report(0.94, 'Linking')
                 id_obj = compile_all([identity_source], work / 'identity-obj',
-                                     ['-O1', '-Iruntime', '-DLUMIOSE_BUILD_ID="' + build_id + '"'])
+                                     ['-O1', '-I' + str(include), '-DLUMIOSE_BUILD_ID="' + build_id + '"'])
                 rsp = work / 'link.rsp'; rsp.write_text('\n'.join(shlex.quote(x) for x in [*m['objects'], *map(str, id_obj)]))
-                run([args.cc, '-dynamiclib', '-undefined', 'dynamic_lookup', '-o', str(work / 'lasgame.dylib'), '@' + str(rsp)])
-                (work / 'lasgame.dylib.id').write_text(identity['generation'] + '\n')
+                run([*cc, '-shared', '-Wl,-undefined,dynamic_lookup', '-o', str(work / 'lasgame.dylib'), '@' + str(rsp)])
+                (work / 'lasgame.dylib.id').write_text(generation + '\n')
                 log.close()
                 result = {'identity': key, 'module_build': build_id, 'version': version,
                           'inputs': identity, 'compiled': len(pairs), 'reused': m['reuse_count'],

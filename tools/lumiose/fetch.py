@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import urllib.request
@@ -28,6 +29,33 @@ DEFAULT_URL = 'https://lumioseonline.site/downloads/latest/subsdk9'  # (its hash
 LIMIT = 16 << 20  # the module is about 4 MB
 
 
+class _Curl:
+    """urlopen's shape over /usr/bin/curl, for the bundled helper, which has no TLS of its own (tools/lasgen.spec leaves
+    ssl out). https only, redirects included; a failed transfer is an OSError when the output is closed."""
+    def __init__(self, url, timeout):
+        self.url = url
+        self.p = subprocess.Popen(['/usr/bin/curl', '-fsSL', '--proto', '=https', '--proto-redir', '=https',
+                                   '--max-time', str(int(timeout)), url], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    def read(self, n=-1):
+        return self.p.stdout.read(n)
+    def __enter__(self):
+        return self
+    def __exit__(self, *exc):
+        self.p.stdout.close()
+        err = self.p.stderr.read().decode('utf-8', 'replace').strip()
+        if self.p.wait() != 0 and exc[0] is None:
+            raise OSError(f'download failed: {err or "curl exit " + str(self.p.returncode)}')
+
+
+def default_opener():
+    """urllib when Python has TLS, else curl (the bundled helper)."""
+    try:
+        import ssl  # noqa: F401
+        return urllib.request.urlopen
+    except ImportError:
+        return _Curl
+
+
 def parse_sha256(text):
     """The digest in a `sha256sum` line ("<64 hex>  <name>") or a bare digest; ValueError if there is none."""
     m = re.match(r'\s*([0-9a-fA-F]{64})(\s|$)', text)
@@ -36,11 +64,12 @@ def parse_sha256(text):
     return m.group(1).lower()
 
 
-def fetch(url, out, opener=urllib.request.urlopen, allow_http=False, limit=LIMIT, sha256=None):
+def fetch(url, out, opener=None, allow_http=False, limit=LIMIT, sha256=None):
     """Download url into the folder `out`; returns (path, sha256, version). ValueError for anything not acceptable,
     including a download that does not match `sha256` when one is given."""
     if not (url.startswith('https://') or (allow_http and url.startswith('http://'))):
         raise ValueError('the module is downloaded over https only')
+    opener = opener or default_opener()
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=out, prefix='download-', suffix='.part', delete=False) as tmp:
@@ -73,11 +102,12 @@ def fetch(url, out, opener=urllib.request.urlopen, allow_http=False, limit=LIMIT
             raise
 
 
-def fetch_latest(out, url=DEFAULT_URL, opener=urllib.request.urlopen, allow_http=False):
+def fetch_latest(out, url=DEFAULT_URL, opener=None, allow_http=False):
     """The newest live module under its published SHA-256 (<url>.sha256); same results as fetch()."""
     scheme_ok = url.startswith('https://') or (allow_http and url.startswith('http://'))
     if not scheme_ok:
         raise ValueError('the module is downloaded over https only')
+    opener = opener or default_opener()
     with opener(url + '.sha256', timeout=60) as response:
         expected = parse_sha256(response.read(1024).decode('ascii', 'replace'))
     return fetch(url, out, opener=opener, allow_http=allow_http, sha256=expected)

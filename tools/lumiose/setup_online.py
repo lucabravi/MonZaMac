@@ -5,6 +5,7 @@ none, the newest live one is downloaded (fetch.py: the authors' fixed link, chec
 player has agreed before this runs: it is the only thing here that uses the network.
 
   setup_online.py --runtime monzamac --game extracted [--root build/lumiose-prepared] [--module FILE]
+                  [--modules DIR] [--cache DIR --include DIR --cc "zig cc"]   (the app's layout: see prepare.py)
 """
 import argparse
 import json
@@ -17,19 +18,19 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 from prepare import report  # noqa: E402
 from fetch import fetch_latest  # noqa: E402
+from commands import tool  # noqa: E402
 
-FOLDERS = ('lumiose-module', 'build/lumiose-modules')
 
 
-def find_module(base):
-    """The newest regular file in the module folders under `base`, or None."""
-    found = [p for folder in FOLDERS for p in (base / folder).glob('*') if p.is_file() and not p.name.startswith('.')]
+def find_module(*folders):
+    """The newest regular file in these folders, or None."""
+    found = [p for folder in folders for p in Path(folder).glob('*') if p.is_file() and not p.name.startswith('.')]
     return max(found, key=lambda p: p.stat().st_mtime) if found else None
 
 
 def run_stage(argv, low, high, label):
     """Run a script; its PROGRESS fractions are mapped into low..high. Returns (ok, last ready dir, last message)."""
-    p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=ROOT)
+    p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     ready_dir, message = '', ''
     for line in p.stdout:
         if line.startswith('PROGRESS '):
@@ -52,28 +53,36 @@ def main():
     ap.add_argument('--root', type=Path, default=Path('build/lumiose-prepared'))
     ap.add_argument('--module', type=Path)
     ap.add_argument('--source', type=Path, default=ROOT)
+    ap.add_argument('--modules', type=Path, help='Where downloaded modules are kept (default build/lumiose-modules)')
+    ap.add_argument('--cache', type=Path)
+    ap.add_argument('--include', type=Path)
+    ap.add_argument('--cc')
     args = ap.parse_args()
-    py = sys.executable
-    module = args.module or find_module(Path.cwd()) or find_module(ROOT)
+    downloads = args.modules or ROOT / 'build/lumiose-modules'
+    module = args.module or (find_module(args.modules) if args.modules else
+                             find_module(*(base / f for base in (Path.cwd(), ROOT) for f in ('lumiose-module', 'build/lumiose-modules'))))
     if not module:
         report(0.0, 'Downloading the module')
         try:
-            module = fetch_latest(ROOT / 'build/lumiose-modules')[0]
+            module = fetch_latest(downloads)[0]
         except (ValueError, OSError) as e:
             report(0.0, 'Download failed', 'error', message=f'Could not download the Lumiose module: {e}')
             return 1
     report(0.01, 'Preparing the online version')
-    ok, directory, message = run_stage([py, str(HERE / 'prepare.py'), '--module', str(module), '--runtime', str(args.runtime),
-                                        '--source', str(args.source), '--out', str(args.root)], 0.01, 0.90, 'Preparing')
+    extra = [x for flag, value in [('--cache', args.cache), ('--include', args.include), ('--cc', args.cc)] if value
+             for x in (flag, str(value))]
+    ok, directory, message = run_stage([*tool('prepare'), '--module', str(module), '--runtime', str(args.runtime),
+                                        '--game', str(args.game), '--source', str(args.source), '--out', str(args.root), *extra],
+                                       0.01, 0.90, 'Preparing')
     if not ok:
         report(0.0, 'Preparation failed', 'error', message=message or 'Preparation failed.')
         return 1
     report(0.90, 'Checking that it starts')
     name = Path(directory).name
-    ok, _, message = run_stage([py, str(HERE / 'activate.py'), '--root', str(args.root), 'activate', name, '--smoke',
+    ok, _, message = run_stage([*tool('activate'), '--root', str(args.root), 'activate', name, '--smoke',
                                 '--runtime', str(args.runtime), '--game', str(args.game)], 0.90, 0.99, 'Checking')
     # (activate.py prints no PROGRESS lines: success is its exit code, read from the status afterwards)
-    status = subprocess.run([py, str(HERE / 'activate.py'), '--root', str(args.root), 'status'], capture_output=True, text=True, cwd=ROOT)
+    status = subprocess.run([*tool('activate'), '--root', str(args.root), 'status'], capture_output=True, text=True)
     state = {}
     for line in status.stdout.splitlines():
         if line.startswith('STATUS '): state = json.loads(line[7:])
