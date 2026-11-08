@@ -22,7 +22,7 @@ uint32_t rt_za_dof(uint32_t intensity) {
 // The game's FXAA: its two parameters at 0 turn it off
 uint32_t rt_za_fxaa(uint32_t param) {
     static int logged = -1;
-    return on("FXAA", ENV("LARECOMP_FXAA"), g_settings.fxaa, &logged) ? param : 0;
+    return on("FXAA", ENV("LARECOMP_FXAA"), g_settings.fxaa && !settings_temporal_upscale(), &logged) ? param : 0;
 }
 
 // Bloom: its intensity (0 skips the pass) and, called with 1, whether its extra call runs

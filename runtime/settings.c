@@ -9,6 +9,7 @@
 
 #ifdef __APPLE__
 extern bool fg_supported(void); // runtime/nvn/frame_generation.m: OS and GPU support
+extern bool temporal_supported(void); // runtime/nvn/temporal_upscale.m: OS and GPU support
 #endif
 
 #define SETTINGS_FILE settings_file()
@@ -149,7 +150,8 @@ void settings_load(void) {
                                   !strcmp(val, "50%") ? RES_Q50 : !strcmp(val, "25%") ? RES_Q25 :
                                   (n >= 1 && n <= 4) ? n : n > 4 ? 4 : RES_MATCH;  // (5x-8x were removed)
         }
-        else if (!strcmp(key, "upscaler")) g_settings.upscaler = !strcmp(val, "bilinear") ? UPSCALE_BILINEAR : UPSCALE_SHARP;  // (metalfx / fsr1: this OS's)
+        else if (!strcmp(key, "upscaler")) g_settings.upscaler = !strcmp(val, "bilinear") ? UPSCALE_BILINEAR :
+                                                            !strcmp(val, "metalfx_temporal") ? UPSCALE_METALFX_TEMPORAL : UPSCALE_SHARP;  // (metalfx / fsr1: this OS's)
         else if (!strcmp(key, "antialias")) g_settings.antialias = !strcmp(val, "off") ? AA_OFF : AA_SMAA;  // ("fxaa": SMAA now)
         else if (!strcmp(key, "dpad_move")) g_settings.dpad_move = atoi(val) != 0;
         else if (!strcmp(key, "mouse_speed")) g_settings.mouse_speed = (float)atof(val);
@@ -224,7 +226,8 @@ void settings_save(void) {
     fprintf(f, "game_smooth_anim = %d\n", g_settings.smooth_anim);
     fprintf(f, "game_lod = %d\n", g_settings.lod);
     fprintf(f, "shadow_resolution = %d\nshadow_sharpness = %d\n", g_settings.shadow_res, g_settings.shadow_sharp);
-    fprintf(f, "upscaler = %s\n", g_settings.upscaler == UPSCALE_METALFX ? "metalfx" : g_settings.upscaler == UPSCALE_FSR1 ? "fsr1" : "bilinear");
+    fprintf(f, "upscaler = %s\n", g_settings.upscaler == UPSCALE_METALFX_TEMPORAL ? "metalfx_temporal" :
+                                 g_settings.upscaler == UPSCALE_METALFX ? "metalfx" : g_settings.upscaler == UPSCALE_FSR1 ? "fsr1" : "bilinear");
     fprintf(f, "antialias = %s\n", g_settings.antialias == AA_SMAA ? "smaa" : "off");
     if (g_settings.res_mode == RES_DYNAMIC) fprintf(f, "resolution = dynamic\n");
     else if (g_settings.res_mode == RES_Q75) fprintf(f, "resolution = 75%%\n");
@@ -259,6 +262,14 @@ void settings_save(void) {
 bool settings_uncapped_fps(void) {
     const char *e = ENV("LARECOMP_UNCAPPED_FPS");
     return e ? atoi(e) != 0 : g_settings.dev_uncapped_fps;
+}
+
+bool settings_temporal_upscale(void) {
+#ifdef __APPLE__
+    return g_settings.upscaler == UPSCALE_METALFX_TEMPORAL && temporal_supported();
+#else
+    return false;
+#endif
 }
 
 int settings_frame_generation(void) {

@@ -74,3 +74,7 @@ formats and a common size for its targets and depth. Other G-buffer draws write
 an invalid-motion sentinel, so covered background motion cannot leak into foreground objects. The motion variants of
 a shader compile when first drawn, so a new character can cause a short hitch. These limits do not establish
 artifact-free interpolation.
+
+## Temporal reconstruction
+
+Frame generation can also consume reconstructed color from the optional [MetalFX temporal upscaler](temporal-upscaling.md), sharing its low-resolution depth/motion. Select Temporal in Video and then either generation target. Combined mode uses the reconstructed output resolution; the saved generated-frame Performance choice is restored when temporal is off. The option remains experimental because incomplete motion coverage can create edge artifacts.

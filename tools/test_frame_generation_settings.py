@@ -20,6 +20,7 @@ uint8_t g_game_build[8] = {0xb1,0xf1,0x2f,0xd9,0x19,0xea,0xe8,0x6a};
 static uint64_t now = 1;
 static bool supported;
 bool fg_supported(void) { return supported; }
+bool temporal_supported(void) { return false; }
 uint64_t plat_now_ns(void) { return now; }
 void rt_za_npc_capacity(void) {}
 bool bind_settings_load(const char *key, const char *val) { return false; }

@@ -32,7 +32,9 @@ API_AVAILABLE(macos(26.0))
     NSUInteger width, height, source_width, source_height;
     MTLPixelFormat scene_format, depth_format, ui_format;
     int mode;
-    BOOL has_ui;
+    BOOL has_ui, prepared;
+    id<MTLFXFrameInterpolatableScaler> scaler;
+    NSUInteger input_width,input_height;
     NSUInteger warmup;
 }
 @end
@@ -123,15 +125,18 @@ static NSUInteger working_width(NSUInteger source, unsigned limit) {
     return limit>=64 && limit<source?limit:source;
 }
 API_AVAILABLE(macos(26.0))
-static FgState *make_state(id<MTLCommandBuffer> cb, id<MTLTexture> scene, id<MTLTexture> ui, id<MTLTexture> depth, int mode, unsigned max_width) {
+static FgState *make_state(id<MTLCommandBuffer> cb, id<MTLTexture> scene, id<MTLTexture> ui, id<MTLTexture> depth, int mode, unsigned max_width, const FgPreparedInputs *prepared) {
     FgState *s=[FgState new]; s->device=cb.device; s->queue=cb.commandQueue;
     s->source_width=scene.width; s->source_height=scene.height;
     s->width=working_width(scene.width,max_width);
     s->height=MAX(1,(NSUInteger)llround((double)scene.height*s->width/scene.width));
     s->mode=mode; s->has_ui=ui!=nil;
+    s->prepared=prepared!=NULL;s->scaler=prepared?prepared->scaler:nil;
+    s->input_width=prepared?prepared->depth.width:s->width;s->input_height=prepared?prepared->depth.height:s->height;
     s->scene_format=scene.pixelFormat; s->depth_format=depth.pixelFormat; s->ui_format=ui.pixelFormat;
     MTLFXFrameInterpolatorDescriptor *d=[MTLFXFrameInterpolatorDescriptor new];
-    d.inputWidth=d.outputWidth=s->width; d.inputHeight=d.outputHeight=s->height;
+    d.outputWidth=s->width;d.outputHeight=s->height;d.inputWidth=s->input_width;d.inputHeight=s->input_height;
+    d.scaler=s->scaler;
     d.colorTextureFormat=MTLPixelFormatRGBA16Float;
     // Match the game's 8-bit canvas directly; avoids a full-frame FP16→8-bit pass.
     const char *fp16=getenv("LARECOMP_FG_OUTPUT_FP16");
@@ -160,10 +165,12 @@ static FgFrame *acquire_frame(FgState *s) {
     for(FgFrame *f in s->ring)if(f!=s->previous && f->readers==0)return f;
     FgFrame *f=[FgFrame new];
     f->color=texture(s,MTLPixelFormatRGBA16Float,s->effect.colorTextureUsage|MTLTextureUsageShaderWrite);
-    f->depth=texture(s,MTLPixelFormatR32Float,s->effect.depthTextureUsage|MTLTextureUsageShaderWrite);
-    f->motion=texture(s,MTLPixelFormatRG16Float,s->effect.motionTextureUsage|MTLTextureUsageShaderWrite);
+    if(!s->prepared){
+        f->depth=texture(s,MTLPixelFormatR32Float,s->effect.depthTextureUsage|MTLTextureUsageShaderWrite);
+        f->motion=texture(s,MTLPixelFormatRG16Float,s->effect.motionTextureUsage|MTLTextureUsageShaderWrite);
+    }
     if(s->has_ui)f->ui=texture(s,MTLPixelFormatRGBA16Float,s->effect.uiTextureUsage|MTLTextureUsageShaderWrite);
-    if(!f->color || !f->depth || !f->motion || (s->has_ui && !f->ui))return nil;
+    if(!f->color || (!s->prepared && (!f->depth || !f->motion)) || (s->has_ui && !f->ui))return nil;
     [s->ring addObject:f];
     return f;
 }
@@ -194,9 +201,9 @@ void fg_reset(void) {
 static BOOL rect_fits(const FgRect *r, id<MTLTexture> t) {
     return !r || (r->width && r->height && r->x<t.width && r->y<t.height && r->width<=t.width-r->x && r->height<=t.height-r->y);
 }
-id<MTLTexture> fg_encode_view(id<MTLCommandBuffer> cb, id<MTLTexture> scene, id<MTLTexture> ui, const FgRect *ui_rect,
+static id<MTLTexture> fg_encode_internal(id<MTLCommandBuffer> cb, id<MTLTexture> scene, id<MTLTexture> ui, const FgRect *ui_rect,
                               id<MTLTexture> depth, const FgRect *depth_rect, id<MTLTexture> geometry_motion,
-                              const FgCamera *camera, int mode, unsigned max_width, double now) {
+                              const FgCamera *camera, int mode, unsigned max_width, double now,const FgPreparedInputs *prepared) {
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
     if(@available(macOS 26.0,*)) @synchronized([FgState class]) {
         id<MTLDevice> device=cb.device;
@@ -207,17 +214,23 @@ id<MTLTexture> fg_encode_view(id<MTLCommandBuffer> cb, id<MTLTexture> scene, id<
             (native_depth_format(depth.pixelFormat) || depth.pixelFormat==MTLPixelFormatR32Float || depth.pixelFormat==MTLPixelFormatR16Float || depth.pixelFormat==MTLPixelFormatR16Unorm) &&
             (!ui || (usable(ui,device,ui.width,ui.height) && rect_fits(ui_rect,ui) && color_format(ui.pixelFormat))) &&
             (!geometry_motion || (usable(geometry_motion,device,depth.width,depth.height) && geometry_motion.width==depth.width && geometry_motion.height==depth.height && geometry_motion.pixelFormat==MTLPixelFormatRG16Float)) &&
-            fabsf(camera->aspect-((float)scene.width/scene.height))<.05f;
+            (prepared || fabsf(camera->aspect-((float)scene.width/scene.height))<.05f);
+        if(prepared)valid=valid && prepared->scaler && prepared->depth==depth &&
+            prepared->depth.pixelFormat==MTLPixelFormatR32Float &&
+            usable(prepared->motion,device,depth.width,depth.height) && prepared->motion.pixelFormat==MTLPixelFormatRG16Float &&
+            depth.width<=scene.width && depth.height<=scene.height &&
+            isfinite(prepared->jitter[0]) && isfinite(prepared->jitter[1]);
         if(!valid) { state=nil; return nil; }
         FgState *s=state;
         if(!s || s->queue!=cb.commandQueue || s->source_width!=scene.width || s->source_height!=scene.height || s->width!=working_width(scene.width,max_width) ||
            s->mode!=mode || s->scene_format!=scene.pixelFormat || s->depth_format!=depth.pixelFormat ||
-           s->has_ui!=(ui!=nil) || s->ui_format!=ui.pixelFormat) {
-            state=s=make_state(cb,scene,ui,depth,mode,max_width);
+           s->has_ui!=(ui!=nil) || s->ui_format!=ui.pixelFormat || s->prepared!=(prepared!=NULL) ||
+           (prepared && (s->scaler!=prepared->scaler || s->input_width!=depth.width || s->input_height!=depth.height))) {
+            state=s=make_state(cb,scene,ui,depth,mode,max_width,prepared);
             if(!s)return nil;
         }
         double delta=now-s->time;
-        BOOL reset=!s->previous || !isfinite(delta) || delta<=0 || delta>.25 || camera_cut(&s->camera,camera);
+        BOOL reset=!s->previous || !isfinite(delta) || delta<=0 || delta>.25 || camera_cut(&s->camera,camera) || (prepared && prepared->reset);
         FgFrame *frame=acquire_frame(s), *previous=reset?nil:s->previous;
         id<MTLTexture> output=texture(s,s->effect.outputTextureFormat,s->effect.outputTextureUsage|MTLTextureUsageShaderRead);
         if(!frame || !output) { state=nil; return nil; }
@@ -236,6 +249,9 @@ id<MTLTexture> fg_encode_view(id<MTLCommandBuffer> cb, id<MTLTexture> scene, id<
             [encoder setTexture:ui atIndex:0]; [encoder setTexture:frame->ui atIndex:1];
             [encoder dispatchThreads:size threadsPerThreadgroup:group];
         }
+        if(prepared) {
+            frame->depth=prepared->depth;frame->motion=prepared->motion;
+        } else {
         struct { matrix_float4x4 inverse, previous; } reprojection;
         memcpy(&reprojection.inverse,camera->inverse_view_projection,sizeof reprojection.inverse);
         memcpy(&reprojection.previous,previous?s->camera.view_projection:camera->view_projection,sizeof reprojection.previous);
@@ -248,6 +264,7 @@ id<MTLTexture> fg_encode_view(id<MTLCommandBuffer> cb, id<MTLTexture> scene, id<
         uint32_t depth_view[4]={depth_rect?depth_rect->x:0,depth_rect?depth_rect->y:0,depth_rect?depth_rect->width:(uint32_t)depth.width,depth_rect?depth_rect->height:(uint32_t)depth.height};
         [encoder setBytes:depth_view length:sizeof depth_view atIndex:2];
         [encoder dispatchThreads:size threadsPerThreadgroup:group];
+        }
         [encoder endEncoding];
 
         id<MTLFXFrameInterpolator> effect=s->effect;
@@ -259,7 +276,7 @@ id<MTLTexture> fg_encode_view(id<MTLCommandBuffer> cb, id<MTLTexture> scene, id<
         effect.fieldOfView=camera->vertical_fov; effect.aspectRatio=camera->aspect;
         const char *camera_motion=getenv("LARECOMP_FG_CAMERA_MOTION");
         effect.motionVectorScaleX=effect.motionVectorScaleY=camera_motion && !atoi(camera_motion)?0.f:1.f;
-        effect.jitterOffsetX=effect.jitterOffsetY=0;
+        effect.jitterOffsetX=prepared?prepared->jitter[0]:0;effect.jitterOffsetY=prepared?prepared->jitter[1]:0;
         effect.deltaTime=reset?(mode==1?1.f/30:1.f/60):(float)delta;
         effect.shouldResetHistory=reset;
         if(reset)s->warmup=2;
@@ -271,6 +288,7 @@ id<MTLTexture> fg_encode_view(id<MTLCommandBuffer> cb, id<MTLTexture> scene, id<
         // whole generation, inputs, and both ring slots until GPU completion.
         NSArray *resources=ui?@[scene,depth,ui,output]:@[scene,depth,output];
         if(geometry_motion)resources=[resources arrayByAddingObject:geometry_motion];
+        if(prepared)resources=[resources arrayByAddingObjectsFromArray:@[prepared->motion,prepared->scaler]];
         [cb addCompletedHandler:^(id<MTLCommandBuffer> completed) {
             (void)resources;
             @synchronized([FgState class]) {
@@ -285,8 +303,17 @@ id<MTLTexture> fg_encode_view(id<MTLCommandBuffer> cb, id<MTLTexture> scene, id<
         return ready?output:nil;
     }
 #endif
-    (void)cb; (void)scene; (void)ui; (void)ui_rect; (void)depth; (void)depth_rect; (void)geometry_motion; (void)camera; (void)mode; (void)max_width; (void)now;
+    (void)cb; (void)scene; (void)ui; (void)ui_rect; (void)depth; (void)depth_rect; (void)geometry_motion; (void)camera; (void)mode; (void)max_width; (void)now;(void)prepared;
     return nil;
+}
+id<MTLTexture> fg_encode_view(id<MTLCommandBuffer> cb,id<MTLTexture> scene,id<MTLTexture> ui,const FgRect *ui_rect,
+    id<MTLTexture> depth,const FgRect *depth_rect,id<MTLTexture> geometry,const FgCamera *camera,int mode,unsigned max_width,double now) {
+    return fg_encode_internal(cb,scene,ui,ui_rect,depth,depth_rect,geometry,camera,mode,max_width,now,NULL);
+}
+id<MTLTexture> fg_encode_prepared(id<MTLCommandBuffer> cb,id<MTLTexture> scene,id<MTLTexture> ui,
+    const FgPreparedInputs *inputs,const FgCamera *camera,int mode,double now) {
+    if(!inputs){fg_reset();return nil;}
+    return fg_encode_internal(cb,scene,ui,NULL,inputs->depth,NULL,nil,camera,mode,0,now,inputs);
 }
 id<MTLTexture> fg_encode(id<MTLCommandBuffer> cb, id<MTLTexture> scene, id<MTLTexture> ui,
                          id<MTLTexture> depth, id<MTLTexture> geometry_motion, const FgCamera *camera, int mode, unsigned max_width, double now) {

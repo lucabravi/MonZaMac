@@ -43,6 +43,18 @@ id<MTLTexture> fg_encode_view(id<MTLCommandBuffer> command_buffer,
                               id<MTLTexture> scene, id<MTLTexture> composited_ui, const FgRect *ui_rect,
                               id<MTLTexture> depth, const FgRect *depth_rect, id<MTLTexture> geometry_motion,
                               const FgCamera *camera, int mode, unsigned max_width, double now_seconds);
+// Prepared low-resolution inputs from a temporal scaler; scene/UI are its high-resolution result.
+// A copy of current color is retained for the next interpolation; depth/motion are consumed once.
+@protocol MTLFXFrameInterpolatableScaler;
+typedef struct {
+    id<MTLTexture> depth, motion;
+    id<MTLFXFrameInterpolatableScaler> scaler;
+    float jitter[2];
+    bool reset;
+} FgPreparedInputs;
+id<MTLTexture> fg_encode_prepared(id<MTLCommandBuffer> command_buffer,
+    id<MTLTexture> scene, id<MTLTexture> composited_ui, const FgPreparedInputs *inputs,
+    const FgCamera *camera, int mode, double now_seconds);
 id<MTLTexture> fg_encode(id<MTLCommandBuffer> command_buffer,
                          id<MTLTexture> scene, id<MTLTexture> composited_ui,
                          id<MTLTexture> depth, id<MTLTexture> geometry_motion, const FgCamera *camera,
