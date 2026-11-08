@@ -45,6 +45,17 @@ Nothing runs from the network unless a command is run on purpose; none of these 
 A prepared version never becomes active unless its files match their manifest and it started; the state file is replaced
 only as a whole, so a failure leaves the previous choice as it was.
 
+## The start screen (built with `LUMIOSE_ONLINE=1`)
+
+A second column, **Lumiose Online**, beside the offline one. **Play online** is available only when the game files are
+there and are the 2.0.2 build (otherwise the column says what is missing, and the runtime itself refuses the module for any
+other build). The first press asks for consent (the game data goes to Lumiose Online, a separate service), prepares the
+version with `tools/lumiose/setup_online.py` (the button fills as it goes; `runtime/online_prep.c` follows its `PROGRESS` /
+`STATUS` lines) and then starts the game again with the module: offline and online are a restart apart. With no relay
+endpoint set (`activate.py set-server`) the column says so and nothing is started. For now the scripts are found next to a
+source checkout; an app that does not have them says "not available here".
+`LARECOMP_ONLINE_STATE_TEST=ready|needs|setup|error|noserver|off` shows each state without running anything.
+
 ## What is verified, and what is not
 
 - Native and ASan/UBSan tests for the kernel sessions, the HLE hooks, the UDP service and the texture uploads
@@ -56,8 +67,7 @@ only as a whole, so a failure leaves the previous choice as it was.
 
 ## Still to do (separate changes)
 
-- Running the preparation from the start screen (a job runner that follows the progress).
-- The start screen: one Play online entry, consent, progress and errors; only for game version 2.0.2.
+- Finding the preparation tools in a packaged app (they are only found next to a source checkout).
 - Packaging, and a statement of what is not our service.
 
 ## Risks

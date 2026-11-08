@@ -215,7 +215,11 @@ int main(int argc, char **argv) {
         }
     }
 #endif
-    if (play_flag) saves_select_latest();  // --play skips the start screen: the most recent save, as its CONTINUE
+    if (play_flag) {  // --play skips the start screen: the most recent save, as its CONTINUE
+        saves_select_latest();
+        const char *want = getenv("LARECOMP_PLAY_SAVE");  // (the start screen restarting the game for online play: the save chosen there)
+        if (want && *want) saves_select(want);
+    }
     {   // Pokémon Legends Z-A (exefs/main build 7222e13ecf6adb32: 1.0.0, 8a1c86c437394b69: 2.0.0, b1f12fd919eae86a: 2.0.2): the start screen would ask for
         // game files it doesn't use - straight into the game, as with --play. Started without a log redirect (a
         // double click): the log goes to logs/play.log (the previous one: logs/play-anterior.log).
