@@ -197,7 +197,8 @@ On an Apple M5 at 2880x1620 (1.5x, SMAA and anisotropic filtering on) the open w
 in busy animated scenes.
 
 Looking for the Windows version? It's available at **[PokeZ-ARecomp](https://github.com/Hexveil404/PokeZ-ARecomp)** by
-**Hexveil404**.
+**Hexveil404**. For online play with Lumiose Online on Windows or Linux (experimental), see
+**[PokeZ-ARecomp-Online](https://github.com/TheMagnumChad/PokeZ-ARecomp-Online)** by **TheMagnumChad**.
 
 Working:
 
