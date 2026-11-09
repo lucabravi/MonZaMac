@@ -47,6 +47,10 @@ GAMELIB_SRCS := tools/gen.py tools/flagfuse.py tools/lifter.py tools/analyze.py 
                 tools/simd_c.py tools/gamelib_entry.c runtime/hle/hle_symbols.txt \
                 runtime/cpu.h runtime/simd.h runtime/simd_fp.h runtime/gamelib.h
 GAMELIB_ID := $(shell (cat $(GAMELIB_SRCS); echo '$(GENFLAGS)') | (shasum -a 256 2>/dev/null || sha256sum) | cut -c1-16)
+# Generator changes whose output was checked byte-identical for the 2.0.2 game keep the previous id, so installs don't
+# rebuild for nothing. Only that exact id maps: any further change to the inputs gives a new id and a rebuild.
+GAMELIB_ID_SAME := 4e9c83723e6bd238=c3889090cd4f8b8d
+GAMELIB_ID := $(or $(patsubst $(GAMELIB_ID)=%,%,$(filter $(GAMELIB_ID)=%,$(GAMELIB_ID_SAME))),$(GAMELIB_ID))
 
 RT_OBJ   := $(patsubst runtime/%.c,$(B)/rt/%.o,$(RT_SRC))
 RTFLAGS  := -O2 -g -fno-strict-aliasing -Wall -Wno-unused-function -Iruntime -Iruntime/nvn $(DEPINC) $(OSFLAGS)
