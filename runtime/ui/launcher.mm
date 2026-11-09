@@ -47,6 +47,7 @@ extern "C" {
 #endif
 #include "gameimport.h"
 #include "gamelib.h"
+extern "C" void input_mouse_release(SDL_Window *w);  // runtime/hle/input.c
 #include "romfs_build.h"
 #include "settings.h"
 #include "saves.h"
@@ -1710,6 +1711,7 @@ extern "C" void launcher_run(const char *root) {
     }
     ui_window_init();
     SDL_Window *win = ui_window();
+    input_mouse_release(win);  // (from a game session: relative mouse mode hides the cursor)
 #ifdef __APPLE__
     // The file dialogs show hidden files: prod.keys is often in a hidden folder. Only this app's dialogs, not the Finder's.
     [[NSUserDefaults standardUserDefaults] registerDefaults:@{@"AppleShowAllFiles": @YES}];

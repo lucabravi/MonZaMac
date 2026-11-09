@@ -53,6 +53,7 @@ bool renderer_format_is_sint(uint32_t f);
 void renderer_mark_gpu_owned(NvnTexture *t);
 void input_handle_event(const SDL_Event *e);
 void input_mouse_update(SDL_Window *w);  // runtime/hle/input.c
+void input_mouse_release(SDL_Window *w);
 bool input_user_blocked(const SDL_Event *e);
 
 // Local metadata collection; export runs off the render/UI threads and sends nothing.

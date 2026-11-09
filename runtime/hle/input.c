@@ -169,12 +169,18 @@ static bool mouse_camera_on(uint32_t state) {
 // Main thread, after each batch of events (runtime/nvn/metal.m ui_run): while the game has the controls the mouse is in
 // relative mode: the cursor is hidden (nothing in the game is clicked) and held in place, so the camera never stops at
 // the window's edge; the menu and the name entry get the cursor back.
+static bool mouse_held;
+// Back to the start screen: it has no menu to take the mouse back, so the cursor must come back here.
+void input_mouse_release(SDL_Window *w) {
+    SDL_SetWindowRelativeMouseMode(w, false);
+    SDL_ShowCursor();
+    mouse_held = false;
+}
 void input_mouse_update(SDL_Window *w) {
-    static bool held;
     bool want = !menu_input_captured() && (SDL_GetWindowFlags(w) & SDL_WINDOW_INPUT_FOCUS);
-    if (want == held) return;
+    if (want == mouse_held) return;
     SDL_SetWindowRelativeMouseMode(w, want);
-    held = want;
+    mouse_held = want;
 }
 
 // mouse camera: the right stick from how fast the mouse moves with the right button held. Motion is added up between

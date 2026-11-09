@@ -273,6 +273,9 @@ int main(int argc, char **argv) {
             char exe[1100];
             if (plat_exe_path(exe, sizeof exe)) {
                 char *argv[] = {exe, (char *)root, NULL};
+                extern SDL_Window *ui_window(void);
+                extern void input_mouse_release(SDL_Window *);
+                input_mouse_release(ui_window());  // (the cursor hidden by the game must not outlive this process image)
                 plat_exec(argv);
             }
         }
