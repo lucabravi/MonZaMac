@@ -47,13 +47,26 @@ class _Curl:
             raise OSError(f'download failed: {err or "curl exit " + str(self.p.returncode)}')
 
 
+class _HTTPSRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if req.type == 'https' and not newurl.startswith('https://'):
+            raise ValueError('the download was redirected away from https')
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def default_opener():
     """urllib when Python has TLS, else curl (the bundled helper)."""
     try:
         import ssl  # noqa: F401
-        return urllib.request.urlopen
+        return urllib.request.build_opener(_HTTPSRedirect()).open
     except ImportError:
         return _Curl
+
+
+def check_response_url(response, url, allow_http=False):
+    final = getattr(response, 'url', url)
+    if not (final.startswith('https://') or (allow_http and final.startswith('http://'))):
+        raise ValueError('the download was redirected away from https')
 
 
 def parse_sha256(text):
@@ -76,9 +89,7 @@ def fetch(url, out, opener=None, allow_http=False, limit=LIMIT, sha256=None):
         part = Path(tmp.name)
         try:
             with opener(url, timeout=60) as response:
-                final = getattr(response, 'url', url)
-                if not (final.startswith('https://') or (allow_http and final.startswith('http://'))):
-                    raise ValueError('the download was redirected away from https')
+                check_response_url(response, url, allow_http)
                 digest, size = hashlib.sha256(), 0
                 while True:
                     block = response.read(1 << 16)
@@ -107,6 +118,7 @@ def latest_sha256(url=DEFAULT_URL, opener=None):
     if not url.startswith('https://'):
         raise ValueError('the module is downloaded over https only')
     with (opener or default_opener())(url + '.sha256', timeout=30) as response:
+        check_response_url(response, url + '.sha256')
         return parse_sha256(response.read(1024).decode('ascii', 'replace'))
 
 
@@ -117,6 +129,7 @@ def fetch_latest(out, url=DEFAULT_URL, opener=None, allow_http=False):
         raise ValueError('the module is downloaded over https only')
     opener = opener or default_opener()
     with opener(url + '.sha256', timeout=60) as response:
+        check_response_url(response, url + '.sha256', allow_http)
         expected = parse_sha256(response.read(1024).decode('ascii', 'replace'))
     return fetch(url, out, opener=opener, allow_http=allow_http, sha256=expected)
 

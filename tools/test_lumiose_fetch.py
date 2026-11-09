@@ -5,10 +5,15 @@ import functools
 import hashlib
 import http.server
 import importlib.util
+import io
 import sys
 import tempfile
 import threading
 import unittest
+from email.message import Message
+from unittest.mock import patch
+import urllib.request
+import urllib.response
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
@@ -44,6 +49,41 @@ class FetchTests(unittest.TestCase):
         for url in ['http://example.com/x', 'ftp://example.com/x', 'file:///etc/passwd', '/etc/passwd']:
             with self.assertRaises(ValueError): fm.fetch(url, self.out)
         self.assertFalse(self.out.exists() and any(self.out.iterdir()))
+
+    def test_hash_lookups_reject_an_insecure_final_url(self):
+        sha = hashlib.sha256(self.good).hexdigest()
+        def redirected(url, timeout):
+            response = io.BytesIO(sha.encode() if url.endswith('.sha256') else self.good)
+            response.url = url.replace('https://', 'http://') if url.endswith('.sha256') else url
+            return response
+        with self.assertRaises(ValueError):
+            fm.latest_sha256('https://example.test/subsdk9', opener=redirected)
+        with self.assertRaises(ValueError):
+            fm.fetch_latest(self.out, 'https://example.test/subsdk9', opener=redirected)
+        self.assertFalse(self.out.exists())
+
+    def test_default_opener_rejects_downgrade_before_contacting_http(self):
+        requested = []
+        class Transport(urllib.request.BaseHandler):
+            # Only the transport is synthetic; the actual opener and redirect chain run.
+            handler_order = 100
+            def https_open(self, req):
+                requested.append(req.full_url)
+                headers = Message(); headers['Location'] = 'http://example.test/hash'
+                response = urllib.response.addinfourl(io.BytesIO(), headers, req.full_url, 302)
+                response.msg = 'Found'
+                return response
+            def http_open(self, req):
+                requested.append(req.full_url)
+                response = urllib.response.addinfourl(io.BytesIO(b'ab' * 32), Message(), req.full_url, 200)
+                response.msg = 'OK'
+                return response
+        build = urllib.request.build_opener
+        with patch.object(urllib.request, '_opener', None), patch.object(
+                urllib.request, 'build_opener', side_effect=lambda *handlers: build(Transport(), *handlers)):
+            with self.assertRaises(ValueError):
+                fm.latest_sha256('https://example.test/subsdk9')
+        self.assertEqual(requested, ['https://example.test/subsdk9.sha256'])
 
     def test_keeps_a_module_under_its_hash(self):
         with serve({'subsdk9': self.good}) as base:
