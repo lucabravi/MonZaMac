@@ -95,5 +95,14 @@ class ImportBoundaries(unittest.TestCase):
         with self.assertRaises(ImportFailure) as error: validate_extracted(self.root, build_id)
         self.assertEqual(error.exception.code, 'files')
 
+    def test_reads_the_addon_meta(self):
+        import struct
+        def cnmt(kind, ctype):
+            head = struct.pack('<QIBxHH', 0x0100F43008C45002, 0, kind, 0, 1) + bytes(14)
+            return head + bytes(32) + bytes([0xAB]) * 16 + bytes(6) + bytes([ctype, 0])
+        from game_extract import addon_content
+        self.assertEqual(addon_content(cnmt(0x82, 2)), (0x0100F43008C45002, 'ab' * 16 + '.nca'))
+        self.assertIsNone(addon_content(cnmt(0x80, 1)))
+
 
 if __name__ == '__main__': unittest.main()

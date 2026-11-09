@@ -31,7 +31,7 @@ the tags, so a release needs its dmg attached. The app holds no game files or ga
 
 ### Extracting your game files from a dump
 
-The game is v2.0.2 (+ the Mega Dimension DLC). You need, all from your own Switch and copy of the game:
+The game is v2.0.2 (+ optionally the Mega Dimension DLC `.nsp`, third argument of `tools/extract_game.sh`). You need, all from your own Switch and copy of the game:
 
 - your `prod.keys` (dump them with Lockpick_RCM), saved as `.keys/prod.keys` (never committed)
 - the base game `.nsp` and the **v2.0.2 update `.nsp`** (the base alone is v1.0.0 and won't work)

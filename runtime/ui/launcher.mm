@@ -2282,7 +2282,16 @@ extern "C" void launcher_run(const char *root) {
                 }
                 ImGui::TextColored(ImVec4(0.45f, 0.95f, 0.55f, 1), "Game files ready.");
                 ImGui::SetCursorPosX(x0);
-                ImGui::TextColored(ImVec4(0.66f, 0.76f, 0.98f, 1), "Nintendo Switch  \xc2\xb7  v2.0.2");
+                {
+                    // The Mega Dimension add-on is one aoc/<id>.bin RomFS image (tools/game_extract.py --dlc)
+                    bool dlc = false;
+                    if (DIR *d = opendir((g_root + "/aoc").c_str())) {
+                        while (struct dirent *e = readdir(d)) dlc |= strstr(e->d_name, ".bin") != NULL;
+                        closedir(d);
+                    }
+                    ImGui::TextColored(ImVec4(0.66f, 0.76f, 0.98f, 1), "Nintendo Switch  \xc2\xb7  v2.0.2  \xc2\xb7  %s",
+                                       dlc ? "DLC found" : "DLC not found");
+                }
             } else {
                 ImGui::TextColored(ImVec4(1, 0.72f, 0.4f, 1), "!  %s", busy ? "Setting up the game files..." : status.c_str());
                 ImGui::SetCursorPosX(x0);

@@ -66,7 +66,7 @@ Macs, fix bugs or make the documentation better. You do not have to be a develop
 
 MonZaMac uses **static recompilation**: the game's ARM64 code is translated ahead of time into C and compiled for
 macOS. Its runtime reimplements the Switch operating system services and NVN GPU interface on Metal. No emulator
-runs at play time. The supported game version is **v2.0.2 with the Mega Dimension DLC**.
+runs at play time. The supported game version is **v2.0.2**. The Mega Dimension DLC is optional: the start screen shows whether it was found. To add it from your own DLC `.nsp`, run `tools/extract_game.sh <base> <update> <dlc.nsp>` (the in-app setup does not take the DLC yet).
 
 > **Bring your own game.** You need an original copy and game files/keys you are entitled to use. No Nintendo game
 > files, code, assets, shaders, keys or fonts are distributed with this project. The open-source license covers
