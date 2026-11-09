@@ -730,8 +730,10 @@ static void SDLCALL picked_package(void *which, const char *const *files, int) {
 }
 
 // Adding the DLC to an installed game: pick the .nsp, then prod.keys; only aoc/<id>.bin is written (no rebuild)
-static std::string g_dlc_pick, g_dlc_msg;
-static std::atomic<bool> g_dlc_need_keys{false}, g_dlc_busy{false};
+static ImFont *g_font_title, *g_font_menu, *g_font_small;
+static std::string g_dlc_pick, g_dlc_keys, g_dlc_msg;
+static std::atomic<bool> g_dlc_busy{false};
+static bool g_dlc_open;  // (the UI thread's: show dlc_popup)
 static void *dlc_add_thread(void *arg) {
     std::string keys = *(std::string *)arg; delete (std::string *)arg;
     std::string dlc, work = g_root + "/.dlc-work", msg = "DLC added.";
@@ -756,16 +758,72 @@ static void *dlc_add_thread(void *arg) {
     g_dlc_busy = false;
     return NULL;
 }
-static void SDLCALL dlc_keys_picked(void *, const char *const *files, int) {
-    if (!files || !files[0]) { g_dlc_busy = false; return; }
-    pthread_t th;
-    pthread_create(&th, NULL, dlc_add_thread, new std::string(files[0]));
-    pthread_detach(th);
+static void SDLCALL dlc_file_picked(void *which, const char *const *files, int) {
+    if (!files || !files[0]) return;
+    pthread_mutex_lock(&g_lock);
+    (which ? g_dlc_keys : g_dlc_pick) = files[0];
+    pthread_mutex_unlock(&g_lock);
 }
-static void SDLCALL dlc_nsp_picked(void *, const char *const *files, int) {
-    if (!files || !files[0]) { g_dlc_busy = false; return; }
-    pthread_mutex_lock(&g_lock); g_dlc_pick = files[0]; pthread_mutex_unlock(&g_lock);
-    g_dlc_need_keys = true;  // (the keys dialog is opened from the UI thread)
+
+// What Add DLC needs, said before any file dialog opens (macOS dialogs look alike and do not say what they ask for)
+static void dlc_popup(float s, SDL_Window *win) {
+    ImVec2 ds = ImGui::GetIO().DisplaySize;
+    if (g_dlc_open) { ImGui::OpenPopup("##add_dlc"); g_dlc_open = false; }
+    ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(fminf(ds.x * 0.92f, 600 * s), fminf(ds.y * 0.9f, 340 * s)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(28 * s, 24 * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 16 * s);
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.04f, 0.07f, 0.14f, 1));
+    bool open = ImGui::BeginPopupModal("##add_dlc", NULL, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+    if (!open) return;
+    pthread_mutex_lock(&g_lock);
+    std::string dlc = g_dlc_pick, keys = g_dlc_keys;
+    pthread_mutex_unlock(&g_lock);
+    ImGui::PushFont(g_font_small);
+    ImGui::SetWindowFontScale(1.35f);
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), "Add the Mega Dimension DLC");
+    ImGui::SetWindowFontScale(1.1f);
+    ImGui::Dummy(ImVec2(0, 12 * s));
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextWrapped("Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.");
+    ImGui::PopTextWrapPos();
+    ImGui::Dummy(ImVec2(0, 12 * s));
+    static const SDL_DialogFileFilter nf[] = {{"DLC package", "nsp"}, {"All files", "*"}};
+    static const SDL_DialogFileFilter kf[] = {{"Switch keys", "keys"}};
+    struct { const char *label; const std::string &value; } rows[] = {{"1. DLC package (.nsp)", dlc}, {"2. Your prod.keys", keys}};
+    for (int i = 0; i < 2; i++) {
+        ImGui::PushID(i);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(rows[i].label);
+        ImGui::SameLine(250 * s);
+        if (ImGui::Button("Choose...", ImVec2(120 * s, 34 * s)))
+            SDL_ShowOpenFileDialog(dlc_file_picked, i ? (void *)1 : NULL, win, i ? kf : nf, i ? 1 : 2, NULL, false);
+        ImGui::SameLine();
+        const char *name = strrchr(rows[i].value.c_str(), '/');
+        if (rows[i].value.empty()) ImGui::TextDisabled("Not chosen");
+        else ImGui::TextColored(ImVec4(0.45f, 0.95f, 0.55f, 1), "%s", name ? name + 1 : rows[i].value.c_str());
+        ImGui::PopID();
+        ImGui::Dummy(ImVec2(0, 6 * s));
+    }
+    float bw = 170 * s, gap = 16 * s;
+    ImGui::SetCursorPos(ImVec2((ImGui::GetWindowWidth() - 2 * bw - gap) * 0.5f, ImGui::GetWindowHeight() - 62 * s));
+    bool back = ImGui::Button("Cancel", ImVec2(bw, 38 * s)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+    ImGui::SameLine(0, gap);
+    bool ready = !dlc.empty() && !keys.empty();
+    ImGui::BeginDisabled(!ready);
+    bool go = ImGui::Button("Add DLC", ImVec2(bw, 38 * s));
+    ImGui::EndDisabled();
+    ImGui::PopFont();
+    if (back || go) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    if (go) {
+        g_dlc_busy = true;
+        pthread_t th;
+        pthread_create(&th, NULL, dlc_add_thread, new std::string(keys));
+        pthread_detach(th);
+    }
 }
 
 // ------------------------------------------------------------------ the user's own Nintendo fonts (not shipped)
@@ -930,7 +988,6 @@ static void load_background(GpuDevice dev) {
 }
 
 // ------------------------------------------------------------------ screen
-static ImFont *g_font_title, *g_font_menu, *g_font_small;
 enum Page { MAIN, SETTINGS, SETUP, SAVES };  // SETTINGS: the in-game menu's tabs (runtime/ui/menu.mm)
 static int g_refocus = MAIN;  // back on the main page: select the item of the page we came from (controllers)
 
@@ -1653,6 +1710,10 @@ extern "C" void launcher_run(const char *root) {
     }
     ui_window_init();
     SDL_Window *win = ui_window();
+#ifdef __APPLE__
+    // The file dialogs show hidden files: prod.keys is often in a hidden folder. Only this app's dialogs, not the Finder's.
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{@"AppleShowAllFiles": @YES}];
+#endif
     g_launcher_win = win;
 #ifdef __APPLE__
     CAMetalLayer *layer = (__bridge CAMetalLayer *)ui_metal_layer();
@@ -2358,20 +2419,17 @@ extern "C" void launcher_run(const char *root) {
                     }
                     ImGui::TextColored(ImVec4(0.66f, 0.76f, 0.98f, 1), "Nintendo Switch  \xc2\xb7  v2.0.2  \xc2\xb7  %s",
                                        dlc ? "DLC found" : "DLC not found");
-                    if (g_dlc_need_keys.exchange(false)) {
-                        static const SDL_DialogFileFilter kf2[] = {{"Switch keys", "keys"}};
-                        SDL_ShowOpenFileDialog(dlc_keys_picked, NULL, win, kf2, 1, NULL, false);
-                    }
                     if (!dlc && !busy) {
                         ImGui::SameLine();
                         if (g_dlc_busy) ImGui::TextDisabled("Adding DLC...");
                         else if (ImGui::SmallButton("Add DLC...")) {
-                            static const SDL_DialogFileFilter nf[] = {{"DLC package", "nsp"}, {"All files", "*"}};
-                            g_dlc_busy = true;
-                            pthread_mutex_lock(&g_lock); g_dlc_msg.clear(); pthread_mutex_unlock(&g_lock);
-                            SDL_ShowOpenFileDialog(dlc_nsp_picked, NULL, win, nf, 2, NULL, false);
+                            pthread_mutex_lock(&g_lock);
+                            g_dlc_msg.clear(); g_dlc_pick.clear(); g_dlc_keys.clear();
+                            pthread_mutex_unlock(&g_lock);
+                            g_dlc_open = true;
                         }
                     }
+                    dlc_popup(s, win);
                     pthread_mutex_lock(&g_lock); std::string dm = g_dlc_msg; pthread_mutex_unlock(&g_lock);
                     if (!dm.empty()) { ImGui::SetCursorPosX(x0); ImGui::TextDisabled("%s", dm.c_str()); }
                 }
