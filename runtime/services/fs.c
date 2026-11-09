@@ -616,6 +616,14 @@ static void storage(Service *s, IpcReq *req, IpcResp *resp) {
 }
 
 // a plain storage: a host file's bytes (add-on content)
+static void plain_storage_close(Service *s) {
+    Storage *st = s->state;
+    if (!st) return;
+    close(st->fd);
+    free(st);
+    s->state = NULL;
+}
+
 static void plain_storage(Service *s, IpcReq *req, IpcResp *resp) {
     Storage *st = s->state;
     switch (req->cmd) {
@@ -955,7 +963,9 @@ SERVICE("fsp-srv", fsp_srv) {
         fstat(fd, &sb);
         st->size = sb.st_size;
         LOG("[fs] add-on content %016llx: %s\n", (unsigned long long)id, path);
-        ipc_return_object(resp, service_new("IStorage(aoc)", plain_storage, st));
+        Service *obj = service_new("IStorage(aoc)", plain_storage, st);
+        obj->on_close = plain_storage_close;
+        ipc_return_object(resp, obj);
         break;
     }
     case 1005: OUT(uint32_t, 0) = 0; resp_size(resp, 4); break;  // GetGlobalAccessLogMode

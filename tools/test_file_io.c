@@ -87,9 +87,12 @@ static void close_session(uint32_t handle) {
 }
 
 static void check_close(const char *name) {
-    bool isdir = !strcmp(name, "close-directory"), clone = !strcmp(name, "close-cloned-file");
+    bool isdir = !strcmp(name, "close-directory"), clone = strstr(name, "cloned") != NULL;
+    bool aoc = strstr(name, "aoc") != NULL;
     char root[] = "/tmp/monzamac-handles.XXXXXX"; assert(mkdtemp(root));
-    char path[256]; snprintf(path, sizeof path, "%s/file.bin", root);
+    char path[256], addon[256], romfs[256];
+    if (aoc) { snprintf(addon, sizeof addon, "%s/aoc", root); assert(!mkdir(addon, 0700)); }
+    snprintf(path, sizeof path, "%s/%s", root, aoc ? "aoc/0000000000000001.bin" : "file.bin");
     int created = open(path, O_CREAT | O_EXCL | O_RDWR, 0600); assert(created >= 0); assert(!close(created));
     HostFs fs = {0}; strlcpy(fs.root, root, sizeof fs.root);
     Service mount = {.state = &fs};
@@ -98,10 +101,15 @@ static void check_close(const char *name) {
     IpcReq req = {.cmd = isdir ? 9 : 8, .data = (const uint8_t *)&mode, .data_size = sizeof mode, .nx = 1};
     req.x[0] = (IpcBuf){(uintptr_t)guest_path, strlen(guest_path) + 1};
     IpcResp resp = {0};
-    filesystem(&mount, &req, &resp);
+    if (aoc) {
+        snprintf(romfs, sizeof romfs, "%s/romfs", root); g_romfs_dir = romfs;
+        uint64_t args[2] = {0, 1};
+        req = (IpcReq){.cmd = 202, .data = (const uint8_t *)args, .data_size = sizeof args};
+        fsp_srv(NULL, &req, &resp);
+    } else filesystem(&mount, &req, &resp);
     assert(!resp.result && resp.nobjects == 1);
     Service *obj = resp.objects[0];
-    int fd = isdir ? dirfd(((HostDir *)obj->state)->d) : ((HostFile *)obj->state)->fd;
+    int fd = isdir ? dirfd(((HostDir *)obj->state)->d) : aoc ? ((Storage *)obj->state)->fd : ((HostFile *)obj->state)->fd;
     uint32_t first = session_new(obj), second = clone ? session_new(obj) : 0;
     close_session(first);
     if (second) { assert(fcntl(fd, F_GETFD) >= 0); close_session(second); }
@@ -109,7 +117,9 @@ static void check_close(const char *name) {
     assert(fcntl(fd, F_GETFD) == -1 && errno == EBADF);
     assert(!obj->state);
     free((char *)obj->name); free(obj);
-    assert(!unlink(path)); assert(!rmdir(root));
+    assert(!unlink(path));
+    if (aoc) { assert(!rmdir(addon)); g_romfs_dir = "."; }
+    assert(!rmdir(root));
     printf("PASS %s\n", name);
 }
 
