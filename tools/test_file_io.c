@@ -67,6 +67,7 @@ const char *g_romfs_dir = ".";
 bool shader_trace_enabled(void) { return false; }
 void shader_trace_read(const char *p, uint64_t off, uint64_t dst, size_t n) { (void)p; (void)off; (void)dst; (void)n; }
 const char *pl_prompt_set(void) { return "default"; }
+const char *saves_route_replay_dir(const char *name) { (void)name; return NULL; }
 void rt_fatal_msg(const char *fmt, ...) { (void)fmt; }
 void rt_fatal_trace(void) { abort(); }
 int plat_open_file(const char *path, int flags) { return open(path, flags, 0600); }
