@@ -66,6 +66,12 @@ typedef struct {
     bool uses_branches, uses_cc, uses_local, uses_vid, uses_iid, uses_frag_coord, uses_front_facing, uses_lane, uses_layer;
     uint8_t out_comp[32];  // vertex: output components written per varying (transform feedback order)
     uint32_t shadow_matrix_pc, shadow_mul_pc[2];  // guarded Z-A cascade PCF pattern
+    // Smooth shadow edges (same guarded pattern): registers that hold a tap of the shadow depth map, its Metal slot
+    // and the taps that got a coordinate variable. Follows the emission order, as the taps and their compares are
+    // straight-line code.
+    uint32_t shadow_tex;  // the depth map's texture index + 1
+    int shadow_slot;
+    bool shadow_tap[256], shadow_tap_decl[256], shadow_smooth;
     bool uses_rscale;  // resolution-scale table (fragment/compute only)
     uint32_t txq_z;    // (MSL) texture slots whose TXQ dimension reads z: tz<slot>(level) is emitted with the final type
     bool warned_surface;  // a dropped bindless surface op was noted
@@ -207,12 +213,14 @@ static const char *operand_c_for_ffma(Ctx *c, uint64_t w, char *buf, const char 
 }
 
 static void rsc_clear(Ctx *c, int r) {
+    if (r < RZ) c->shadow_tap[r] = false;
     if (r < RZ && c->rsc_track[r]) sp(&c->body, "    rp%d = float2(0.5f);\n", r);
 }
 
 static void set_reg_phase(Ctx *c, int r, const char *expr, const char *phase) {
     if (r == RZ) return;
     c->reg_used[r] = 1;
+    if (strcmp(expr, "0u") && strcmp(expr, "0x00000000u")) c->shadow_tap[r] = false;  // (zero: the game's self-shadow guard, the tap stays one)
     sp(&c->body, "    r%d = %s;\n", r, expr);
     if (r < RZ && c->rsc_track[r]) sp(&c->body, "    rp%d = %s;\n", r, phase ? phase : "float2(0.5f)");
     // (a bindless surface handle is a constant buffer word: SUST / SURED resolve it statically)
@@ -1341,7 +1349,11 @@ static void emit_tex(Ctx *c, uint64_t w, bool bindless) {
                 layer, dref, lod, off);
     else
         sprintf(call, "t%d.sample(s%d, %s(%s)%s%s%s%s)", slot, slot, vec, coords, array ? ", " : "", layer, lod, off);
+    // a tap of the shadow depth map: keep where it was taken (its coordinate registers may be its destination)
+    bool tap = c->shadow_smooth && index + 1 == c->shadow_tex && array && ncoord == 2 && !dc && !aoffi && mask == 1 && d < RZ;
+    if (tap) sp(&c->body, "    shuv%d = float3(%s, float(%s));\n", d, coords, layer);
     write_tex_result(c, slot, call, mask, d, RZ, false, false);
+    if (tap) { c->shadow_tap[d] = c->shadow_tap_decl[d] = true; c->shadow_slot = slot; }
 }
 
 // Z-A uses one texel-radius PCF kernel for cascades with different world footprints.
@@ -1435,6 +1447,9 @@ static void shadow_cascade_plan(Ctx *c, const uint64_t *code, size_t end) {
         }
     }
     c->shadow_matrix_pc = matrix_pc;
+    const char *smooth = getenv("LARECOMP_SHADOW_SMOOTH");  // =0: the game's own hard texel test (comparison)
+    c->shadow_tex = texture;
+    c->shadow_smooth = !smooth || atoi(smooth);
     memcpy(c->shadow_mul_pc, mul_pc, sizeof mul_pc);
 }
 
@@ -1712,6 +1727,12 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         fcmp_expr(cmp, (int)bits(w, 48, 4), x, y);
         sprintf(t, "((%s) %s %s)", cmp, bool_op((int)bits(w, 45, 2)), P((int)bits(w, 39, 3), bits(w, 42, 1)));
         sprintf(u, bits(w, 52, 1) ? "(%s ? 0x3f800000u : 0u)" : "(%s ? 0xFFFFFFFFu : 0u)", t);
+        // Z-A's shadow tap test, lit = reference >= the map's depth: one hard answer per map texel, so shadow edges
+        // follow the texels (stairs in close-ups). Blend the answers of the four texels around the tap instead.
+        unsigned tb = (unsigned)bits(w, 20, 8);
+        if (OPM(0x5800000000000000ull, 0xff00000000000000ull) && tb < RZ && c->shadow_tap[tb] && bits(w, 48, 4) == 6 &&
+            bits(w, 52, 1) && bits(w, 39, 3) == PT && !bits(w, 42, 1) && !bits(w, 43, 1) && !bits(w, 54, 1) && !bits(w, 53, 1) && !bits(w, 44, 1))
+            sprintf(u, "as_type<uint>(shadow_tap_lit(t%d, shuv%u, %s, %s))", c->shadow_slot, tb, x, y);
         set_reg(c, d, u);
     } else if (OPM(0x5ba0000000000000ull, 0xfff0000000000000ull) || OPM(0x4ba0000000000000ull, 0xfff0000000000000ull) ||
                OPM(0x36a0000000000000ull, 0xfef0000000000000ull) || OPM(0x53a0000000000000ull, 0xfff0000000000000ull)) {  // FCMP
@@ -3231,6 +3252,28 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
         else if (ty == TEXTYPE_2D_ARRAY || ty == TEXTYPE_CUBE_ARRAY || ty == TEXTYPE_1D_ARRAY) sp(&s, "#define tz%d(l) t%d.get_array_size()\n", i, i);
         else sp(&s, "#define tz%d(l) 1u\n", i);
     }
+    for (int i = 0, done = 0; i < 256 && !done; i++) if (c->shadow_tap_decl[i]) {
+        done = 1;
+        // Each texel is compared with the depth the receiver would have there (its slope in the map, from the screen
+        // derivatives), else a surface tilted to the light shadows itself in the neighbouring texels.
+        sp(&s,
+        "static inline float shadow_tap_lit(texture2d_array<float> t, float3 c, float ref, float d) {\n"
+        "    if (d == 0.0f) return 1.0f;\n"  // (zeroed by the game's self-shadow guard: lit, as its own test says)
+        "    float2 size = float2(t.get_width(), t.get_height());\n"
+        "    float2 ux = dfdx(c.xy), uy = dfdy(c.xy);\n"
+        "    float zx = dfdx(ref), zy = dfdy(ref), det = ux.x * uy.y - ux.y * uy.x;\n"
+        "    float2 g = abs(det) > 1e-20f ? float2(uy.y * zx - ux.y * zy, ux.x * zy - uy.x * zx) / det : float2(0);\n"
+        "    if (!all(isfinite(g))) g = float2(0);\n"
+        "    float2 p = c.xy * size - 0.5f, f = fract(p);\n"
+        "    int2 i = int2(floor(p)), hi = int2(size) - 1;\n"
+        "    float r[4];\n"
+        "    for (int k = 0; k < 4; k++) {\n"
+        "        int2 q = i + int2(k & 1, k >> 1);\n"
+        "        r[k] = ref + dot(g, (float2(q) + 0.5f) / size - c.xy) >= t.read(uint2(clamp(q, int2(0), hi)), uint(c.z)).x ? 1.0f : 0.0f;\n"
+        "    }\n"
+        "    return mix(mix(r[0], r[1], f.x), mix(r[2], r[3], f.x), f.y);\n"
+        "}\n");
+    }
     if (c->shadow_matrix_pc) sp(&s,
         "static inline float2 shadow_cascade_uv_scale(constant uint4 *matrices, uint layer) {\n"
         "    float4 a = as_type<float4>(matrices[layer * 4]);\n"
@@ -3269,6 +3312,7 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
     }
     free(args.buf);
     if (c->shadow_matrix_pc) sp(&s, "  float2 shadow_radius_scale = float2(1);\n");
+    for (int i = 0; i < 256; i++) if (c->shadow_tap_decl[i]) sp(&s, "  float3 shuv%d = float3(0);\n", i);
     if (smap)
         for (int i = 0; i < info->ntex; i++) sp(&s, "  sampler s%d = ss[smap[%d]];\n", i, i);
     for (int i = 0; i < 256; i++)
