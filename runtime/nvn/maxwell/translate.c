@@ -1732,8 +1732,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         unsigned tb = (unsigned)bits(w, 20, 8);
         if (OPM(0x5800000000000000ull, 0xff00000000000000ull) && tb < RZ && c->shadow_tap[tb] && bits(w, 48, 4) == 6 &&
             bits(w, 52, 1) && bits(w, 39, 3) == PT && !bits(w, 42, 1) && !bits(w, 43, 1) && !bits(w, 54, 1) && !bits(w, 53, 1) && !bits(w, 44, 1))
-            sprintf(u, "as_type<uint>(shadow_tap_lit(t%d, shuv%u, %s, %s, rscale[%d][2]))", c->shadow_slot, tb, x, y, c->shadow_slot + 1);
-            c->uses_rscale = true;
+            sprintf(u, "as_type<uint>(shadow_tap_lit(t%d, shuv%u, %s, %s))", c->shadow_slot, tb, x, y);
         set_reg(c, d, u);
     } else if (OPM(0x5ba0000000000000ull, 0xfff0000000000000ull) || OPM(0x4ba0000000000000ull, 0xfff0000000000000ull) ||
                OPM(0x36a0000000000000ull, 0xfef0000000000000ull) || OPM(0x53a0000000000000ull, 0xfff0000000000000ull)) {  // FCMP
@@ -3258,9 +3257,8 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
         // Each texel is compared with the depth the receiver would have there (its slope in the map, from the screen
         // derivatives), else a surface tilted to the light shadows itself in the neighbouring texels.
         sp(&s,
-        "static inline float shadow_tap_lit(texture2d_array<float> t, float3 c, float ref, float d, float hard) {\n"
-        "    if (d == 0.0f) return 1.0f;\n"
-        "    if (hard != 0.0f) return ref >= d ? 1.0f : 0.0f;\n"  // (zeroed by the game's self-shadow guard: lit, as its own test says)
+        "static inline float shadow_tap_lit(texture2d_array<float> t, float3 c, float ref, float d) {\n"
+        "    if (d == 0.0f) return 1.0f;\n"  // (zeroed by the game's self-shadow guard: lit, as its own test says)
         "    float2 size = float2(t.get_width(), t.get_height());\n"
         "    float2 ux = dfdx(c.xy), uy = dfdy(c.xy);\n"
         "    float zx = dfdx(ref), zy = dfdy(ref), det = ux.x * uy.y - ux.y * uy.x;\n"
