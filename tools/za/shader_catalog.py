@@ -169,12 +169,13 @@ def _expand_v2(c):
 
 def expand_recipe_profiles(profiles,recipes,limit):
     fields(profiles,('vertex_keys','fragment_keys','descriptors'))
+    # Compute-only catalogs have empty graphics profiles; the reference check still rejects unused entries.
     for name,table in profiles.items():
-        if not isinstance(table,list) or not table or (limit is not None and len(table)>limit):raise ValueError('invalid profile table size')
+        if not isinstance(table,list) or (limit is not None and len(table)>limit):raise ValueError('invalid profile table size')
         normalized=[descriptor(v) if name=='descriptors' else key(v) for v in table]
         if encoded(normalized)!=encoded(table) or len({encoded(v) for v in table})!=len(table):
             raise ValueError('profiles must be canonical and distinct')
-    if not isinstance(recipes,list) or not recipes or (limit is not None and len(recipes)>limit):raise ValueError('invalid recipe count')
+    if not isinstance(recipes,list) or (limit is not None and len(recipes)>limit):raise ValueError('invalid recipe count')
     refs={name:set() for name in profiles};rows=[]
     for r in recipes:
         fields(r,('vs','fs','vertex_key','fragment_key','descriptor'))
@@ -211,8 +212,9 @@ def contribution_recipes(doc):
     fields(doc,('type','version','profiles','recipes') + (('compute',) if 'compute' in doc else ()))
     if doc['type']!='shader-recipes' or type(doc['version']) is not int or doc['version']!=1:raise ValueError('unsupported contribution')
     compute=[compute_recipe(r) for r in doc.get('compute',[])]
-    if not doc['recipes'] and compute and not any(doc['profiles'].get(n) for n in ('vertex_keys','fragment_keys','descriptors')):return compute
-    return [recipe(r) for r in expand_recipe_profiles(doc['profiles'],doc['recipes'],None)]+compute
+    rows=[recipe(r) for r in expand_recipe_profiles(doc['profiles'],doc['recipes'],None)]+compute
+    if not rows:raise ValueError('expected contribution recipes')
+    return rows
 
 def load_recipes(path,allow_empty=False):
     with Path(path).open('rb') as f:data=f.read(MAX_RECIPE_FILE+1)

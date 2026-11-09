@@ -151,6 +151,39 @@ class Contributions(unittest.TestCase):
         merged=m.merge_local_recipes(c,[other])
         self.assertEqual(len(merged['compute']),2)
 
+    def test_compute_only_catalog_can_be_exported_and_prepared(self):
+        comp=dict(version=1,compute=dict(cs=self.digest,key=[0,3,0,0,1],local=[8,8,1]))
+        index=dict(version=1,sources={},shaders={self.digest:dict(self.entry,stage=5)})
+        journal=self.root/'compute.jsonl';journal.write_bytes(m.encoded(comp))
+        inputs=self.root/'index.json';inputs.write_bytes(m.encoded(index))
+        catalog=self.root/'compute-catalog.json'
+        self.assertEqual(m.main(['export',str(journal),str(inputs),str(catalog)]),0)
+        c=m.validate_catalog(m.read_json(catalog))
+        self.assertEqual(c['recipes'],[])
+        self.assertEqual(m.load_recipes(catalog),[comp])
+        installed=m.prepare(self.game,c,self.root/'compute-prepared',None)
+        self.assertEqual((installed/'recipes.jsonl').read_bytes(),m.encoded(comp))
+        self.assertEqual((installed/'inputs'/f'{self.digest}.bin').read_bytes(),self.code)
+        self.assertEqual(m.prepare(self.game,c,self.root/'compute-prepared',None),installed)
+
+    def test_compute_only_contribution_rejects_malformed_graphics_profiles(self):
+        comp=dict(version=1,compute=dict(cs=self.digest,key=[0]*5,local=[1]*3))
+        profiles=m.contribution_document([comp])['profiles']
+        malformed=[dict(profiles,shader_code='unwanted'),{},[],None,
+                   dict(profiles,vertex_keys=None),dict(profiles,vertex_keys=[recipe(self.digest)['program']['vkey']])]
+        for value in malformed:
+            with self.subTest(profiles=value):
+                doc=m.contribution_document([comp]);doc['profiles']=value
+                with self.assertRaises(ValueError):m.contribution_recipes(doc)
+
+    def test_empty_catalog_and_contribution_are_rejected(self):
+        comp=dict(version=1,compute=dict(cs=self.digest,key=[0]*5,local=[1]*3))
+        doc=m.contribution_document([comp]);del doc['compute']
+        with self.assertRaises(ValueError):m.contribution_recipes(doc)
+        index=dict(version=1,sources={},shaders={self.digest:dict(self.entry,stage=5)})
+        catalog=m.export_catalog([comp],index);del catalog['compute'];catalog['inputs']={}
+        with self.assertRaises(ValueError):m.validate_catalog(catalog)
+
     def test_catalog_grows_from_itself_plus_a_journal(self):
         extra='%064x'%9
         index=dict(version=1,sources={},shaders={self.digest:self.entry,extra:dict(self.entry)})
