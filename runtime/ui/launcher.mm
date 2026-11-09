@@ -2049,7 +2049,7 @@ extern "C" void launcher_run(const char *root) {
                 legal_notice(s);
                 shader_catalog_badge(s);
                 if (ready) precompile_badge(s);
-                if (g_precompile_go) g_precompile_go = false, play = true;
+                if (g_precompile_go) g_precompile_go = false, saves_use_latest(), play = true;  // (as CONTINUE: the chosen save, else the most recent)
             } else if (page == SAVES) {
                 ImGui::PushFont(g_font_menu);
                 int pick = saves_screen_draw(ds.y / 1080.0f, g_font_menu, g_font_small);
@@ -2062,7 +2062,7 @@ extern "C" void launcher_run(const char *root) {
                 legal_notice(s);
                 shader_catalog_badge(s);
                 if (status.empty()) precompile_badge(s);
-                if (g_precompile_go) g_precompile_go = false, play = true;
+                if (g_precompile_go) g_precompile_go = false, saves_use_latest(), play = true;  // (as CONTINUE: the chosen save, else the most recent)
                 float sc = ds.y / 1080.0f, w = ds.x, h = ds.y - g_hdr_h;
                 ImVec2 wp = ImGui::GetWindowPos();
                 ImGui::SetCursorScreenPos(ImVec2(wp.x, wp.y + g_hdr_h));
