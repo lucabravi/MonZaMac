@@ -515,6 +515,13 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
     } else
 #endif
     rt_remove_game_file(game_dir, ".gamebuild");  // the C, the objects, the logs
+    // The cache was inside the build folder, which setup then moves: later runs of zig must not write there again (the
+    // folder they would make has no setup marker, and blocks the next setup).
+#ifdef _WIN32
+    _putenv_s("ZIG_GLOBAL_CACHE_DIR", ""); _putenv_s("ZIG_LOCAL_CACHE_DIR", "");
+#else
+    unsetenv("ZIG_GLOBAL_CACHE_DIR"); unsetenv("ZIG_LOCAL_CACHE_DIR");
+#endif
     LOG("[gamebuild] %s in %.0fs\n", ok ? "done" : "failed", (double)(plat_now_ns() - t0) / 1e9);
     if (ok && o->progress) o->progress(1, "Finishing...");
     return ok;

@@ -208,6 +208,8 @@ def main():
                 'objects': [(p.name, p.stat().st_size, p.stat().st_mtime_ns) for p in objects]}
     key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     out.mkdir(parents=True, exist_ok=True)
+    if args.cache:  # (zig's cache, with the versions: not in the home folder)
+        os.environ['ZIG_GLOBAL_CACHE_DIR'] = os.environ['ZIG_LOCAL_CACHE_DIR'] = str(out / '.zig-cache')
     final = out / (version + '-' + key[:16])
     with (out / '.prepare.lock').open('a') as lock:
         try:
