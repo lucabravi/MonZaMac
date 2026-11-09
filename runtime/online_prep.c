@@ -98,16 +98,25 @@ static void *reader(void *arg) {
     pthread_mutex_lock(&g_lock);
     pid_t pid = g_pid;
     pthread_mutex_unlock(&g_lock);
-    if (pid > 0) waitpid(pid, &wstatus, 0);
+    pid_t waited = -1;
+    if (pid > 0) {
+        do waited = waitpid(pid, &wstatus, 0); while (waited < 0 && errno == EINTR);
+    }
     pthread_mutex_lock(&g_lock);
     g_pid = 0;
     g_status.running = false;
+    bool failed = waited != pid || !WIFEXITED(wstatus) || WEXITSTATUS(wstatus) != 0;
+    bool reported_error = !strcmp(g_status.state, "error");
     bool finished = !strcmp(g_status.state, "ready") || !strcmp(g_status.state, "error") ||
                     !strcmp(g_status.state, "none") || !strcmp(g_status.state, "invalid");
-    if (!finished) {  // it ended without saying how
+    if (failed || !finished) {  // a result line cannot turn a failed process into a successful job
         snprintf(g_status.state, sizeof g_status.state, "error");
-        if (!g_status.message[0]) snprintf(g_status.message, sizeof g_status.message, "%s",
-                                           WIFSIGNALED(wstatus) ? "The job was stopped." : "The job ended without a result.");
+        if (!reported_error || !g_status.message[0]) {
+            if (waited != pid) snprintf(g_status.message, sizeof g_status.message, "Could not read the job exit status.");
+            else if (WIFSIGNALED(wstatus)) snprintf(g_status.message, sizeof g_status.message, "The job was stopped.");
+            else if (failed) snprintf(g_status.message, sizeof g_status.message, "The job failed (exit %d).", WEXITSTATUS(wstatus));
+            else snprintf(g_status.message, sizeof g_status.message, "The job ended without a result.");
+        }
     }
     pthread_mutex_unlock(&g_lock);
     return NULL;

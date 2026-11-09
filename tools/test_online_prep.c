@@ -41,6 +41,18 @@ int main(void) {
         "echo 'PROGRESS {\"state\": \"ready\", \"fraction\": 1.0, \"step\": \"Prepared\", \"dir\": \"/tmp/x y\"}'", &st);
     assert(!strcmp(st.state, "ready") && st.fraction == 1.0f && !strcmp(st.dir, "/tmp/x y"));
 
+    // A result line is provisional until the process exits successfully.
+    job("echo 'PROGRESS {\"state\": \"ready\", \"dir\": \"/tmp/incomplete\", \"message\": \"Ready\"}'; exit 7", &st);
+    assert(!strcmp(st.state, "error") && st.message[0] && strcmp(st.message, "Ready"));
+    job("echo 'STATUS {\"state\": \"ready\"}'; kill -9 $$", &st);
+    assert(!strcmp(st.state, "error") && strstr(st.message, "stopped"));
+    job("echo 'STATUS {\"state\": \"none\"}'; exit 2", &st);
+    assert(!strcmp(st.state, "error") && st.message[0]);
+    job("echo 'STATUS {\"state\": \"none\"}'", &st);
+    assert(!strcmp(st.state, "none"));
+    job("echo 'STATUS {\"state\": \"invalid\"}'", &st);
+    assert(!strcmp(st.state, "invalid"));
+
     // it reports an error itself
     job("echo 'PROGRESS {\"state\": \"error\", \"message\": \"no module\"}'; exit 1", &st);
     assert(!strcmp(st.state, "error") && !strcmp(st.message, "no module"));
