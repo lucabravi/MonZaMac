@@ -461,7 +461,13 @@ static bool prep_install(NSString **manifest, NSString **inputs) {
 static void prep_once(void) {
     if (g_prep_started || g_prep_active) return;
     g_prep_started = true;
-    if (precompile_requested()) precompile_run();
+    if (precompile_requested()) {
+        bool from_menu = g_settings.precompile_request;
+        precompile_run();
+        // the start screen only asked for the shaders: back to it (done, stopped or failed), the player chooses what to play
+        extern void rt_request_reboot(int kind);  // runtime/main.c (RT_REBOOT_TITLE = 2)
+        if (from_menu) { rt_request_reboot(2); return; }
+    }
     const char *path = getenv("LARECOMP_SHADER_PREP"), *dir = getenv("LARECOMP_SHADER_INPUTS");
     if (!prep_enabled()) return;
     NSString *manifest = path && *path ? @(path) : nil, *inputs = dir && *dir ? @(dir) : nil;
