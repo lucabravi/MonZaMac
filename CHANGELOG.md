@@ -32,7 +32,7 @@ A new start screen, and **Lumiose Online**: optional online play with the multip
 - New installs start with the **two-finger trackpad swipe turning the camera** (Controls > Mouse). An existing `larecomp.ini` keeps its own choice. The other graphics defaults are unchanged: fullscreen, fixed 1080p, 60 fps, SMAA, MetalFX spatial upscaling, smooth distant animation, sharper textures, frame generation off.
 
 ### Fixes
-- **The game code build takes about half the time** and less disk: `zig cc` was turning `-O1` into `-O2` with full debug info. It now compiles at `-O1`, like the builds the performance figures were measured with. In one comparison in the station the frame rate was about 2% lower than with the old flags (70.5 against 71.9 fps, a single pair of runs).
+- **The game code build takes about half the time** and less disk: `zig cc` was turning `-O1` into `-O2` with full debug info. It now compiles at `-O1`.
 - Pressing **Esc** a few times with a controller connected could stop the app (an ImGui assertion in the menu). The menu now cancels a layer toggle it cannot finish.
 - **Export and import of a save** now include the mod's folder (`sdcard`: Lumiose Online's settings and data) next to the save itself, so a backup or a move to another Mac keeps them; copying a save already did. A zip from before, or from JKSV, still imports as just the save.
 - The key **0** no longer does anything: it wrote a dump of the next frame into `build/` for every player. **F9** does it only with `LARECOMP_DEVTOOLS`.
