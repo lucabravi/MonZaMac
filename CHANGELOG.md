@@ -19,7 +19,7 @@ A new start screen, and **Lumiose Online**: optional online play with the multip
 - Every later press first checks for a newer module from the Lumiose Online team (a download checked against the SHA-256 they publish) and prepares it before starting. The server is the team's, `lumioseonline.site`; offline play never contacts it.
 - The mod's text starts at 120% so it is less grainy at 1080p; a size you set yourself is kept.
 - **Quit to start screen** from an online session restarts the program, so **Continue** there plays offline, without the mod.
-- The online edition keeps the game code build (about 1.3 GB more on disk) to prepare the mod quickly; **Delete game files** removes it.
+- The online edition keeps the game code build (about 2.4 GB more on disk) to prepare the mod quickly; **Delete game files** removes it.
 - **Microphone** for the mod's voice chat: the game can use the Mac's microphone, and macOS asks for the permission the first time. The voice itself has not been heard by another player yet.
 - Not verified yet: chat text entry and delivery, play against Windows or Linux players, and every optional feature of MonZaMac together with the mod.
 - A new build of the Lumiose Online module is prepared without a MonZaMac update: the app reads what it needs from the module itself. A build that works differently and does not start is not activated. An update the mod installs by itself in the game is prepared on the next **Play online**, even if the site has not got it yet.

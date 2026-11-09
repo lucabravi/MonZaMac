@@ -49,6 +49,14 @@ def active_module(root):
         return None
 
 
+def built_for_this_game(directory, game):
+    """False when an app update changed the game code since this version was prepared: the runtime refuses its library."""
+    try:
+        return (Path(directory) / 'lasgame.dylib.id').read_text().strip() == (Path(game) / 'lasgame.dylib.id').read_text().strip()
+    except OSError:
+        return True  # (the check of the prepared files, or the start itself, reports a missing one)
+
+
 def sha256_of(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -126,6 +134,8 @@ def main():
     downloads = args.modules or ROOT / 'build/lumiose-modules'
     module = args.module
     active = active_module(args.root)
+    if active and not built_for_this_game(active[0], args.game):
+        active = None  # (prepared again like a first time: the module is the same, its game library is not)
     from_mod = None if module else mod_download(args.downloaded, active, args.root, downloads)
     module = module or from_mod
     if not module:  # the newest live module: nothing to do when the active version was prepared from it

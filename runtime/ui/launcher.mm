@@ -1836,7 +1836,8 @@ extern "C" void launcher_run(const char *root) {
 #ifdef LUMIOSE_ONLINE
             if (g_ou_after_rebuild) {  // (built for Play online: go on with it)
                 g_ou_after_rebuild = false;
-                if (status.empty()) online_proceed();
+                if (status.empty() && online_cache_ok()) online_proceed();
+                else if (status.empty()) { g_ou = OU_ERROR; g_ou_note = "The game code build for online play could not be kept."; }  // (never build again in a loop)
             }
 #endif
         }

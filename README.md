@@ -66,7 +66,7 @@ Macs, fix bugs or make the documentation better. You do not have to be a develop
 
 MonZaMac uses **static recompilation**: the game's ARM64 code is translated ahead of time into C and compiled for
 macOS. Its runtime reimplements the Switch operating system services and NVN GPU interface on Metal. No emulator
-runs at play time. The supported game version is **v2.0.2**. The Mega Dimension DLC is optional: the start screen shows whether it was found. To add it from your own DLC `.nsp`, run `tools/extract_game.sh <base> <update> <dlc.nsp>` (the in-app setup has an optional DLC row too).
+runs at play time. The supported game version is **v2.0.2**. The Mega Dimension DLC is optional: the start screen shows whether it was found. Add it from your own DLC `.nsp` in the guided setup (optional **DLC** row) or later with **Add DLC...** on the start screen, with no rebuild.
 
 > **Bring your own game.** You need an original copy and game files/keys you are entitled to use. No Nintendo game
 > files, code, assets, shaders, keys or fonts are distributed with this project. The open-source license covers
@@ -91,7 +91,7 @@ with the Mac port: see [Credits](#credits-and-license).
 **How it works.**
 
 1. Install the online edition and set up your game files as usual. Online play needs the game at **version 2.0.2**
-   (the one MonZaMac supports) and about **1.3 GB** more disk space, which the app keeps to prepare the mod quickly.
+   (the one MonZaMac supports) and about **2.4 GB** more disk space, which the app keeps to prepare the mod quickly.
 2. Press **Play online**. The first time it tells you what is shared, asks for your consent, then prepares the mod
    **on your Mac**, from your own game files (a few minutes, with a progress bar), and starts the game with it.
 3. Every later press checks for a newer version of the mod, downloaded from Lumiose Online's site and checked against

@@ -42,7 +42,7 @@ Nothing uses the network unless a command is run on purpose: only `fetch.py`, an
 | `versions.py` | Reads the module's switch tables from its own code (their targets are entry points for the generator). There is no list of known builds |
 
 In the online app the start screen's game code build is kept (`.gamebuild` in the game folder: generated C, objects,
-link list, about 1.3 GB), and the tools read it with `--cache`, the bundled headers with `--include` and the bundled
+link list, about 2.4 GB), and the tools read it with `--cache`, the bundled headers with `--include` and the bundled
 compiler with `--cc "<zig> cc"`; downloads go through `/usr/bin/curl` when Python has no TLS (the bundled helper).
 
 A prepared version never becomes active unless its files match their manifest and it started; the state file is replaced
@@ -60,8 +60,7 @@ first, and when the check cannot be made the active version starts. In the app, 
 kept yet (made before the online edition) builds the game code first, then goes on. The relay is the Lumiose Online
 team's (`lumioseonline.site:27777`, the machine their own launcher uses; `activate.py set-server` points elsewhere): the name is looked
 up when the version is read and the runtime is given only the resulting IPv4 address. When the name cannot be found the column says
-so and nothing is started. For now the scripts are found next to a
-source checkout; an app that does not have them says "not available here".
+so and nothing is started. The online app runs these tools through its bundled helper (`lasgen online <tool>`); a build without them says "not available here". A version prepared before an app update that changed the game code is prepared again on the next press, since the runtime refuses its library.
 `LARECOMP_ONLINE_STATE_TEST=ready|needs|setup|error|noserver (server not found)|off` shows each state without running anything.
 
 ## What is verified, and what is not

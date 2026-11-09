@@ -265,6 +265,14 @@ bool rt_game_setup_end(bool publish, char *why, size_t why_size) {
             ok = !is_link(source) && !is_link(target) && stat(source, &st) == 0 && S_ISREG(st.st_mode) &&
                  (!exists(target) || (stat(target, &st) == 0 && S_ISREG(st.st_mode)));
         }
+        // The online edition's kept build (runtime/gamebuild.c) goes with the library it made; the stage is removed below.
+        char kept[1200];
+        snprintf(kept, sizeof kept, "%s/.gamebuild", g_setup_stage);
+        if (ok && exists(kept)) {
+            char target[1200];
+            snprintf(target, sizeof target, "%s/.gamebuild", g_setup_target);
+            ok = !is_link(target) && (!exists(target) || plat_remove_tree(target)) && rename(kept, target) == 0;
+        }
         // Publish the id last. A crash between the renames leaves a mismatched
         // library that the loader rejects, and setup can rebuild it on retry.
         for (int i = 0; i < 2 && ok; i++) {

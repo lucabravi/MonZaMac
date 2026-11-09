@@ -57,6 +57,16 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(reports[-1][0], 'error')
         self.assertIn('download', reports[-1][2]['message'])
 
+    def test_a_version_prepared_for_another_game_code_is_prepared_again(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            old, game = Path(tmp) / 'old', Path(tmp) / 'game'
+            old.mkdir(); game.mkdir()
+            (old / 'lasgame.dylib.id').write_text('aaaa\n')
+            (game / 'lasgame.dylib.id').write_text('bbbb\n')
+            self.assertFalse(so.built_for_this_game(old, game))
+            (game / 'lasgame.dylib.id').write_text('aaaa\n')
+            self.assertTrue(so.built_for_this_game(old, game))
+
     def module_file(self, tmp):
         path = Path(tmp) / 'subsdk9'
         path.write_bytes(fixture(compressed=True, hashes=True))

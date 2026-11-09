@@ -53,6 +53,13 @@ def write_json(path, value):
     tmp.replace(path)
 
 
+def kept_objects(build):
+    """The objects of the kept game code build. Its link list names them where they were built, a staging folder that
+    setup then moved: only the part inside .gamebuild still holds."""
+    return [build / p.split('/.gamebuild/', 1)[1] if '/.gamebuild/' in p else Path(p)
+            for p in shlex.split((build / 'link.rsp').read_text())]
+
+
 def valid_result(directory, key):
     try:
         m = json.loads((directory / 'ready.json').read_text())
@@ -174,7 +181,7 @@ def main():
         generation = (build / 'gamelib.id').read_text().strip()
         if (game / 'lasgame.dylib.id').read_text().strip() != generation:
             raise ValueError('The kept game code build does not match the game code in use; build the game code again')
-        objects = [Path(p) for p in shlex.split((build / 'link.rsp').read_text())]
+        objects = kept_objects(build)
         game_lib = game / 'lasgame.dylib'
         tools_digest = {'helper': digest(sys.executable) if FROZEN else digest(Path(__file__))}
         tools_digest.update({p.name: digest(p) for p in [identity_source, entry_source, *sorted(include.glob('*.h'))]})
