@@ -76,6 +76,20 @@ int main(void) {
     assert(saves_import_commit("Trainer 2", id));
     assert(same("saves/Trainer 2/save_0/main", "ZA save one"));
 
+    // the mod's folder (sdcard) goes in the export and comes back with the import, and a copy of the slot keeps it
+    mkdir("saves/Trainer/sdcard", 0755);
+    put("saves/Trainer/sdcard/lumiose_settings.txt", "text_size=120\n");
+    assert(saves_export("Trainer", "card.zip"));
+    assert(saves_import_stage("card.zip", err, sizeof err));
+    assert(there("saves/.import/sdcard/lumiose_settings.txt"));
+    assert(saves_import_commit("Trainer Card", id));
+    assert(same("saves/Trainer Card/save_0/main", "ZA save one") && same("saves/Trainer Card/sdcard/lumiose_settings.txt", "text_size=120\n"));
+    assert(!there("saves/.import"));
+    assert(saves_copy("Trainer", "Trainer Copy") && same("saves/Trainer Copy/sdcard/lumiose_settings.txt", "text_size=120\n"));
+    // a save without it exports and imports as before
+    assert(saves_import_stage("out.zip", err, sizeof err) && !there("saves/.import/sdcard"));
+    saves_import_cancel();
+
     // the name an import suggests: our export's file name gives the slot's name back; another file, the trainer's
     // name, play time and the file's name (the stub save: no trainer, 0:00)
     char nm[64];

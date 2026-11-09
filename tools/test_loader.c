@@ -10,6 +10,7 @@ void rt_fatal_msg(const char *fmt, ...) { (void)fmt; }
 void rt_fatal_trace(void) { exit(42); }
 uint64_t hle_register(const char *name, HostFn fn) { (void)name; (void)fn; return 0; }
 HostFn hle_lookup_impl(const char *name) { (void)name; return NULL; }
+void lumiose_set_rtld(const Module *rtld) { (void)rtld; }  // (the optional third module is not part of this test)
 
 int main(int argc, char **argv) {
     if (argc == 3 && !strcmp(argv[1], "load")) {

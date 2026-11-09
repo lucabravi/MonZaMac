@@ -36,6 +36,8 @@ typedef struct {
     float volume;        // master volume, 1 = 100%
     bool reverb;         // room reverb effect
     bool movie_audio;
+    char mic_device[256]; // the recording device by name ("" = the system default; runtime/services/audio_in.c)
+    float mic_gain;       // the microphone's volume, 1.0 = as captured
     bool show_fps;
     bool handheld;       // Pokémon Z-A: the game is told it runs handheld (720p, lighter settings), not docked (runtime/services/am.c)
     bool fps60;  // Pokémon Z-A: 60 fps with a dynamic world step down to 30 fps (runtime/hle/framepace.c)

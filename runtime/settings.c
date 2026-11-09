@@ -25,11 +25,12 @@ Settings g_settings = {
     .early_shaders = true,
     .aspect = ASPECT_ORIGINAL,
     // the defaults of a new player (an existing larecomp.ini keeps its own): fullscreen, fixed 1080p, 60 fps, SMAA,
-    // authentic 16:9, sharper textures (anisotropic filtering)
+    // authentic 16:9, sharper textures (anisotropic filtering), a two-finger trackpad swipe turns the camera
     .fullscreen = true,
     .mouse_speed = 1.0f,
     .mouse_camera = MOUSE_CAM_HOLD,
     .mouse_camera_button = MOUSE_BTN_RIGHT,
+    .trackpad_camera = true,  // (two fingers on the trackpad turn the camera: a Mac's usual way to look around)
     .res_mode = 1,  // (fixed at the game's own 1080p; Dynamic is one choice away in Video)
     .fps60 = true,
     .frame_generation = FRAME_GENERATION_OFF,
@@ -37,6 +38,7 @@ Settings g_settings = {
     .volume = 1.0f,
     .reverb = true,
     .movie_audio = true,
+    .mic_gain = 1.0f,
     .show_fps = false,
     .dof = true,
     .fxaa = true,
@@ -111,6 +113,8 @@ void settings_load(void) {
         else if (!strcmp(key, "volume")) g_settings.volume = (float)atof(val);
         else if (!strcmp(key, "reverb")) g_settings.reverb = atoi(val) != 0;
         else if (!strcmp(key, "movie_audio")) g_settings.movie_audio = atoi(val) != 0;
+        else if (!strcmp(key, "mic_device")) snprintf(g_settings.mic_device, sizeof g_settings.mic_device, "%s", val);
+        else if (!strcmp(key, "mic_gain")) { float g = (float)atof(val); g_settings.mic_gain = g >= 0 && g <= 4 ? g : 1.0f; }
         else if (!strcmp(key, "show_fps")) g_settings.show_fps = atoi(val) != 0;
         else if (!strcmp(key, "fps60")) g_settings.fps60 = atoi(val) != 0;
         else if (!strcmp(key, "frame_generation_performance")) g_settings.frame_generation_performance = atoi(val) != 0;
@@ -203,6 +207,7 @@ void settings_save(void) {
     fprintf(f, "volume = %.2f\n", g_settings.volume);
     fprintf(f, "reverb = %d\n", g_settings.reverb);
     fprintf(f, "movie_audio = %d\n", g_settings.movie_audio);
+    fprintf(f, "mic_device = %s\nmic_gain = %.2f\n", g_settings.mic_device, g_settings.mic_gain);
     fprintf(f, "show_fps = %d\n", g_settings.show_fps);
     fprintf(f, "fps60 = %d\n", g_settings.fps60);
     fprintf(f, "frame_generation = %d\nframe_generation_performance = %d\n", g_settings.frame_generation, g_settings.frame_generation_performance);

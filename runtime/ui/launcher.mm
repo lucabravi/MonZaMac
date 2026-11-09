@@ -12,6 +12,8 @@
 #include <SDL3/SDL.h>
 #include <ctype.h>
 #include <dirent.h>
+#include <ftw.h>
+#include <sys/stat.h>
 #include <pthread.h>
 #include <string>
 #include <sys/stat.h>
@@ -39,6 +41,10 @@ extern "C" {
 #include "platform.h"
 #include "paths.h"
 #include "gamebuild.h"
+#ifdef LUMIOSE_ONLINE
+#include "online_prep.h"
+#include "online_view.h"
+#endif
 #include "gameimport.h"
 #include "gamelib.h"
 #include "romfs_build.h"
@@ -89,7 +95,7 @@ static void save_png(id<MTLTexture> tex, const char *path) {
 static const uint8_t BUILD_ID[8] = {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a};  // Pokémon Legends: Z-A v2.0.2 main
 // The release tag this build is (also names the release files; Makefile / tools/bundle_macos.sh / make_dmg.sh read
 // it): v<major>.<minor>.<patch>, 0.x until 1.0.
-#define LARECOMP_VERSION "v0.1.7"
+#define LARECOMP_VERSION "v0.2.0"
 
 #include "menu.h"
 
@@ -204,7 +210,7 @@ static std::string check_game_files(const std::string &root) {
 // (runtime/romfs_build.c).
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static std::string g_src;           // the picked folder
-static std::string g_base, g_update, g_keys;
+static std::string g_base, g_update, g_keys, g_dlc;  // (g_dlc: optional Mega Dimension NSP)
 static int g_import_mode;           // 0: packages, 1: extracted folder
 static bool g_ownership;            // explicit confirmation for this setup; never persisted
 static std::string g_job;           // current setup step / result for the status line
@@ -223,6 +229,251 @@ static void set_job(const std::string &s, bool failed = false, const std::string
     g_job_hint = hint;
     pthread_mutex_unlock(&g_lock);
 }
+
+#ifdef LUMIOSE_ONLINE
+bool saves_use_latest(void);  // ui/saves_ui.mm (declared again below)
+
+// ---- PLAY ONLINE (tools/lumiose/, runtime/online_prep.c): one entry. The first time it prepares the online version (a
+// minute or more, with the bar), then it starts the game again with the module: the game library loads once per process,
+// so offline <-> online is a restart. For now a source checkout only: the scripts run with its Python (LUMIOSE_PYTHON, or
+// tools/venv); LUMIOSE_SOURCE names the checkout that owns the game's object cache when it is not the one holding the tools.
+enum OnlineStage { OU_START, OU_QUERY, OU_READY, OU_NEEDS, OU_SETUP, OU_ERROR, OU_OFF };
+static OnlineStage g_ou = OU_START;
+static OnlinePrepStatus g_ou_status;  // the last STATUS (ready: dir, version, endpoint)
+static std::string g_ou_note;         // why the last attempt stopped
+static bool g_ou_launch_after;        // the setup was started by a click: start the game when it is ready
+static std::string g_ou_tools, g_ou_python;
+
+// Where the online tools are: a source checkout's scripts with its Python (LUMIOSE_TOOLS, or a few folders up from the
+// program), else the app's bundled helper (Resources/lasgen: `lasgen online <tool>`) with its headers and compiler.
+static bool g_ou_app;                 // the app's helper (else a checkout)
+static std::string g_ou_include, g_ou_cc;  // (the app: Resources/gamelib-src, "<zig> cc")
+
+static bool online_find_tools() {
+    if (!g_ou_tools.empty()) return true;
+    const char *env = getenv("LUMIOSE_TOOLS");
+    std::string dir = env ? env : "";
+    if (dir.empty()) {
+        char exe[4096];
+        if (plat_exe_path(exe, sizeof exe)) {
+            dir = exe;
+            for (int i = 0; i < 6 && !dir.empty(); i++) {  // the checkout holding the build: a few folders up from the program
+                size_t slash = dir.rfind('/');
+                if (slash == std::string::npos || slash == 0) { dir.clear(); break; }
+                dir.resize(slash);
+                if (access((dir + "/tools/lumiose/setup_online.py").c_str(), F_OK) == 0) break;
+                if (i == 5) dir.clear();
+            }
+        }
+    }
+    const char *py = getenv("LUMIOSE_PYTHON");
+    std::string python = py ? py : dir + "/tools/venv/bin/python";
+    if (!dir.empty() && access((dir + "/tools/lumiose/setup_online.py").c_str(), F_OK) == 0 && access(python.c_str(), X_OK) == 0) {
+        g_ou_tools = dir; g_ou_python = python;
+        return true;
+    }
+    char helper[1100], zig[1100], inc[1100];
+    if (!rt_resource("lasgen/lasgen", NULL, helper, sizeof helper) || !rt_resource("zig/zig", NULL, zig, sizeof zig) ||
+        !rt_resource("gamelib-src/lumiose_cpu.h", NULL, inc, sizeof inc))
+        return false;
+    *strrchr(inc, '/') = 0;
+    g_ou_app = true;
+    g_ou_tools = std::string(rt_data_root()) + "/lumiose-online";  // (the app: prepared versions and downloads)
+    g_ou_python = helper;
+    g_ou_include = inc;
+    g_ou_cc = "'" + std::string(zig) + "' cc -Xclang -O1 -g0";  // (prepare.py splits it as a shell would: the path may hold spaces; the flags: gamebuild.c)
+    return true;
+}
+static std::string online_versions() { return g_ou_tools + (g_ou_app ? "/prepared" : "/build/lumiose-prepared"); }
+
+// argv of one tool (activate, setup_online), then its arguments; `keep` holds the strings
+static std::vector<const char *> online_tool(const char *tool, std::vector<std::string> &keep) {
+    if (g_ou_app) keep.insert(keep.begin(), {g_ou_python, "online", tool});
+    else keep.insert(keep.begin(), {g_ou_python, g_ou_tools + "/tools/lumiose/" + tool + ".py"});
+    std::vector<const char *> argv;
+    for (const std::string &k : keep) argv.push_back(k.c_str());
+    argv.push_back(NULL);
+    return argv;
+}
+
+static bool online_query() {
+    std::vector<std::string> keep = {"--root", online_versions(), "status"};
+    return online_prep_start(online_tool("activate", keep).data());
+}
+
+static void online_click();
+static bool online_setup() {
+    char exe[4096], game[4096];
+    if (!plat_exe_path(exe, sizeof exe) || !realpath(g_root.c_str(), game)) return false;
+    std::vector<std::string> keep = {"--runtime", exe, "--game", game, "--root", online_versions()};
+    if (g_ou_app) {  // the kept game code build (runtime/gamebuild.c), the bundled headers and compiler, downloads here
+        keep.insert(keep.end(), {"--cache", std::string(game) + "/.gamebuild", "--include", g_ou_include, "--cc", g_ou_cc,
+                                 "--modules", g_ou_tools + "/modules"});
+        mkdir(g_ou_tools.c_str(), 0755);
+    } else {
+        const char *src = getenv("LUMIOSE_SOURCE");
+        keep.insert(keep.end(), {"--source", src ? src : g_ou_tools});
+    }
+    saves_use_latest();  // (the save the game is about to use: the mod puts its own update in that save's SD card folder)
+    char slot[4096];
+    if (realpath(saves_current_path(), slot))
+        keep.insert(keep.end(), {"--downloaded", std::string(slot) + "/sdcard/atmosphere/contents/0100F43008C44000/exefs/subsdk9"});
+    return online_prep_start(online_tool("setup_online", keep).data());
+}
+
+// Said once, before the first online start (online_consent_popup, drawn with the legal notice): what goes where. The answer
+// is kept in a marker file of the data folder.
+static bool g_ou_consent_open;  // the question is to be shown
+static std::string online_marker() { return std::string(rt_data_root()) + "/lumiose-online-consent"; }
+static bool online_consent_given() { return access(online_marker().c_str(), F_OK) == 0; }
+
+// Start the game again with the active online version (this process only returns if that fails)
+static void online_launch() {
+    if (g_ou_status.endpoint[0] == 0) {
+        g_ou_note = "Could not find the Lumiose Online server. Check your connection.";
+        return;
+    }
+    char exe[4096];
+    if (!plat_exe_path(exe, sizeof exe)) { g_ou_note = "Could not find the program to restart."; return; }
+    std::string dir = g_ou_status.dir;
+    setenv("LUMIOSE_TEST_MODULE", (dir + "/subsdk9").c_str(), 1);
+    setenv("LUMIOSE_TEST_LIBRARY", (dir + "/lumiose.dylib").c_str(), 1);
+    setenv("LARECOMP_GAME_LIB", (dir + "/lasgame.dylib").c_str(), 1);
+    setenv("LUMIOSE_TEST_NETWORK", "1", 1);
+    setenv("LUMIOSE_TEST_SERVER", g_ou_status.endpoint, 1);
+    saves_use_latest();  // the chosen save, else the most recent (as CONTINUE)
+    settings_save();
+    setenv("LARECOMP_PLAY_SAVE", g_settings.save_slot, 1);  // (--play would take the most recent one)
+    char *argv[] = {exe, (char *)g_root.c_str(), (char *)"--play", NULL};  // (the same game folder as this run)
+    plat_exec(argv);
+    g_ou_note = "Could not restart the game for online play.";
+}
+
+// Once per frame on the home page: moves the state on and fills what the column shows. `files`: "" when the game files are
+// there and are the right version, else why not (the launcher's check: it needs the exact 2.0.2 build).
+static void online_view(const std::string &files, bool busy, OnlineView *v) {
+    static char headline[64], line[160], build[48], button[48];
+    *v = {headline, line, build, false, false, false, button, false, -1.0f};
+    snprintf(button, sizeof button, "Play online");
+    snprintf(build, sizeof build, "Not prepared yet");
+    snprintf(line, sizeof line, "Lumiose Online (separate service)");
+    if (const char *test = getenv("LARECOMP_ONLINE_STATE_TEST")) {  // (UI check: ready, needs, setup, error, noserver (not found), off)
+        snprintf(headline, sizeof headline, "Set up on first play");
+        if (!strcmp(test, "ready")) { snprintf(headline, sizeof headline, "Service ready"); snprintf(build, sizeof build, "Ready \xc2\xb7 1.4.3"); v->good = v->build_good = v->on = true; }
+        else if (!strcmp(test, "setup")) { snprintf(headline, sizeof headline, "Preparing the online version"); snprintf(line, sizeof line, "Compiling the module"); snprintf(button, sizeof button, "Preparing  42%%"); v->progress = 0.42f; }
+        else if (!strcmp(test, "error")) { snprintf(headline, sizeof headline, "Could not prepare"); snprintf(line, sizeof line, "Unsupported Lumiose build."); snprintf(button, sizeof button, "Try again"); v->bad = v->on = true; }
+        else if (!strcmp(test, "noserver")) { snprintf(headline, sizeof headline, "Server not found"); snprintf(line, sizeof line, "Check your connection and try again."); snprintf(build, sizeof build, "Ready \xc2\xb7 1.4.3"); v->build_good = v->bad = true; }
+        else if (!strcmp(test, "off")) { snprintf(headline, sizeof headline, "Not available here"); snprintf(line, sizeof line, "This build has no online setup."); v->bad = true; }
+        else v->on = true;
+        return;
+    }
+    if (!files.empty() || busy) {
+        bool version = files.rfind("Wrong game version", 0) == 0;
+        snprintf(headline, sizeof headline, version ? "Needs game version 2.0.2" : "Game files needed");
+        snprintf(line, sizeof line, version ? "Your game files are another version." : "Set up the game files first.");
+        v->bad = version;
+        return;
+    }
+    if (g_ou == OU_START) {
+        if (!online_find_tools()) g_ou = OU_OFF;
+        else g_ou = online_query() ? OU_QUERY : OU_NEEDS;
+    }
+    OnlinePrepStatus st;
+    online_prep_get(&st);
+    if (g_ou == OU_QUERY && !st.running) {
+        bool ok = !strcmp(st.state, "ready");
+        g_ou_status = st;
+        g_ou = ok ? OU_READY : OU_NEEDS;
+        if (ok && g_ou_launch_after) { g_ou_launch_after = false; online_launch(); }  // (the consent came with the click)
+    }
+    if (g_ou == OU_SETUP && !st.running) {
+        if (!strcmp(st.state, "ready")) { g_ou = OU_START; g_ou_launch_after = true; g_ou_note.clear(); }  // (read the status again)
+        else { g_ou = OU_ERROR; g_ou_note = st.message[0] ? st.message : "The online version could not be prepared."; g_ou_launch_after = false; }
+    }
+    if (getenv("LARECOMP_ONLINE_AUTOPLAY") && (g_ou == OU_READY || g_ou == OU_NEEDS)) {  // (test: Play online pressed, once)
+        static bool pressed;
+        if (!pressed) { pressed = true; online_click(); }
+    }
+    switch (g_ou) {
+    case OU_OFF:
+        snprintf(headline, sizeof headline, "Not available here");
+        snprintf(line, sizeof line, "This build has no online setup.");
+        v->bad = true;
+        break;
+    case OU_START: case OU_QUERY:
+        snprintf(headline, sizeof headline, "Checking...");
+        break;
+    case OU_READY:
+        snprintf(build, sizeof build, "Ready \xc2\xb7 %s", g_ou_status.version);
+        v->build_good = true;
+        if (!g_ou_status.endpoint[0]) {
+            snprintf(headline, sizeof headline, "Server not found");  // (the name did not resolve: no network, most likely)
+            snprintf(line, sizeof line, "Check your connection and try again.");
+            v->bad = true;
+        } else {
+            snprintf(headline, sizeof headline, g_ou_note.empty() ? "Service ready" : "Could not start");
+            if (!g_ou_note.empty()) snprintf(line, sizeof line, "%s", g_ou_note.c_str()), v->bad = true;
+            else v->good = true;
+            v->on = true;
+        }
+        break;
+    case OU_NEEDS:
+        snprintf(headline, sizeof headline, "Set up on first play");
+        snprintf(line, sizeof line, "Prepared once on this Mac; it takes a few minutes.");
+        v->on = true;
+        break;
+    case OU_SETUP:
+        snprintf(headline, sizeof headline, "%s", !strcmp(st.step, "Checking for updates") ? "Checking for updates" :
+                                                  "Preparing the online version");
+        snprintf(line, sizeof line, "%s", st.step[0] ? st.step : "Starting...");
+        snprintf(button, sizeof button, "Preparing  %d%%", (int)(st.fraction * 100));
+        v->progress = st.fraction;
+        break;
+    case OU_ERROR:
+        snprintf(headline, sizeof headline, "Could not prepare");
+        snprintf(line, sizeof line, "%s", g_ou_note.c_str());
+        snprintf(button, sizeof button, "Try again");
+        v->bad = v->on = true;
+        break;
+    }
+}
+
+// What a press does once the player has agreed: start online with the prepared version, or prepare it first
+// The app prepares from the game code build kept by the start screen (runtime/gamebuild.c): there and of the library in use
+static bool g_ou_rebuild_request, g_ou_after_rebuild;  // build the game code first (an install made before it was kept)
+static bool online_cache_ok() {
+    if (!g_ou_app) return true;
+    auto first_line = [](const std::string &path) {
+        std::string v;
+        if (FILE *f = fopen(path.c_str(), "rb")) {
+            char b[128] = "";
+            if (fgets(b, sizeof b, f)) v = b;
+            fclose(f);
+        }
+        while (!v.empty() && (v.back() == '\n' || v.back() == '\r')) v.pop_back();
+        return v;
+    };
+    std::string kept = first_line(g_root + "/.gamebuild/gamelib.id");
+    return !kept.empty() && kept == first_line(g_root + "/" GAMELIB_NAME ".id");
+}
+
+// After the consent: always through setup_online.py, which starts at once when the active version is of the newest
+// module and otherwise downloads and prepares it; then the game starts online
+static void online_proceed() {
+    if (!online_cache_ok()) { g_ou_rebuild_request = g_ou_after_rebuild = true; return; }
+    g_ou_launch_after = true;
+    g_ou = online_setup() ? OU_SETUP : OU_ERROR;
+    if (g_ou == OU_ERROR) { g_ou_note = "Could not start the online setup."; g_ou_launch_after = false; }
+}
+
+static void online_click() {
+    if (getenv("LARECOMP_ONLINE_STATE_TEST")) return;
+    if (g_ou != OU_READY && g_ou != OU_NEEDS && g_ou != OU_ERROR) return;
+    g_ou_note.clear();
+    if (online_consent_given()) online_proceed();
+    else g_ou_consent_open = true;
+}
+#endif
 
 // SDL gives drop coordinates in window space; ImGui rows use that same logical coordinate space.
 static bool take_drop_on_item(std::string &path) {
@@ -342,12 +593,15 @@ static bool build_game_code(const std::string &root) {
     return ok;
 }
 
+static int rm_entry(const char *path, const struct stat *, int, struct FTW *) { return remove(path); }
+static void romfs_remove_tree(const char *dir) { nftw(dir, rm_entry, 16, FTW_DEPTH | FTW_PHYS); }
+
 static void *extract_thread(void *) {
-    std::string src, base, update, keys, exefs, romfs, destination;
+    std::string src, base, update, keys, dlc, exefs, romfs, destination;
     bool packages, confirmed, staged = false, unusable = false;
     char stage[1100] = "", why[256] = "";
     pthread_mutex_lock(&g_lock);
-    src = g_src; base = g_base; update = g_update; keys = g_keys;
+    src = g_src; base = g_base; update = g_update; keys = g_keys; dlc = g_dlc;
     packages = g_import_mode == 0; confirmed = g_ownership;
     g_bad_input.clear();
     pthread_mutex_unlock(&g_lock);
@@ -378,7 +632,7 @@ static void *extract_thread(void *) {
     staged = true; destination = stage;
     if (packages) {
         char bad_field[16] = "";
-        if (!gameimport_run(base.c_str(), update.c_str(), keys.c_str(), stage, BUILD_ID,
+        if (!gameimport_run(base.c_str(), update.c_str(), keys.c_str(), dlc.c_str(), stage, BUILD_ID,
                             import_progress, bad_field, sizeof bad_field, why, sizeof why)) {
             pthread_mutex_lock(&g_lock);
             g_bad_input = bad_field;
@@ -386,6 +640,17 @@ static void *extract_thread(void *) {
             set_job("Game-file preparation didn't finish", true, why); goto done;
         }
         exefs = destination + "/exefs"; romfs = destination + "/romfs";
+        // Optional DLC: each extracted add-on folder becomes aoc/<title id>.bin (what aoc:u lists)
+        std::string tree = destination + "/aoc-tree";
+        if (DIR *d = opendir(tree.c_str())) {
+            mkdir((destination + "/aoc").c_str(), 0755);
+            while (struct dirent *e = readdir(d))
+                if (e->d_name[0] != '.')
+                    romfs_build((tree + "/" + e->d_name).c_str(), (destination + "/aoc/" + e->d_name + ".bin").c_str(),
+                                NULL, why, sizeof why);
+            closedir(d);
+            romfs_remove_tree(tree.c_str());
+        }
     } else {
         set_job("Looking for the game files...");
         find_game(src, 0, exefs, romfs, unusable);
@@ -455,13 +720,110 @@ static void SDLCALL picked_package(void *which, const char *const *files, int) {
     if (!files || !files[0]) return;
     pthread_mutex_lock(&g_lock);
     int i = (int)(intptr_t)which;
-    (i == 0 ? g_base : i == 1 ? g_update : g_keys) = files[0];
+    (i == 0 ? g_base : i == 1 ? g_update : i == 2 ? g_keys : g_dlc) = files[0];
     g_ownership = false;
-    const char *field = i == 0 ? "base" : i == 1 ? "update" : "keys";
+    const char *field = i == 0 ? "base" : i == 1 ? "update" : i == 2 ? "keys" : "dlc";
     if (g_bad_input.empty() || g_bad_input == field) {
         g_bad_input.clear(); g_job.clear(); g_job_hint.clear(); g_job_failed = false;
     }
     pthread_mutex_unlock(&g_lock);
+}
+
+// Adding the DLC to an installed game: pick the .nsp, then prod.keys; only aoc/<id>.bin is written (no rebuild)
+static ImFont *g_font_title, *g_font_menu, *g_font_small;
+static std::string g_dlc_pick, g_dlc_keys, g_dlc_msg;
+static std::atomic<bool> g_dlc_busy{false};
+static bool g_dlc_open;  // (the UI thread's: show dlc_popup)
+static void *dlc_add_thread(void *arg) {
+    std::string keys = *(std::string *)arg; delete (std::string *)arg;
+    std::string dlc, work = g_root + "/.dlc-work", msg = "DLC added.";
+    pthread_mutex_lock(&g_lock); dlc = g_dlc_pick; pthread_mutex_unlock(&g_lock);
+    char why[256] = "";
+    mkdir(work.c_str(), 0755);
+    bool ok = gameimport_dlc(dlc.c_str(), keys.c_str(), work.c_str(), why, sizeof why);
+    if (ok) {
+        mkdir((g_root + "/aoc").c_str(), 0755);
+        int n = 0;
+        if (DIR *d = opendir((work + "/aoc-tree").c_str())) {
+            while (struct dirent *e = readdir(d))
+                if (e->d_name[0] != '.' && romfs_build((work + "/aoc-tree/" + e->d_name).c_str(),
+                                                       (g_root + "/aoc/" + e->d_name + ".bin").c_str(), NULL, why, sizeof why)) n++;
+            closedir(d);
+        }
+        if (!n) ok = false, snprintf(why, sizeof why, "Couldn't write the DLC file.");
+    }
+    romfs_remove_tree(work.c_str());
+    if (!ok) msg = why;
+    pthread_mutex_lock(&g_lock); g_dlc_msg = msg; pthread_mutex_unlock(&g_lock);
+    g_dlc_busy = false;
+    return NULL;
+}
+static void SDLCALL dlc_file_picked(void *which, const char *const *files, int) {
+    if (!files || !files[0]) return;
+    pthread_mutex_lock(&g_lock);
+    (which ? g_dlc_keys : g_dlc_pick) = files[0];
+    pthread_mutex_unlock(&g_lock);
+}
+
+// What Add DLC needs, said before any file dialog opens (macOS dialogs look alike and do not say what they ask for)
+static void dlc_popup(float s, SDL_Window *win) {
+    ImVec2 ds = ImGui::GetIO().DisplaySize;
+    if (g_dlc_open) { ImGui::OpenPopup("##add_dlc"); g_dlc_open = false; }
+    ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(fminf(ds.x * 0.92f, 600 * s), fminf(ds.y * 0.9f, 340 * s)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(28 * s, 24 * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 16 * s);
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.04f, 0.07f, 0.14f, 1));
+    bool open = ImGui::BeginPopupModal("##add_dlc", NULL, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+    if (!open) return;
+    pthread_mutex_lock(&g_lock);
+    std::string dlc = g_dlc_pick, keys = g_dlc_keys;
+    pthread_mutex_unlock(&g_lock);
+    ImGui::PushFont(g_font_small);
+    ImGui::SetWindowFontScale(1.35f);
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), "Add the Mega Dimension DLC");
+    ImGui::SetWindowFontScale(1.1f);
+    ImGui::Dummy(ImVec2(0, 12 * s));
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextWrapped("Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.");
+    ImGui::PopTextWrapPos();
+    ImGui::Dummy(ImVec2(0, 12 * s));
+    static const SDL_DialogFileFilter nf[] = {{"DLC package", "nsp"}, {"All files", "*"}};
+    static const SDL_DialogFileFilter kf[] = {{"Switch keys", "keys"}};
+    struct { const char *label; const std::string &value; } rows[] = {{"1. DLC package (.nsp)", dlc}, {"2. Your prod.keys", keys}};
+    for (int i = 0; i < 2; i++) {
+        ImGui::PushID(i);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(rows[i].label);
+        ImGui::SameLine(250 * s);
+        if (ImGui::Button("Choose...", ImVec2(120 * s, 34 * s)))
+            SDL_ShowOpenFileDialog(dlc_file_picked, i ? (void *)1 : NULL, win, i ? kf : nf, i ? 1 : 2, NULL, false);
+        ImGui::SameLine();
+        const char *name = strrchr(rows[i].value.c_str(), '/');
+        if (rows[i].value.empty()) ImGui::TextDisabled("Not chosen");
+        else ImGui::TextColored(ImVec4(0.45f, 0.95f, 0.55f, 1), "%s", name ? name + 1 : rows[i].value.c_str());
+        ImGui::PopID();
+        ImGui::Dummy(ImVec2(0, 6 * s));
+    }
+    float bw = 170 * s, gap = 16 * s;
+    ImGui::SetCursorPos(ImVec2((ImGui::GetWindowWidth() - 2 * bw - gap) * 0.5f, ImGui::GetWindowHeight() - 62 * s));
+    bool back = ImGui::Button("Cancel", ImVec2(bw, 38 * s)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+    ImGui::SameLine(0, gap);
+    bool ready = !dlc.empty() && !keys.empty();
+    ImGui::BeginDisabled(!ready);
+    bool go = ImGui::Button("Add DLC", ImVec2(bw, 38 * s));
+    ImGui::EndDisabled();
+    ImGui::PopFont();
+    if (back || go) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    if (go) {
+        g_dlc_busy = true;
+        pthread_t th;
+        pthread_create(&th, NULL, dlc_add_thread, new std::string(keys));
+        pthread_detach(th);
+    }
 }
 
 // ------------------------------------------------------------------ the user's own Nintendo fonts (not shipped)
@@ -534,15 +896,19 @@ static int g_bg_w, g_bg_h;
 
 // The app's logo (the icon), for the start screen's header. Apple only; without it the header is just the name.
 #ifdef __APPLE__
-static id<MTLTexture> g_logo;
+static id<MTLTexture> g_logo, g_banner;
+static size_t g_banner_h;
 #define LOGO_TEXID ((ImTextureID)(__bridge void *)g_logo)
-static void load_logo(id<MTLDevice> dev) {
+#define BANNER_TEXID ((ImTextureID)(__bridge void *)g_banner)
+// An image file of the app's resources (or the repo, when run from it) as a texture `w` pixels wide (height by its aspect).
+static id<MTLTexture> load_tex(id<MTLDevice> dev, const char *name, const char *dev_rel, size_t w, size_t *out_h) {
     char p[1024];
-    if (g_logo || !rt_resource("icon.png", "docs/icon/icon_1024.png", p, sizeof p)) return;
+    if (!rt_resource(name, dev_rel, p, sizeof p)) return nil;
+    id<MTLTexture> tex = nil;
     CGImageSourceRef src = CGImageSourceCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:@(p)], NULL);
     CGImageRef img = src ? CGImageSourceCreateImageAtIndex(src, 0, NULL) : NULL;
     if (img) {
-        size_t w = 256, h = 256;  // (the 1024 px icon, scaled down once)
+        size_t h = out_h ? (size_t)((double)w * CGImageGetHeight(img) / CGImageGetWidth(img)) : w;
         std::vector<uint8_t> px(w * h * 4);
         CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
         CGContextRef cg = CGBitmapContextCreate(px.data(), w, h, 8, w * 4, cs, kCGImageAlphaPremultipliedLast);
@@ -552,14 +918,24 @@ static void load_logo(id<MTLDevice> dev) {
         CGColorSpaceRelease(cs);
         MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
                                                                                       width:w height:h mipmapped:NO];
-        g_logo = [dev newTextureWithDescriptor:td];
-        [g_logo replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0 withBytes:px.data() bytesPerRow:w * 4];
+        tex = [dev newTextureWithDescriptor:td];
+        [tex replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0 withBytes:px.data() bytesPerRow:w * 4];
+        if (out_h) *out_h = h;
     }
     if (img) CGImageRelease(img);
     if (src) CFRelease(src);
+    return tex;
+}
+static void load_logo(id<MTLDevice> dev) {
+    if (!g_logo) g_logo = load_tex(dev, "icon.png", "docs/icon/icon_1024.png", 256, NULL);  // (the 1024 px icon, scaled down once)
+#ifdef LUMIOSE_ONLINE
+    if (!g_banner) g_banner = load_tex(dev, "lumiose_banner.jpg", "docs/icon/lumiose_banner.jpg", 1400, &g_banner_h);
+#endif
 }
 #else
 #define LOGO_TEXID ((ImTextureID)0)
+#define BANNER_TEXID ((ImTextureID)0)
+static size_t g_banner_h;
 #endif
 
 static void load_background(GpuDevice dev) {
@@ -612,7 +988,6 @@ static void load_background(GpuDevice dev) {
 }
 
 // ------------------------------------------------------------------ screen
-static ImFont *g_font_title, *g_font_menu, *g_font_small;
 enum Page { MAIN, SETTINGS, SETUP, SAVES };  // SETTINGS: the in-game menu's tabs (runtime/ui/menu.mm)
 static int g_refocus = MAIN;  // back on the main page: select the item of the page we came from (controllers)
 
@@ -623,13 +998,14 @@ void menu_tabs_focus(bool first_tab);
 extern int g_tab_request_ext;
 extern "C" void menu_apply_window_requests(void *sdl_window);
 extern "C" { int g_start_screen; int g_saves_first; }  // the start screen is up (no game loaded); open on the save picker
-static bool g_play_pending;
 static bool g_play_focused;  // PLAY has the controller's selection (false: put it there again)
 static Uint64 g_fs_entered;  // SDL_GetTicks() when the window finished entering fullscreen
 void saves_screen_open(void);  // ui/saves_ui.mm
 int saves_screen_draw(float scale, ImFont *body, ImFont *small_);
-void saves_home_footer(float *x, float *y, float *w, float *u);  // where the lines under the panel go
-int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready, bool show_setup, bool focus_first);
+int saves_home_draw(ImFont *small_, bool ready, bool show_setup, bool focus_first, bool local_chip, float rx, float ry, float rw, float rh);
+#ifdef LUMIOSE_ONLINE
+int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const OnlineView &v, float rx, float ry, float rw, float rh);
+#endif
 void saves_new_game_begin(void);
 bool saves_use_latest(void);
 void saves_name_glyphs(ImFontGlyphRangesBuilder *b);  // runtime/ui/saves_ui.mm
@@ -665,7 +1041,71 @@ static float g_menu_gap = 0.35f;  // space under each item, in line heights
 static bool g_legal_test;  // LARECOMP_LAUNCHER_SHOT=<frame>:legal
 static bool g_precompile_test;  // LARECOMP_LAUNCHER_SHOT=<frame>:precompile
 static bool g_precompile_go;  // "Compile" was chosen: start the game, which precompiles every shader first
-static float g_catalog_badge_bottom = 64;  // (the next badge goes below the catalog's)
+
+// ---- the home page's frame (user 2026-11-08, a landscape layout): a header across the top (logo, name, Settings, Quit and
+// the legal notice), the column(s) in the middle, and a bar along the bottom (game files state, the shader chips, the
+// version). Metrics in pixels, set each frame by home_chrome and read by the chips below.
+static float g_hdr_h, g_bar_y, g_bar_h, g_legal_right;  // (g_legal_right: the running left edge of the header chips)
+
+// Draws the header and the bottom bar; returns 4 when Settings was chosen, 6 for Quit, else 0
+static int home_chrome(float s, ImVec2 ds) {
+    g_hdr_h = 84 * s;
+    g_bar_h = 80 * s;
+    g_bar_y = ds.y - g_bar_h;
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    const ImU32 glass = IM_COL32(4, 10, 26, 215), edge = IM_COL32(76, 100, 137, 180);
+    dl->AddRectFilled(ImVec2(0, 0), ImVec2(ds.x, g_hdr_h), glass);
+    dl->AddRectFilledMultiColor(ImVec2(0, g_hdr_h - 1.5f * s), ImVec2(ds.x * 0.5f, g_hdr_h), IM_COL32(72, 214, 255, 0), IM_COL32(72, 214, 255, 170),
+                                IM_COL32(72, 214, 255, 170), IM_COL32(72, 214, 255, 0));
+    dl->AddRectFilledMultiColor(ImVec2(ds.x * 0.5f, g_hdr_h - 1.5f * s), ImVec2(ds.x, g_hdr_h), IM_COL32(72, 214, 255, 170), IM_COL32(72, 214, 255, 0),
+                                IM_COL32(72, 214, 255, 0), IM_COL32(72, 214, 255, 170));
+    dl->AddRectFilled(ImVec2(0, g_bar_y), ImVec2(ds.x, ds.y), glass);
+    dl->AddLine(ImVec2(0, g_bar_y), ImVec2(ds.x, g_bar_y), edge, 1.0f * s);
+
+    float ls = 56 * s, x = 40 * s, y = (g_hdr_h - ls) * 0.5f;
+    dl->AddImage(LOGO_TEXID, ImVec2(x, y), ImVec2(x + ls, y + ls));
+    float ts = 34 * s;
+    ImVec2 tp(x + ls + 16 * s, y - 2 * s);
+    for (float d : {3.0f, 1.5f}) dl->AddText(g_font_title, ts, ImVec2(tp.x + d, tp.y + d), IM_COL32(0, 4, 20, 140), "MonZaMac");
+    dl->AddText(g_font_title, ts, tp, IM_COL32(238, 244, 255, 255), "MonZaMac");
+    dl->AddText(g_font_small, 15 * s, ImVec2(tp.x + 2 * s, tp.y + ts + 2 * s), IM_COL32(166, 185, 207, 255), "Pok\xc3\xa9mon Legends: Z-A \xc2\xb7 Apple Silicon");
+
+    int act = 0;
+    ImVec2 saved = ImGui::GetCursorScreenPos();
+    float bh = 40 * s, by = (g_hdr_h - bh) * 0.5f, right = ds.x - 40 * s;
+    auto button = [&](const char *label, const char *id, bool gear) {
+        float w = g_font_small->CalcTextSizeA(24 * s, FLT_MAX, 0, label).x + 24 * s * 2 + 32 * s;
+        ImVec2 p(right - w, by), q(p.x + w, p.y + bh);
+        ImGui::SetCursorScreenPos(p);
+        bool clicked = ImGui::InvisibleButton(id, ImVec2(w, bh), ImGuiButtonFlags_EnableNav);
+        bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
+        dl->AddRectFilled(p, q, hot ? IM_COL32(25, 49, 78, 245) : IM_COL32(8, 18, 35, 225), 9 * s);
+        dl->AddRect(p, q, hot ? IM_COL32(72, 214, 255, 230) : edge, 9 * s);
+        ImVec2 t = g_font_small->CalcTextSizeA(24 * s, FLT_MAX, 0, label);
+        const ImU32 ink = IM_COL32(238, 244, 255, 255);
+        float tx = p.x + 24 * s + 32 * s;
+        dl->AddText(g_font_small, 24 * s, ImVec2(tx, p.y + (bh - t.y) * 0.5f), ink, label);
+        ImVec2 ic(p.x + 24 * s + 10 * s, p.y + bh * 0.5f);  // the icon: a gear, or the power symbol
+        if (gear) {
+            dl->AddCircle(ic, 6 * s, ink, 16, 2.2f * s);
+            for (int k = 0; k < 8; k++) {
+                float a = k * 0.7854f;
+                dl->AddLine(ImVec2(ic.x + cosf(a) * 8 * s, ic.y + sinf(a) * 8 * s), ImVec2(ic.x + cosf(a) * 11 * s, ic.y + sinf(a) * 11 * s), ink, 3.2f * s);
+            }
+        } else {
+            dl->PathArcTo(ic, 9 * s, -1.2f, 4.34f, 18);
+            dl->PathStroke(ink, 0, 2.2f * s);
+            dl->AddLine(ImVec2(ic.x, ic.y - 11 * s), ImVec2(ic.x, ic.y - 1 * s), ink, 2.2f * s);
+        }
+        right = p.x - 12 * s;
+        return clicked;
+    };
+    if (button("Quit", "##hdr-quit", false)) act = 6;
+    if (button("Settings", "##hdr-settings", true)) act = 4;
+    g_legal_right = right;
+    ImGui::SetCursorScreenPos(saved);
+    return act;
+}
 static void shader_catalog_badge(float s) {
 #ifdef __APPLE__
     static bool checked;
@@ -681,7 +1121,6 @@ static void shader_catalog_badge(float s) {
     }
     // Nothing to show until the project has published a catalog (and it could be checked): no badge, and the one below moves up.
     if (state != CATALOG_CURRENT && state != CATALOG_AVAILABLE && state != CATALOG_UPDATING && state != CATALOG_UPDATE_ERROR) {
-        g_catalog_badge_bottom = 54;
         return;
     }
     const char *status = "Not checked";
@@ -697,27 +1136,33 @@ static void shader_catalog_badge(float s) {
     bool action = state == CATALOG_AVAILABLE || state == CATALOG_UPDATE_ERROR || state == CATALOG_UNKNOWN || state == CATALOG_ERROR;
     ImVec2 ds = ImGui::GetIO().DisplaySize, saved = ImGui::GetCursorScreenPos();
     ImFont *font = g_font_small;
-    float w = font->CalcTextSizeA(18 * s, FLT_MAX, 0, "Legal notice").x + 96 * s;
-    ImVec2 p(ds.x - w - 18 * s, 64 * s), q(p.x + w, p.y + (action ? 112 : 70) * s);
-    g_catalog_badge_bottom = q.y / s;
+    // a header chip like the legal notice's: a status dot and the name; when there is something to do (update, check again)
+    // the whole chip is the button
+    float fs = 24 * s, h = 40 * s;
+    float w = font->CalcTextSizeA(fs, FLT_MAX, 0, "Shader catalog").x + 24 * s * 2 + 32 * s;
+    ImVec2 p(g_legal_right - w, (g_hdr_h - h) * 0.5f), q(p.x + w, p.y + h);
+    g_legal_right = p.x - 12 * s;
     ImDrawList *dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(p, q, IM_COL32(8, 18, 35, 225), 9 * s);
-    dl->AddRect(p, q, IM_COL32(76, 100, 137, 180), 9 * s);
-    dl->AddText(font, 18 * s, ImVec2(p.x + 10 * s, p.y + 9 * s), IM_COL32(238, 244, 255, 255), "Shader catalog");
+    bool click = false, hot = false;
+    ImGui::SetCursorScreenPos(p);
+    if (action) {
+        click = ImGui::InvisibleButton("##catalog-quick-action", ImVec2(w, h), ImGuiButtonFlags_EnableNav);
+        hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
+    } else {
+        ImGui::InvisibleButton("##catalog-status", ImVec2(w, h));
+        hot = ImGui::IsItemHovered();
+    }
+    dl->AddRectFilled(p, q, hot ? IM_COL32(25, 49, 78, 245) : IM_COL32(8, 18, 35, 225), 9 * s);
+    dl->AddRect(p, q, hot ? IM_COL32(72, 214, 255, 230) : IM_COL32(76, 100, 137, 180), 9 * s);
     ImU32 color = state == CATALOG_CURRENT ? IM_COL32(125, 229, 165, 255) :
                   state == CATALOG_AVAILABLE ? IM_COL32(255, 201, 100, 255) : IM_COL32(166, 185, 207, 255);
-    dl->AddText(font, 14 * s, ImVec2(p.x + 10 * s, p.y + 40 * s), color, status);
-    if (action) {
-        ImVec2 a(p.x + 10 * s, p.y + 66 * s), b(q.x - 10 * s, p.y + 102 * s);
-        ImGui::SetCursorScreenPos(a);
-        bool click = ImGui::InvisibleButton("##catalog-quick-action", ImVec2(b.x-a.x, b.y-a.y), ImGuiButtonFlags_EnableNav);
-        bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
-        dl->AddRectFilled(a, b, hot ? IM_COL32(32, 86, 121, 255) : IM_COL32(24, 52, 82, 255), 5 * s);
-        const char *label = (state == CATALOG_AVAILABLE || state == CATALOG_UPDATE_ERROR) ? "Update now" : "Check now";
-        ImVec2 text = font->CalcTextSizeA(15 * s, FLT_MAX, 0, label);
-        dl->AddText(font, 15 * s, ImVec2((a.x+b.x-text.x)*0.5f, (a.y+b.y-text.y)*0.5f), IM_COL32(238, 244, 255, 255), label);
-        if (click) { if (state == CATALOG_AVAILABLE || state == CATALOG_UPDATE_ERROR) menu_catalog_update(); else checked = menu_catalog_check(); }
-        if (hot) ImGui::SetTooltip("Official shader recipe catalog. No game data is uploaded. Compilation runs at game start or when shaders are registered.");
+    dl->AddCircleFilled(ImVec2(p.x + 34 * s, p.y + h * 0.5f), 8 * s, color);
+    ImVec2 text = font->CalcTextSizeA(fs, FLT_MAX, 0, "Shader catalog");
+    dl->AddText(font, fs, ImVec2(p.x + 24 * s + 32 * s, p.y + (h - text.y) * 0.5f), IM_COL32(238, 244, 255, 255), "Shader catalog");
+    if (click) { if (state == CATALOG_AVAILABLE || state == CATALOG_UPDATE_ERROR) menu_catalog_update(); else checked = menu_catalog_check(); }
+    if (hot) {
+        const char *act = (state == CATALOG_AVAILABLE || state == CATALOG_UPDATE_ERROR) ? " Click to update." : action ? " Click to check again." : "";
+        ImGui::SetTooltip("Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.", status, act);
     }
     ImGui::SetCursorScreenPos(saved);
 #endif
@@ -726,22 +1171,23 @@ static void shader_catalog_badge(float s) {
 static void legal_notice(float s) {
     ImVec2 ds = ImGui::GetIO().DisplaySize, saved = ImGui::GetCursorScreenPos();
     ImFont *font = g_font_small;
-    float fs = 18 * s, h = 40 * s;
+    float fs = 24 * s, h = 40 * s;
     ImVec2 text = font->CalcTextSizeA(fs, FLT_MAX, 0, "Legal notice");
-    float w = text.x + 96 * s;  // (the three badges at the top right share this width)
-    ImVec2 p(ds.x - w - 18 * s, 16 * s), q(p.x + w, p.y + h);
+    float w = text.x + 24 * s * 2 + 32 * s;
+    ImVec2 p(g_legal_right - w, (g_hdr_h - h) * 0.5f), q(p.x + w, p.y + h);
+    g_legal_right = p.x - 12 * s;  // (the chips after it go further left)
     ImGui::SetCursorScreenPos(p);
     bool clicked = ImGui::InvisibleButton("Legal notice", ImVec2(w, h), ImGuiButtonFlags_EnableNav);
     bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
     ImDrawList *dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(p, q, hot ? IM_COL32(25, 49, 78, 245) : IM_COL32(8, 18, 35, 225), 9 * s);
     dl->AddRect(p, q, hot ? IM_COL32(72, 214, 255, 230) : IM_COL32(76, 100, 137, 180), 9 * s);
-    ImVec2 c(p.x + 20 * s, p.y + h * 0.5f);
+    ImVec2 c(p.x + 34 * s, p.y + h * 0.5f);
     dl->AddTriangleFilled(ImVec2(c.x, c.y - 9 * s), ImVec2(c.x + 10 * s, c.y + 9 * s),
                           ImVec2(c.x - 10 * s, c.y + 9 * s), IM_COL32(255, 195, 85, 255));
     dl->AddLine(ImVec2(c.x, c.y - 3.8f * s), ImVec2(c.x, c.y + 2.5f * s), IM_COL32(17, 25, 40, 255), 2 * s);
     dl->AddCircleFilled(ImVec2(c.x, c.y + 5.5f * s), 1.1f * s, IM_COL32(17, 25, 40, 255));
-    dl->AddText(font, fs, ImVec2(p.x + 39 * s, p.y + (h - text.y) * 0.5f), IM_COL32(238, 244, 255, 255), "Legal notice");
+    dl->AddText(font, fs, ImVec2(p.x + 24 * s + 32 * s, p.y + (h - text.y) * 0.5f), IM_COL32(238, 244, 255, 255), "Legal notice");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Ownership, non-affiliation and responsible use");
     ImGui::SetCursorScreenPos(saved);
     if (clicked || g_legal_test) { ImGui::OpenPopup("##legal_notice"); g_legal_test = false; }
@@ -779,6 +1225,13 @@ static void legal_notice(float s) {
     ImGui::TextWrapped("Pokémon and related names, characters and trademarks belong to their respective owners. "
                        "The project's open-source license covers its software, not the game or its content. "
                        "This notice does not grant additional rights or replace applicable law.");
+#ifdef LUMIOSE_ONLINE
+    ImGui::Dummy(ImVec2(0, 12 * s));
+    ImGui::TextUnformatted("Online play (Lumiose Online)");
+    ImGui::TextWrapped("Play online is optional. If you use it, game data is shared with Lumiose Online while you play. "
+                       "Lumiose Online is a separate service run by its own team, not by MonZaMac, and MonZaMac does not "
+                       "control it or what it does with that data. Playing offline does not use it.");
+#endif
     ImGui::PopTextWrapPos();
     ImGui::EndChild();
     ImGui::Dummy(ImVec2(0, 10 * s));
@@ -788,6 +1241,54 @@ static void legal_notice(float s) {
     ImGui::PopFont();
     ImGui::EndPopup();
 }
+
+#ifdef LUMIOSE_ONLINE
+// The first Play online asks once, in a window like the legal notice. Continue is remembered and goes on with what was pressed.
+static void online_consent_popup(float s) {
+    ImVec2 ds = ImGui::GetIO().DisplaySize;
+    if (g_ou_consent_open) { ImGui::OpenPopup("##online_consent"); g_ou_consent_open = false; }
+    ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(fminf(ds.x * 0.92f, 600 * s), fminf(ds.y * 0.9f, 300 * s)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(28 * s, 24 * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 16 * s);
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.04f, 0.07f, 0.14f, 1));
+    bool open = ImGui::BeginPopupModal("##online_consent", NULL, ImGuiWindowFlags_NoTitleBar |
+                                       ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+    if (!open) return;
+    ImGui::PushFont(g_font_small);
+    ImGui::SetWindowFontScale(0.82f);
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), "Play online with Lumiose Online?");
+    ImGui::Dummy(ImVec2(0, 12 * s));
+    ImGui::BeginChild("##online_consent_text", ImVec2(0, -60 * s), false);
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextWrapped("Lumiose Online is a separate service run by its own team, not by MonZaMac.");
+    ImGui::Dummy(ImVec2(0, 12 * s));
+    ImGui::TextWrapped("If you continue, your game data will be shared with Lumiose Online while you play. MonZaMac does not "
+                       "control it or what it does with that data.");
+    ImGui::Dummy(ImVec2(0, 12 * s));
+    ImGui::TextWrapped("The first time, the online version is prepared on this Mac (it can take a few minutes). You can play "
+                       "offline at any time.");
+    ImGui::PopTextWrapPos();
+    ImGui::EndChild();
+    ImGui::Dummy(ImVec2(0, 10 * s));
+    float bw = 170 * s, gap = 16 * s;
+    ImGui::SetCursorPosX((ImGui::GetWindowWidth() - 2 * bw - gap) * 0.5f);
+    bool back = ImGui::Button("Cancel", ImVec2(bw, 38 * s)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+                ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false);
+    ImGui::SameLine(0, gap);
+    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+    bool go = ImGui::Button("Continue", ImVec2(bw, 38 * s));
+    ImGui::PopFont();
+    if (back || go) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    if (go) {
+        if (FILE *f = fopen(online_marker().c_str(), "w")) { fputs("accepted\n", f); fclose(f); }
+        online_proceed();
+    }
+}
+#endif
 
 // "Prepare all shaders": a badge under the catalog's (green check: done and still good for this MonZaMac, macOS, GPU and
 // game files; yellow triangle: not done or out of date), and what clicking it says. Compile starts the game, which
@@ -806,15 +1307,16 @@ static void precompile_badge(float s) {
     bool good = state == PRECOMPILE_CURRENT;
     ImVec2 ds = ImGui::GetIO().DisplaySize, saved = ImGui::GetCursorScreenPos();
     ImFont *font = g_font_small;
-    float w = font->CalcTextSizeA(18 * s, FLT_MAX, 0, "Legal notice").x + 96 * s, h = 62 * s;
-    ImVec2 p(ds.x - w - 18 * s, (g_catalog_badge_bottom + 10) * s), q(p.x + w, p.y + h);
+    float fs = 24 * s, h = 40 * s, w = font->CalcTextSizeA(fs, FLT_MAX, 0, "All shaders").x + 24 * s * 2 + 32 * s;
+    ImVec2 p(g_legal_right - w, (g_hdr_h - h) * 0.5f), q(p.x + w, p.y + h);
+    g_legal_right = p.x - 12 * s;  // (a header chip like the legal notice's; its state is the icon)
     ImGui::SetCursorScreenPos(p);
     bool clicked = ImGui::InvisibleButton("##precompile-badge", ImVec2(w, h), ImGuiButtonFlags_EnableNav);
     bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
     ImDrawList *dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(p, q, hot ? IM_COL32(25, 49, 78, 245) : IM_COL32(8, 18, 35, 225), 9 * s);
     dl->AddRect(p, q, hot ? IM_COL32(72, 214, 255, 230) : IM_COL32(76, 100, 137, 180), 9 * s);
-    ImVec2 c(p.x + 20 * s, p.y + h * 0.5f);
+    ImVec2 c(p.x + 34 * s, p.y + h * 0.5f);
     if (good) {
         dl->AddCircleFilled(c, 11 * s, IM_COL32(125, 229, 165, 255));
         dl->AddPolyline((ImVec2[]){ImVec2(c.x - 5 * s, c.y), ImVec2(c.x - 1.5f * s, c.y + 4 * s), ImVec2(c.x + 5.5f * s, c.y - 4 * s)},
@@ -825,10 +1327,10 @@ static void precompile_badge(float s) {
         dl->AddLine(ImVec2(c.x, c.y - 4.5f * s), ImVec2(c.x, c.y + 2.5f * s), IM_COL32(17, 25, 40, 255), 2 * s);
         dl->AddCircleFilled(ImVec2(c.x, c.y + 5.5f * s), 1.1f * s, IM_COL32(17, 25, 40, 255));
     }
-    dl->AddText(font, 18 * s, ImVec2(p.x + 39 * s, p.y + 9 * s), IM_COL32(238, 244, 255, 255), "All shaders");
-    dl->AddText(font, 14 * s, ImVec2(p.x + 39 * s, p.y + 36 * s), good ? IM_COL32(125, 229, 165, 255) : IM_COL32(255, 201, 100, 255),
-                good ? "Precompiled" : state == PRECOMPILE_OUTDATED ? "Out of date" : "Not done");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Compile every shader of the game before you play");
+    dl->AddText(font, fs, ImVec2(p.x + 24 * s + 32 * s, p.y + (h - fs) * 0.5f), IM_COL32(238, 244, 255, 255), "All shaders");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Compile every shader of the game before you play (%s)",
+                          good ? "precompiled" : state == PRECOMPILE_OUTDATED ? "out of date" : "not done yet");
     ImGui::SetCursorScreenPos(saved);
     if (clicked || g_precompile_test) { ImGui::OpenPopup("##precompile"); g_precompile_test = false; }
 
@@ -1208,6 +1710,10 @@ extern "C" void launcher_run(const char *root) {
     }
     ui_window_init();
     SDL_Window *win = ui_window();
+#ifdef __APPLE__
+    // The file dialogs show hidden files: prod.keys is often in a hidden folder. Only this app's dialogs, not the Finder's.
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{@"AppleShowAllFiles": @YES}];
+#endif
     g_launcher_win = win;
 #ifdef __APPLE__
     CAMetalLayer *layer = (__bridge CAMetalLayer *)ui_metal_layer();
@@ -1335,6 +1841,19 @@ extern "C" void launcher_run(const char *root) {
         fprintf(stderr, "[launcher] delete %.1f GB: %s -> %s\n", gb, ok ? "ok" : "refused", status.c_str());
         if (!status.empty()) { g_bg = 0; page = SETUP; }
     }
+    // The game files are there and only the game code is missing or older than this release (a release that changes what it
+    // is built from needs it built again): rebuild it at once, as "Update game code" does, instead of waiting for a press.
+    // The files were already set up with the ownership confirmation. Once per start: if it fails the page says why and the
+    // button is still there. LARECOMP_NO_AUTO_REBUILD=1 turns it off.
+    if (!status.empty() && check_copied_files(g_root).empty() && !shot_at && !getenv("LARECOMP_LAUNCHER_SETUP") &&
+        !getenv("LARECOMP_LAUNCHER_DELETE") && !getenv("LARECOMP_NO_AUTO_REBUILD")) {
+        g_import_mode = 1; g_src.clear(); g_ownership = true;
+        g_busy = true;
+        page = SETUP;
+        pthread_t th;
+        pthread_create(&th, NULL, extract_thread, NULL);
+        pthread_detach(th);
+    }
     const bool test_busy = getenv("LARECOMP_LAUNCHER_SHOT") && strstr(getenv("LARECOMP_LAUNCHER_SHOT"), ":extracting");
     while (!play) {
         menu_apply_window_requests(win);  // (the Video tab's Fullscreen)
@@ -1375,7 +1894,25 @@ extern "C" void launcher_run(const char *root) {
             io.ClearInputMouse();
             status = check_game_files(g_root);
             if (status.empty()) { load_background(dev); page = MAIN; }
+#ifdef LUMIOSE_ONLINE
+            if (g_ou_after_rebuild) {  // (built for Play online: go on with it)
+                g_ou_after_rebuild = false;
+                if (status.empty() && online_cache_ok()) online_proceed();
+                else if (status.empty()) { g_ou = OU_ERROR; g_ou_note = "The game code build for online play could not be kept."; }  // (never build again in a loop)
+            }
+#endif
         }
+#ifdef LUMIOSE_ONLINE
+        if (g_ou_rebuild_request && !busy) {  // the game code build Play online needs, as Update game code does
+            g_ou_rebuild_request = false;
+            g_import_mode = 1; g_src.clear(); g_ownership = true;
+            g_busy = busy = true;
+            page = SETUP;
+            pthread_t th;
+            pthread_create(&th, NULL, extract_thread, NULL);
+            pthread_detach(th);
+        }
+#endif
         was_busy = busy;
 
 #ifdef __APPLE__
@@ -1464,10 +2001,26 @@ extern "C" void launcher_run(const char *root) {
 
             if (page == MAIN) {
                 bool ready = status.empty();
-                int act = saves_home_draw(g_font_title, g_font_small, LOGO_TEXID, ready, !ready || busy, !g_play_focused);
+                int act = home_chrome(s, ds);  // (the header's Settings and Quit)
+                {   // the columns, centered between the header and the bar: offline, and with LUMIOSE_ONLINE Lumiose Online beside it
+                    float pad = 24 * s, ch = g_bar_y - g_hdr_h - 2 * pad, top = g_hdr_h + pad;
+#ifdef LUMIOSE_ONLINE
+                    float gap = 28 * s, cw = ds.x - 2 * pad - 20 * s, lw = (cw - gap) * 0.6f, x0 = (ds.x - cw) * 0.5f;
+                    int col = saves_home_draw(g_font_small, ready, !ready || busy, !g_play_focused, false, x0, top, lw, ch);
+                    if (col) act = col;
+                    OnlineView ov;
+                    online_view(status, busy, &ov);
+                    if (saves_online_draw(g_font_small, BANNER_TEXID, g_banner_h ? 1400.0f / g_banner_h : 0, ov, x0 + lw + gap, top, cw - lw - gap, ch)) online_click();
+                    online_consent_popup(s);
+#else
+                    float cw = fminf(ds.x - 2 * pad, 835 * s);
+                    int col = saves_home_draw(g_font_small, ready, !ready || busy, !g_play_focused, true, (ds.x - cw) * 0.5f, top, cw, ch);
+                    if (col) act = col;
+#endif
+                }
                 g_play_focused = true;
                 bool pressed = act == 1;
-                if (pressed) saves_use_latest();  // CONTINUE: the most recent save
+                if (pressed) saves_use_latest();  // CONTINUE: the save chosen on the Saves page, else the most recent
                 if (act == 2) saves_new_game_begin();
                 if (act == 3) saves_screen_open(), page = SAVES;
                 if (act == 4) {
@@ -1480,7 +2033,6 @@ extern "C" void launcher_run(const char *root) {
                 if (act == 6) exit(0);
                 if (saves_new_game_draw(s, g_font_menu, g_font_small)) pressed = true;  // (the new save is selected)
                 // first PLAY ever: the aspect ratio question, then how to reach our menu, then the game
-                if (g_play_pending && status.empty()) pressed = true, g_play_pending = false;
                 if (pressed) {
                     g_settings.aspect_asked = true;  // (no question: the saved aspect ratio, authentic 16:9 until changed in Settings)
                     if (!g_settings.menu_tip_seen) ImGui::OpenPopup("##menutip");
@@ -1500,21 +2052,21 @@ extern "C" void launcher_run(const char *root) {
                 ImGui::PushFont(g_font_menu);
                 int pick = saves_screen_draw(ds.y / 1080.0f, g_font_menu, g_font_small);
                 ImGui::PopFont();
-                if (pick) {
-                    page = MAIN, g_play_focused = false;
-                    if (pick > 0) g_play_pending = true;  // (the card's save is selected)
-                }
+                if (pick) page = MAIN, g_play_focused = false;  // (a chosen save is selected and remembered; the home page's CONTINUE plays it)
             } else if (page == SETTINGS) {
-                // the in-game menu's tabs (runtime/ui/menu.mm), in a window like the in-game one; tabs that need a
-                // loaded game say so
-                float sc = ds.y / 1080.0f, w = fminf(ds.x * 0.78f, 1260 * sc), h = ds.y * 0.84f;  // (a window, not all the screen)
-                ImGui::GetWindowDrawList()->AddRectFilled(ImGui::GetWindowPos(), ImVec2(ImGui::GetWindowPos().x + ds.x,
-                                                          ImGui::GetWindowPos().y + ds.y), IM_COL32(0, 0, 0, 110));
+                // the in-game menu's tabs (runtime/ui/menu.mm), over the whole window under the home page's header (outside
+                // the game there is nothing else to see); tabs that need a loaded game say so
+                if (home_chrome(s, ds) == 6) exit(0);  // (Settings in the header: already here)
+                legal_notice(s);
+                shader_catalog_badge(s);
+                if (status.empty()) precompile_badge(s);
+                if (g_precompile_go) g_precompile_go = false, play = true;
+                float sc = ds.y / 1080.0f, w = ds.x, h = ds.y - g_hdr_h;
                 ImVec2 wp = ImGui::GetWindowPos();
-                ImGui::SetCursorScreenPos(ImVec2(wp.x + (ds.x - w) * 0.5f, wp.y + (ds.y - h) * 0.5f));
-                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.04f, 0.07f, 0.14f, 0.96f));
-                ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 14 * sc);
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(28 * sc, 24 * sc));
+                ImGui::SetCursorScreenPos(ImVec2(wp.x, wp.y + g_hdr_h));
+                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.04f, 0.07f, 0.14f, 0.98f));
+                ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 0);
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(48 * sc, 28 * sc));
                 ImGui::BeginChild("##settings", ImVec2(w, h), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NavFlattened);
                 ImGui::PopStyleVar(2);
                 ImGui::PopStyleColor();
@@ -1524,20 +2076,27 @@ extern "C" void launcher_run(const char *root) {
                 ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "Settings");
                 ImGui::PopFont();
                 bool back;
-                {  // close: a drawn X in the corner (B / Esc too)
-                    float bx = 44 * sc;
-                    ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - bx);
+                {  // a Back button in the corner, drawn like the header's (B / Esc too)
+                    const char *label = "Back";
+                    float fs = 24 * s, bh = 40 * s, bw = g_font_small->CalcTextSizeA(fs, FLT_MAX, 0, label).x + 24 * s * 2 + 32 * s;
+                    ImGui::SameLine();
                     ImVec2 p = ImGui::GetCursorScreenPos();
+                    p.x = ImGui::GetWindowPos().x + ds.x - 40 * s - bw;  // (the right edge of the header's Quit)
+                    ImVec2 q(p.x + bw, p.y + bh);
+                    ImGui::SetCursorScreenPos(p);
                     ImGui::PushStyleColor(ImGuiCol_NavCursor, ImVec4(0, 0, 0, 0));
-                    back = ImGui::InvisibleButton("##close", ImVec2(bx, bx), ImGuiButtonFlags_EnableNav);
+                    back = ImGui::InvisibleButton("##back", ImVec2(bw, bh), ImGuiButtonFlags_EnableNav);
                     ImGui::PopStyleColor();
                     bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
-                    ImU32 col = hot ? IM_COL32(72, 214, 255, 255) : IM_COL32(220, 216, 205, 255);
-                    float m = bx * 0.3f, t = (hot ? 3.0f : 2.4f) * sc * 1.5f;
                     ImDrawList *dl = ImGui::GetWindowDrawList();
-                    if (hot) dl->AddRectFilled(p, ImVec2(p.x + bx, p.y + bx), IM_COL32(255, 255, 255, 20), 8 * sc);
-                    dl->AddLine(ImVec2(p.x + m, p.y + m), ImVec2(p.x + bx - m, p.y + bx - m), col, t);
-                    dl->AddLine(ImVec2(p.x + bx - m, p.y + m), ImVec2(p.x + m, p.y + bx - m), col, t);
+                    const ImU32 ink = IM_COL32(238, 244, 255, 255);
+                    dl->AddRectFilled(p, q, hot ? IM_COL32(25, 49, 78, 245) : IM_COL32(8, 18, 35, 225), 9 * s);
+                    dl->AddRect(p, q, hot ? IM_COL32(72, 214, 255, 230) : IM_COL32(76, 100, 137, 180), 9 * s);
+                    ImVec2 c(p.x + 24 * s + 10 * s, p.y + bh * 0.5f);  // an arrow pointing left
+                    dl->AddLine(ImVec2(c.x - 10 * s, c.y), ImVec2(c.x + 10 * s, c.y), ink, 2.4f * s);
+                    dl->AddLine(ImVec2(c.x - 10 * s, c.y), ImVec2(c.x - 3 * s, c.y - 7 * s), ink, 2.4f * s);
+                    dl->AddLine(ImVec2(c.x - 10 * s, c.y), ImVec2(c.x - 3 * s, c.y + 7 * s), ink, 2.4f * s);
+                    dl->AddText(g_font_small, fs, ImVec2(p.x + 24 * s + 32 * s, p.y + (bh - fs) * 0.5f), ink, label);
                 }
                 bool popup = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);  // (before the pages run, like the menu)
                 menu_tabs_draw(sc, g_font_small, g_font_menu, false, prelaunch_tab);
@@ -1590,7 +2149,7 @@ extern "C" void launcher_run(const char *root) {
                 ImGui::Spacing();
 
                 pthread_mutex_lock(&g_lock);
-                std::string src = g_src, base = g_base, update = g_update, keys = g_keys;
+                std::string src = g_src, base = g_base, update = g_update, keys = g_keys, dlc = g_dlc;
                 std::string job = g_job, job_hint = g_job_hint, bad_input = g_bad_input;
                 bool failed = g_job_failed;
                 pthread_mutex_unlock(&g_lock);
@@ -1650,12 +2209,13 @@ extern "C" void launcher_run(const char *root) {
                         static const SDL_DialogFileFilter bf[] = {{"Game packages", "nsp;xci"}, {"All files", "*"}};
                         static const SDL_DialogFileFilter uf[] = {{"Update package", "nsp"}, {"All files", "*"}};
                         static const SDL_DialogFileFilter kf[] = {{"Switch keys", "keys"}};
-                        const char *labels[] = {"Base game", "Update (2.0.2)", "prod.keys"};
-                        std::string values[] = {base, update, keys};
-                        for (int i = 0; i < 3; i++) {
-                            const char *field = i == 0 ? "base" : i == 1 ? "update" : "keys";
+                        const char *labels[] = {"Base game", "Update (2.0.2)", "prod.keys", "DLC (optional)"};
+                        std::string values[] = {base, update, keys, dlc};
+                        for (int i = 0; i < 4; i++) {
+                            const char *field = i == 0 ? "base" : i == 1 ? "update" : i == 2 ? "keys" : "dlc";
                             if (busy) opt_disable_next();
                             const char *hint = i == 2 ? "Drop prod.keys here or choose it. Read locally for setup; not copied or uploaded." :
+                                               i == 3 ? "Optional: the Mega Dimension DLC .nsp. Leave empty to play without it." :
                                                        "Drop the matching dump here or choose it. Compressed NSZ/XCZ files are not supported.";
                             std::string detail = hint;
                             if (!values[i].empty()) detail += "\n\nChosen: " + display_path(values[i]);
@@ -1666,7 +2226,8 @@ extern "C" void launcher_run(const char *root) {
                                 pthread_mutex_lock(&g_lock);
                                 if (i == 0) g_base = values[i];
                                 else if (i == 1) g_update = values[i];
-                                else g_keys = values[i];
+                                else if (i == 2) g_keys = values[i];
+                                else g_dlc = values[i];
                                 g_ownership = false;
                                 if (g_bad_input.empty() || g_bad_input == field) {
                                     g_bad_input.clear(); g_job.clear(); g_job_hint.clear(); g_job_failed = false;
@@ -1675,7 +2236,7 @@ extern "C" void launcher_run(const char *root) {
                             }
                             if (chosen)
                                 SDL_ShowOpenFileDialog(picked_package, (void *)(intptr_t)i, win,
-                                                       i == 0 ? bf : i == 1 ? uf : kf, i == 2 ? 1 : 2, NULL, false);
+                                                       i == 0 ? bf : i == 2 ? kf : uf, i == 2 ? 1 : 2, NULL, false);
                             first_row();
                         }
                         if (!gameimport_available())
@@ -1834,8 +2395,7 @@ extern "C" void launcher_run(const char *root) {
             if (page == MAIN) {
             ImGui::PushFont(g_font_small);
             // (the lines under the home panel, the width of the panel: its left and right edges)
-            float fx, fy, fw, fu;
-            saves_home_footer(&fx, &fy, &fw, &fu);
+            float fx = 40 * s, fy = g_bar_y + 12 * s, fw = ds.x - 80 * s, fu = 22 * s;  // (the bottom bar's lines)
             x0 = fx;
             ImGui::SetWindowFontScale(fu * 0.8f / ImGui::GetFontSize());
             ImGui::SetCursorScreenPos(ImVec2(fx, fy));
@@ -1850,7 +2410,29 @@ extern "C" void launcher_run(const char *root) {
                 }
                 ImGui::TextColored(ImVec4(0.45f, 0.95f, 0.55f, 1), "Game files ready.");
                 ImGui::SetCursorPosX(x0);
-                ImGui::TextColored(ImVec4(0.66f, 0.76f, 0.98f, 1), "Nintendo Switch  \xc2\xb7  v2.0.2");
+                {
+                    // The Mega Dimension add-on is one aoc/<id>.bin RomFS image (tools/game_extract.py --dlc)
+                    bool dlc = false;
+                    if (DIR *d = opendir((g_root + "/aoc").c_str())) {
+                        while (struct dirent *e = readdir(d)) dlc |= strstr(e->d_name, ".bin") != NULL;
+                        closedir(d);
+                    }
+                    ImGui::TextColored(ImVec4(0.66f, 0.76f, 0.98f, 1), "Nintendo Switch  \xc2\xb7  v2.0.2  \xc2\xb7  %s",
+                                       dlc ? "DLC found" : "DLC not found");
+                    if (!dlc && !busy) {
+                        ImGui::SameLine();
+                        if (g_dlc_busy) ImGui::TextDisabled("Adding DLC...");
+                        else if (ImGui::SmallButton("Add DLC...")) {
+                            pthread_mutex_lock(&g_lock);
+                            g_dlc_msg.clear(); g_dlc_pick.clear(); g_dlc_keys.clear();
+                            pthread_mutex_unlock(&g_lock);
+                            g_dlc_open = true;
+                        }
+                    }
+                    dlc_popup(s, win);
+                    pthread_mutex_lock(&g_lock); std::string dm = g_dlc_msg; pthread_mutex_unlock(&g_lock);
+                    if (!dm.empty()) { ImGui::SetCursorPosX(x0); ImGui::TextDisabled("%s", dm.c_str()); }
+                }
             } else {
                 ImGui::TextColored(ImVec4(1, 0.72f, 0.4f, 1), "!  %s", busy ? "Setting up the game files..." : status.c_str());
                 ImGui::SetCursorPosX(x0);

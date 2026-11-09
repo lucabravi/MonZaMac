@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "rt.h"
+#include "lumiose_rtld.h"
 
 Module g_modules[4];
 int g_nmodules;
@@ -297,6 +298,39 @@ static void relocate(Module *m) {
     LOG("relocated %-5s (%d imports bound to host stubs)\n", m->name, unresolved);
 }
 
+// Optional, explicitly enabled (LUMIOSE_TEST_MODULE=<path of a subsdk9>): an Exlaunch mod for the 2.0.2 build, loaded as a
+// third module next to main and sdk. It also expects rtld before main in the memory map: see lumiose_module.c.
+extern void lumiose_set_rtld(const Module *rtld);
+static void lumiose_load_module(const char *exefs) {
+    const char *extra = getenv("LUMIOSE_TEST_MODULE");
+    if (!extra || !*extra) return;
+    static const uint8_t game_id[8] = {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a};
+    uint8_t h[0x60];
+    char path[1024];
+    snprintf(path, sizeof path, "%s/main", exefs);
+    FILE *f = fopen(path, "rb");
+    if (!f || fread(h, 1, sizeof h, f) != sizeof h || memcmp(h + 0x40, game_id, sizeof game_id))
+        FATAL("the Lumiose module needs the 2.0.2 game build\n");
+    fclose(f);
+    f = fopen(extra, "rb");
+    if (!f || fread(h, 1, sizeof h, f) != sizeof h || memcmp(h, "NSO0", 4))
+        FATAL("the Lumiose module is missing or is not a module file\n");
+    fclose(f);
+    const uint64_t base = 0x7006200000ull;
+    if (g_modules[0].base + g_modules[0].size > base) FATAL("the Lumiose module would overlap main\n");
+    Module *m = &g_modules[g_nmodules++];
+    memset(m, 0, sizeof *m);
+    m->name = "subsdk9";
+    load_nso(m, extra, base);
+    if (m->base + m->size > SDK_BASE) FATAL("the Lumiose module would overlap sdk\n");
+    static Module rtld;  // not one of g_modules: nothing runs from it, and it sits where the module sees it only through
+    memset(&rtld, 0, sizeof rtld);  // a remap (lumiose_cpu.h), because macOS leaves no address below main
+    rtld.name = "rtld";
+    snprintf(path, sizeof path, "%s/rtld", exefs);
+    load_nso(&rtld, path, LUMIOSE_RTLD_REAL);
+    lumiose_set_rtld(&rtld);
+}
+
 void loader_load(const char *exefs) {
     char path[1024];
     static const struct { const char *name; uint64_t base; } mods[] = {{"main", MAIN_BASE}, {"sdk", SDK_BASE}};
@@ -306,5 +340,6 @@ void loader_load(const char *exefs) {
         snprintf(path, sizeof path, "%s/%s", exefs, m->name);
         load_nso(m, path, mods[i].base);
     }
+    lumiose_load_module(exefs);
     for (int i = 0; i < g_nmodules; i++) relocate(&g_modules[i]);
 }

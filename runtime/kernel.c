@@ -6,6 +6,7 @@
 
 #include "hle.h"
 #include "kernel.h"
+#include "devlog.h"
 
 // ------------------------------------------------------------------ results
 #undef R_OK
@@ -19,6 +20,8 @@
 #define R_INVALID_ENUM 0xF001
 #define R_OUT_OF_RESOURCE 0xD001
 #define R_LIMIT_REACHED 0x10801
+#define R_INVALID_SIZE 0xCA01
+#define R_SESSION_CLOSED 0xF601
 
 #define PSEUDO_THREAD 0xFFFF8000u
 #define PSEUDO_PROCESS 0xFFFF8001u
@@ -31,7 +34,7 @@ static __thread KThread *t_cur;
 #define MAX_HANDLES 4096
 static KObject *handles[MAX_HANDLES];
 
-static uint32_t handle_alloc(KObject *o) {
+static uint32_t handle_try_alloc(KObject *o) {
     for (int i = 1; i < MAX_HANDLES; i++) {
         if (!handles[i]) {
             handles[i] = o;
@@ -39,11 +42,23 @@ static uint32_t handle_alloc(KObject *o) {
             return 0x100 + i;
         }
     }
-    FATAL("out of handles\n");
+    return 0;
+}
+static uint32_t handle_alloc(KObject *o) {
+    uint32_t h = handle_try_alloc(o);
+    if (!h) FATAL("out of handles\n");
+    return h;
+}
+static KObject current_process = {.type = KOBJ_PROCESS};
+static void session_handle_closed(KObject *o);
+static void session_thread_exit(KThread *thread);
+static bool process_handle_is_current(uint32_t h) {
+    return handle_get(h) == &current_process;
 }
 
 KObject *handle_get(uint32_t h) {
-    if (h == PSEUDO_THREAD) return &t_cur->obj;
+    if (h == PSEUDO_THREAD) return t_cur ? &t_cur->obj : NULL;
+    if (h == PSEUDO_PROCESS) return &current_process;
     if (h < 0x101 || h >= 0x100 + MAX_HANDLES) return NULL;
     return handles[h - 0x100];
 }
@@ -53,8 +68,8 @@ uint32_t kernel_new_handle(KObject *o) {
     uint32_t h = handle_alloc(o);
     pthread_mutex_unlock(&g_klock);
     if (ENV("LARECOMP_LOG_HANDLES")) {
-        static const char *const tn[] = {"?", "thread", "event", "session", "shmem", "tmem"};
-        LOG("[kernel] handle %x = %s (by thread %x, guest lr %llx)\n", h, o->type >= KOBJ_THREAD && o->type <= KOBJ_TMEM ? tn[o->type] : "?",
+        static const char *const tn[] = {"?", "thread", "event", "session", "shmem", "tmem", "session-client", "session-server", "process"};
+        LOG("[kernel] handle %x = %s (by thread %x, guest lr %llx)\n", h, o->type >= KOBJ_THREAD && o->type <= KOBJ_PROCESS ? tn[o->type] : "?",
             t_cur ? t_cur->handle : 0, (unsigned long long)(t_cur ? t_cur->cpu.x[30] : 0));
     }
     return h;
@@ -62,9 +77,10 @@ uint32_t kernel_new_handle(KObject *o) {
 
 static void handle_close(uint32_t h) {
     KObject *o = handle_get(h);
-    if (!o || h == PSEUDO_THREAD) return;
+    if (!o || h == PSEUDO_THREAD || h == PSEUDO_PROCESS) return;
     handles[h - 0x100] = NULL;
-    o->refs--;
+    if (--o->refs == 0 && (o->type == KOBJ_SESSION_CLIENT || o->type == KOBJ_SESSION_SERVER))
+        session_handle_closed(o);
 }
 
 // Threads blocked in WaitSynchronization; object signals wake only these (caller holds g_klock).
@@ -229,6 +245,13 @@ static void phys_unmap(uint64_t addr, uint64_t size) {
 static void query_memory(uint64_t addr, uint64_t out) {
     uint64_t prev_end = 0;
     uint64_t info[5] = {0};  // addr, size, type|attr<<32, perm|ipc<<32, device|pad<<32
+    if (addr >= 1ull << 39) {  // past the address space: one inaccessible block to the end of the 64 bits (base + size
+        info[0] = 1ull << 39;  // wraps to 0), which a walk of the whole map, like Exlaunch's, takes as its end
+        info[1] = 0 - (1ull << 39);
+        info[2] = 0x10;
+        memcpy((void *)out, info, 0x28);
+        return;
+    }
     for (int i = 0; i < nregions; i++) {
         Region *r = &regions[i];
         if (addr >= r->addr && addr < r->addr + r->size) {
@@ -276,6 +299,7 @@ static void *thread_main(void *arg) {
     rt_set_fpcr(0);
     if (!setjmp(t->unwind)) guest_call(&t->cpu, t->entry);
     pthread_mutex_lock(&g_klock);
+    session_thread_exit(t);
     t->finished = true;
     kernel_signal(&t->obj);
     pthread_mutex_unlock(&g_klock);
@@ -642,10 +666,8 @@ static uint32_t svc_signal_to_address(uint64_t addr, uint32_t type, int32_t valu
 
 // ------------------------------------------------------------------ wait synchronization
 
-static uint32_t svc_wait_synchronization(uint64_t handles_ptr, int32_t count, int64_t timeout, int32_t *index) {
-    pthread_mutex_lock(&g_klock);
-    struct timespec ts;
-    if (timeout > 0) deadline(&ts, timeout);
+static uint32_t wait_synchronization_locked(uint64_t handles_ptr, int32_t count, int64_t timeout,
+                                            const struct timespec *ts, int32_t *index, KObject *const *expected) {
     KThread *t = t_cur;
     uint32_t *hs = (uint32_t *)(uintptr_t)handles_ptr;
     uint32_t r;
@@ -663,7 +685,7 @@ static uint32_t svc_wait_synchronization(uint64_t handles_ptr, int32_t count, in
     for (;;) {
         for (int i = 0; i < count; i++) {
             KObject *o = handle_get(hs[i]);
-            if (!o) { r = R_INVALID_HANDLE; goto out; }
+            if (!o || (expected && o != expected[i])) { r = R_INVALID_HANDLE; goto out; }
             if (o->signaled) { *index = i; r = R_OK; goto out; }
         }
         if (t->cancel) { t->cancel = false; r = R_CANCELLED; goto out; }
@@ -673,15 +695,233 @@ static uint32_t svc_wait_synchronization(uint64_t handles_ptr, int32_t count, in
         t->sync_hs = hs, t->sync_n = count;
         t->snext = g_syncwaiters;
         g_syncwaiters = t;
-        bool ok = kwait(timeout < 0 ? -1 : timeout, &ts);
+        bool ok = kwait(timeout < 0 ? -1 : timeout, ts);
         for (KThread **p = &g_syncwaiters; *p; p = &(*p)->snext)
             if (*p == t) { *p = t->snext; break; }
         t->in_sync_wait = false;
         if (!ok) { r = R_TIMEOUT; goto out; }
     }
 out:
+    return r;
+}
+
+static uint32_t svc_wait_synchronization(uint64_t handles_ptr, int32_t count, int64_t timeout, int32_t *index) {
+    if (count < 0 || count > 64 || (count && !handles_ptr)) return R_INVALID_SIZE;
+    pthread_mutex_lock(&g_klock);
+    struct timespec ts;
+    if (timeout > 0) deadline(&ts, timeout);
+    uint32_t r = wait_synchronization_locked(handles_ptr, count, timeout, &ts, index, NULL);
     pthread_mutex_unlock(&g_klock);
     return r;
+}
+
+// ------------------------------------------------------------------ guest-to-guest sessions
+// HLE services retain KOBJ_SESSION. These endpoints carry bounded inline HIPC messages in the same process.
+#define SESSION_WORDS 64
+#define SESSION_HANDLES 30
+typedef struct KSessionRequest {
+    struct KSessionRequest *next;
+    KThread *sender, *receiver;
+    uint32_t message[SESSION_WORDS], transferred[SESSION_HANDLES];
+    unsigned ntransferred;
+    uint32_t result;
+    bool delivered, done;
+    uint32_t *reply;
+} KSessionRequest;
+typedef struct KSessionPair KSessionPair;
+typedef struct { KObject obj; KSessionPair *pair; } KSessionEndpoint;
+struct KSessionPair {
+    KSessionEndpoint server, client;
+    KSessionRequest *head, *tail, *active;
+    bool server_closed, client_closed;
+    KSessionPair *next;
+};
+// Keep endpoint storage alive across blocked calls; reclaim it after guest threads stop at reset.
+static KSessionPair *g_session_pairs;
+
+static void session_refresh(KSessionPair *p) {
+    p->server.obj.signaled = false;
+    if (p->client_closed || (!p->active && p->head)) kernel_signal(&p->server.obj);
+    if (p->server_closed) kernel_signal(&p->client.obj);
+}
+
+static void session_finish(KSessionRequest *r, uint32_t result) {
+    r->result = result;
+    r->done = true;
+    wake(r->sender);
+}
+
+static void session_handle_closed(KObject *o) {
+    KSessionPair *p = ((KSessionEndpoint *)o)->pair;
+    if (o->type == KOBJ_SESSION_SERVER) p->server_closed = true;
+    else p->client_closed = true;
+    for (KSessionRequest *r = p->head; r; r = r->next) session_finish(r, R_SESSION_CLOSED);
+    p->head = p->tail = NULL;
+    if (p->active) { session_finish(p->active, R_SESSION_CLOSED); p->active = NULL; }
+    session_refresh(p);
+    for (KThread *t = g_syncwaiters; t; t = t->snext) wake(t);
+}
+
+static void session_thread_exit(KThread *thread) {
+    for (KSessionPair *p = g_session_pairs; p; p = p->next)
+        if (p->active && p->active->receiver == thread) {
+            session_finish(p->active, R_SESSION_CLOSED);
+            p->active = NULL;
+            session_refresh(p);
+        }
+}
+
+static uint32_t session_create(uint32_t *server, uint32_t *client, bool light) {
+    if (light) return R_INVALID_ENUM;
+    KSessionPair *p = calloc(1, sizeof *p);
+    if (!p) return R_OUT_OF_RESOURCE;
+    p->server.obj.type = KOBJ_SESSION_SERVER;
+    p->client.obj.type = KOBJ_SESSION_CLIENT;
+    p->server.pair = p->client.pair = p;
+    pthread_mutex_lock(&g_klock);
+    uint32_t sh = handle_try_alloc(&p->server.obj), ch = sh ? handle_try_alloc(&p->client.obj) : 0;
+    if (!ch) {
+        if (sh) handle_close(sh);
+        pthread_mutex_unlock(&g_klock);
+        free(p);
+        return R_OUT_OF_RESOURCE;
+    }
+    p->next = g_session_pairs;
+    g_session_pairs = p;
+    pthread_mutex_unlock(&g_klock);
+    *server = sh; *client = ch;
+    return R_OK;
+}
+
+// Validate every transfer before allocating/consuming handles. Buffer descriptors need a separate mapping path.
+static uint32_t session_message(uint32_t *dst, const uint32_t *src, uint32_t *created, unsigned *ncreated) {
+    uint32_t tmp[SESSION_WORDS];
+    memcpy(tmp, src, sizeof tmp);
+    unsigned ncopy = 0, nmove = 0, start = 2, pid = 0;
+    if ((tmp[0] >> 16) || (tmp[1] & (15u << 10))) return R_INVALID_ENUM;
+    if (tmp[1] & 0x80000000u) {
+        uint32_t descriptor = tmp[2];
+        pid = descriptor & 1;
+        ncopy = (descriptor >> 1) & 15;
+        nmove = (descriptor >> 5) & 15;
+        start = 3 + 2 * pid;
+    }
+    unsigned n = ncopy + nmove;
+    if (start + n + (tmp[1] & 0x3ff) > SESSION_WORDS) return R_INVALID_SIZE;
+    KObject *objects[SESSION_HANDLES];
+    for (unsigned i = 0; i < n; i++) {
+        uint32_t h = tmp[start + i];
+        objects[i] = handle_get(h);
+        if (!objects[i] || (i >= ncopy && h >= PSEUDO_THREAD)) return R_INVALID_HANDLE;
+        if (i >= ncopy)
+            for (unsigned j = ncopy; j < i; j++) if (tmp[start + j] == h) return R_INVALID_HANDLE;
+    }
+    unsigned free_handles = 0;
+    for (unsigned i = 1; i < MAX_HANDLES; i++) free_handles += handles[i] == NULL;
+    if (free_handles < n) return R_OUT_OF_RESOURCE;
+    for (unsigned i = 0; i < n; i++) created[i] = handle_alloc(objects[i]);
+    for (unsigned i = ncopy; i < n; i++) handle_close(tmp[start + i]);
+    for (unsigned i = 0; i < n; i++) tmp[start + i] = created[i];
+    if (pid) { tmp[3] = 0x81; tmp[4] = 0; }
+    memcpy(dst, tmp, sizeof tmp);
+    *ncreated = n;
+    return R_OK;
+}
+
+static void session_remove_request(KSessionPair *p, KSessionRequest *r) {
+    KSessionRequest **link = &p->head, *prev = NULL;
+    while (*link && *link != r) { prev = *link; link = &(*link)->next; }
+    if (*link) { *link = r->next; if (p->tail == r) p->tail = prev; }
+    if (p->active == r) p->active = NULL;
+    session_refresh(p);
+}
+
+static uint32_t session_send(Cpu *c, KSessionEndpoint *endpoint) {
+    if (!t_cur || !c->tpidrro) return R_INVALID_ADDRESS;
+    KSessionPair *p = endpoint->pair;
+    KSessionRequest request = {.sender = t_cur, .reply = (uint32_t *)(uintptr_t)c->tpidrro};
+    pthread_mutex_lock(&g_klock);
+    uint32_t r;
+    if (p->server_closed || p->client_closed) { r = R_SESSION_CLOSED; goto out; }
+    r = session_message(request.message, request.reply, request.transferred, &request.ntransferred);
+    if (r) goto out;
+    if (p->tail) p->tail->next = &request; else p->head = &request;
+    p->tail = &request;
+    session_refresh(p);
+    while (!request.done) {
+        if (g_rt_unwind || t_cur->cancel) {
+            t_cur->cancel = false;
+            request.result = R_CANCELLED;
+            break;
+        }
+        kwait(-1, NULL);
+    }
+    session_remove_request(p, &request);
+    if (!request.delivered)
+        for (unsigned i = 0; i < request.ntransferred; i++) handle_close(request.transferred[i]);
+    r = request.result;
+out:
+    pthread_mutex_unlock(&g_klock);
+    return r;
+}
+
+static uint32_t svc_send_sync_request(Cpu *c, uint32_t h, uint64_t capacity) {
+    pthread_mutex_lock(&g_klock);
+    KObject *o = handle_get(h);
+    bool raw = o && o->type == KOBJ_SESSION_CLIENT;
+    pthread_mutex_unlock(&g_klock);
+    if (raw) return capacity < sizeof(uint32_t[SESSION_WORDS]) ? R_INVALID_SIZE : session_send(c, (KSessionEndpoint *)o);
+    return ipc_handle_request(c, h);
+}
+
+static uint32_t session_reply_receive(Cpu *c, const uint32_t *hs, int32_t count,
+                                      uint32_t reply, int64_t timeout, int32_t *index) {
+    *index = -1;
+    if (count < 0 || count > 64 || (count && !hs)) return R_INVALID_SIZE;
+    if (!t_cur || !c->tpidrro) return R_INVALID_ADDRESS;
+    uint32_t handles_copy[64];
+    if (count) memcpy(handles_copy, hs, (size_t)count * sizeof *hs);
+    hs = handles_copy;  // the guest's array may change while this thread is blocked
+    pthread_mutex_lock(&g_klock);
+    uint32_t result;
+    if (reply) {
+        KObject *o = handle_get(reply);
+        if (!o || o->type != KOBJ_SESSION_SERVER) { result = R_INVALID_HANDLE; goto out; }
+        KSessionPair *p = ((KSessionEndpoint *)o)->pair;
+        if (!p->active) { result = R_INVALID_STATE; goto out; }
+        KSessionRequest *r = p->active;
+        uint32_t message[SESSION_WORDS], created[SESSION_HANDLES]; unsigned ncreated = 0;
+        result = session_message(message, (const uint32_t *)(uintptr_t)c->tpidrro, created, &ncreated);
+        if (result) goto out;
+        memcpy(r->reply, message, sizeof message);
+        p->active = NULL;
+        session_finish(r, R_OK);
+        session_refresh(p);
+    }
+    KObject *expected[64];
+    for (int i = 0; i < count; i++) {
+        KObject *o = handle_get(hs[i]);
+        if (!o || o->type != KOBJ_SESSION_SERVER) { result = R_INVALID_HANDLE; goto out; }
+        expected[i] = o;
+    }
+    struct timespec ts;
+    if (timeout > 0) deadline(&ts, timeout);
+    result = wait_synchronization_locked((uintptr_t)hs, count, timeout, &ts, index, expected);
+    if (result) goto out;
+    KSessionPair *p = ((KSessionEndpoint *)handle_get(hs[*index]))->pair;
+    if (p->client_closed) { result = R_SESSION_CLOSED; goto out; }
+    KSessionRequest *r = p->head;
+    if (!r || p->active) { result = R_INVALID_STATE; goto out; }
+    p->head = r->next;
+    if (!p->head) p->tail = NULL;
+    p->active = r;
+    r->receiver = t_cur;
+    r->delivered = true;
+    memcpy((void *)(uintptr_t)c->tpidrro, r->message, sizeof r->message);
+    session_refresh(p);
+out:
+    pthread_mutex_unlock(&g_klock);
+    return result;
 }
 
 // ------------------------------------------------------------------ debug output
@@ -776,6 +1016,45 @@ static void svc_impl(Cpu *c, uint32_t imm, uint64_t pc) {
         x[0] = R_OK;
         x[1] = 0;
         break;
+    case 0x74: {  // MapProcessMemory(dst, process, src, size): only for the Lumiose module, a private copy of game code
+        extern bool lumiose_alias_add(uint64_t dst, uint64_t src, uint64_t size);
+        uint64_t dst = x[0], src = x[2], size = x[3];
+        bool source_ok = false;
+        for (int i = 0; i < g_nmodules; i++) {
+            Module *m = &g_modules[i];
+            if (src >= m->base && src - m->base < m->size && size <= m->size - (src - m->base)) source_ok = true;
+        }
+        if (hle_guest_code_range(src, size)) source_ok = true;
+        bool free_range = dst >= GUEST_LO && dst < GUEST_HI && size && size <= GUEST_HI - dst;
+        for (int i = 0; free_range && i < nregions; i++)
+            if (dst < regions[i].addr + regions[i].size && regions[i].addr < dst + size) free_range = false;
+        if (!process_handle_is_current((uint32_t)x[1])) { x[0] = R_INVALID_HANDLE; break; }
+        if (g_nmodules <= 2 || !source_ok || !free_range || !lumiose_alias_add(dst, src, size)) {
+            if (devlog_on("kernel-ipc"))
+                devlog("kernel-ipc", "MapProcessMemory rejected dst=%llx process=%x src=%llx size=%llx source=%d free=%d modules=%d",
+                       (unsigned long long)dst, (unsigned)x[1], (unsigned long long)src,
+                       (unsigned long long)size, source_ok, free_range, g_nmodules);
+            if (devlog_on("kernel-ipc") && src >= HLE_BASE && src < HLE_BASE + HLE_SIZE) {
+                extern const char *hle_name_at(uint64_t pc);
+                const char *name = hle_name_at(src);
+                devlog("kernel-ipc", "mapping targets synthetic HLE entry %s", name ? name : "unknown");
+            }
+            x[0] = R_INVALID_ADDRESS;
+            break;
+        }
+        region_add(dst, size, 0xf, 3);
+        LOG("[lumiose] private copy of %llx +%llx at %llx\n", (unsigned long long)src, (unsigned long long)size, (unsigned long long)dst);
+        x[0] = R_OK;
+        break;
+    }
+    case 0x75: {  // UnmapProcessMemory(dst, process, src, size)
+        extern bool lumiose_alias_remove(uint64_t dst, uint64_t src, uint64_t size);
+        if (!process_handle_is_current((uint32_t)x[1])) { x[0] = R_INVALID_HANDLE; break; }
+        bool found = g_nmodules > 2 && lumiose_alias_remove(x[0], x[2], x[3]);
+        if (found) region_remove(x[0]);
+        x[0] = found ? R_OK : R_INVALID_ADDRESS;
+        break;
+    }
     case 0x07: LOG("ExitProcess\n"); exit(0);
     case 0x08: {  // CreateThread(_, entry, arg, stack_top, prio, core)
         KThread *t = thread_new(x[1], x[2], x[3], (int)x[4], (int)(int32_t)x[5]);
@@ -897,19 +1176,20 @@ static void svc_impl(Cpu *c, uint32_t imm, uint64_t pc) {
         x[1] = h;
         break;
     }
-    case 0x21: x[0] = ipc_handle_request(c, (uint32_t)x[0]); break;  // SendSyncRequest
+    case 0x21: x[0] = svc_send_sync_request(c, (uint32_t)x[0], 0x100); break;  // SendSyncRequest
     case 0x22: {  // SendSyncRequestWithUserBuffer(buf, size, handle)
         uint64_t saved = c->tpidrro;
         c->tpidrro = x[0];
-        x[0] = ipc_handle_request(c, (uint32_t)x[2]);
+        x[0] = svc_send_sync_request(c, (uint32_t)x[2], x[1]);
         c->tpidrro = saved;
         break;
     }
     case 0x24: x[0] = R_OK; x[1] = 0x81; break;  // GetProcessId
     case 0x25: {  // GetThreadId(_, handle)
         KObject *o = handle_get((uint32_t)x[1]);
-        x[0] = o ? R_OK : R_INVALID_HANDLE;
-        x[1] = o ? ((KThread *)o)->id : 0;
+        bool thread = o && o->type == KOBJ_THREAD;
+        x[0] = thread ? R_OK : R_INVALID_HANDLE;
+        x[1] = thread ? ((KThread *)o)->id : 0;
         break;
     }
     case 0x26:  // Break
@@ -983,6 +1263,19 @@ static void svc_impl(Cpu *c, uint32_t imm, uint64_t pc) {
         break;
     case 0x34: x[0] = svc_wait_for_address(x[0], (uint32_t)x[1], (int32_t)x[2], (int64_t)x[3]); break;
     case 0x35: x[0] = svc_signal_to_address(x[0], (uint32_t)x[1], (int32_t)x[2], (int32_t)x[3]); break;
+    case 0x40: {  // CreateSession -> w1 server, w2 client
+        uint32_t server = 0, client = 0;
+        x[0] = session_create(&server, &client, x[2] != 0);
+        x[1] = server; x[2] = client;
+        break;
+    }
+    case 0x43: {  // ReplyAndReceive(_, handles, count, reply_target, timeout)
+        int32_t index = -1;
+        x[0] = session_reply_receive(c, (const uint32_t *)(uintptr_t)x[1], (int32_t)x[2],
+                                     (uint32_t)x[3], (int64_t)x[4], &index);
+        x[1] = (uint32_t)index;
+        break;
+    }
     case 0x45: {  // CreateEvent -> w1 writable, w2 readable
         KObject *ev = calloc(1, sizeof *ev);
         ev->type = KOBJ_EVENT;
@@ -1040,6 +1333,12 @@ void kernel_reset(void) {
     g_threads = NULL;
     g_waitlist = NULL;
     g_syncwaiters = NULL;
+    while (g_session_pairs) {
+        KSessionPair *p = g_session_pairs;
+        g_session_pairs = p->next;
+        free(p);
+    }
+    current_process = (KObject){.type = KOBJ_PROCESS};
     memset(handles, 0, sizeof handles);
     nregions = 0;
     heap_size = 0;
@@ -1096,12 +1395,12 @@ static void *wait_dump_main(void *arg) {
                 t->wait_mutex ? LD32(t->wait_mutex) : 0, t->wait_tag, (unsigned long long)t->cpu.pc,
                 (unsigned long long)t->cpu.x[30]);
             if (t->in_sync_wait) {
-                static const char *const tn[] = {"?", "thread", "event", "session", "shmem", "tmem"};
+                static const char *const tn[] = {"?", "thread", "event", "session", "shmem", "tmem", "session-client", "session-server", "process"};
                 char hl[256] = "";
                 for (int i = 0, n = 0; i < t->sync_n && i < 16; i++) {
                     KObject *o = handle_get(t->sync_hs[i]);
                     n += snprintf(hl + n, sizeof hl - n, " %x(%s%s)", t->sync_hs[i],
-                                  o && o->type >= KOBJ_THREAD && o->type <= KOBJ_TMEM ? tn[o->type] : "?",
+                                  o && o->type >= KOBJ_THREAD && o->type <= KOBJ_PROCESS ? tn[o->type] : "?",
                                   o && o->signaled ? ",sig" : "");
                 }
                 LOG("[wait]     handles%s\n", hl);
@@ -1134,12 +1433,16 @@ void kernel_init(void) {
     }
     // Reserve the heap, alias, stack, and TLS regions.
     region_add(TLS_BASE, TLS_SIZE, 0xC, 3);
+    if (g_nmodules > 2) region_add(HLE_CODE_BASE, HLE_CODE_SIZE, 3, 5);
+    hle_guest_code_init(g_nmodules > 2);
     for (int i = 0; i < g_nmodules; i++) {
         Module *m = &g_modules[i];
         region_add(m->base + m->text_off, m->ro_off - m->text_off, 3, 5);
         region_add(m->base + m->ro_off, m->data_off - m->ro_off, 3, 1);
         region_add(m->base + m->data_off, m->size - m->data_off, 4, 3);
     }
+    extern void lumiose_add_rtld_regions(void (*add)(uint64_t, uint64_t, uint32_t, uint32_t));
+    lumiose_add_rtld_regions(region_add);
 }
 
 KEvent *kernel_create_event_pair(uint32_t *w, uint32_t *r) {

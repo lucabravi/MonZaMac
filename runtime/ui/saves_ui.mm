@@ -63,6 +63,13 @@ static const SaveSlot *latest(void) {
     return l;
 }
 
+// The save the home page shows and CONTINUE plays: the one chosen on the Saves page (when it has progress), else the latest.
+static const SaveSlot *chosen(void) {
+    for (int i = 0; i < g_n; i++)
+        if (g_slots[i].played && !strcmp(g_slots[i].id, g_settings.save_slot)) return &g_slots[i];
+    return latest();
+}
+
 static void when(const SaveSlot &s, char *out, size_t n, bool prefix = true) {
     if (!s.played) { snprintf(out, n, "No progress yet"); return; }
     time_t t = (time_t)s.played;
@@ -454,7 +461,7 @@ static bool dialogs(float sc, ImFont *body, ImFont *small_) {
     return changed;
 }
 
-// 1: a slot was chosen (selected and remembered, play on), -1: back, 0: still here
+// 1: a slot was chosen (selected and remembered; back to the home page, which plays it on CONTINUE), -1: back, 0: still here
 int saves_screen_draw(float sc, ImFont *body, ImFont *small_) {
     int result = 0;
     g_menu_look = false;
@@ -731,41 +738,45 @@ static bool wide_button(ImDrawList *dl, const char *label, ImVec2 p, float w, fl
     return clicked && enabled;
 }
 
-// 1 CONTINUE, 2 NEW GAME, 3 SAVES, 4 SETTINGS, 5 SET UP GAME FILES, 6 QUIT; 0 nothing yet
-static float g_foot[4];  // x, y, width, unit of the lines under the panel
-void saves_home_footer(float *x, float *y, float *w, float *u) { *x = g_foot[0], *y = g_foot[1], *w = g_foot[2], *u = g_foot[3]; }
-
-int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready, bool show_setup, bool focus_first) {
+// The "Play offline" column of the start screen, in the rectangle (rx, ry, rw, rh) of the window: the last save's trainer
+// card and the buttons. 1 CONTINUE, 2 NEW GAME, 3 SAVES, 5 SET UP GAME FILES; 0 nothing yet. (The title, SETTINGS and
+// QUIT are in the header, runtime/ui/launcher.mm home_chrome.)
+static float g_home_u;  // the home page's unit, as saves_home_draw fitted it (the online column uses the same)
+int saves_home_draw(ImFont *small_, bool ready, bool show_setup, bool focus_first, bool local_chip, float rx, float ry, float rw, float rh) {
     static int age = 1000;
     if (++age > 90) { reload(); age = 0; }
-    ImVec2 ds = ImGui::GetIO().DisplaySize, wp = ImGui::GetWindowPos();
     ImDrawList *dl = ImGui::GetWindowDrawList();
-    // one unit u: the small font's size, shrunk when the window is short (the whole column then fits)
-    int n = show_setup ? 6 : 5;
+    // one unit u: the small font's size, shrunk until the column's content fits its rectangle
+    int n = show_setup ? 4 : 3;
     const float card_u = 5.3f;  // the save card's height (room for the trainer's data)
-    float u = small_->FontSize, rows = 3.9f + card_u + 0.55f + n * 1.75f + 0.2f;
-    const float foot = 4.4f;  // (the panel's padding, the gap and the two lines under it, in units)
-    u *= fminf(1.0f, ds.y * 0.94f / ((rows + foot) * u));
-    float w = fminf(ds.x * 0.92f, u * 17.0f), x = wp.x + (ds.x - w) * 0.5f, y = wp.y + (ds.y - (rows + foot) * u) * 0.5f + u * 0.7f;
-    g_foot[0] = x, g_foot[1] = y + rows * u + u * 1.5f, g_foot[2] = w, g_foot[3] = u;
+    float u = small_->FontSize, rows = 2.9f + card_u + 0.55f + n * 1.75f + 0.2f;
+    u *= fminf(1.0f, fminf(rh / ((rows + 2.0f) * u), rw / (19.0f * u)));
+    g_home_u = u;
+    float x = rx + u, w = rw - 2 * u, y = ry + u;
 
     // the glass panel behind it all
-    dl->AddRectFilled(ImVec2(x - u, y - u * 0.7f), ImVec2(x + w + u, y + rows * u + u * 0.7f), IM_COL32(4, 10, 26, 205), u * 0.8f);
-    dl->AddRect(ImVec2(x - u, y - u * 0.7f), ImVec2(x + w + u, y + rows * u + u * 0.7f), pal::edge, u * 0.8f, 0, 1.5f);
+    dl->AddRectFilled(ImVec2(rx, ry), ImVec2(rx + rw, ry + rh), IM_COL32(4, 10, 26, 205), u * 0.8f);
+    dl->AddRect(ImVec2(rx, ry), ImVec2(rx + rw, ry + rh), pal::edge, u * 0.8f, 0, 1.5f);
 
-    // logo and name
-    float ls = u * 3.2f;
-    if (logo) dl->AddImage(logo, ImVec2(x, y), ImVec2(x + ls, y + ls));
-    float ts = u * 2.0f;
-    ImVec2 tp(x + ls + u * 0.6f, y + (ls - ts) * 0.5f);
-    for (float d : {3.0f, 1.5f}) dl->AddText(title, ts, ImVec2(tp.x + d, tp.y + d), IM_COL32(0, 4, 20, 140), "MonZaMac");
-    dl->AddText(title, ts, tp, pal::text, "MonZaMac");
-    float ty = y + ls + u * 0.7f;
+    ball(dl, ImVec2(x + u * 0.95f, y + u * 0.95f), u * 0.95f, true, false);  // (the title: a ball and the column's name)
+    dl->AddText(small_, u * 1.9f, ImVec2(x + u * 2.5f, y), pal::text, "Play offline");
+    if (local_chip) {  // (the offline edition's tag, top right)
+        const char *lc = "Local only";
+        float fs = u * 0.95f, tw = small_->CalcTextSizeA(fs, FLT_MAX, 0, lc).x, cw = tw + u * 3.4f, chh = u * 1.7f;
+        ImVec2 a(x + w - cw, y + u * 0.1f), b(a.x + cw, a.y + chh);
+        dl->AddRectFilled(a, b, IM_COL32(10, 40, 62, 200), chh * 0.5f);
+        dl->AddRect(a, b, pal::accent, chh * 0.5f, 0, 1.5f);
+        ImVec2 c(a.x + u * 1.0f, a.y + chh * 0.5f);  // a drive
+        dl->AddRect(ImVec2(c.x - u * 0.5f, c.y - u * 0.3f), ImVec2(c.x + u * 0.5f, c.y + u * 0.3f), pal::accent, u * 0.12f, 0, u * 0.1f);
+        dl->AddCircleFilled(ImVec2(c.x + u * 0.3f, c.y + u * 0.05f), u * 0.05f, pal::accent);
+        dl->AddText(small_, fs, ImVec2(a.x + u * 1.9f, a.y + (chh - fs) * 0.5f), pal::text, lc);
+    }
+    float ty = y + u * 2.9f;
     dl->AddRectFilledMultiColor(ImVec2(x, ty - u * 0.35f), ImVec2(x + w, ty - u * 0.28f), pal::accent, IM_COL32(72, 214, 255, 0),
                                 IM_COL32(72, 214, 255, 0), pal::accent);
 
     // the save last played: the trainer's card (name, play time, money, team), as the games' title screens show it
-    const SaveSlot *cur = latest();  // CONTINUE plays this one
+    const SaveSlot *cur = chosen();  // CONTINUE plays this one
     bool any = cur != NULL;
     if (!cur) cur = &g_none;
     const SaveInfo *si = any ? save_info(cur->path) : NULL;
@@ -815,10 +826,8 @@ int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready,
 
     // the buttons
     float by = ty + ch + u * 0.55f, bh = u * 1.45f, step = u * 1.75f;
-    struct Item { const char *label; bool on; int act; } items[6] = {
-        {"CONTINUE", ready && any, 1}, {"NEW GAME", ready, 2}, {"SAVES", ready, 3}, {"SETTINGS", true, 4},
-        {"SET UP GAME FILES", true, 5}, {"QUIT", true, 6}};
-    if (!show_setup) items[4] = items[5];
+    struct Item { const char *label; bool on; int act; } items[4] = {
+        {"CONTINUE", ready && any, 1}, {"NEW GAME", ready, 2}, {"SAVES", ready, 3}, {"SET UP GAME FILES", true, 5}};
     int act = 0;
     bool first_focus = focus_first;
     for (int i = 0; i < n; i++) {
@@ -829,9 +838,101 @@ int saves_home_draw(ImFont *title, ImFont *small_, ImTextureID logo, bool ready,
     return act;
 }
 
-// CONTINUE: the most recent save is selected and remembered (false: no save has progress).
+#ifdef LUMIOSE_ONLINE
+#include "online_view.h"
+// The "Lumiose Online" column, beside the offline one: 1 PLAY ONLINE, 0 nothing.
+int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const OnlineView &v, float rx, float ry, float rw, float rh) {
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    float u = fminf(g_home_u ? g_home_u : small_->FontSize, fminf(rh / (20.4f), rw / 19.0f));
+    float x = rx + u, w = rw - 2 * u, r = u * 0.8f;
+    float ph = rh;  // (as tall as the offline column's panel)
+    const ImU32 purple = IM_COL32(150, 110, 255, 170);
+    dl->AddRectFilled(ImVec2(rx, ry), ImVec2(rx + rw, ry + ph), IM_COL32(8, 12, 36, 255), r);
+    if (bg && bg_aspect > 0) {  // the picture across the top, as wide as the column; cropped from above to the banner's height
+        float bh = u * 7.2f, full = rw / bg_aspect, vis = fminf(1.0f, bh / full), v1 = 0.9f, v0 = fmaxf(0.0f, v1 - vis);
+        float u0 = 0, u1 = 1;
+        if (vis >= 1.0f) {  // (a banner taller than the picture: crop its sides instead)
+            float wv = rw / (bh * bg_aspect);
+            u0 = fmaxf(0.0f, fminf(1 - wv, 0.84f - wv * 0.5f)), u1 = u0 + wv, v0 = 0, v1 = 1;
+        }
+        dl->AddImageRounded(bg, ImVec2(rx, ry), ImVec2(rx + rw, ry + bh), ImVec2(u0, v0), ImVec2(u1, v1), IM_COL32_WHITE, r, ImDrawFlags_RoundCornersTop);
+        dl->AddRectFilledMultiColor(ImVec2(rx + 1, ry + bh - u * 1.4f), ImVec2(rx + rw - 1, ry + bh), IM_COL32(8, 12, 36, 0), IM_COL32(8, 12, 36, 0),
+                                    IM_COL32(8, 12, 36, 255), IM_COL32(8, 12, 36, 255));
+    }
+    dl->AddRect(ImVec2(rx, ry), ImVec2(rx + rw, ry + ph), purple, r, 0, 1.5f);
+    // the mark: an arc over a bar with a ring in the middle (a ball, opened), and the name
+    {
+        const ImU32 gold = IM_COL32(250, 198, 84, 255);
+        ImVec2 c(x + u * 1.9f, ry + u * 3.1f);
+        float R = u * 1.55f, ring = u * 0.55f, th = u * 0.22f;
+        dl->PathArcTo(c, R, 3.14159f, 6.28318f, 28);
+        dl->PathStroke(gold, 0, th);
+        dl->AddLine(ImVec2(c.x - R, c.y), ImVec2(c.x - ring, c.y), gold, th);
+        dl->AddLine(ImVec2(c.x + ring, c.y), ImVec2(c.x + R, c.y), gold, th);
+        dl->AddCircle(c, ring, gold, 24, th);
+        dl->AddCircleFilled(ImVec2(c.x - R, c.y), th * 0.5f, gold);  // (round ends)
+        dl->AddCircleFilled(ImVec2(c.x + R, c.y), th * 0.5f, gold);
+    }
+    dl->AddText(small_, u * 1.75f, ImVec2(x + u * 4.2f, ry + u * 1.45f), IM_COL32(255, 255, 255, 255), "Lumiose Online");
+    // the state
+    float ch = u * 7.5f, gap = fmaxf(0.0f, ph - u * (7.9f + 7.5f + 0.9f + 2.3f + 1.0f)), cy = ry + u * 7.9f + gap * 0.4f;
+    dl->AddRectFilled(ImVec2(x, cy), ImVec2(x + w, cy + ch), IM_COL32(14, 22, 48, 235), u * 0.5f);
+    dl->AddRect(ImVec2(x, cy), ImVec2(x + w, cy + ch), pal::edge, u * 0.5f, 0, 1.5f);
+    ImVec2 ic(x + u * 1.7f, cy + u * 1.6f);
+    const ImU32 dot = v.good ? IM_COL32(70, 214, 110, 255) : v.bad ? IM_COL32(255, 170, 90, 255) : IM_COL32(150, 172, 210, 255);
+    const ImU32 dark = IM_COL32(8, 18, 35, 255);
+    dl->AddCircleFilled(ic, u * 0.95f, dot, 24);
+    if (v.good) {
+        dl->AddLine(ImVec2(ic.x - u * 0.4f, ic.y), ImVec2(ic.x - u * 0.1f, ic.y + u * 0.32f), dark, u * 0.16f);
+        dl->AddLine(ImVec2(ic.x - u * 0.1f, ic.y + u * 0.32f), ImVec2(ic.x + u * 0.42f, ic.y - u * 0.3f), dark, u * 0.16f);
+    } else {  // "!" for a problem, "i" otherwise
+        dl->AddText(small_, u * 1.1f, ImVec2(ic.x - u * (v.bad ? 0.1f : 0.12f), ic.y - u * 0.62f), dark, v.bad ? "!" : "i");
+    }
+    char fit_line[96];
+    dl->AddText(small_, u * 1.15f, ImVec2(x + u * 3.2f, cy + u * 0.55f), v.good ? pal::accent2 : v.bad ? pal::warn : pal::text, v.headline);
+    dl->AddText(small_, u * 0.85f, ImVec2(x + u * 3.2f, cy + u * 1.95f), pal::sub, fit(small_, u * 0.85f, v.line, w - u * 4.2f, fit_line, sizeof fit_line));
+    const char *rows[2][2] = {{"Build", v.build}, {"Save", "Same as offline"}};
+    for (int i = 0; i < 2; i++) {
+        float ly = cy + u * (3.4f + 2.0f * i);
+        dl->AddLine(ImVec2(x + u, ly), ImVec2(x + w - u, ly), pal::edge, 1.0f);
+        dl->AddText(small_, u * 0.95f, ImVec2(x + u, ly + u * 0.5f), pal::text, rows[i][0]);
+        ImVec2 vs = small_->CalcTextSizeA(u * 0.95f, FLT_MAX, 0, rows[i][1]);
+        dl->AddText(small_, u * 0.95f, ImVec2(x + w - u - vs.x, ly + u * 0.5f), i == 0 && v.build_good ? pal::accent2 : pal::text, rows[i][1]);
+    }
+    // PLAY ONLINE
+    ImVec2 p(x, cy + ch + u * 0.9f + gap * 0.6f), q(x + w, p.y + u * 2.3f);
+    ImGui::SetCursorScreenPos(p);
+    ImGui::PushStyleColor(ImGuiCol_NavCursor, ImVec4(0, 0, 0, 0));
+    ImGui::BeginDisabled(!v.on);
+    bool clicked = ImGui::InvisibleButton("##play-online", ImVec2(w, q.y - p.y), ImGuiButtonFlags_EnableNav);
+    bool hot = v.on && (ImGui::IsItemHovered() || ImGui::IsItemFocused());
+    ImGui::EndDisabled();
+    ImGui::PopStyleColor();
+    if (hot) dl->AddRectFilled(ImVec2(p.x - 3, p.y - 3), ImVec2(q.x + 3, q.y + 3), IM_COL32(72, 214, 255, 50), u * 0.7f);
+    const ImU32 ink = v.on ? IM_COL32(6, 20, 44, 255) : IM_COL32(150, 172, 210, 255);
+    if (v.progress >= 0) {  // preparing: the button fills as it goes
+        dl->AddRectFilled(p, q, IM_COL32(20, 44, 78, 255), u * 0.55f);
+        dl->PushClipRect(p, ImVec2(p.x + (q.x - p.x) * fminf(1.0f, v.progress), q.y), true);
+        dl->AddRectFilled(p, q, IM_COL32(38, 128, 200, 255), u * 0.55f);
+        dl->PopClipRect();
+    } else {
+        dl->AddRectFilled(p, q, !v.on ? IM_COL32(22, 36, 64, 255) : hot ? IM_COL32(120, 232, 255, 255) : IM_COL32(60, 205, 255, 255), u * 0.55f);
+    }
+    ImVec2 ts = small_->CalcTextSizeA(u * 1.2f, FLT_MAX, 0, v.button);
+    float tx0 = p.x + (w - ts.x - u * 1.8f) * 0.5f + u * 1.8f, my = (p.y + q.y) * 0.5f;
+    dl->AddText(small_, u * 1.2f, ImVec2(tx0, my - ts.y * 0.5f), v.progress >= 0 ? IM_COL32(255, 255, 255, 255) : ink, v.button);
+    ImVec2 gc(tx0 - u * 1.0f, my);  // a globe
+    const ImU32 gink = v.progress >= 0 ? IM_COL32(255, 255, 255, 255) : ink;
+    dl->AddCircle(gc, u * 0.62f, gink, 24, u * 0.12f);
+    dl->AddEllipse(gc, ImVec2(u * 0.28f, u * 0.62f), gink, 0, 24, u * 0.1f);
+    dl->AddLine(ImVec2(gc.x - u * 0.62f, gc.y), ImVec2(gc.x + u * 0.62f, gc.y), gink, u * 0.1f);
+    return clicked ? 1 : 0;
+}
+#endif
+
+// CONTINUE: the chosen (else the most recent) save is selected and remembered (false: no save has progress).
 bool saves_use_latest(void) {
-    const SaveSlot *l = latest();
+    const SaveSlot *l = chosen();
     if (!l) return false;
     saves_select(l->id);
     snprintf(g_settings.save_slot, sizeof g_settings.save_slot, "%s", l->id);

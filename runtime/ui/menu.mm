@@ -818,6 +818,9 @@ static void tab_shaders(void) {
     opt_end();
 }
 
+extern "C" int audio_input_device_names(char names[][256], int max);  // services/audio_in.c
+extern "C" float audio_input_test_level(void);
+
 static void tab_audio(void) {
     opt_begin("##audio", ImGui::GetFontSize() / 34);
     opt_section("Sound");
@@ -825,10 +828,39 @@ static void tab_audio(void) {
     if (opt_slider("Volume", &pct, 0, 200, 5, 100, "%g%%",
                    "The game's volume. 100% is the game's own level; above it, louder."))
         g_settings.volume = pct / 100.0f;
-    opt_toggle("Room reverb", &g_settings.reverb, true,
-               "The game's echo in caves, dungeons and big rooms.");
-    opt_toggle("Movie audio", &g_settings.movie_audio, true,
-               "Sound in the game's movies (the opening and the ending). Applies the next time a movie starts.");
+
+    opt_section("Microphone");
+    {   // the games that use the microphone (the voice chat of Lumiose Online): which one, how loud, and a test
+        static char names[8][256];
+        static int count = -1;
+        static double listed;
+        if (count < 0 || ImGui::GetTime() - listed > 3) { count = audio_input_device_names(names, 8); listed = ImGui::GetTime(); }
+        const char *labels[9] = {"System default"};
+        int selected = 0;
+        for (int i = 0; i < count; i++) {
+            labels[i + 1] = names[i];
+            if (!strcmp(names[i], g_settings.mic_device)) selected = i + 1;
+        }
+        if (opt_choice("Input device", &selected, labels, count + 1, 0,
+                       "The microphone the game listens to. System default follows the Mac's choice in System Settings > Sound.",
+                       false)) {
+            snprintf(g_settings.mic_device, sizeof g_settings.mic_device, "%s", selected ? labels[selected] : "");
+            settings_save();
+        }
+        float mic = roundf(g_settings.mic_gain * 100);
+        if (opt_slider("Microphone volume", &mic, 0, 200, 5, 100, "%g%%",
+                       "How loud your voice is sent. 100% is as the microphone captures it."))
+            g_settings.mic_gain = mic / 100.0f;
+        static bool testing;
+        opt_toggle("Microphone test", &testing, false,
+                   "Shows what the chosen microphone hears while this is on. macOS asks for the microphone permission the first time.\n\n"
+                   "If you hear or see nothing, check the permission in macOS: System Settings > Privacy & Security > Microphone.");
+        if (testing) {
+            float level = audio_input_test_level();
+            ImGui::ProgressBar(level > 1 ? 1 : level, ImVec2(-FLT_MIN, ImGui::GetFontSize() * 0.9f), "");
+            ImGui::TextDisabled("If nothing moves, check the permission in macOS: System Settings > Privacy & Security > Microphone.");
+        }
+    }
     opt_end();
 }
 
@@ -1137,8 +1169,11 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
             if (open) {
                 g_tab = t.id;
                 ImGui::Spacing();
-                ImGui::BeginChild("##page", ImVec2(0, 0), ImGuiChildFlags_None,  // (the rest of the window: no hint line)
+                // (the rest of the window: no hint line; outside the game the page's colour has room around the rows)
+                if (!in_game) ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(28 * scale, 18 * scale));
+                ImGui::BeginChild("##page", ImVec2(0, 0), in_game ? ImGuiChildFlags_None : ImGuiChildFlags_AlwaysUseWindowPadding,
                                   ImGuiWindowFlags_NavFlattened);
+                if (!in_game) ImGui::PopStyleVar();
                 // Down from the tab bar, pages that aren't option rows (Prelaunch, Controls): their first control
                 // (option-row pages: opt_focus_first)
                 if (down_from_tab && (t.id == -1 || t.id == 8)) {

@@ -149,6 +149,47 @@ def select_program(package, work, tool, keys, patch):
     raise ImportFailure('game')
 
 
+def addon_content(data):
+    """(title, data NCA name) of an AddOnContent cnmt (kind 0x82), or None for any other meta."""
+    if len(data) < 32: raise ImportFailure('package')
+    title, _, kind, extended, count = struct.unpack_from('<QIBxHH', data)
+    if kind != 0x82: return None
+    off = 32 + extended
+    if count > 4096 or off + count * 56 > len(data): raise ImportFailure('package')
+    ncas = [data[p + 32:p + 48].hex() + '.nca' for p in range(off, off + count * 56, 56) if data[p + 54] != 0]
+    if len(ncas) != 1: raise ImportFailure('package')
+    return title, ncas[0]
+
+
+def extract_dlc(dlc, keys, output, tool):
+    """Optional add-on package: its data partition goes to output/aoc-tree/<titleid>/ (packed to aoc/<id>.bin later)."""
+    keys = Path(keys).resolve(strict=True)
+    output = Path(output).resolve(strict=True)
+    package = in_field('dlc', Package, dlc)
+    with tempfile.TemporaryDirectory(prefix='.dlc-', dir=output) as tmp:
+        work = Path(tmp)
+        tickets = []
+        for name in package.entries:
+            if re.fullmatch(r'[0-9a-fA-F]{32}\.tik', name):
+                path = work / name; package.copy(name, path); tickets += ['--tik', path]
+        found = None
+        for i, name in enumerate(n for n in package.entries if re.fullmatch(r'[0-9a-fA-F]{32}\.cnmt\.nca', n)):
+            meta = work / name; package.copy(name, meta)
+            out = work / ('meta-' + str(i)); out.mkdir()
+            run_tool(tool, ['-k', keys, *tickets, '-x', '/0', out, meta])
+            for cnmt in out.glob('*.cnmt'):
+                if cnmt.stat().st_size > 4 << 20: raise ImportFailure('package')
+                found = found or addon_content(cnmt.read_bytes())
+        if not found or found[0] >> 13 != APP_ID >> 13: raise ImportFailure('dlc', 'dlc')
+        title, nca = found
+        path = work / nca; package.copy(nca, path)
+        dest = output / 'aoc-tree' / ('%016x' % title)
+        if dest.exists(): shutil.rmtree(dest)
+        dest.parent.mkdir(exist_ok=True)
+        run_tool(tool, ['-k', keys, *tickets, '-x', '/0', dest, path])
+        return title
+
+
 def extract(base, update, keys, output, tool, build_id):
     keys = in_field('keys', Path(keys).resolve, True)
     output = Path(output).resolve(strict=True)
@@ -185,12 +226,23 @@ def extract(base, update, keys, output, tool, build_id):
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Prepare your own game packages locally.')
     for name in ('base', 'update', 'keys', 'output', 'nstool', 'build-id'):
-        parser.add_argument('--' + name, required=True)
+        parser.add_argument('--' + name)
+    parser.add_argument('--dlc')  # optional add-on NSP; a bad one never fails the base import
+    parser.add_argument('--dlc-only', action='store_true')  # add the DLC to an installed game: no base, update or build id
     args = parser.parse_args(argv)
     try:
+        if args.dlc_only:
+            if not (args.dlc and args.keys and args.output and args.nstool): raise ImportFailure('input')
+            extract_dlc(args.dlc, args.keys, args.output, args.nstool)
+            emit('dlc ready')
+            return 0
+        if not all((args.base, args.update, args.keys, args.output, args.nstool, args.build_id)): raise ImportFailure('input')
         build_id = bytes.fromhex(args.build_id)
         if len(build_id) != 8: raise ImportFailure('input')
         extract(args.base, args.update, args.keys, args.output, args.nstool, build_id)
+        if args.dlc:
+            try: extract_dlc(args.dlc, args.keys, args.output, args.nstool); emit('dlc ready')
+            except (ImportFailure, OSError, ValueError): emit('dlc skipped')
         return 0
     except ImportFailure as e:
         emit('error ' + (e.field or 'none') + ' ' + e.code)

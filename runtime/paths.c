@@ -124,7 +124,7 @@ bool rt_resource(const char *name, const char *dev_rel, char *out, size_t n) {
 // ---- game files
 // What the setup (runtime/ui/launcher.mm) creates in extracted/, plus what older versions' extraction and manual
 // extractions left there (never read at run time).
-static const char *const GAME_FILES[] = {"exefs", "romfs", "romfs.bin", GAMELIB_NAME, GAMELIB_NAME ".id", ".gamebuild",
+static const char *const GAME_FILES[] = {"exefs", "romfs", "romfs.bin", "aoc", GAMELIB_NAME, GAMELIB_NAME ".id", ".gamebuild",
                                          ".extract", "extract.log", "xci_secure", "nso_raw", "update_pfs", ".DS_Store"};
 
 // game_dir must be <data root>/extracted, a real folder (a dev worktree's symlinked extracted/ is refused)
@@ -264,6 +264,14 @@ bool rt_game_setup_end(bool publish, char *why, size_t why_size) {
             snprintf(target, sizeof target, "%s/%s", g_setup_target, names[i]);
             ok = !is_link(source) && !is_link(target) && stat(source, &st) == 0 && S_ISREG(st.st_mode) &&
                  (!exists(target) || (stat(target, &st) == 0 && S_ISREG(st.st_mode)));
+        }
+        // The online edition's kept build (runtime/gamebuild.c) goes with the library it made; the stage is removed below.
+        char kept[1200];
+        snprintf(kept, sizeof kept, "%s/.gamebuild", g_setup_stage);
+        if (ok && exists(kept)) {
+            char target[1200];
+            snprintf(target, sizeof target, "%s/.gamebuild", g_setup_target);
+            ok = !is_link(target) && (!exists(target) || plat_remove_tree(target)) && rename(kept, target) == 0;
         }
         // Publish the id last. A crash between the renames leaves a mismatched
         // library that the loader rejects, and setup can rebuild it on retry.

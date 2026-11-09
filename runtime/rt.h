@@ -25,6 +25,9 @@ void rt_crash_explain(char *out, size_t n, const char *log_path);
 #define SDK_BASE     0x7008000000ull   // (128 MB for main: Pokémon Legends Z-A's image is 0x5f7a000)
 #define HLE_BASE     0x7080000000ull   // fake addresses for host-implemented functions
 #define HLE_SIZE     0x0000100000ull
+#define HLE_CODE_BASE (HLE_BASE + HLE_SIZE)
+#define HLE_CODE_STRIDE 64ull
+#define HLE_CODE_SIZE 0x40000ull
 #define TLS_BASE     0x7090000000ull
 #define TLS_SIZE     0x0000100000ull
 #define HLE_HEAP     0x7092000000ull   // guest-visible memory owned by host code
@@ -60,6 +63,10 @@ GuestFn dispatch_lookup(uint64_t addr);
 uint64_t hle_register(const char *name, HostFn fn);  // returns fake guest address
 HostFn hle_lookup_impl(const char *name);
 void hle_override(uint64_t guest_addr, HostFn fn, const char *name);
+void hle_guest_code_init(bool enabled);  // caller backs the guest veneer region first
+bool hle_guest_code_range(uint64_t addr, uint64_t size);
+void lumiose_test_store(uint64_t addr, uint64_t value, unsigned size);
+bool hle_guest_code_commit(uint64_t addr, uint64_t size);  // publish complete patches after writable alias closes
 void rt_fatal_trace(void) __attribute__((noreturn));
 void crash_handler_install(void);  // per thread (alternate signal stack)
 
@@ -93,3 +100,7 @@ void guest_call(Cpu *c, uint64_t addr);   // call guest function at addr (saves/
 uint64_t guest_sym(const char *name);     // cached loader_find_symbol, fatal if missing
 void *hle_alloc(uint64_t size);           // zeroed guest-visible memory (never freed)
 extern const char *g_romfs_dir;
+
+// Local Lumiose preparation: validate paired native libraries and bound offline capture.
+bool lumiose_library_matches(void *library);
+bool lumiose_capture_only(void);

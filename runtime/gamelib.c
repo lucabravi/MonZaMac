@@ -71,6 +71,10 @@ static const GameLibTables *open_lib(const char *path) {
         snprintf(g_error, sizeof g_error, "%s was built for another version", path);
         return NULL;  // (left loaded: nothing of it runs)
     }
+    if (getenv("LUMIOSE_TEST_MODULE") && !lumiose_capture_only() && !lumiose_library_matches(h)) {
+        snprintf(g_error, sizeof g_error, "the game library does not match this Lumiose module; prepare it again");
+        return NULL;
+    }
     return t;
 }
 

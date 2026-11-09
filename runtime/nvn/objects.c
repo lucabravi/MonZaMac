@@ -508,6 +508,12 @@ NVN(nvnTextureWriteTexels) {
         tegra_swizzle(AP(3), (uint8_t *)(uintptr_t)t->addr + l.offset, l.wb, l.hb, r[5] > 0 ? (uint32_t)r[5] : 1,
                       t->layout.fmt->bpb, l.block_height_log2, l.block_depth_log2);
         backend_pool_written(t->addr, tegra_total_size(&t->layout));
+    } else if (r && !A(1) && t->layout.fmt && t->layout.fmt->bw == 1 && t->layout.fmt->bh == 1 &&
+               !(t->flags & 0x10) && t->target != 10 && t->samples <= 1 && t->layout.depth == 1 && t->layout.layers <= 1 &&
+               r[0] >= 0 && r[1] >= 0 && r[2] == 0 && r[3] > 0 && r[4] > 0 && r[5] == 1 &&
+               tegra_swizzle_rect(AP(3), (uint8_t *)(uintptr_t)t->addr + l.offset, l.w, l.h,
+                                  r[0], r[1], r[3], r[4], t->layout.fmt->bpb, l.block_height_log2)) {
+        backend_pool_written(t->addr, tegra_total_size(&t->layout));
     } else {
         LOG("[nvn] partial WriteTexels not implemented\n");
     }

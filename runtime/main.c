@@ -36,7 +36,19 @@ static void module_init(Cpu *c, Module *m) {
 }
 
 static void rtld_init_sdk(Cpu *c) { module_init(c, &g_modules[1]); }
-static void rtld_init_main(Cpu *c) { module_init(c, &g_modules[0]); }
+static void rtld_init_main(Cpu *c) {
+    module_init(c, &g_modules[0]);
+    if (g_nmodules > 2) {  // the Lumiose module (loader.c), after main
+        extern int lumiose_test_initializing;
+        extern void lumiose_test_snapshot(void);
+        lumiose_test_initializing = 1;
+        module_init(c, &g_modules[2]);
+        lumiose_test_initializing = 0;
+        LOG("[lumiose] module initialization returned\n");
+        lumiose_test_snapshot();
+        if (lumiose_capture_only()) { LOG("[lumiose] offline capture complete\n"); exit(0); }
+    }
+}
 static void rtld_fini(Cpu *c) { (void)c; LOG("nnMain returned\n"); }
 
 // Claim the guest address range before anything else can map there. The host allocator places
@@ -203,7 +215,11 @@ int main(int argc, char **argv) {
         }
     }
 #endif
-    if (play_flag) saves_select_latest();  // --play skips the start screen: the most recent save, as its CONTINUE
+    if (play_flag) {  // --play skips the start screen: the most recent save, as its CONTINUE
+        saves_select_latest();
+        const char *want = getenv("LARECOMP_PLAY_SAVE");  // (the start screen restarting the game for online play: the save chosen there)
+        if (want && *want) saves_select(want);
+    }
     {   // Pokémon Legends Z-A (exefs/main build 7222e13ecf6adb32: 1.0.0, 8a1c86c437394b69: 2.0.0, b1f12fd919eae86a: 2.0.2): the start screen would ask for
         // game files it doesn't use - straight into the game, as with --play. Started without a log redirect (a
         // double click): the log goes to logs/play.log (the previous one: logs/play-anterior.log).
@@ -247,6 +263,19 @@ int main(int argc, char **argv) {
         const char *save_dir = g_save_dir;  // (a static buffer of saves.c, a literal or the environment's: outlives teardown)
         teardown();
         title = kind == RT_REBOOT_TITLE;
+        if (title && getenv("LUMIOSE_TEST_MODULE")) {
+            // Back to the start screen from an online session: the game library with the Lumiose module is loaded once per
+            // process, so a start without the module needs a fresh one (Play offline, or Play online again, as the player
+            // chooses). Its environment is the online one's; the start screen opens (no --play).
+            static const char *const online_env[] = {"LUMIOSE_TEST_MODULE", "LUMIOSE_TEST_LIBRARY", "LUMIOSE_TEST_NETWORK",
+                                                     "LUMIOSE_TEST_SERVER", "LARECOMP_GAME_LIB", "LARECOMP_PLAY_SAVE"};
+            for (size_t i = 0; i < sizeof online_env / sizeof *online_env; i++) unsetenv(online_env[i]);
+            char exe[1100];
+            if (plat_exe_path(exe, sizeof exe)) {
+                char *argv[] = {exe, (char *)root, NULL};
+                plat_exec(argv);
+            }
+        }
         if (!title) g_save_dir = save_dir;  // a reboot into the game keeps the save it had or was switched to (the Saves tab)
     }
 }

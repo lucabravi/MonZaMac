@@ -54,8 +54,11 @@ git -C "$NSTOOL" submodule status >> "$C/Resources/nstool/source-revision.txt"
 mkdir "$C/Resources/gamelib-src"
 cp runtime/cpu.h runtime/simd.h runtime/simd_fp.h runtime/gamelib.h tools/gamelib_entry.c runtime/hle/hle_symbols.txt \
    "$C/Resources/gamelib-src/"
+[ -n "${LUMIOSE_ONLINE:-}" ] && cp runtime/lumiose_cpu.h runtime/lumiose_rtld.h tools/lumiose/identity.c tools/lumiose_test_entry.c \
+   "$C/Resources/gamelib-src/"  # (what Play online builds the module with: lasgen online, runtime/ui/launcher.mm)
 cp docs/icon/icon.icns "$C/Resources/icon.icns"
 cp docs/icon/icon_1024.png "$C/Resources/icon.png"  # (window / Dock icon at run time)
+[ -n "${LUMIOSE_ONLINE:-}" ] && cp docs/icon/lumiose_banner.jpg "$C/Resources/lumiose_banner.jpg"  # (the online column's background)
 cp third_party/fonts/Baloo2/Baloo2-SemiBold.ttf "$C/Resources/Baloo2-SemiBold.ttf"  # (start screen; OFL, README "License")
 cp third_party/fonts/Baloo2/OFL.txt "$C/Resources/Baloo2-OFL.txt"
 
@@ -137,6 +140,7 @@ cat > "$C/Info.plist" <<EOF
     <key>LSArchitecturePriority</key><array><string>arm64</string></array>
     <key>LSApplicationCategoryType</key><string>public.app-category.games</string>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSMicrophoneUsageDescription</key><string>MonZaMac uses the microphone only when a game feature asks for it, such as the voice chat of Lumiose Online.</string>
 </dict>
 </plist>
 EOF
