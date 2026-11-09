@@ -60,8 +60,7 @@ first, and when the check cannot be made the active version starts. In the app, 
 kept yet (made before the online edition) builds the game code first, then goes on. The relay is the Lumiose Online
 team's (`lumioseonline.site:27777`, the machine their own launcher uses; `activate.py set-server` points elsewhere): the name is looked
 up when the version is read and the runtime is given only the resulting IPv4 address. When the name cannot be found the column says
-so and nothing is started. For now the scripts are found next to a
-source checkout; an app that does not have them says "not available here".
+so and nothing is started. The online app runs these tools through its bundled helper (`lasgen online <tool>`); a build without them says "not available here". A version prepared before an app update that changed the game code is prepared again on the next press, since the runtime refuses its library.
 `LARECOMP_ONLINE_STATE_TEST=ready|needs|setup|error|noserver (server not found)|off` shows each state without running anything.
 
 ## What is verified, and what is not
