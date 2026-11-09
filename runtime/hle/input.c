@@ -82,6 +82,7 @@ void input_reset(void) {
     recompute_keyboard();
 }
 
+volatile int g_shadow_hard;  // F8 (LARECOMP_DEVTOOLS only): 1 = the game's own hard shadow tap test instead of the smooth one
 volatile int g_debug_frame_request;  // F9 (LARECOMP_DEVTOOLS only): dump the next frame's passes (build/pass_*.png) + draw log
 
 // Events a test pushes (LARECOMP_HOST_INPUT type: / sdlkey: / sdlpad:) carry this device id: they go the whole way, menu first.
@@ -227,6 +228,10 @@ void input_handle_event(const SDL_Event *e) {
         if (devtools < 0) devtools = getenv("LARECOMP_DEVTOOLS") != NULL;
         if (devtools && e->type == SDL_EVENT_KEY_DOWN && !e->key.repeat && e->key.scancode == SDL_SCANCODE_F9)
             g_debug_frame_request = 1;
+        if (devtools && e->type == SDL_EVENT_KEY_DOWN && !e->key.repeat && e->key.scancode == SDL_SCANCODE_F8) {
+            g_shadow_hard ^= 1;
+            LOG("[shadow] taps: %s\n", g_shadow_hard ? "the game's hard test" : "smooth");
+        }
         if (e->key.scancode < SDL_SCANCODE_COUNT) keys_down[e->key.scancode] = e->type == SDL_EVENT_KEY_DOWN;
         recompute_keyboard();
         break;

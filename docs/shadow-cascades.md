@@ -38,7 +38,7 @@ guard zeroed stays lit, as in the game's own test. The game's tolerance for that
 the slope: used alone it lights everything.
 
 Tap count, radius, cascade choice and the self-shadow guard are unchanged. Enabled with the cascade filter; for the
-game's hard test, restart with `LARECOMP_SHADOW_SMOOTH=0`. It needs the cascade pattern: where that is not recognised
+game's hard test, restart with `LARECOMP_SHADOW_SMOOTH=0`, or, with `LARECOMP_DEVTOOLS=1`, press F8 to switch between the two while the game runs (the state is logged as `[shadow] taps:`; the shaders read it from the resolution-scale table, so nothing is rebuilt). It needs the cascade pattern: where that is not recognised
 (or `LARECOMP_SHADOW_CASCADE_FILTER=0`) the taps stay as they are.
 
 Seen in game in one cutscene (three Pokémon on the plaza, shadow resolution 2x, render scale 1.5x): steps gone, same
