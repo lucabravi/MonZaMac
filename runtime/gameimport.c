@@ -133,7 +133,7 @@ static void stop_import(void) {
 
 static void register_cleanup(void) { atexit(stop_import); }
 
-bool gameimport_run(const char *base, const char *update, const char *keys, const char *stage,
+bool gameimport_run(const char *base, const char *update, const char *keys, const char *dlc, const char *stage,
                     const unsigned char build_id[8], void (*progress)(double, const char *),
                     char *bad_field, size_t bad_field_size, char *why, size_t why_size) {
     if (bad_field && bad_field_size) bad_field[0] = 0;
@@ -144,7 +144,7 @@ bool gameimport_run(const char *base, const char *update, const char *keys, cons
     char id[17], log[1200];
     for (int i = 0; i < 8; i++) snprintf(id + i * 2, 3, "%02x", build_id[i]);
     snprintf(log, sizeof log, "%s/import.log", stage);
-    const char *argv[22]; int n = 0;
+    const char *argv[24]; int n = 0;
     argv[n++] = t.helper;
     if (t.script[0]) argv[n++] = t.script;
     else argv[n++] = "extract";
@@ -153,7 +153,9 @@ bool gameimport_run(const char *base, const char *update, const char *keys, cons
     argv[n++] = "--keys"; argv[n++] = keys;
     argv[n++] = "--output"; argv[n++] = stage;
     argv[n++] = "--nstool"; argv[n++] = t.nstool;
-    argv[n++] = "--build-id"; argv[n++] = id; argv[n] = NULL;
+    argv[n++] = "--build-id"; argv[n++] = id;
+    if (dlc && dlc[0]) { argv[n++] = "--dlc"; argv[n++] = dlc; }  // (optional: a bad one is skipped by the importer)
+    argv[n] = NULL;
     pthread_mutex_lock(&lock);
     active = quitting ? 0 : plat_spawn(argv, log, false);
     pthread_mutex_unlock(&lock);

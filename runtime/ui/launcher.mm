@@ -12,6 +12,8 @@
 #include <SDL3/SDL.h>
 #include <ctype.h>
 #include <dirent.h>
+#include <ftw.h>
+#include <sys/stat.h>
 #include <pthread.h>
 #include <string>
 #include <sys/stat.h>
@@ -208,7 +210,7 @@ static std::string check_game_files(const std::string &root) {
 // (runtime/romfs_build.c).
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static std::string g_src;           // the picked folder
-static std::string g_base, g_update, g_keys;
+static std::string g_base, g_update, g_keys, g_dlc;  // (g_dlc: optional Mega Dimension NSP)
 static int g_import_mode;           // 0: packages, 1: extracted folder
 static bool g_ownership;            // explicit confirmation for this setup; never persisted
 static std::string g_job;           // current setup step / result for the status line
@@ -582,12 +584,15 @@ static bool build_game_code(const std::string &root) {
     return ok;
 }
 
+static int rm_entry(const char *path, const struct stat *, int, struct FTW *) { return remove(path); }
+static void romfs_remove_tree(const char *dir) { nftw(dir, rm_entry, 16, FTW_DEPTH | FTW_PHYS); }
+
 static void *extract_thread(void *) {
-    std::string src, base, update, keys, exefs, romfs, destination;
+    std::string src, base, update, keys, dlc, exefs, romfs, destination;
     bool packages, confirmed, staged = false, unusable = false;
     char stage[1100] = "", why[256] = "";
     pthread_mutex_lock(&g_lock);
-    src = g_src; base = g_base; update = g_update; keys = g_keys;
+    src = g_src; base = g_base; update = g_update; keys = g_keys; dlc = g_dlc;
     packages = g_import_mode == 0; confirmed = g_ownership;
     g_bad_input.clear();
     pthread_mutex_unlock(&g_lock);
@@ -618,7 +623,7 @@ static void *extract_thread(void *) {
     staged = true; destination = stage;
     if (packages) {
         char bad_field[16] = "";
-        if (!gameimport_run(base.c_str(), update.c_str(), keys.c_str(), stage, BUILD_ID,
+        if (!gameimport_run(base.c_str(), update.c_str(), keys.c_str(), dlc.c_str(), stage, BUILD_ID,
                             import_progress, bad_field, sizeof bad_field, why, sizeof why)) {
             pthread_mutex_lock(&g_lock);
             g_bad_input = bad_field;
@@ -626,6 +631,17 @@ static void *extract_thread(void *) {
             set_job("Game-file preparation didn't finish", true, why); goto done;
         }
         exefs = destination + "/exefs"; romfs = destination + "/romfs";
+        // Optional DLC: each extracted add-on folder becomes aoc/<title id>.bin (what aoc:u lists)
+        std::string tree = destination + "/aoc-tree";
+        if (DIR *d = opendir(tree.c_str())) {
+            mkdir((destination + "/aoc").c_str(), 0755);
+            while (struct dirent *e = readdir(d))
+                if (e->d_name[0] != '.')
+                    romfs_build((tree + "/" + e->d_name).c_str(), (destination + "/aoc/" + e->d_name + ".bin").c_str(),
+                                NULL, why, sizeof why);
+            closedir(d);
+            romfs_remove_tree(tree.c_str());
+        }
     } else {
         set_job("Looking for the game files...");
         find_game(src, 0, exefs, romfs, unusable);
@@ -695,9 +711,9 @@ static void SDLCALL picked_package(void *which, const char *const *files, int) {
     if (!files || !files[0]) return;
     pthread_mutex_lock(&g_lock);
     int i = (int)(intptr_t)which;
-    (i == 0 ? g_base : i == 1 ? g_update : g_keys) = files[0];
+    (i == 0 ? g_base : i == 1 ? g_update : i == 2 ? g_keys : g_dlc) = files[0];
     g_ownership = false;
-    const char *field = i == 0 ? "base" : i == 1 ? "update" : "keys";
+    const char *field = i == 0 ? "base" : i == 1 ? "update" : i == 2 ? "keys" : "dlc";
     if (g_bad_input.empty() || g_bad_input == field) {
         g_bad_input.clear(); g_job.clear(); g_job_hint.clear(); g_job_failed = false;
     }
@@ -2023,7 +2039,7 @@ extern "C" void launcher_run(const char *root) {
                 ImGui::Spacing();
 
                 pthread_mutex_lock(&g_lock);
-                std::string src = g_src, base = g_base, update = g_update, keys = g_keys;
+                std::string src = g_src, base = g_base, update = g_update, keys = g_keys, dlc = g_dlc;
                 std::string job = g_job, job_hint = g_job_hint, bad_input = g_bad_input;
                 bool failed = g_job_failed;
                 pthread_mutex_unlock(&g_lock);
@@ -2083,12 +2099,13 @@ extern "C" void launcher_run(const char *root) {
                         static const SDL_DialogFileFilter bf[] = {{"Game packages", "nsp;xci"}, {"All files", "*"}};
                         static const SDL_DialogFileFilter uf[] = {{"Update package", "nsp"}, {"All files", "*"}};
                         static const SDL_DialogFileFilter kf[] = {{"Switch keys", "keys"}};
-                        const char *labels[] = {"Base game", "Update (2.0.2)", "prod.keys"};
-                        std::string values[] = {base, update, keys};
-                        for (int i = 0; i < 3; i++) {
-                            const char *field = i == 0 ? "base" : i == 1 ? "update" : "keys";
+                        const char *labels[] = {"Base game", "Update (2.0.2)", "prod.keys", "DLC (optional)"};
+                        std::string values[] = {base, update, keys, dlc};
+                        for (int i = 0; i < 4; i++) {
+                            const char *field = i == 0 ? "base" : i == 1 ? "update" : i == 2 ? "keys" : "dlc";
                             if (busy) opt_disable_next();
                             const char *hint = i == 2 ? "Drop prod.keys here or choose it. Read locally for setup; not copied or uploaded." :
+                                               i == 3 ? "Optional: the Mega Dimension DLC .nsp. Leave empty to play without it." :
                                                        "Drop the matching dump here or choose it. Compressed NSZ/XCZ files are not supported.";
                             std::string detail = hint;
                             if (!values[i].empty()) detail += "\n\nChosen: " + display_path(values[i]);
@@ -2099,7 +2116,8 @@ extern "C" void launcher_run(const char *root) {
                                 pthread_mutex_lock(&g_lock);
                                 if (i == 0) g_base = values[i];
                                 else if (i == 1) g_update = values[i];
-                                else g_keys = values[i];
+                                else if (i == 2) g_keys = values[i];
+                                else g_dlc = values[i];
                                 g_ownership = false;
                                 if (g_bad_input.empty() || g_bad_input == field) {
                                     g_bad_input.clear(); g_job.clear(); g_job_hint.clear(); g_job_failed = false;
@@ -2108,7 +2126,7 @@ extern "C" void launcher_run(const char *root) {
                             }
                             if (chosen)
                                 SDL_ShowOpenFileDialog(picked_package, (void *)(intptr_t)i, win,
-                                                       i == 0 ? bf : i == 1 ? uf : kf, i == 2 ? 1 : 2, NULL, false);
+                                                       i == 0 ? bf : i == 2 ? kf : uf, i == 2 ? 1 : 2, NULL, false);
                             first_row();
                         }
                         if (!gameimport_available())
