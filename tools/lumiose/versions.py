@@ -1,8 +1,10 @@
 """What preparation reads from the module itself. Any module build goes through this: no list of known builds, so a new
 build of the mod needs no MonZaMac release as long as it keeps working the same way (the start-up check decides)."""
+import re
 import struct
 
 GAME_PREFIX = 'b1f12fd919eae86a'
+RECOMP_PLATFORM = 2  # (the mod's own number for its PC build; the Switch build of the same mod is another)
 
 
 def full_build_id(build_id):
@@ -13,6 +15,12 @@ def full_build_id(build_id):
 
 def version_name(build_id):
     return 'build-' + build_id[:8]
+
+
+def module_info(log):
+    """((major, minor, patch, build), platform) a module printed about itself when it started, or None."""
+    found = re.search(r'\[update\] this build is (\d+)\.(\d+)\.(\d+) build (\d+) \(platform (\d+),', log)
+    return (tuple(int(x) for x in found.groups()[:4]), int(found.group(5))) if found else None
 
 
 def _adrp(word, pc):

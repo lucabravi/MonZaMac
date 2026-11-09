@@ -311,6 +311,10 @@ static bool online_setup() {
         const char *src = getenv("LUMIOSE_SOURCE");
         keep.insert(keep.end(), {"--source", src ? src : g_ou_tools});
     }
+    saves_use_latest();  // (the save the game is about to use: the mod puts its own update in that save's SD card folder)
+    char slot[4096];
+    if (realpath(saves_current_path(), slot))
+        keep.insert(keep.end(), {"--downloaded", std::string(slot) + "/sdcard/atmosphere/contents/0100F43008C44000/exefs/subsdk9"});
     return online_prep_start(online_tool("setup_online", keep).data());
 }
 

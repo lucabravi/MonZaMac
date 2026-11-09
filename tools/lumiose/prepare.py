@@ -25,7 +25,7 @@ import threading
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tools'))
 from nso import Nso
-from versions import GAME_PREFIX, full_build_id, jump_tables, version_name
+from versions import GAME_PREFIX, RECOMP_PLATFORM, full_build_id, jump_tables, module_info, version_name
 from commands import FROZEN, generator, tool
 
 BASES = {'main': 0x7000000000, 'sdk': 0x7008000000, 'lumiose': 0x7006200000}
@@ -275,6 +275,9 @@ def main():
                                 process.wait(timeout=3)
                             except subprocess.TimeoutExpired:
                                 os.killpg(process.pid, signal.SIGKILL); process.wait()
+                info = module_info((work / 'capture.log').read_text(errors='replace'))
+                if info and info[1] != RECOMP_PLATFORM:
+                    raise ValueError('This module is not the PC version of Lumiose Online')
                 images = {name: (capture / (name + '.image')).read_bytes() for name in ['main', 'sdk', 'subsdk9']}
                 stage_text(work / 'subsdk9', images['subsdk9'], stage / 'subsdk9')
                 seeds |= entries_from_capture(nso, images['subsdk9'])

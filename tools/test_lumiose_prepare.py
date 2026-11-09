@@ -31,6 +31,11 @@ class PreparationTests(unittest.TestCase):
         from versions import jump_tables
         self.assertEqual(jump_tables(self.jump_table_nso([0, 0x7000, 2])), [])
 
+    def test_reads_what_the_module_says_about_itself(self):
+        from versions import module_info
+        self.assertEqual(module_info('x\n[guest] [update] this build is 1.5.0 build 1 (platform 2, channel 0)\n'), ((1, 5, 0, 1), 2))
+        self.assertIsNone(module_info('[guest] nothing here\n'))
+
     def test_build_id_from_nso_is_the_full_padded_id(self):
         # tools/nso.py trims the zero padding of the build id; the runtime uses all 32 bytes
         from versions import full_build_id

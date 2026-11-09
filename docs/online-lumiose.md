@@ -8,7 +8,7 @@ Lumiose Online is a separate service run by its own authors, not by MonZaMac. Fo
 - A **Switch mod**, not code of this project: a `subsdk9` NSO module that Atmosphère loads next to the game's `main`
   and `sdk`. On a Switch it patches the game when it starts (branch hooks into itself), talks to a **relay server** over
   UDP through `nn::socket`, and shows other players and a chat in the game.
-- It updates itself: it downloads a new `subsdk9` to its SD-card path and the next start runs that one.
+- It updates itself: it gets a signed `subsdk9` from the relay and installs it on the SD card; on a Switch the next start runs that one. Here the SD card is the save's `sdcard` folder, and `setup_online.py` prepares that file on the next **Play online**, before looking at the site (which can be behind the relay). A module that is not newer than the active version, or is not the PC build (platform 2), is not activated.
 - The relay is the team's server, `lumioseonline.site:27777` (the machine behind their site, also the one their own launcher uses). It is the default here and can be pointed elsewhere; the runtime only ever reaches the one IPv4 address it is given.
 
 ## What the runtime has for it
