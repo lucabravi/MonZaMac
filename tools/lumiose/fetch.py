@@ -22,7 +22,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent))
-from versions import profile  # noqa: E402
+from versions import version_name  # noqa: E402
 from nso import Nso  # noqa: E402
 
 DEFAULT_URL = 'https://lumioseonline.site/downloads/latest/subsdk9'  # (its hash: DEFAULT_URL + '.sha256')
@@ -93,7 +93,7 @@ def fetch(url, out, opener=None, allow_http=False, limit=LIMIT, sha256=None):
             if sha256 and sha != sha256.lower():
                 raise ValueError('the download does not match the SHA-256 the authors publish for it')
             nso = Nso(part)  # raises ValueError for anything that is not a well-formed NSO
-            version = profile(nso.build_id)[0]  # raises ValueError for a build this tooling does not know
+            version = version_name(nso.build_id)
             path = out / f'subsdk9-{sha[:16]}'
             os.replace(part, path)
             return path, sha, version

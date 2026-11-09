@@ -21,6 +21,7 @@ A new start screen, and **Lumiose Online**: optional online play with the multip
 - The online edition keeps the game code build (about 1.3 GB more on disk) to prepare the mod quickly; **Delete game files** removes it.
 - **Microphone** for the mod's voice chat: the game can use the Mac's microphone, and macOS asks for the permission the first time. The voice itself has not been heard by another player yet.
 - Not verified yet: chat text entry and delivery, play against Windows or Linux players, and every optional feature of MonZaMac together with the mod.
+- A new build of the Lumiose Online module is prepared without a MonZaMac update: the app reads what it needs from the module itself. A build that works differently and does not start is not activated.
 
 ### Audio settings
 - **Microphone** section in Settings > Audio: the **input device** (the Mac's default or any microphone it finds), the **microphone volume** (0 to 200%) and a **Microphone test** with a live level bar, for the voice chat of Lumiose Online. If nothing is heard, the page says to check the permission in System Settings > Privacy & Security > Microphone.

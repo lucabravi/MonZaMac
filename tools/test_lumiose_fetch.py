@@ -36,34 +36,24 @@ class FetchTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.out = Path(self.tmp.name) / 'out'
         self.good = fixture(compressed=True, hashes=True)
-        # a build id this tooling "knows", for the synthetic file
-        import versions
-        self.versions = versions
-        self.original = dict(versions.PROFILES)
-        versions.PROFILES[versions.full_build_id(self.known_id())] = ('test-build', [])
 
     def tearDown(self):
-        self.versions.PROFILES.clear(); self.versions.PROFILES.update(self.original); self.tmp.cleanup()
-
-    def known_id(self):
-        p = Path(self.tmp.name) / 'probe'; p.write_bytes(self.good)
-        return nso.Nso(p).build_id
+        self.tmp.cleanup()
 
     def test_https_only(self):
         for url in ['http://example.com/x', 'ftp://example.com/x', 'file:///etc/passwd', '/etc/passwd']:
             with self.assertRaises(ValueError): fm.fetch(url, self.out)
         self.assertFalse(self.out.exists() and any(self.out.iterdir()))
 
-    def test_keeps_a_known_module_under_its_hash(self):
+    def test_keeps_a_module_under_its_hash(self):
         with serve({'subsdk9': self.good}) as base:
             path, sha, version = fm.fetch(base + 'subsdk9', self.out, allow_http=True)
         self.assertEqual(path.read_bytes(), self.good)
-        self.assertEqual((path.name, version), (f'subsdk9-{sha[:16]}', 'test-build'))
+        self.assertEqual((path.name, version), (f'subsdk9-{sha[:16]}', 'build-00010203'))
         self.assertEqual(sorted(p.name for p in self.out.iterdir()), [path.name])  # (no partial file left)
 
     def test_refuses_what_is_not_a_known_module_and_leaves_nothing(self):
-        wrong = bytearray(self.good); wrong[0x40:0x44] = b'\x01\x02\x03\x04'  # another build id
-        cases = {'text': b'<html>not found</html>' * 30, 'tiny': b'NSO0', 'unknown': bytes(wrong), 'big': b'x' * 5000}
+        cases = {'text': b'<html>not found</html>' * 30, 'tiny': b'NSO0', 'big': b'x' * 5000}
         with serve(cases) as base:
             for name in cases:
                 with self.assertRaises(ValueError, msg=name):
@@ -90,7 +80,7 @@ class FetchTests(unittest.TestCase):
         sha = hashlib.sha256(self.good).hexdigest()
         with serve({'subsdk9': self.good, 'subsdk9.sha256': f'{sha}  subsdk9\n'.encode()}) as base:
             path, got, version = fm.fetch_latest(self.out, base + 'subsdk9', allow_http=True)
-        self.assertEqual((got, version), (sha, 'test-build'))
+        self.assertEqual((got, version), (sha, 'build-00010203'))
         with serve({'subsdk9': self.good, 'subsdk9.sha256': (b'1' * 64) + b'  subsdk9\n'}) as base:
             with self.assertRaises(ValueError): fm.fetch_latest(self.out, base + 'subsdk9', allow_http=True)
         with serve({'subsdk9': self.good}) as base:  # (no hash file: no module)
@@ -102,6 +92,13 @@ class FetchTests(unittest.TestCase):
         with serve({}) as base:
             with self.assertRaises(OSError): fm.fetch(base + 'nothing', self.out, allow_http=True)
         self.assertEqual(list(self.out.iterdir()), [])
+
+    def test_a_build_never_seen_is_kept(self):
+        other = bytearray(self.good); other[0x40:0x44] = b'\x01\x02\x03\x04'
+        with serve({'other': bytes(other)}) as base:
+            path, _, version = fm.fetch(base + 'other', self.out, allow_http=True)
+        self.assertTrue(path.is_file())
+        self.assertEqual(version, 'build-01020304')
 
 
 if __name__ == '__main__':

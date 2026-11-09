@@ -35,11 +35,11 @@ Nothing uses the network unless a command is run on purpose: only `fetch.py`, an
 
 | Tool | What it does |
 |---|---|
-| `fetch.py` | Downloads the newest live module from the fixed link the Lumiose Online team keeps for it, and keeps it only if it matches the SHA-256 they publish next to it (https only, size limit, NSO header, a build this tooling knows), under its own hash in `build/lumiose-modules/` |
+| `fetch.py` | Downloads the newest live module from the fixed link the Lumiose Online team keeps for it, and keeps it only if it matches the SHA-256 they publish next to it (https only, size limit, NSO header), under its own hash in `build/lumiose-modules/` |
 | `prepare.py` | From the module and the 2.0.2 game: starts the game hidden and offline to capture what the module patches, generates and compiles the module and the patched `main`/`sdk` libraries (unchanged objects are reused), and writes `ready.json` with the hash of every output |
 | `activate.py` | Lists prepared versions, makes one the active one after verifying it (optionally after starting it hidden to see that it comes up), goes back to the previous one, sets or clears the relay endpoint (the default is the team's `lumioseonline.site:27777`), prints the command that starts it |
 | `setup_online.py` | Does find (or download, when there is none), prepare, check and activate as one job with one progress (`PROGRESS` / `STATUS` lines) for a screen |
-| `versions.py` | The module builds studied so far (1.3.9, 1.4.3 build 2, and the build published in November 2026 — same 15 jump-table sites, three used): reference offsets only, no module code. Any other build is refused until a profile is added |
+| `versions.py` | Reads the module's switch tables from its own code (their targets are entry points for the generator). There is no list of known builds |
 
 In the online app the start screen's game code build is kept (`.gamebuild` in the game folder: generated C, objects,
 link list, about 1.3 GB), and the tools read it with `--cache`, the bundled headers with `--include` and the bundled
@@ -77,14 +77,14 @@ source checkout; an app that does not have them says "not available here".
 
 - Chat text entry and delivery, play against Windows or Linux players, and every optional feature of this project with
   the patched library are not verified.
-- A mod version that patches the game differently needs a profile in `tools/lumiose/versions.py` before it can be prepared.
+- A new module build is prepared without a MonZaMac release. One that works differently (no tables found, or it fails the start-up check) is not activated, and the previous version stays; that case needs a compatibility update.
 - The packaged online app was built and its pieces tried one by one; a complete first run on a clean Mac is still to be seen.
 
 ## Risks
 
 1. **Permission for the module and the servers** rests with their authors.
 2. **A self-patching module:** the patched library has to be rebuilt for every module version.
-3. **Native code from a download:** a new module is new code running on the player's Mac; it needs a deliberate rule.
+3. **Native code from a download:** a new module is new code running on the player's Mac. The rule: https from the team's fixed link and a match with the SHA-256 they publish; any build is accepted, with no list of ours in between.
 4. **Compatibility with other platforms** needs the same game and module versions.
 5. **This project's optional features** (frame generation, temporal upscaling, smooth distant animation) change timing in
    ways an online game may not tolerate.
