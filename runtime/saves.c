@@ -323,6 +323,16 @@ bool saves_import_stage(const char *src, char *err, size_t n) {
     }
     if (tree_bytes(from) > IMPORT_MAX_BYTES) return remove_tree(STAGE), snprintf(err, n, "That's too big to be a Z-A save."), false;
     bool ok = copy_tree(from, STAGE "/save_0");
+    // next to the save: the mod's folder (sdcard: its settings and data), when our own export or a slot folder has it
+    char parent[1024], card[1100];
+    snprintf(parent, sizeof parent, "%s", from);
+    char *slash = strrchr(parent, '/');
+    if (ok && slash && !strcmp(slash + 1, "save_0")) {
+        *slash = 0;
+        snprintf(card, sizeof card, "%s/sdcard", parent);
+        struct stat cs;
+        if (lstat(card, &cs) == 0 && S_ISDIR(cs.st_mode) && tree_bytes(card) <= IMPORT_MAX_BYTES) ok = copy_tree(card, STAGE "/sdcard");
+    }
     remove_tree(STAGE "/zip");
     if (!ok) return remove_tree(STAGE), snprintf(err, n, "The save couldn't be copied."), false;
     if (!save_info(STAGE)) return remove_tree(STAGE), snprintf(err, n, "That's not a Pokémon Legends: Z-A save."), false;
@@ -336,6 +346,10 @@ bool saves_import_commit(const char *name, char *id_out) {
     if (!new_slot_path(name, id, path, sizeof path) || mkdir(path, 0755) != 0) return false;
     snprintf(to, sizeof to, "%s/save_0", path);
     if (rename(STAGE "/save_0", to) != 0) { rmdir(path); return false; }
+    if (is_dir(STAGE "/sdcard")) {  // (the mod's folder came with it: best effort, the save is already in)
+        snprintf(to, sizeof to, "%s/sdcard", path);
+        rename(STAGE "/sdcard", to);
+    }
     remove_tree(STAGE);
     if (id_out) snprintf(id_out, SAVE_NAME_MAX + 1, "%s", id);
     return true;
@@ -349,8 +363,12 @@ bool saves_export(const char *id, const char *zip) {
     snprintf(s0, sizeof s0, "%s/save_0", slot);
     if (!is_dir(s0)) return false;
     unlink(zip);  // (the save panel asked before replacing it)
-    const char *argv[] = {"/usr/bin/tar", "-a", "-c", "-f", zip, "-C", slot, "save_0", NULL};  // -a: a .zip, from the name
-    return run_tar(argv);
+    char card[160];
+    snprintf(card, sizeof card, "%s/sdcard", slot);
+    // -a: a .zip, from the name. The mod's folder (sdcard: its settings and data) goes along when there is one
+    const char *with_card[] = {"/usr/bin/tar", "-a", "-c", "-f", zip, "-C", slot, "save_0", "sdcard", NULL};
+    const char *without[] = {"/usr/bin/tar", "-a", "-c", "-f", zip, "-C", slot, "save_0", NULL};
+    return run_tar(is_dir(card) ? with_card : without);
 }
 
 // A name for the staged save. Our own export's file name ("<name> - <h>h<mm> - <yyyy-mm-dd>.zip") gives back the slot's

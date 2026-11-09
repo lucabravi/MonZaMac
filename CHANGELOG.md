@@ -31,6 +31,7 @@ A new start screen, and **Lumiose Online**: optional online play with the multip
 
 ### Fixes
 - Pressing **Esc** a few times with a controller connected could stop the app (an ImGui assertion in the menu). The menu now cancels a layer toggle it cannot finish.
+- **Export and import of a save** now include the mod's folder (`sdcard`: Lumiose Online's settings and data) next to the save itself, so a backup or a move to another Mac keeps them; copying a save already did. A zip from before, or from JKSV, still imports as just the save.
 - The key **0** no longer does anything: it wrote a dump of the next frame into `build/` for every player. **F9** does it only with `LARECOMP_DEVTOOLS`.
 
 ## 0.1.7
