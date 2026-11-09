@@ -36,10 +36,37 @@ int main(void) {
     assert(!strcmp(st.endpoint, "203.0.113.5:27777"));
     assert(online_prep_parse_line("PROGRESS {\"step\": \"unterminated", &st));  // (a cut line changes nothing it cannot read)
 
+    // Python's ASCII JSON output represents non-BMP path characters as surrogate pairs.
+    assert(online_prep_parse_line("STATUS {\"dir\": \"/tmp/\\ud83c\\udfae/\\udbff\\udfff\"}", &st));
+    assert(!strcmp(st.dir, "/tmp/\xf0\x9f\x8e\xae/\xf4\x8f\xbf\xbf"));
+    const char *bad_paths[] = {
+        "STATUS {\"dir\": \"/tmp/\\ud83c\"}",
+        "STATUS {\"dir\": \"/tmp/\\udfae\"}",
+        "STATUS {\"dir\": \"/tmp/\\ud83c\\u0041\"}",
+        "STATUS {\"dir\": \"/tmp/\\ud83c\\udfa",
+        "STATUS {\"dir\": \"/tmp/\\u12",
+    };
+    for (size_t i = 0; i < sizeof bad_paths / sizeof *bad_paths; i++) {
+        assert(online_prep_parse_line(bad_paths[i], &st));
+        assert(!strcmp(st.dir, "/tmp/\xf0\x9f\x8e\xae/\xf4\x8f\xbf\xbf"));
+    }
+
     // a job that reports progress and ends ready
     job("echo noise; echo 'PROGRESS {\"state\": \"running\", \"fraction\": 0.5, \"step\": \"half\"}'; "
         "echo 'PROGRESS {\"state\": \"ready\", \"fraction\": 1.0, \"step\": \"Prepared\", \"dir\": \"/tmp/x y\"}'", &st);
     assert(!strcmp(st.state, "ready") && st.fraction == 1.0f && !strcmp(st.dir, "/tmp/x y"));
+
+    // A result line is provisional until the process exits successfully.
+    job("echo 'PROGRESS {\"state\": \"ready\", \"dir\": \"/tmp/incomplete\", \"message\": \"Ready\"}'; exit 7", &st);
+    assert(!strcmp(st.state, "error") && st.message[0] && strcmp(st.message, "Ready"));
+    job("echo 'STATUS {\"state\": \"ready\"}'; kill -9 $$", &st);
+    assert(!strcmp(st.state, "error") && strstr(st.message, "stopped"));
+    job("echo 'STATUS {\"state\": \"none\"}'; exit 2", &st);
+    assert(!strcmp(st.state, "error") && st.message[0]);
+    job("echo 'STATUS {\"state\": \"none\"}'", &st);
+    assert(!strcmp(st.state, "none"));
+    job("echo 'STATUS {\"state\": \"invalid\"}'", &st);
+    assert(!strcmp(st.state, "invalid"));
 
     // it reports an error itself
     job("echo 'PROGRESS {\"state\": \"error\", \"message\": \"no module\"}'; exit 1", &st);

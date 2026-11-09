@@ -306,6 +306,7 @@ static bool is_dir(const char *p) {
 }
 
 bool saves_import_stage(const char *src, char *err, size_t n) {
+    save_info_invalidate(STAGE);
     remove_tree(STAGE);
     mkdir(ROOT, 0755);
     if (mkdir(STAGE, 0755) != 0) return snprintf(err, n, "Couldn't prepare the import."), false;
@@ -362,13 +363,23 @@ bool saves_export(const char *id, const char *zip) {
     slot_path(id, slot, sizeof slot);
     snprintf(s0, sizeof s0, "%s/save_0", slot);
     if (!is_dir(s0)) return false;
-    unlink(zip);  // (the save panel asked before replacing it)
+    // Keep an existing backup until tar finishes. The temporary shares its filesystem and keeps the .zip suffix.
+    size_t size = strlen(zip) + sizeof ".XXXXXX.zip";
+    char *tmp = malloc(size);
+    if (!tmp) return false;
+    snprintf(tmp, size, "%s.XXXXXX.zip", zip);
+    int fd = mkstemps(tmp, 4);
+    if (fd < 0) { free(tmp); return false; }
+    close(fd);
     char card[160];
     snprintf(card, sizeof card, "%s/sdcard", slot);
     // -a: a .zip, from the name. The mod's folder (sdcard: its settings and data) goes along when there is one
-    const char *with_card[] = {"/usr/bin/tar", "-a", "-c", "-f", zip, "-C", slot, "save_0", "sdcard", NULL};
-    const char *without[] = {"/usr/bin/tar", "-a", "-c", "-f", zip, "-C", slot, "save_0", NULL};
-    return run_tar(is_dir(card) ? with_card : without);
+    const char *with_card[] = {"/usr/bin/tar", "-a", "-c", "-f", tmp, "-C", slot, "save_0", "sdcard", NULL};
+    const char *without[] = {"/usr/bin/tar", "-a", "-c", "-f", tmp, "-C", slot, "save_0", NULL};
+    bool ok = run_tar(is_dir(card) ? with_card : without) && rename(tmp, zip) == 0;
+    if (!ok) unlink(tmp);
+    free(tmp);
+    return ok;
 }
 
 // A name for the staged save. Our own export's file name ("<name> - <h>h<mm> - <yyyy-mm-dd>.zip") gives back the slot's
