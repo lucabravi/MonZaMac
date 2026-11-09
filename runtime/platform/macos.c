@@ -5,6 +5,7 @@
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <mach-o/dyld.h>
+#include <mach-o/getsect.h>
 #include <mach/mach.h>
 #include <mach/mach_time.h>
 #include <mach/mach_vm.h>
@@ -20,15 +21,27 @@
 #include "../platform.h"
 #include "../rt.h"
 
+#ifdef __APPLE__
+// Claim 32 GB of virtual address space in the Mach-O binary at 0x7000000000 so the host allocator
+// (libmalloc) and dyld do not place regions inside the guest address space during process startup.
+__asm__(".zerofill __GUEST,__guest,_guest_space,0x800000000,4\n"
+        ".no_dead_strip _guest_space\n");
+#endif
+
 static mach_timebase_info_data_t tb;
 
 void plat_init(void) {}
 
 bool plat_reserve_guest(uint64_t lo, uint64_t hi) {
     // Everything readable/writable: macOS pages are 16K but the guest maps at 4K granularity.
-    // Untouched pages cost nothing.
+    // Untouched pages cost nothing. If __GUEST was reserved at link time, overwrite any placeholder
+    // mapping with fresh zero pages; otherwise fall back to VM_FLAGS_FIXED so collisions trigger re-exec.
     mach_vm_address_t a = lo;
-    return mach_vm_allocate(mach_task_self(), &a, hi - lo, VM_FLAGS_FIXED) == KERN_SUCCESS;
+    unsigned long seg_size = 0;
+    const struct mach_header_64 *hdr = (const struct mach_header_64 *)_dyld_get_image_header(0);
+    bool has_guest_seg = hdr && getsegmentdata(hdr, "__GUEST", &seg_size) != NULL && seg_size >= (hi - lo);
+    int flags = VM_FLAGS_FIXED | (has_guest_seg ? VM_FLAGS_OVERWRITE : 0);
+    return mach_vm_allocate(mach_task_self(), &a, hi - lo, flags) == KERN_SUCCESS;
 }
 
 // Fresh zero pages over the whole window (the old ones are released at once).
