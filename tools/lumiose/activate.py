@@ -218,7 +218,7 @@ def main():
     try:
         if args.cmd == 'list':
             state = read_state(root)
-            for d in sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []:
+            for d in sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith('.')) if root.is_dir() else []:
                 try: verify(root, d.name); status = 'ok'
                 except ValueError as e: status = str(e).split(': ', 1)[-1]
                 tag = ' (active)' if d.name == state['active'] else ' (previous)' if d.name == state['previous'] else ''

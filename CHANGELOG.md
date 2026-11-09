@@ -19,7 +19,7 @@ A new start screen, and **Lumiose Online**: optional online play with the multip
 - Every later press first checks for a newer module from the Lumiose Online team (a download checked against the SHA-256 they publish) and prepares it before starting. The server is the team's, `lumioseonline.site`; offline play never contacts it.
 - The mod's text starts at 120% so it is less grainy at 1080p; a size you set yourself is kept.
 - **Quit to start screen** from an online session restarts the program, so **Continue** there plays offline, without the mod.
-- The online edition keeps the game code build (about 2.4 GB more on disk) to prepare the mod quickly; **Delete game files** removes it.
+- The online edition keeps the game code build (about 1.3 GB more on disk) to prepare the mod quickly; **Delete game files** removes it.
 - **Microphone** for the mod's voice chat: the game can use the Mac's microphone, and macOS asks for the permission the first time. The voice itself has not been heard by another player yet.
 - Not verified yet: chat text entry and delivery, play against Windows or Linux players, and every optional feature of MonZaMac together with the mod.
 - A new build of the Lumiose Online module is prepared without a MonZaMac update: the app reads what it needs from the module itself. A build that works differently and does not start is not activated. An update the mod installs by itself in the game is prepared on the next **Play online**, even if the site has not got it yet.
@@ -32,6 +32,7 @@ A new start screen, and **Lumiose Online**: optional online play with the multip
 - New installs start with the **two-finger trackpad swipe turning the camera** (Controls > Mouse). An existing `larecomp.ini` keeps its own choice. The other graphics defaults are unchanged: fullscreen, fixed 1080p, 60 fps, SMAA, MetalFX spatial upscaling, smooth distant animation, sharper textures, frame generation off.
 
 ### Fixes
+- **The game code build takes about half the time** and less disk: `zig cc` was turning `-O1` into `-O2` with full debug info. It now compiles at `-O1`, like the builds the performance figures were measured with. In one comparison in the station the frame rate was about 2% lower than with the old flags (70.5 against 71.9 fps, a single pair of runs).
 - Pressing **Esc** a few times with a controller connected could stop the app (an ImGui assertion in the menu). The menu now cancels a layer toggle it cannot finish.
 - **Export and import of a save** now include the mod's folder (`sdcard`: Lumiose Online's settings and data) next to the save itself, so a backup or a move to another Mac keeps them; copying a save already did. A zip from before, or from JKSV, still imports as just the save.
 - The key **0** no longer does anything: it wrote a dump of the next frame into `build/` for every player. **F9** does it only with `LARECOMP_DEVTOOLS`.

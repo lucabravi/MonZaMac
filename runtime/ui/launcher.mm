@@ -281,7 +281,7 @@ static bool online_find_tools() {
     g_ou_tools = std::string(rt_data_root()) + "/lumiose-online";  // (the app: prepared versions and downloads)
     g_ou_python = helper;
     g_ou_include = inc;
-    g_ou_cc = "'" + std::string(zig) + "' cc";  // (prepare.py splits it as a shell would: the path may hold spaces)
+    g_ou_cc = "'" + std::string(zig) + "' cc -Xclang -O1 -g0";  // (prepare.py splits it as a shell would: the path may hold spaces; the flags: gamebuild.c)
     return true;
 }
 static std::string online_versions() { return g_ou_tools + (g_ou_app ? "/prepared" : "/build/lumiose-prepared"); }
