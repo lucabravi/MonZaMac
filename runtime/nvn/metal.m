@@ -1592,6 +1592,7 @@ static bool ui_preparation_update(void) {
             SDL_GetWindowProperties(window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
         if (!native) return true;
         input_reset();
+        input_mouse_release(window);  // (the game may have hidden the cursor already: Stop must be clickable)
         page = [[PreparationPage alloc] initWithFrame:native.contentView.bounds];
         [native.contentView addSubview:page positioned:NSWindowAbove relativeTo:nil];
     }
