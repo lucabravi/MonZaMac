@@ -308,6 +308,7 @@ static void lumiose_load_module(const char *exefs) {
     static const uint8_t mod_ids[][8] = {
         {0x96, 0xf2, 0xb1, 0x42, 0x85, 0x3f, 0xa1, 0x51},  // 1.3.9
         {0xb6, 0x33, 0x7a, 0xed, 0x49, 0x8a, 0x14, 0x80},  // 1.4.3 build 2
+        {0xfe, 0x57, 0x53, 0xd3, 0x59, 0x62, 0x88, 0xa6},  // the build published in November 2026
     };
     uint8_t h[0x60];
     char path[1024];
@@ -317,7 +318,7 @@ static void lumiose_load_module(const char *exefs) {
         FATAL("the Lumiose module needs the 2.0.2 game build\n");
     fclose(f);
     f = fopen(extra, "rb");
-    if (!f || fread(h, 1, sizeof h, f) != sizeof h || memcmp(h, "NSO0", 4) || (memcmp(h + 0x40, mod_ids[0], 8) && memcmp(h + 0x40, mod_ids[1], 8)))
+    if (!f || fread(h, 1, sizeof h, f) != sizeof h || memcmp(h, "NSO0", 4) || (memcmp(h + 0x40, mod_ids[0], 8) && memcmp(h + 0x40, mod_ids[1], 8) && memcmp(h + 0x40, mod_ids[2], 8)))
         FATAL("the Lumiose module is missing or is not the build this was written for\n");
     fclose(f);
     const uint64_t base = 0x7006200000ull;

@@ -39,7 +39,7 @@ Nothing uses the network unless a command is run on purpose: only `fetch.py`, an
 | `prepare.py` | From the module and the 2.0.2 game: starts the game hidden and offline to capture what the module patches, generates and compiles the module and the patched `main`/`sdk` libraries (unchanged objects are reused), and writes `ready.json` with the hash of every output |
 | `activate.py` | Lists prepared versions, makes one the active one after verifying it (optionally after starting it hidden to see that it comes up), goes back to the previous one, sets or clears the relay endpoint (the default is the team's `lumioseonline.site:27777`), prints the command that starts it |
 | `setup_online.py` | Does find (or download, when there is none), prepare, check and activate as one job with one progress (`PROGRESS` / `STATUS` lines) for a screen |
-| `versions.py` | The module builds studied so far (1.3.9, 1.4.3 build 2): reference offsets only, no module code. Any other build is refused until a profile is added |
+| `versions.py` | The module builds studied so far (1.3.9, 1.4.3 build 2, and the build published in November 2026 — same 15 jump-table sites, three used): reference offsets only, no module code. Any other build is refused until a profile is added |
 
 In the online app the start screen's game code build is kept (`.gamebuild` in the game folder: generated C, objects,
 link list, about 1.3 GB), and the tools read it with `--cache`, the bundled headers with `--include` and the bundled
