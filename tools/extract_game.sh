@@ -1,6 +1,6 @@
 #!/bin/bash
 # Source-checkout interface to the same local importer the app bundles.
-# usage: tools/extract_game.sh <base.nsp|base.xci> <update.nsp>
+# usage: tools/extract_game.sh <base.nsp|base.xci> <update.nsp> [dlc.nsp]
 # User-owned prod.keys: .keys/prod.keys, or KEYS=<file>. No tool diagnostics/key material are printed.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -15,7 +15,12 @@ if [ -e "$OUT/exefs" ] || [ -e "$OUT/romfs" ] || [ -L "$OUT" ]; then
 fi
 mkdir -p "$OUT" build
 python3 tools/game_extract.py --base "$BASE" --update "$UPDATE" --keys "$KEYS" --output "$OUT" \
-    --nstool "$NSTOOL" --build-id b1f12fd919eae86a
+    --nstool "$NSTOOL" --build-id b1f12fd919eae86a ${3:+--dlc "$3"}
 clang -O2 -Iruntime -o build/romfs_pack tools/za/romfs_pack.c runtime/romfs_build.c
 build/romfs_pack "$OUT/romfs" "$OUT/romfs.bin"
+if [ -d "$OUT/aoc-tree" ]; then
+    mkdir -p "$OUT/aoc"
+    for d in "$OUT"/aoc-tree/*/; do build/romfs_pack "$d" "$OUT/aoc/$(basename "$d").bin"; done
+    rm -rf "$OUT/aoc-tree"
+fi
 echo "done: $OUT/ is ready. Next: gmake B=build/za202 GEN=generated-202 gen"

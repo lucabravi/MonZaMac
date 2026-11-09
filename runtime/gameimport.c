@@ -133,7 +133,7 @@ static void stop_import(void) {
 
 static void register_cleanup(void) { atexit(stop_import); }
 
-bool gameimport_run(const char *base, const char *update, const char *keys, const char *stage,
+bool gameimport_run(const char *base, const char *update, const char *keys, const char *dlc, const char *stage,
                     const unsigned char build_id[8], void (*progress)(double, const char *),
                     char *bad_field, size_t bad_field_size, char *why, size_t why_size) {
     if (bad_field && bad_field_size) bad_field[0] = 0;
@@ -144,7 +144,7 @@ bool gameimport_run(const char *base, const char *update, const char *keys, cons
     char id[17], log[1200];
     for (int i = 0; i < 8; i++) snprintf(id + i * 2, 3, "%02x", build_id[i]);
     snprintf(log, sizeof log, "%s/import.log", stage);
-    const char *argv[22]; int n = 0;
+    const char *argv[24]; int n = 0;
     argv[n++] = t.helper;
     if (t.script[0]) argv[n++] = t.script;
     else argv[n++] = "extract";
@@ -153,7 +153,9 @@ bool gameimport_run(const char *base, const char *update, const char *keys, cons
     argv[n++] = "--keys"; argv[n++] = keys;
     argv[n++] = "--output"; argv[n++] = stage;
     argv[n++] = "--nstool"; argv[n++] = t.nstool;
-    argv[n++] = "--build-id"; argv[n++] = id; argv[n] = NULL;
+    argv[n++] = "--build-id"; argv[n++] = id;
+    if (dlc && dlc[0]) { argv[n++] = "--dlc"; argv[n++] = dlc; }  // (optional: a bad one is skipped by the importer)
+    argv[n] = NULL;
     pthread_mutex_lock(&lock);
     active = quitting ? 0 : plat_spawn(argv, log, false);
     pthread_mutex_unlock(&lock);
@@ -206,4 +208,25 @@ bool gameimport_run(const char *base, const char *update, const char *keys, cons
     else if (!strcmp(error, "decrypt") || !strcmp(error, "keys")) snprintf(why, why_size, "Couldn't read the encrypted game files. Check your prod.keys and game dumps.");
     else snprintf(why, why_size, "Couldn't prepare these files. Use complete NSP or XCI dumps and an update NSP; compressed dumps aren't supported.");
     return false;
+}
+
+bool gameimport_dlc(const char *dlc, const char *keys, const char *work, char *why, size_t why_size) {
+    ImportTools t;
+    if (!find_tools(&t)) { snprintf(why, why_size, "The import tools are missing. Reinstall the complete app."); return false; }
+    char log[1200];
+    snprintf(log, sizeof log, "%s/dlc.log", work);
+    const char *argv[16]; int n = 0;
+    argv[n++] = t.helper;
+    argv[n++] = t.script[0] ? t.script : "extract";
+    argv[n++] = "--dlc-only"; argv[n++] = "--dlc"; argv[n++] = dlc;
+    argv[n++] = "--keys"; argv[n++] = keys;
+    argv[n++] = "--output"; argv[n++] = work;
+    argv[n++] = "--nstool"; argv[n++] = t.nstool; argv[n] = NULL;
+    PlatProc p = plat_spawn(argv, log, false);
+    if (!p) { snprintf(why, why_size, "Couldn't start the DLC preparation."); return false; }
+    int result;
+    while ((result = plat_proc_wait(p, false)) < 0) plat_sleep_until_ns(plat_now_ns() + 100000000ull);
+    remove(log);
+    if (result) snprintf(why, why_size, "Couldn't read this DLC. Choose the Mega Dimension .nsp and check your prod.keys.");
+    return !result;
 }
