@@ -7,17 +7,20 @@ import capstone
 from nso import Nso, R_AARCH64_RELATIVE
 
 
-def read_encoded(img, off, enc, pc_base):
-    fmt = enc & 0x0F
-    app = enc & 0x70
-    if fmt == 0x0B:      # sdata4
-        v, size = struct.unpack_from('<i', img, off)[0], 4
-    elif fmt == 0x03:    # udata4
-        v, size = struct.unpack_from('<I', img, off)[0], 4
-    elif fmt in (0x0C, 0x04):
-        v, size = struct.unpack_from('<q' if fmt == 0x0C else '<Q', img, off)[0], 8
-    else:
+def encoded_format(enc):
+    fmt = {0x0B: '<i', 0x03: '<I', 0x0C: '<q', 0x04: '<Q'}.get(enc & 0x0F)
+    if fmt is None or enc & 0x80 or (enc & 0x70) not in (0, 0x10, 0x30):
         raise ValueError(f'unsupported encoding {enc:#x}')
+    return fmt, struct.calcsize(fmt)
+
+
+def read_encoded(img, off, enc, pc_base, end=None):
+    fmt, size = encoded_format(enc)
+    end = len(img) if end is None else end
+    if off < 0 or off + size > end or end > len(img):
+        raise ValueError('encoded value is outside .eh_frame_hdr')
+    v = struct.unpack_from(fmt, img, off)[0]
+    app = enc & 0x70
     if app == 0x10:
         v += off
     elif app == 0x30:
@@ -27,20 +30,30 @@ def read_encoded(img, off, enc, pc_base):
 
 def eh_frame_functions(n):
     """Function start addresses from .eh_frame_hdr's binary search table."""
-    img, hdr = n.image, n.eh_start
-    if not hdr or hdr >= len(img) or n.eh_end <= hdr:
+    img, hdr, end = n.image, n.eh_start, n.eh_end
+    if hdr < 0 or end < hdr or end > len(img):
+        raise ValueError('.eh_frame_hdr is outside the module image')
+    if hdr == end:
         return []
+    if end - hdr < 4:
+        raise ValueError('truncated .eh_frame_hdr')
     ver, ptr_enc, cnt_enc, tbl_enc = img[hdr:hdr + 4]
+    if ver != 1:
+        raise ValueError(f'unsupported .eh_frame_hdr version {ver}')
     off = hdr + 4
-    _, sz = read_encoded(img, off, ptr_enc, hdr)
+    _, sz = read_encoded(img, off, ptr_enc, hdr, end)
     off += sz
-    count, sz = read_encoded(img, off, cnt_enc, hdr)
+    count, sz = read_encoded(img, off, cnt_enc, hdr, end)
     off += sz
+    if count:
+        _, sz = encoded_format(tbl_enc)
+        if count < 0 or count > (end - off) // (2 * sz):
+            raise ValueError('.eh_frame_hdr table count exceeds its declared range')
     starts = []
     for _ in range(count):
-        loc, sz = read_encoded(img, off, tbl_enc, hdr)
+        loc, sz = read_encoded(img, off, tbl_enc, hdr, end)
         off += sz
-        _, sz = read_encoded(img, off, tbl_enc, hdr)
+        _, sz = read_encoded(img, off, tbl_enc, hdr, end)
         off += sz
         starts.append(loc)
     return starts
