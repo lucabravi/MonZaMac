@@ -25,7 +25,7 @@ import threading
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tools'))
 from nso import Nso
-from versions import GAME_PREFIX, full_build_id, profile
+from versions import GAME_PREFIX, RECOMP_PLATFORM, full_build_id, jump_tables, module_info, version_name
 from commands import FROZEN, generator, tool
 
 BASES = {'main': 0x7000000000, 'sdk': 0x7008000000, 'lumiose': 0x7006200000}
@@ -150,7 +150,9 @@ def main():
     entry_source = include / 'lumiose_test_entry.c' if args.include else ROOT / 'tools/lumiose_test_entry.c'
     out = args.out.resolve()
     nso = Nso(module)
-    version, tables = profile(nso.build_id)
+    version, tables = version_name(nso.build_id), jump_tables(nso)
+    if not tables:
+        raise ValueError('This module build works differently: preparation needs a compatibility update')
     build_id = full_build_id(nso.build_id)  # (all 32 bytes, as the runtime compares them)
     game = args.game.resolve() if args.game else source / 'extracted'
     for name in ['main', 'sdk']:
@@ -232,11 +234,7 @@ def main():
                 (stage / 'main').symlink_to(game / 'exefs/main')
                 seeds = set()
                 for off, count, fmt, start in tables:
-                    for value in struct.unpack_from('<' + str(count) + fmt, nso.image, off):
-                        target = start + value * 4
-                        if not nso.text[0] <= target < sum(nso.text):
-                            raise ValueError('Module jump table does not match its compatibility profile')
-                        seeds.add(target)
+                    seeds.update(start + value * 4 for value in struct.unpack_from('<' + str(count) + fmt, nso.image, off))
                 gen_dir = work / 'module-gen'
                 modflags = ['-O1', '-fno-strict-aliasing', '-Wno-return-type', '-Wno-unused-label',
                             '-fvisibility=hidden', '-I' + str(include), '-include', str(include / 'lumiose_cpu.h'),
@@ -277,6 +275,9 @@ def main():
                                 process.wait(timeout=3)
                             except subprocess.TimeoutExpired:
                                 os.killpg(process.pid, signal.SIGKILL); process.wait()
+                info = module_info((work / 'capture.log').read_text(errors='replace'))
+                if info and info[1] != RECOMP_PLATFORM:
+                    raise ValueError('This module is not the PC version of Lumiose Online')
                 images = {name: (capture / (name + '.image')).read_bytes() for name in ['main', 'sdk', 'subsdk9']}
                 stage_text(work / 'subsdk9', images['subsdk9'], stage / 'subsdk9')
                 seeds |= entries_from_capture(nso, images['subsdk9'])

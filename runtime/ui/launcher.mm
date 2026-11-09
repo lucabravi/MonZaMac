@@ -301,6 +301,7 @@ static bool online_query() {
     return online_prep_start(online_tool("activate", keep).data());
 }
 
+static void online_click();
 static bool online_setup() {
     char exe[4096], game[4096];
     if (!plat_exe_path(exe, sizeof exe) || !realpath(g_root.c_str(), game)) return false;
@@ -313,6 +314,10 @@ static bool online_setup() {
         const char *src = getenv("LUMIOSE_SOURCE");
         keep.insert(keep.end(), {"--source", src ? src : g_ou_tools});
     }
+    saves_use_latest();  // (the save the game is about to use: the mod puts its own update in that save's SD card folder)
+    char slot[4096];
+    if (realpath(saves_current_path(), slot))
+        keep.insert(keep.end(), {"--downloaded", std::string(slot) + "/sdcard/atmosphere/contents/0100F43008C44000/exefs/subsdk9"});
     return online_prep_start(online_tool("setup_online", keep).data());
 }
 
@@ -384,6 +389,10 @@ static void online_view(const std::string &files, bool busy, OnlineView *v) {
     if (g_ou == OU_SETUP && !st.running) {
         if (!strcmp(st.state, "ready")) { g_ou = OU_START; g_ou_launch_after = true; g_ou_note.clear(); }  // (read the status again)
         else { g_ou = OU_ERROR; g_ou_note = st.message[0] ? st.message : "The online version could not be prepared."; g_ou_launch_after = false; }
+    }
+    if (getenv("LARECOMP_ONLINE_AUTOPLAY") && (g_ou == OU_READY || g_ou == OU_NEEDS)) {  // (test: Play online pressed, once)
+        static bool pressed;
+        if (!pressed) { pressed = true; online_click(); }
     }
     switch (g_ou) {
     case OU_OFF:
