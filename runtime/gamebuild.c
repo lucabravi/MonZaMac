@@ -254,6 +254,9 @@ static PlatProc start_compile(const Tools *t, const Unit *u) {
     Args a = {0};
     compiler(&a, t);
     add_cflags(&a, t);
+    // zig cc turns -O1 into -O2 with full debug info: that takes far longer on the biggest functions and is not what
+    // the game code is measured with. These give the compiler the flags as written.
+    if (t->zig) { add(&a, "-Xclang"); add(&a, "-O1"); add(&a, "-g0"); }
     char inc[1200];
     snprintf(inc, sizeof inc, "-I%s", t->inc);
     add(&a, inc);
@@ -501,7 +504,7 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
     }
     free(units.u);
 #ifdef LUMIOSE_ONLINE
-    // The online edition keeps the C and the objects (about 2.4 GB): preparing Lumiose Online (tools/lumiose/prepare.py)
+    // The online edition keeps the C and the objects (about 1.3 GB): preparing Lumiose Online (tools/lumiose/prepare.py)
     // rebuilds only the few files the module patches and reuses the rest. The compiler's cache is not needed for that.
     if (ok) {
         char path[1100];

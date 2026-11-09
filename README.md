@@ -91,7 +91,7 @@ with the Mac port: see [Credits](#credits-and-license).
 **How it works.**
 
 1. Install the online edition and set up your game files as usual. Online play needs the game at **version 2.0.2**
-   (the one MonZaMac supports) and about **2.4 GB** more disk space, which the app keeps to prepare the mod quickly.
+   (the one MonZaMac supports) and about **1.3 GB** more disk space, which the app keeps to prepare the mod quickly.
 2. Press **Play online**. The first time it tells you what is shared, asks for your consent, then prepares the mod
    **on your Mac**, from your own game files (a few minutes, with a progress bar), and starts the game with it.
 3. Every later press checks for a newer version of the mod, downloaded from Lumiose Online's site and checked against

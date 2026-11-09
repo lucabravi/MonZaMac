@@ -42,7 +42,7 @@ Nothing uses the network unless a command is run on purpose: only `fetch.py`, an
 | `versions.py` | Reads the module's switch tables from its own code (their targets are entry points for the generator). There is no list of known builds |
 
 In the online app the start screen's game code build is kept (`.gamebuild` in the game folder: generated C, objects,
-link list, about 2.4 GB), and the tools read it with `--cache`, the bundled headers with `--include` and the bundled
+link list, about 1.3 GB), and the tools read it with `--cache`, the bundled headers with `--include` and the bundled
 compiler with `--cc "<zig> cc"`; downloads go through `/usr/bin/curl` when Python has no TLS (the bundled helper).
 
 A prepared version never becomes active unless its files match their manifest and it started; the state file is replaced
