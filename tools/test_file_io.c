@@ -150,6 +150,61 @@ static void check_confine(void) {
     printf("PASS confine\n");
 }
 
+static void check_link_paths(void) {
+    char root[] = "/tmp/monzamac-links.XXXXXX"; assert(mkdtemp(root));
+    char real[300], mount[300], outside[300], path[400];
+    snprintf(real, sizeof real, "%s/real", root); assert(!mkdir(real, 0700));
+    snprintf(mount, sizeof mount, "%s/mount", root); assert(!symlink("real", mount));
+    snprintf(outside, sizeof outside, "%s/outside", root); assert(!mkdir(outside, 0700));
+    snprintf(path, sizeof path, "%s/internal", real); assert(!symlink(".", path));
+    snprintf(path, sizeof path, "%s/external", real); assert(!symlink("../outside", path));
+    snprintf(path, sizeof path, "%s/leaf", real); assert(!symlink("../outside/sentinel", path));
+    snprintf(path, sizeof path, "%s/sentinel", outside);
+    int fd = open(path, O_CREAT | O_EXCL | O_RDWR, 0600); assert(fd >= 0); assert(!close(fd));
+    HostFs fs = {0}; strlcpy(fs.root, mount, sizeof fs.root);
+    Service svc = {.state = &fs};
+    const char *paths[] = {"/created", "/internal/new", "/external/new", "/leaf"};
+    for (int i = 0; i < 4; i++) {
+        uint64_t args[2] = {0, 1};
+        IpcReq req = {.cmd = i == 3 ? 8 : 0, .data = (const uint8_t *)args, .data_size = sizeof args, .nx = 1};
+        req.x[0] = (IpcBuf){(uintptr_t)paths[i], strlen(paths[i]) + 1};
+        IpcResp resp = {0}; filesystem(&svc, &req, &resp);
+        assert(i ? resp.result == FS_PATH_NOT_FOUND : !resp.result);
+    }
+    snprintf(path, sizeof path, "%s/created", real); assert(!access(path, F_OK));
+    snprintf(path, sizeof path, "%s/new", real); assert(access(path, F_OK));
+    snprintf(path, sizeof path, "%s/new", outside); assert(access(path, F_OK));
+    assert(!host_path(&fs, "/created", path, 8));  // a truncated host path must never reach a file operation
+    remove_tree(root);
+    puts("PASS confine-links");
+}
+
+static void check_recursive_links(const char *name) {
+    bool clean = strstr(name, "clean") != NULL, missing = strstr(name, "missing") != NULL;
+    char root[] = "/tmp/monzamac-recursive.XXXXXX"; assert(mkdtemp(root));
+    char mount[300], victim[320], outside[300], sentinel[320], link[350];
+    snprintf(mount, sizeof mount, "%s/mount", root); assert(!mkdir(mount, 0700));
+    snprintf(outside, sizeof outside, "%s/outside", root); assert(!mkdir(outside, 0700));
+    snprintf(sentinel, sizeof sentinel, "%s/keep", outside);
+    int fd = open(sentinel, O_CREAT | O_EXCL | O_RDWR, 0600); assert(fd >= 0); assert(!close(fd));
+    snprintf(victim, sizeof victim, "%s/victim", mount);
+    snprintf(link, sizeof link, "%s/link", victim);
+    if (!missing) { assert(!mkdir(victim, 0700)); assert(!symlink("../../outside", link)); }
+    HostFs fs = {0}; strlcpy(fs.root, mount, sizeof fs.root); Service svc = {.state = &fs};
+    const char *guest = "/victim";
+    IpcReq req = {.cmd = clean ? 13 : 4, .nx = 1};
+    req.x[0] = (IpcBuf){(uintptr_t)guest, strlen(guest) + 1};
+    IpcResp resp = {0}; filesystem(&svc, &req, &resp);
+    assert(!access(sentinel, F_OK));
+    assert(missing ? resp.result == FS_PATH_NOT_FOUND : !resp.result);
+    if (!missing) {
+        assert(access(link, F_OK));
+        assert(clean ? !access(victim, F_OK) : access(victim, F_OK));
+    }
+    remove_tree(root);
+    printf("PASS %s\n", name);
+}
+
 static const char old_bytes[] = "old committed data";
 static const char new_bytes[] = "new complete bytes";
 
@@ -194,6 +249,8 @@ int main(int argc, char **argv) {
     assert(argc == 2);
     if (!strcmp(argv[1], "route-mounts")) { check_route_mounts(); return 0; }
     if (!strcmp(argv[1], "confine")) { check_confine(); return 0; }
+    if (!strcmp(argv[1], "confine-links")) { check_link_paths(); return 0; }
+    if (!strncmp(argv[1], "recursive-", 10)) { check_recursive_links(argv[1]); return 0; }
     if (!strncmp(argv[1], "close-", 6)) { check_close(argv[1]); return 0; }
     char path[] = "/tmp/monzamac-file-io.XXXXXX";
     int fd = mkstemp(path); assert(fd >= 0); assert(!unlink(path));
