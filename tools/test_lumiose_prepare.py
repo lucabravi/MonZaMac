@@ -31,6 +31,12 @@ class PreparationTests(unittest.TestCase):
         from versions import jump_tables
         self.assertEqual(jump_tables(self.jump_table_nso([0, 0x7000, 2])), [])
 
+    def test_kept_objects_follow_the_build_after_setup_moved_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            build = Path(tmp) / 'extracted' / '.gamebuild'; build.mkdir(parents=True)
+            (build / 'link.rsp').write_text('"/data/.game-setup/.gamebuild/main_000.o"\n"/data/.game-setup/.gamebuild/gamelib_entry.o"\n')
+            self.assertEqual(prep.kept_objects(build), [build / 'main_000.o', build / 'gamelib_entry.o'])
+
     def test_reads_what_the_module_says_about_itself(self):
         from versions import module_info
         self.assertEqual(module_info('x\n[guest] [update] this build is 1.5.0 build 1 (platform 2, channel 0)\n'), ((1, 5, 0, 1), 2))

@@ -410,7 +410,9 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
                 ok = false;
             }
             done_bytes += u->bytes;
+#ifndef LUMIOSE_ONLINE  // (the online edition keeps it: see the end of this function)
             if (run[k].unit > 0) remove(u->src);  // (generated C, done with: not kept. Unit 0 is the shipped entry file)
+#endif
             run[k--] = run[--nrun];
         }
         if (!ok) break;
@@ -499,7 +501,7 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
     }
     free(units.u);
 #ifdef LUMIOSE_ONLINE
-    // The online edition keeps the C and the objects (about 1.3 GB): preparing Lumiose Online (tools/lumiose/prepare.py)
+    // The online edition keeps the C and the objects (about 2.4 GB): preparing Lumiose Online (tools/lumiose/prepare.py)
     // rebuilds only the few files the module patches and reuses the rest. The compiler's cache is not needed for that.
     if (ok) {
         char path[1100];
