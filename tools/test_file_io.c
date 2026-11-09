@@ -59,6 +59,7 @@ static int test_fsync(int fd) {
 #undef pread
 #undef fsync
 #include "../runtime/ipc.c"
+#include "../runtime/saves.c"
 
 _Static_assert(offsetof(IpcResp, data) % _Alignof(uint64_t) == 0, "IPC response payload alignment");
 
@@ -67,7 +68,10 @@ const char *g_romfs_dir = ".";
 bool shader_trace_enabled(void) { return false; }
 void shader_trace_read(const char *p, uint64_t off, uint64_t dst, size_t n) { (void)p; (void)off; (void)dst; (void)n; }
 const char *pl_prompt_set(void) { return "default"; }
-const char *saves_route_replay_dir(const char *name) { (void)name; return NULL; }
+const SaveInfo *save_info(const char *slot) { (void)slot; return NULL; }
+void save_info_invalidate(const char *slot) { (void)slot; }
+PlatProc plat_spawn(const char *const argv[], const char *log, bool append) { (void)argv; (void)log; (void)append; return 0; }
+int plat_proc_wait(PlatProc p, bool block) { (void)p; (void)block; return -1; }
 void rt_fatal_msg(const char *fmt, ...) { (void)fmt; }
 void rt_fatal_trace(void) { abort(); }
 int plat_open_file(const char *path, int flags) { return open(path, flags, 0600); }
@@ -156,8 +160,39 @@ static void check_bytes(int fd, const void *expected, size_t size) {
     assert(!memcmp(actual, expected, size));
 }
 
+static void check_route_mounts(void) {
+    char root[] = "/tmp/monzamac-route.XXXXXX", previous[PATH_MAX];
+    assert(getcwd(previous, sizeof previous) && mkdtemp(root) && !chdir(root));
+    assert(!mkdir("routes", 0700)); assert(!mkdir("routes/Replay", 0700));
+    assert(!mkdir("routes/Replay/save", 0700)); assert(!mkdir("routes/Replay/save/save_0", 0700));
+    int fd = open("routes/Replay/save/save_0/main", O_CREAT | O_EXCL | O_RDWR, 0600); assert(fd >= 0);
+    assert(write(fd, old_bytes, sizeof old_bytes) == sizeof old_bytes); assert(!close(fd));
+    assert(!setenv("LARECOMP_ROUTE", "Replay", 1));
+    assert(!setenv("LARECOMP_SAVE_DIR", "other", 1));  // the route takes precedence on every mount
+    Service *mounts[4];
+    mounts[0] = open_host_fs("save_0");
+    fd = open("build/route-run/save_0/main", O_RDWR); assert(fd >= 0);
+    assert(pwrite(fd, new_bytes, sizeof new_bytes, 0) == sizeof new_bytes); assert(!close(fd));
+    mounts[1] = open_host_fs("sdcard");
+    mounts[2] = open_host_fs("save_0");
+    assert(!strcmp(((HostFs *)mounts[1]->state)->root, "build/route-run/sdcard"));
+    fd = open("build/route-run/save_0/main", O_RDONLY); assert(fd >= 0);
+    check_bytes(fd, new_bytes, sizeof new_bytes); assert(!close(fd));
+    fs_reset();  // a new game session deliberately starts from the recorded snapshot again
+    mounts[3] = open_host_fs("save_0");
+    fd = open("build/route-run/save_0/main", O_RDONLY); assert(fd >= 0);
+    check_bytes(fd, old_bytes, sizeof old_bytes); assert(!close(fd));
+    fd = open("routes/Replay/save/save_0/main", O_RDONLY); assert(fd >= 0);
+    check_bytes(fd, old_bytes, sizeof old_bytes); assert(!close(fd));
+    for (int i = 0; i < 4; i++) { free(mounts[i]->state); free((char *)mounts[i]->name); free(mounts[i]); }
+    unsetenv("LARECOMP_ROUTE"); unsetenv("LARECOMP_SAVE_DIR"); fs_reset();
+    assert(!chdir(previous)); remove_tree(root);
+    puts("PASS route-mounts");
+}
+
 int main(int argc, char **argv) {
     assert(argc == 2);
+    if (!strcmp(argv[1], "route-mounts")) { check_route_mounts(); return 0; }
     if (!strcmp(argv[1], "confine")) { check_confine(); return 0; }
     if (!strncmp(argv[1], "close-", 6)) { check_close(argv[1]); return 0; }
     char path[] = "/tmp/monzamac-file-io.XXXXXX";

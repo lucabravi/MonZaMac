@@ -22,6 +22,8 @@
 
 const char *g_save_dir = "save";
 static int romfs_fd = -1;
+static bool replay_prepared;
+static const char *replay_save_dir;
 
 // ------------------------------------------------------------------ RomFS file index (offset -> path)
 typedef struct { uint64_t start, size; char *path; int fd; const uint8_t *mem; } Overlay;
@@ -55,6 +57,8 @@ RT_ON_RESET(fs_reset) {
     if (romfs_fd >= 0) close(romfs_fd);
     romfs_fd = -1;
     g_save_dir = "save";
+    replay_prepared = false;
+    replay_save_dir = NULL;
 }
 
 static int rom_cmp(const void *a, const void *b) {
@@ -913,10 +917,14 @@ static void lumiose_default_text_size(const char *sdcard) {
 static Service *open_host_fs(const char *sub) {
     HostFs *fs = calloc(1, sizeof *fs);
     if (getenv("LARECOMP_SAVE_DIR")) g_save_dir = getenv("LARECOMP_SAVE_DIR");  // test runs use a scratch copy
-    if (getenv("LARECOMP_ROUTE")) {  // replaying a recorded route: on a fresh copy of its starting save
+    const char *route = getenv("LARECOMP_ROUTE");
+    if (route) {  // one fresh copy per game session; mounting sdcard must not reset an already running replay
         extern const char *saves_route_replay_dir(const char *);
-        const char *d = saves_route_replay_dir(getenv("LARECOMP_ROUTE"));
-        if (d) g_save_dir = d;
+        if (!replay_prepared) {
+            replay_save_dir = saves_route_replay_dir(route);
+            replay_prepared = true;
+        }
+        if (replay_save_dir) g_save_dir = replay_save_dir;
     }
     snprintf(fs->root, sizeof fs->root, "%s/%s", g_save_dir, sub);
     char cmd[1200];
