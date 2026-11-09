@@ -8,7 +8,7 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 A new start screen, and **Lumiose Online**: optional online play with the multiplayer mod of the same name, in a separate online edition. The offline edition is the one you know, with the new start screen. **After updating, the game code is rebuilt once on its own (a few minutes, with a progress bar), because the generator changed.**
 
 ### Start screen
-- The bottom bar says whether the optional **Mega Dimension DLC** was found. The guided setup has an optional **DLC** file row (the Mega Dimension `.nsp`), and `tools/extract_game.sh` takes it as a third argument; the README no longer claims the DLC is required.
+- The bottom bar says whether the optional **Mega Dimension DLC** was found. The guided setup has an optional **DLC** file row (the Mega Dimension `.nsp`), and an installed game can get it later with **Add DLC...** in the bottom bar (no rebuild); `tools/extract_game.sh` takes it as a third argument; the README no longer claims the DLC is required.
 - **Landscape layout:** a header across the top (logo, name, **All shaders**, **Shader catalog**, **Legal notice**, **Settings** and **Quit**), the **Play offline** column in the middle (the save card, **Continue**, **New game**, **Saves**) and a bar along the bottom with the state of the game files and the version. The shader chips moved from the bottom to the header and show their state with an icon.
 - **Saves** now only chooses the save and goes back to the start screen; **Continue** and the card use the chosen save, or the most recent one.
 - **Settings** outside the game fill the window under the header, with a **Back** button instead of the X and more room around the rows. The in-game menu is unchanged.

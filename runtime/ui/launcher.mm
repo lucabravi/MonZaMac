@@ -720,6 +720,45 @@ static void SDLCALL picked_package(void *which, const char *const *files, int) {
     pthread_mutex_unlock(&g_lock);
 }
 
+// Adding the DLC to an installed game: pick the .nsp, then prod.keys; only aoc/<id>.bin is written (no rebuild)
+static std::string g_dlc_pick, g_dlc_msg;
+static std::atomic<bool> g_dlc_need_keys{false}, g_dlc_busy{false};
+static void *dlc_add_thread(void *arg) {
+    std::string keys = *(std::string *)arg; delete (std::string *)arg;
+    std::string dlc, work = g_root + "/.dlc-work", msg = "DLC added.";
+    pthread_mutex_lock(&g_lock); dlc = g_dlc_pick; pthread_mutex_unlock(&g_lock);
+    char why[256] = "";
+    mkdir(work.c_str(), 0755);
+    bool ok = gameimport_dlc(dlc.c_str(), keys.c_str(), work.c_str(), why, sizeof why);
+    if (ok) {
+        mkdir((g_root + "/aoc").c_str(), 0755);
+        int n = 0;
+        if (DIR *d = opendir((work + "/aoc-tree").c_str())) {
+            while (struct dirent *e = readdir(d))
+                if (e->d_name[0] != '.' && romfs_build((work + "/aoc-tree/" + e->d_name).c_str(),
+                                                       (g_root + "/aoc/" + e->d_name + ".bin").c_str(), NULL, why, sizeof why)) n++;
+            closedir(d);
+        }
+        if (!n) ok = false, snprintf(why, sizeof why, "Couldn't write the DLC file.");
+    }
+    romfs_remove_tree(work.c_str());
+    if (!ok) msg = why;
+    pthread_mutex_lock(&g_lock); g_dlc_msg = msg; pthread_mutex_unlock(&g_lock);
+    g_dlc_busy = false;
+    return NULL;
+}
+static void SDLCALL dlc_keys_picked(void *, const char *const *files, int) {
+    if (!files || !files[0]) { g_dlc_busy = false; return; }
+    pthread_t th;
+    pthread_create(&th, NULL, dlc_add_thread, new std::string(files[0]));
+    pthread_detach(th);
+}
+static void SDLCALL dlc_nsp_picked(void *, const char *const *files, int) {
+    if (!files || !files[0]) { g_dlc_busy = false; return; }
+    pthread_mutex_lock(&g_lock); g_dlc_pick = files[0]; pthread_mutex_unlock(&g_lock);
+    g_dlc_need_keys = true;  // (the keys dialog is opened from the UI thread)
+}
+
 // ------------------------------------------------------------------ the user's own Nintendo fonts (not shipped)
 // runtime/hle/pl.c loads fonts/ first, else a close substitute (Hiragino Sans). Import copies recognized files only.
 static const char *FONT_STD[] = {"nintendo_udsg-r_std_003.bfttf", "nintendo_udsg-r_std_003.ttf",
@@ -2309,6 +2348,22 @@ extern "C" void launcher_run(const char *root) {
                     }
                     ImGui::TextColored(ImVec4(0.66f, 0.76f, 0.98f, 1), "Nintendo Switch  \xc2\xb7  v2.0.2  \xc2\xb7  %s",
                                        dlc ? "DLC found" : "DLC not found");
+                    if (g_dlc_need_keys.exchange(false)) {
+                        static const SDL_DialogFileFilter kf2[] = {{"Switch keys", "keys"}};
+                        SDL_ShowOpenFileDialog(dlc_keys_picked, NULL, win, kf2, 1, NULL, false);
+                    }
+                    if (!dlc && !busy) {
+                        ImGui::SameLine();
+                        if (g_dlc_busy) ImGui::TextDisabled("Adding DLC...");
+                        else if (ImGui::SmallButton("Add DLC...")) {
+                            static const SDL_DialogFileFilter nf[] = {{"DLC package", "nsp"}, {"All files", "*"}};
+                            g_dlc_busy = true;
+                            pthread_mutex_lock(&g_lock); g_dlc_msg.clear(); pthread_mutex_unlock(&g_lock);
+                            SDL_ShowOpenFileDialog(dlc_nsp_picked, NULL, win, nf, 2, NULL, false);
+                        }
+                    }
+                    pthread_mutex_lock(&g_lock); std::string dm = g_dlc_msg; pthread_mutex_unlock(&g_lock);
+                    if (!dm.empty()) { ImGui::SetCursorPosX(x0); ImGui::TextDisabled("%s", dm.c_str()); }
                 }
             } else {
                 ImGui::TextColored(ImVec4(1, 0.72f, 0.4f, 1), "!  %s", busy ? "Setting up the game files..." : status.c_str());

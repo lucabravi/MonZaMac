@@ -226,10 +226,17 @@ def extract(base, update, keys, output, tool, build_id):
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Prepare your own game packages locally.')
     for name in ('base', 'update', 'keys', 'output', 'nstool', 'build-id'):
-        parser.add_argument('--' + name, required=True)
+        parser.add_argument('--' + name)
     parser.add_argument('--dlc')  # optional add-on NSP; a bad one never fails the base import
+    parser.add_argument('--dlc-only', action='store_true')  # add the DLC to an installed game: no base, update or build id
     args = parser.parse_args(argv)
     try:
+        if args.dlc_only:
+            if not (args.dlc and args.keys and args.output and args.nstool): raise ImportFailure('input')
+            extract_dlc(args.dlc, args.keys, args.output, args.nstool)
+            emit('dlc ready')
+            return 0
+        if not all((args.base, args.update, args.keys, args.output, args.nstool, args.build_id)): raise ImportFailure('input')
         build_id = bytes.fromhex(args.build_id)
         if len(build_id) != 8: raise ImportFailure('input')
         extract(args.base, args.update, args.keys, args.output, args.nstool, build_id)
