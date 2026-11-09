@@ -306,6 +306,7 @@ static bool is_dir(const char *p) {
 }
 
 bool saves_import_stage(const char *src, char *err, size_t n) {
+    save_info_invalidate(STAGE);
     remove_tree(STAGE);
     mkdir(ROOT, 0755);
     if (mkdir(STAGE, 0755) != 0) return snprintf(err, n, "Couldn't prepare the import."), false;

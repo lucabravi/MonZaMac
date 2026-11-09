@@ -1,4 +1,4 @@
-"""Asset-free save export failure checks: python3 tools/test_saves.py.
+"""Asset-free save import / export checks: python3 tools/test_saves.py.
 
 The production save code runs against temporary files and real child processes.
 CC defaults to clang; Linux ZIP checks use bsdtar (or the TAR environment variable).
@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shlex
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -31,6 +32,28 @@ int plat_proc_wait(PlatProc p, bool block) { return wait_cb(p, block); }
 '''
 
 
+def synthetic_save(trainer):
+    # A synthetic MyStatus block only; no game files, keys, or player data.
+    status = bytearray(42)
+    name = trainer.encode('utf-16-le')
+    status[16:16 + len(name)] = name
+    payload = bytearray(b'\x04' + struct.pack('<I', len(status)) + status)
+    key = 0xE3E89BD1
+    def step(value):
+        value ^= (value << 2) & 0xFFFFFFFF
+        value ^= value >> 15
+        return value ^ ((value << 13) & 0xFFFFFFFF)
+    state = key
+    for _ in range(key.bit_count()): state = step(state)
+    for i in range(len(payload)):
+        payload[i] ^= (state >> (8 * (i % 4))) & 255
+        if i % 4 == 3: state = step(state)
+    block = struct.pack('<I', key) + payload
+    pad = bytes.fromhex('a092d10607db32a1ae01f5c51e844fe353ca37f4a7b04da018b7c297da5f532b'
+                        '75fa4816f8d48a6f6105f4e2fd04b5a30ffc4492cb')
+    return bytes(a ^ b for a, b in zip(block, pad)) + bytes(32)
+
+
 class SaveFiles(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -47,6 +70,11 @@ class SaveFiles(unittest.TestCase):
         cls.lib.test_init.argtypes = [SPAWN, WAIT]
         cls.lib.saves_export.argtypes = [ct.c_char_p, ct.c_char_p]
         cls.lib.saves_export.restype = ct.c_bool
+        cls.lib.saves_import_stage.argtypes = [ct.c_char_p, ct.c_void_p, ct.c_size_t]
+        cls.lib.saves_import_stage.restype = ct.c_bool
+        cls.lib.saves_import_cancel.argtypes = []
+        cls.lib.save_info.argtypes = [ct.c_char_p]
+        cls.lib.save_info.restype = ct.c_void_p
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='monzamac-saves-')
@@ -92,6 +120,39 @@ class SaveFiles(unittest.TestCase):
 
     def export(self, path):
         return self.lib.saves_export(b'Trainer', os.fsencode(path))
+
+    def import_folder(self, path):
+        why = ct.create_string_buffer(256)
+        result = self.lib.saves_import_stage(os.fsencode(path), why, len(why))
+        self.why = why.value
+        return result
+
+    def test_import_rechecks_recreated_stage(self):
+        source = self.root / 'input'; source.mkdir()
+        main = source / 'main'; main.write_bytes(synthetic_save('Audit'))
+        self.assertTrue(self.import_folder(source), self.why)
+        staged = self.root / 'saves/.import/save_0/main'
+        # Replacing the staging directory must not reuse its cached successful validation.
+        self.lib.saves_import_cancel()
+        main.write_bytes(b'invalid save bytes')
+        self.assertFalse(self.import_folder(source), 'a malformed second import reused cached validation')
+        self.assertIn(b'not a Pok', self.why)
+        self.assertFalse(staged.exists())
+
+    def test_save_card_refreshes_after_same_second_write(self):
+        slot = self.root / 'card'; (slot / 'save_0').mkdir(parents=True)
+        main = slot / 'save_0/main'
+        main.write_bytes(synthetic_save('First'))
+        second = 1700000000 * 1_000_000_000
+        os.utime(main, ns=(second, second + 100))
+        info = self.lib.save_info(os.fsencode(slot))
+        self.assertTrue(info)
+        self.assertEqual(ct.string_at(info), b'First')
+        main.write_bytes(synthetic_save('Other'))
+        os.utime(main, ns=(second, second + 200))
+        info = self.lib.save_info(os.fsencode(slot))
+        self.assertTrue(info)
+        self.assertEqual(ct.string_at(info), b'Other')
 
     def test_failed_export_start_preserves_existing_archive(self):
         archive = self.root / 'backup.zip'; archive.write_bytes(b'previous archive')

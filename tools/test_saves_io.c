@@ -20,7 +20,8 @@ extern char **environ;
 PlatProc plat_spawn(const char *const argv[], const char *log_path, bool append_log) {
     (void)log_path, (void)append_log;
     pid_t pid;
-    return posix_spawn(&pid, argv[0], NULL, NULL, (char *const *)argv, environ) ? 0 : (PlatProc)pid;
+    const char *tar = getenv("TEST_TAR");  // Linux checks use the same libarchive tar as macOS, rather than GNU tar.
+    return posix_spawn(&pid, tar && *tar ? tar : argv[0], NULL, NULL, (char *const *)argv, environ) ? 0 : (PlatProc)pid;
 }
 int plat_proc_wait(PlatProc p, bool block) {
     int st = 0;
@@ -37,6 +38,7 @@ const SaveInfo *save_info(const char *slot) {
     fclose(in);
     return n == 2 && head[0] == 'Z' && head[1] == 'A' ? &si : NULL;
 }
+void save_info_invalidate(const char *slot) { (void)slot; }
 
 static void put(const char *path, const char *text) {
     FILE *f = fopen(path, "wb");
@@ -125,12 +127,14 @@ int main(void) {
     assert(!saves_import_stage("linked", err, sizeof err));
 
     // a .zip whose entries climb out (../, an absolute path): refused, nothing written outside
-    assert(system("/usr/bin/python3 -c \"import zipfile; z=zipfile.ZipFile('evil.zip','w'); "
-                  "z.writestr('../escaped', 'x'); z.writestr('/tmp/saves_io_abs_escape', 'x'); "
-                  "z.writestr('s/save_0/main', 'ZA evil'); z.close()\"") == 0);
-    unlink("/tmp/saves_io_abs_escape");
+    char evil[2048], abs_escape[256];
+    snprintf(abs_escape, sizeof abs_escape, "%s/absolute-escape", tmp);
+    snprintf(evil, sizeof evil, "/usr/bin/python3 -c \"import zipfile; z=zipfile.ZipFile('evil.zip','w'); "
+             "z.writestr('../escaped', 'x'); z.writestr('%s', 'x'); "
+             "z.writestr('s/save_0/main', 'ZA evil'); z.close()\"", abs_escape);
+    assert(system(evil) == 0);
     assert(!saves_import_stage("evil.zip", err, sizeof err));  // (tar refuses the whole archive)
-    assert(!there("saves/escaped") && !there("escaped") && !there("../escaped") && !there("/tmp/saves_io_abs_escape"));
+    assert(!there("saves/escaped") && !there("escaped") && !there(abs_escape));
 
     // not an archive at all
     put("junk.zip", "not a zip");
