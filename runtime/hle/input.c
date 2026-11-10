@@ -175,10 +175,12 @@ static bool mouse_camera_on(uint32_t state) {
     }
 }
 
-// Main thread, after each batch of events (runtime/nvn/metal.m ui_run): while the mouse turns the camera it is in relative
-// mode: the cursor is hidden and held in place, so the camera never stops at the window's edge. That is all the time with
-// Mouse camera "Always", and only while the chosen button is held with "While holding a button": the rest of the time the
-// cursor is shown (the Lumiose module's interface is clicked with it). The menu and the name entry get it back.
+// Main thread, after each batch of events (runtime/nvn/metal.m ui_run): while the game has the controls the mouse is in
+// relative mode: the cursor is hidden (nothing in the game is clicked) and held in place, so the camera never stops at the
+// window's edge; the menu and the name entry get the cursor back. Online (the Lumiose module, whose interface is clicked
+// with the mouse) only while the mouse turns the camera: all the time with Mouse camera "Always", while the chosen button
+// is held with "While holding a button"; the rest of the time the cursor is shown.
+static bool online_mouse(void) { return g_nmodules > 2; }  // (the Lumiose module is loaded: runtime/loader.c)
 static bool mouse_held;
 // Back to the start screen: it has no menu to take the mouse back, so the cursor must come back here.
 void input_mouse_release(SDL_Window *w) {
@@ -188,7 +190,7 @@ void input_mouse_release(SDL_Window *w) {
 }
 void input_mouse_update(SDL_Window *w) {
     bool want = !menu_input_captured() && (SDL_GetWindowFlags(w) & SDL_WINDOW_INPUT_FOCUS) &&
-                (g_settings.mouse_camera == MOUSE_CAM_ALWAYS ||
+                (!online_mouse() || g_settings.mouse_camera == MOUSE_CAM_ALWAYS ||
                  (g_settings.mouse_camera == MOUSE_CAM_HOLD && mouse_camera_on(SDL_GetMouseState(NULL, NULL))));
     if (want == mouse_held) return;
     SDL_SetWindowRelativeMouseMode(w, want);
@@ -303,7 +305,7 @@ void input_handle_event(const SDL_Event *e) {
         }
         break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN: case SDL_EVENT_MOUSE_BUTTON_UP:
-        if (e->button.button != SDL_BUTTON_LEFT || g_settings.mouse_camera == MOUSE_CAM_ALWAYS) break;
+        if (e->button.button != SDL_BUTTON_LEFT || g_settings.mouse_camera == MOUSE_CAM_ALWAYS || !online_mouse()) break;
         if (left_is_camera()) {  // a tap is the touch screen, a drag the camera
             bool press = e->type == SDL_EVENT_MOUSE_BUTTON_DOWN;
             if (press) {
