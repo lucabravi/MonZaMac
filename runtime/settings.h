@@ -70,6 +70,7 @@ typedef struct {
     int mouse_camera;        // MOUSE_CAM_*: when the mouse turns the camera (runtime/hle/input.c)
     int mouse_camera_button; // MOUSE_BTN_*: the button held for MOUSE_CAM_HOLD
     bool trackpad_camera;    // two fingers on the trackpad turn the camera (its scroll events)
+    int cursor_hide_s;       // online, where the cursor shows in game: hidden after this many seconds without mouse use (0 never)
     bool invert_mouse_x, invert_mouse_y;  // the camera's direction, per axis (mouse and trackpad)
     int rstick_snap;     // degrees: a right stick this close to an axis is held on it (0 = off; runtime/hle/input.c)
     bool mirror_mode;    // the world mirrored left to right (Gameplay tab): renderers + runtime/hle/input.c

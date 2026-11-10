@@ -963,6 +963,16 @@ static void tab_about(void) {
         static const char *const btn[] = {"Right button", "Left button", "Middle button", "Any button"};
         choice("Button to hold", &g_settings.mouse_camera_button, btn, 4);
     }
+    {
+        static const char *const hide[] = {"Never", "After 3 seconds", "After 5 seconds", "After 10 seconds"};
+        static const int secs[] = {0, 3, 5, 10};
+        int i = 0;
+        while (i < 3 && secs[i] != g_settings.cursor_hide_s) i++;
+        if (secs[i] != g_settings.cursor_hide_s) i = 2;
+        if (choice("Hide the idle cursor", &i, hide, 4)) g_settings.cursor_hide_s = secs[i];
+        hint("Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse "
+             "has not moved or clicked for this long, and comes back as soon as it does.");
+    }
     toggle("Two-finger drag on the trackpad", &g_settings.trackpad_camera);
     hint("The trackpad's two-finger scroll turns the camera, as the mouse does.");
     ImGui::Checkbox("Invert horizontal", &g_settings.invert_mouse_x);
