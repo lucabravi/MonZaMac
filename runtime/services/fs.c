@@ -22,6 +22,8 @@
 
 const char *g_save_dir = "save";
 static int romfs_fd = -1;
+static bool replay_prepared;
+static const char *replay_save_dir;
 
 // ------------------------------------------------------------------ RomFS file index (offset -> path)
 typedef struct { uint64_t start, size; char *path; int fd; const uint8_t *mem; } Overlay;
@@ -55,6 +57,8 @@ RT_ON_RESET(fs_reset) {
     if (romfs_fd >= 0) close(romfs_fd);
     romfs_fd = -1;
     g_save_dir = "save";
+    replay_prepared = false;
+    replay_save_dir = NULL;
 }
 
 static int rom_cmp(const void *a, const void *b) {
@@ -616,6 +620,14 @@ static void storage(Service *s, IpcReq *req, IpcResp *resp) {
 }
 
 // a plain storage: a host file's bytes (add-on content)
+static void plain_storage_close(Service *s) {
+    Storage *st = s->state;
+    if (!st) return;
+    close(st->fd);
+    free(st);
+    s->state = NULL;
+}
+
 static void plain_storage(Service *s, IpcReq *req, IpcResp *resp) {
     Storage *st = s->state;
     switch (req->cmd) {
@@ -678,15 +690,27 @@ static const char *in_path(IpcReq *req, int i) {
     return "";
 }
 
-// false: the path has a ".." component, which would leave the mounted root (the console has no such thing).
-// shortcut: symlinks inside the root aren't resolved, the mounts hold only files the game itself created.
+// The configured root may be a link; descendants must be ordinary game-created files and directories.
+// This rejects existing links and traversal, but does not guard against concurrent host-side path replacement.
 static bool host_path(HostFs *fs, const char *p, char *out, size_t n) {
     for (const char *c = p; *c; ) {
         const char *e = c + strcspn(c, "/");
         if (e - c == 2 && c[0] == '.' && c[1] == '.') return false;
         c = *e ? e + 1 : e;
     }
-    snprintf(out, n, "%s%s%s", fs->root, p[0] == '/' ? "" : "/", p);
+    int len = snprintf(out, n, "%s%s%s", fs->root, p[0] == '/' ? "" : "/", p);
+    if (len < 0 || (size_t)len >= n) return false;
+    char *part = out + strlen(fs->root);
+    while (*part) {
+        if (*part == '/') { part++; continue; }
+        char *end = part + strcspn(part, "/"), next = *end;
+        *end = 0;
+        struct stat st;
+        int r = lstat(out, &st), error = errno;
+        *end = next;
+        if ((!r && S_ISLNK(st.st_mode)) || (r && error != ENOENT)) return false;
+        part = next ? end + 1 : end;
+    }
     return true;
 }
 
@@ -808,16 +832,25 @@ static void directory(Service *s, IpcReq *req, IpcResp *resp) {
 }
 
 static int rm_rf(const char *p, bool keep_root) {
+    struct stat st;
+    if (lstat(p, &st)) return -1;
+    if (!S_ISDIR(st.st_mode)) return unlink(p);  // remove a link itself, never recurse through its target
     DIR *d = opendir(p);
-    if (!d) return unlink(p);
-    struct dirent *e;
-    while ((e = readdir(d))) {
+    if (!d) return -1;
+    int error = 0;
+    for (;;) {
+        errno = 0;
+        struct dirent *e = readdir(d);
+        if (!e) { error = errno; break; }
         if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
         char c[2048];
-        snprintf(c, sizeof c, "%s/%s", p, e->d_name);
-        rm_rf(c, false);
+        int n = snprintf(c, sizeof c, "%s/%s", p, e->d_name);
+        if (n < 0 || (size_t)n >= sizeof c) { error = ENAMETOOLONG; break; }
+        if (rm_rf(c, false)) { error = errno; break; }
     }
-    closedir(d);
+    int closed = closedir(d);
+    if (error) { errno = error; return -1; }
+    if (closed) return -1;
     return keep_root ? 0 : rmdir(p);
 }
 
@@ -874,7 +907,7 @@ static void filesystem(Service *s, IpcReq *req, IpcResp *resp) {
     }
     case 10: break;  // Commit
     case 11: case 12: OUT(int64_t, 0) = 0x40000000; resp_size(resp, 8); break;
-    case 13: rm_rf(p, true); break;
+    case 13: if (rm_rf(p, true)) resp->result = errno_result(); break;
     case 14: memset(resp->data, 0, 0x20); resp_size(resp, 0x20); break;
     default: LOG("[fs] IFileSystem cmd %u (ok)\n", req->cmd);
     }
@@ -905,10 +938,14 @@ static void lumiose_default_text_size(const char *sdcard) {
 static Service *open_host_fs(const char *sub) {
     HostFs *fs = calloc(1, sizeof *fs);
     if (getenv("LARECOMP_SAVE_DIR")) g_save_dir = getenv("LARECOMP_SAVE_DIR");  // test runs use a scratch copy
-    if (getenv("LARECOMP_ROUTE")) {  // replaying a recorded route: on a fresh copy of its starting save
+    const char *route = getenv("LARECOMP_ROUTE");
+    if (route) {  // one fresh copy per game session; mounting sdcard must not reset an already running replay
         extern const char *saves_route_replay_dir(const char *);
-        const char *d = saves_route_replay_dir(getenv("LARECOMP_ROUTE"));
-        if (d) g_save_dir = d;
+        if (!replay_prepared) {
+            replay_save_dir = saves_route_replay_dir(route);
+            replay_prepared = true;
+        }
+        if (replay_save_dir) g_save_dir = replay_save_dir;
     }
     snprintf(fs->root, sizeof fs->root, "%s/%s", g_save_dir, sub);
     char cmd[1200];
@@ -955,7 +992,9 @@ SERVICE("fsp-srv", fsp_srv) {
         fstat(fd, &sb);
         st->size = sb.st_size;
         LOG("[fs] add-on content %016llx: %s\n", (unsigned long long)id, path);
-        ipc_return_object(resp, service_new("IStorage(aoc)", plain_storage, st));
+        Service *obj = service_new("IStorage(aoc)", plain_storage, st);
+        obj->on_close = plain_storage_close;
+        ipc_return_object(resp, obj);
         break;
     }
     case 1005: OUT(uint32_t, 0) = 0; resp_size(resp, 4); break;  // GetGlobalAccessLogMode

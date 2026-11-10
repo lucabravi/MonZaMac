@@ -13,7 +13,8 @@ CASES = (
     'negative-write-offset', 'write-offset-overflow', 'flush-error', 'interrupted-flush',
     'read-error', 'interrupted-read', 'missing-read-buffer', 'negative-read-size',
     'negative-read-offset', 'read-offset-overflow', 'bounded-read', 'read-eof', 'getsize-error', 'getsize',
-    'close-file', 'close-cloned-file', 'close-directory', 'confine',
+    'close-file', 'close-cloned-file', 'close-directory', 'close-aoc', 'close-cloned-aoc', 'confine',
+    'route-mounts', 'confine-links', 'recursive-delete-links', 'recursive-clean-links', 'recursive-clean-missing',
 )
 
 with tempfile.TemporaryDirectory(prefix='monzamac-file-test-') as tmp:

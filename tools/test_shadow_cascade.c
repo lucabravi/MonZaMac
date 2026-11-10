@@ -39,6 +39,14 @@ static ShaderInfo *translate(unsigned reg, int mutation, int stage, int glsl) {
         op(0x5080000000000000ull | 4ull << 20 | 7ull << 16 | (uint64_t)(80+axis) << 8 | (80+axis));
         op(0x5c68000000000000ull | (uint64_t)(reg+1) << 20 | 7ull << 16 | (uint64_t)(80+axis) << 8 | (mutation==4 && i==1 ? reg+1 : 80+axis));
     }
+    if(mutation>=11) {
+        // a tap of the depth map (the texture whose size the radius was scaled by) into r90, the guard's zero, then
+        // lit = reference >= depth; 12: the tap register is overwritten in between, the test is an ordinary one
+        op(0xc038000000000000ull | 1ull<<31 | 1ull<<29 | 1ull<<28 | 7ull<<16 | 60ull<<8 | 90);
+        op(0x0100000000000000ull | 7ull<<16 | 90);
+        if(mutation==12) op(0x0100000000000000ull | 5ull<<20 | 7ull<<16 | 90);
+        op(0x5800000000000000ull | 1ull<<52 | 6ull<<48 | 7ull<<39 | 90ull<<20 | 7ull<<16 | 70ull<<8 | 91);
+    }
     op(0xe30000000007000full);
     ShaderKey key={0};key.glsl=glsl;
     // Compute lacks the graphics headers and must never get the game-specific filter.
@@ -47,12 +55,15 @@ static ShaderInfo *translate(unsigned reg, int mutation, int stage, int glsl) {
 }
 int main(int argc, char **argv) {
     unsigned cases=0;
-    for(unsigned reg=18;reg<=26;reg+=8) for(int mutation=0;mutation<11;mutation++) for(int glsl=0;glsl<2;glsl++) {
+    for(unsigned reg=18;reg<=26;reg+=8) for(int mutation=0;mutation<13;mutation++) for(int glsl=0;glsl<2;glsl++) {
         ShaderInfo *s=translate(reg,mutation,STAGE_FRAGMENT,glsl);
         assert(s && s->msl);
         bool patched=strstr(s->msl,"shadow_radius_scale = shadow_cascade_ratio")!=NULL;
-        if(patched != ((!mutation || mutation==4 || mutation==9) && !glsl)) fprintf(stderr,"case reg=%u mutation=%d glsl=%d patched=%d\n",reg,mutation,glsl,patched);
-        assert(patched == ((!mutation || mutation==4 || mutation==9) && !glsl));
+        if(patched != ((!mutation || mutation==4 || mutation==9 || mutation>=11) && !glsl)) fprintf(stderr,"case reg=%u mutation=%d glsl=%d patched=%d\n",reg,mutation,glsl,patched);
+        assert(patched == ((!mutation || mutation==4 || mutation==9 || mutation>=11) && !glsl));
+        // smooth shadow edges: only the tap's own test, only in Metal
+        assert(!!strstr(s->msl,"r91 = as_type<uint>(shadow_tap_lit(t0, shuv90, ") == (mutation==11 && !glsl));
+        assert(!!strstr(s->msl,"shuv90 = float3(") == (mutation>=11 && !glsl));
         if(patched) {
             assert(strstr(s->msl,"shadow_radius_scale.x"));
             assert(strstr(s->msl,"shadow_radius_scale.y"));
@@ -65,5 +76,8 @@ int main(int argc, char **argv) {
     setenv("LARECOMP_SHADOW_CASCADE_FILTER","0",1);
     ShaderInfo *s=translate(18,0,STAGE_FRAGMENT,0);assert(s && s->msl);
     assert(!strstr(s->msl,"shadow_cascade_ratio"));maxwell_free(s);
-    printf("PASS: %u cascade signatures, changed registers, negative guards, dialect and opt-out\n",cases+1);
+    unsetenv("LARECOMP_SHADOW_CASCADE_FILTER");setenv("LARECOMP_SHADOW_SMOOTH","0",1);
+    s=translate(18,11,STAGE_FRAGMENT,0);assert(s && s->msl);
+    assert(strstr(s->msl,"shadow_cascade_ratio") && !strstr(s->msl,"shadow_tap_lit"));maxwell_free(s);
+    printf("PASS: %u cascade signatures, changed registers, negative guards, smooth taps, dialect and opt-outs\n",cases+2);
 }

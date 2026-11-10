@@ -26,8 +26,10 @@ typedef struct {
 } SaveInfo;
 
 // slot_path: a SaveSlot's path ("save" or "saves/<name>"). NULL: no save there, or one this can't read. The result is
-// cached by file time (the card is drawn every frame).
+// cached by file identity and timestamps (the card is drawn every frame).
 const SaveInfo *save_info(const char *slot_path);
+// Imports must always validate the new bytes, including on filesystems with coarse timestamps.
+void save_info_invalidate(const char *slot_path);
 
 #ifdef __cplusplus
 }

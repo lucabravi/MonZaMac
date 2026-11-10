@@ -63,6 +63,12 @@ up when the version is read and the runtime is given only the resulting IPv4 add
 so and nothing is started. The online app runs these tools through its bundled helper (`lasgen online <tool>`); a build without them says "not available here". A version prepared before an app update that changed the game code is prepared again on the next press, since the runtime refuses its library.
 `LARECOMP_ONLINE_STATE_TEST=ready|needs|setup|error|noserver (server not found)|off` shows each state without running anything.
 
+The mod's own interface reads the Switch touch screen (`nn::hid::GetTouchScreenStates`, which the game does not import):
+the left mouse button held is one finger where the cursor is, in the touch screen's 1280x720 over the game's picture
+(`runtime/hle/input.c`). When the left button also turns the camera (Mouse camera "Left button" / "Any button"), a tap is
+a touch and a drag the camera. The cursor is shown in game unless the mouse is turning the camera, and hides after 5 seconds without movement or
+click (Settings > Controls > Hide the idle cursor: never, 5, 10, 30 or 60 seconds). Offline the cursor stays hidden in game.
+
 ## What is verified, and what is not
 
 - Native and ASan/UBSan tests for the kernel sessions, the HLE hooks, the UDP service and the texture uploads

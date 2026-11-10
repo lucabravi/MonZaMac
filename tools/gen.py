@@ -180,7 +180,8 @@ class Module:
 
     def _set_index(self, mu, regs, i):
         for r in regs:
-            mu.reg_write(A.UC_ARM64_REG_X0 + r if r < 29 else A.UC_ARM64_REG_X29, i)
+            mu.reg_write(A.UC_ARM64_REG_X0 + r if r < 29 else
+                         (A.UC_ARM64_REG_X29 if r == 29 else A.UC_ARM64_REG_X30), i)
 
     def _emulate_table(self, br_pc, entry, end, start, idx, count, set_at):
         """Run start..br for each index value (set at address set_at), collect targets."""

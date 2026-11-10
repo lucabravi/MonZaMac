@@ -59,6 +59,7 @@ static int test_fsync(int fd) {
 #undef pread
 #undef fsync
 #include "../runtime/ipc.c"
+#include "../runtime/saves.c"
 
 _Static_assert(offsetof(IpcResp, data) % _Alignof(uint64_t) == 0, "IPC response payload alignment");
 
@@ -67,6 +68,10 @@ const char *g_romfs_dir = ".";
 bool shader_trace_enabled(void) { return false; }
 void shader_trace_read(const char *p, uint64_t off, uint64_t dst, size_t n) { (void)p; (void)off; (void)dst; (void)n; }
 const char *pl_prompt_set(void) { return "default"; }
+const SaveInfo *save_info(const char *slot) { (void)slot; return NULL; }
+void save_info_invalidate(const char *slot) { (void)slot; }
+PlatProc plat_spawn(const char *const argv[], const char *log, bool append) { (void)argv; (void)log; (void)append; return 0; }
+int plat_proc_wait(PlatProc p, bool block) { (void)p; (void)block; return -1; }
 void rt_fatal_msg(const char *fmt, ...) { (void)fmt; }
 void rt_fatal_trace(void) { abort(); }
 int plat_open_file(const char *path, int flags) { return open(path, flags, 0600); }
@@ -86,9 +91,12 @@ static void close_session(uint32_t handle) {
 }
 
 static void check_close(const char *name) {
-    bool isdir = !strcmp(name, "close-directory"), clone = !strcmp(name, "close-cloned-file");
+    bool isdir = !strcmp(name, "close-directory"), clone = strstr(name, "cloned") != NULL;
+    bool aoc = strstr(name, "aoc") != NULL;
     char root[] = "/tmp/monzamac-handles.XXXXXX"; assert(mkdtemp(root));
-    char path[256]; snprintf(path, sizeof path, "%s/file.bin", root);
+    char path[256], addon[256], romfs[256];
+    if (aoc) { snprintf(addon, sizeof addon, "%s/aoc", root); assert(!mkdir(addon, 0700)); }
+    snprintf(path, sizeof path, "%s/%s", root, aoc ? "aoc/0000000000000001.bin" : "file.bin");
     int created = open(path, O_CREAT | O_EXCL | O_RDWR, 0600); assert(created >= 0); assert(!close(created));
     HostFs fs = {0}; strlcpy(fs.root, root, sizeof fs.root);
     Service mount = {.state = &fs};
@@ -97,10 +105,15 @@ static void check_close(const char *name) {
     IpcReq req = {.cmd = isdir ? 9 : 8, .data = (const uint8_t *)&mode, .data_size = sizeof mode, .nx = 1};
     req.x[0] = (IpcBuf){(uintptr_t)guest_path, strlen(guest_path) + 1};
     IpcResp resp = {0};
-    filesystem(&mount, &req, &resp);
+    if (aoc) {
+        snprintf(romfs, sizeof romfs, "%s/romfs", root); g_romfs_dir = romfs;
+        uint64_t args[2] = {0, 1};
+        req = (IpcReq){.cmd = 202, .data = (const uint8_t *)args, .data_size = sizeof args};
+        fsp_srv(NULL, &req, &resp);
+    } else filesystem(&mount, &req, &resp);
     assert(!resp.result && resp.nobjects == 1);
     Service *obj = resp.objects[0];
-    int fd = isdir ? dirfd(((HostDir *)obj->state)->d) : ((HostFile *)obj->state)->fd;
+    int fd = isdir ? dirfd(((HostDir *)obj->state)->d) : aoc ? ((Storage *)obj->state)->fd : ((HostFile *)obj->state)->fd;
     uint32_t first = session_new(obj), second = clone ? session_new(obj) : 0;
     close_session(first);
     if (second) { assert(fcntl(fd, F_GETFD) >= 0); close_session(second); }
@@ -108,7 +121,9 @@ static void check_close(const char *name) {
     assert(fcntl(fd, F_GETFD) == -1 && errno == EBADF);
     assert(!obj->state);
     free((char *)obj->name); free(obj);
-    assert(!unlink(path)); assert(!rmdir(root));
+    assert(!unlink(path));
+    if (aoc) { assert(!rmdir(addon)); g_romfs_dir = "."; }
+    assert(!rmdir(root));
     printf("PASS %s\n", name);
 }
 
@@ -135,6 +150,61 @@ static void check_confine(void) {
     printf("PASS confine\n");
 }
 
+static void check_link_paths(void) {
+    char root[] = "/tmp/monzamac-links.XXXXXX"; assert(mkdtemp(root));
+    char real[300], mount[300], outside[300], path[400];
+    snprintf(real, sizeof real, "%s/real", root); assert(!mkdir(real, 0700));
+    snprintf(mount, sizeof mount, "%s/mount", root); assert(!symlink("real", mount));
+    snprintf(outside, sizeof outside, "%s/outside", root); assert(!mkdir(outside, 0700));
+    snprintf(path, sizeof path, "%s/internal", real); assert(!symlink(".", path));
+    snprintf(path, sizeof path, "%s/external", real); assert(!symlink("../outside", path));
+    snprintf(path, sizeof path, "%s/leaf", real); assert(!symlink("../outside/sentinel", path));
+    snprintf(path, sizeof path, "%s/sentinel", outside);
+    int fd = open(path, O_CREAT | O_EXCL | O_RDWR, 0600); assert(fd >= 0); assert(!close(fd));
+    HostFs fs = {0}; strlcpy(fs.root, mount, sizeof fs.root);
+    Service svc = {.state = &fs};
+    const char *paths[] = {"/created", "/internal/new", "/external/new", "/leaf"};
+    for (int i = 0; i < 4; i++) {
+        uint64_t args[2] = {0, 1};
+        IpcReq req = {.cmd = i == 3 ? 8 : 0, .data = (const uint8_t *)args, .data_size = sizeof args, .nx = 1};
+        req.x[0] = (IpcBuf){(uintptr_t)paths[i], strlen(paths[i]) + 1};
+        IpcResp resp = {0}; filesystem(&svc, &req, &resp);
+        assert(i ? resp.result == FS_PATH_NOT_FOUND : !resp.result);
+    }
+    snprintf(path, sizeof path, "%s/created", real); assert(!access(path, F_OK));
+    snprintf(path, sizeof path, "%s/new", real); assert(access(path, F_OK));
+    snprintf(path, sizeof path, "%s/new", outside); assert(access(path, F_OK));
+    assert(!host_path(&fs, "/created", path, 8));  // a truncated host path must never reach a file operation
+    remove_tree(root);
+    puts("PASS confine-links");
+}
+
+static void check_recursive_links(const char *name) {
+    bool clean = strstr(name, "clean") != NULL, missing = strstr(name, "missing") != NULL;
+    char root[] = "/tmp/monzamac-recursive.XXXXXX"; assert(mkdtemp(root));
+    char mount[300], victim[320], outside[300], sentinel[320], link[350];
+    snprintf(mount, sizeof mount, "%s/mount", root); assert(!mkdir(mount, 0700));
+    snprintf(outside, sizeof outside, "%s/outside", root); assert(!mkdir(outside, 0700));
+    snprintf(sentinel, sizeof sentinel, "%s/keep", outside);
+    int fd = open(sentinel, O_CREAT | O_EXCL | O_RDWR, 0600); assert(fd >= 0); assert(!close(fd));
+    snprintf(victim, sizeof victim, "%s/victim", mount);
+    snprintf(link, sizeof link, "%s/link", victim);
+    if (!missing) { assert(!mkdir(victim, 0700)); assert(!symlink("../../outside", link)); }
+    HostFs fs = {0}; strlcpy(fs.root, mount, sizeof fs.root); Service svc = {.state = &fs};
+    const char *guest = "/victim";
+    IpcReq req = {.cmd = clean ? 13 : 4, .nx = 1};
+    req.x[0] = (IpcBuf){(uintptr_t)guest, strlen(guest) + 1};
+    IpcResp resp = {0}; filesystem(&svc, &req, &resp);
+    assert(!access(sentinel, F_OK));
+    assert(missing ? resp.result == FS_PATH_NOT_FOUND : !resp.result);
+    if (!missing) {
+        assert(access(link, F_OK));
+        assert(clean ? !access(victim, F_OK) : access(victim, F_OK));
+    }
+    remove_tree(root);
+    printf("PASS %s\n", name);
+}
+
 static const char old_bytes[] = "old committed data";
 static const char new_bytes[] = "new complete bytes";
 
@@ -145,9 +215,42 @@ static void check_bytes(int fd, const void *expected, size_t size) {
     assert(!memcmp(actual, expected, size));
 }
 
+static void check_route_mounts(void) {
+    char root[] = "/tmp/monzamac-route.XXXXXX", previous[PATH_MAX];
+    assert(getcwd(previous, sizeof previous) && mkdtemp(root) && !chdir(root));
+    assert(!mkdir("routes", 0700)); assert(!mkdir("routes/Replay", 0700));
+    assert(!mkdir("routes/Replay/save", 0700)); assert(!mkdir("routes/Replay/save/save_0", 0700));
+    int fd = open("routes/Replay/save/save_0/main", O_CREAT | O_EXCL | O_RDWR, 0600); assert(fd >= 0);
+    assert(write(fd, old_bytes, sizeof old_bytes) == sizeof old_bytes); assert(!close(fd));
+    assert(!setenv("LARECOMP_ROUTE", "Replay", 1));
+    assert(!setenv("LARECOMP_SAVE_DIR", "other", 1));  // the route takes precedence on every mount
+    Service *mounts[4];
+    mounts[0] = open_host_fs("save_0");
+    fd = open("build/route-run/save_0/main", O_RDWR); assert(fd >= 0);
+    assert(pwrite(fd, new_bytes, sizeof new_bytes, 0) == sizeof new_bytes); assert(!close(fd));
+    mounts[1] = open_host_fs("sdcard");
+    mounts[2] = open_host_fs("save_0");
+    assert(!strcmp(((HostFs *)mounts[1]->state)->root, "build/route-run/sdcard"));
+    fd = open("build/route-run/save_0/main", O_RDONLY); assert(fd >= 0);
+    check_bytes(fd, new_bytes, sizeof new_bytes); assert(!close(fd));
+    fs_reset();  // a new game session deliberately starts from the recorded snapshot again
+    mounts[3] = open_host_fs("save_0");
+    fd = open("build/route-run/save_0/main", O_RDONLY); assert(fd >= 0);
+    check_bytes(fd, old_bytes, sizeof old_bytes); assert(!close(fd));
+    fd = open("routes/Replay/save/save_0/main", O_RDONLY); assert(fd >= 0);
+    check_bytes(fd, old_bytes, sizeof old_bytes); assert(!close(fd));
+    for (int i = 0; i < 4; i++) { free(mounts[i]->state); free((char *)mounts[i]->name); free(mounts[i]); }
+    unsetenv("LARECOMP_ROUTE"); unsetenv("LARECOMP_SAVE_DIR"); fs_reset();
+    assert(!chdir(previous)); remove_tree(root);
+    puts("PASS route-mounts");
+}
+
 int main(int argc, char **argv) {
     assert(argc == 2);
+    if (!strcmp(argv[1], "route-mounts")) { check_route_mounts(); return 0; }
     if (!strcmp(argv[1], "confine")) { check_confine(); return 0; }
+    if (!strcmp(argv[1], "confine-links")) { check_link_paths(); return 0; }
+    if (!strncmp(argv[1], "recursive-", 10)) { check_recursive_links(argv[1]); return 0; }
     if (!strncmp(argv[1], "close-", 6)) { check_close(argv[1]); return 0; }
     char path[] = "/tmp/monzamac-file-io.XXXXXX";
     int fd = mkstemp(path); assert(fd >= 0); assert(!unlink(path));

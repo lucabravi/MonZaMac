@@ -1274,6 +1274,8 @@ void backend_present(NvnTexture *t) {
         float crop[4];  // uv origin and size
         present_crop(shape, crop, &vx, &vy, &vw, &vh);
         float crop_base[4]; memcpy(crop_base, crop, sizeof crop_base);  // (before the game's crop: the interpolated image is already only the picture)
+        extern void input_present_view(double, double, double, double, double, const float *);
+        input_present_view(vx, vy, vw, vh, dw, crop_base);  // (the mouse as the touch screen: runtime/hle/input.c)
         {   // the game's own crop of its window texture (handheld: 1280x720 of 1920x1080): only that part is the picture
             extern int g_present_crop[4], g_present_tex[2];
             const int *wc = g_present_crop, tw = g_present_tex[0], th = g_present_tex[1];
@@ -1592,6 +1594,7 @@ static bool ui_preparation_update(void) {
             SDL_GetWindowProperties(window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
         if (!native) return true;
         input_reset();
+        input_mouse_release(window);  // (the game may have hidden the cursor already: Stop must be clickable)
         page = [[PreparationPage alloc] initWithFrame:native.contentView.bounds];
         [native.contentView addSubview:page positioned:NSWindowAbove relativeTo:nil];
     }

@@ -54,11 +54,12 @@ static void rtld_fini(Cpu *c) { (void)c; LOG("nnMain returned\n"); }
 // Claim the guest address range before anything else can map there. The host allocator places
 // regions at random addresses in the same window; on a collision, re-exec for a fresh layout.
 __attribute__((constructor(101))) static void reserve_guest_space(void) {
-    if (plat_reserve_guest(GUEST_LO, GUEST_HI)) return;
+    if (guest_reserve()) return;
     const char *tries = getenv("LARECOMP_REEXEC");
     int n = tries ? atoi(tries) : 0;
-    if (n >= 20) {
-        fprintf(stderr, "FATAL: guest address range %llx-%llx is not free\n", GUEST_LO, GUEST_HI);
+    if (n >= 60) {  // (macOS 27 moves its own regions at every launch: a few starts may be needed)
+        fprintf(stderr, "FATAL: guest address range %llx-%llx, or a hole below 2^39 for the alias region, is not free\n",
+                GUEST_LO, GUEST_LOW_END);
         exit(1);
     }
     char buf[16];
@@ -130,7 +131,7 @@ static void teardown(void) {
     for (const ResetFn *p = start; p < stop; p++)
         if (*p) { (*p)(); n++; }
     kernel_reset();
-    if (!plat_reset_guest(GUEST_LO, GUEST_HI)) FATAL("cannot reset guest memory\n");
+    if (!guest_reset()) FATAL("cannot reset guest memory\n");
     backend_guest_memory_reset();
     g_nmodules = 0;
     g_reboot = RT_REBOOT_NONE;
@@ -273,6 +274,9 @@ int main(int argc, char **argv) {
             char exe[1100];
             if (plat_exe_path(exe, sizeof exe)) {
                 char *argv[] = {exe, (char *)root, NULL};
+                extern SDL_Window *ui_window(void);
+                extern void input_mouse_release(SDL_Window *);
+                input_mouse_release(ui_window());  // (the cursor hidden by the game must not outlive this process image)
                 plat_exec(argv);
             }
         }

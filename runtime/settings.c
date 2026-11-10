@@ -30,6 +30,7 @@ Settings g_settings = {
     .mouse_speed = 1.0f,
     .mouse_camera = MOUSE_CAM_HOLD,
     .mouse_camera_button = MOUSE_BTN_RIGHT,
+    .cursor_hide_s = 5,
     .trackpad_camera = true,  // (two fingers on the trackpad turn the camera: a Mac's usual way to look around)
     .res_mode = 1,  // (fixed at the game's own 1080p; Dynamic is one choice away in Video)
     .fps60 = true,
@@ -173,6 +174,7 @@ void settings_load(void) {
             for (int i = 0; i < 4; i++) if (!strcmp(val, names[i])) g_settings.mouse_camera_button = i;
         }
         else if (!strcmp(key, "trackpad_camera")) g_settings.trackpad_camera = atoi(val) != 0;
+        else if (!strcmp(key, "cursor_hide_after")) { int v = atoi(val); g_settings.cursor_hide_s = v < 0 ? 0 : v > 60 ? 60 : v; }
         else if (!strcmp(key, "invert_mouse_x")) g_settings.invert_mouse_x = atoi(val) != 0;
         else if (!strcmp(key, "invert_mouse_y")) g_settings.invert_mouse_y = atoi(val) != 0;
         else if (!strcmp(key, "mirror_mode")) g_settings.mirror_mode = atoi(val) != 0;
@@ -244,7 +246,7 @@ void settings_save(void) {
     else if (g_settings.res_mode >= 1 && g_settings.res_mode <= 8) fprintf(f, "resolution = %dx\n", g_settings.res_mode);
     else fprintf(f, "resolution = match\n");
     fprintf(f, "dpad_move = %d\n", g_settings.dpad_move);
-    fprintf(f, "mouse_speed = %g\n", g_settings.mouse_speed);
+    fprintf(f, "mouse_speed = %g\ncursor_hide_after = %d\n", g_settings.mouse_speed, g_settings.cursor_hide_s);
     fprintf(f, "rstick_snap = %d\n", g_settings.rstick_snap);
     static const char *const mouse_cam[] = {"off", "hold", "always"}, *const mouse_btn[] = {"right", "left", "middle", "any"};
     fprintf(f, "mouse_camera = %s\nmouse_camera_button = %s\ntrackpad_camera = %d\ninvert_mouse_x = %d\ninvert_mouse_y = %d\n",

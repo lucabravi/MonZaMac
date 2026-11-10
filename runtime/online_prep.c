@@ -18,6 +18,17 @@ static pid_t g_pid;
 static pthread_t g_thread;
 static bool g_joinable;
 
+static bool json_hex4(const char *p, unsigned *out) {
+    unsigned v = 0;
+    for (int i = 0; i < 4; i++) {
+        char h = p[i];
+        if (!((h >= '0' && h <= '9') || (h >= 'a' && h <= 'f') || (h >= 'A' && h <= 'F'))) return false;
+        v = v * 16 + (unsigned)(h <= '9' ? h - '0' : (h | 0x20) - 'a' + 10);
+    }
+    *out = v;
+    return true;
+}
+
 // The value of "key" in the flat JSON object `json` as a string (numbers as written). Escapes \" \\ \/ \n \t and \uXXXX
 // (the scripts print ASCII-escaped JSON). false: no such key.
 static bool json_value(const char *json, const char *key, char *out, size_t cap) {
@@ -37,17 +48,21 @@ static bool json_value(const char *json, const char *key, char *out, size_t cap)
                 case 'n': c = '\n'; break;
                 case 't': c = '\t'; break;
                 case 'u': {
-                    unsigned v = 0;
-                    for (int i = 1; i <= 4; i++) {
-                        char h = p[i];
-                        if (!((h >= '0' && h <= '9') || (h >= 'a' && h <= 'f') || (h >= 'A' && h <= 'F'))) return false;
-                        v = v * 16 + (unsigned)(h <= '9' ? h - '0' : (h | 0x20) - 'a' + 10);
-                    }
+                    unsigned v;
+                    if (!json_hex4(p + 1, &v)) return false;
                     p += 4;
+                    if (v >= 0xD800 && v <= 0xDBFF) {
+                        unsigned low;
+                        if (p[1] != '\\' || p[2] != 'u' || !json_hex4(p + 3, &low) || low < 0xDC00 || low > 0xDFFF) return false;
+                        v = 0x10000 + ((v - 0xD800) << 10) + low - 0xDC00;
+                        p += 6;
+                    } else if (v >= 0xDC00 && v <= 0xDFFF) return false;
                     char utf8[4];
                     int len = v < 0x80 ? (utf8[0] = (char)v, 1) : v < 0x800 ? (utf8[0] = (char)(0xC0 | v >> 6), utf8[1] = (char)(0x80 | (v & 63)), 2)
-                              : (utf8[0] = (char)(0xE0 | v >> 12), utf8[1] = (char)(0x80 | ((v >> 6) & 63)), utf8[2] = (char)(0x80 | (v & 63)), 3);
-                    for (int i = 0; i < len && n + 1 < cap; i++) out[n++] = utf8[i];
+                              : v < 0x10000 ? (utf8[0] = (char)(0xE0 | v >> 12), utf8[1] = (char)(0x80 | ((v >> 6) & 63)), utf8[2] = (char)(0x80 | (v & 63)), 3)
+                              : (utf8[0] = (char)(0xF0 | v >> 18), utf8[1] = (char)(0x80 | ((v >> 12) & 63)), utf8[2] = (char)(0x80 | ((v >> 6) & 63)), utf8[3] = (char)(0x80 | (v & 63)), 4);
+                    if (n + (size_t)len >= cap) return false;  // never publish a partial UTF-8 character
+                    for (int i = 0; i < len; i++) out[n++] = utf8[i];
                     continue;
                 }
                 default: c = (unsigned char)*p;  // \" \\ \/ and anything else as itself
@@ -98,16 +113,25 @@ static void *reader(void *arg) {
     pthread_mutex_lock(&g_lock);
     pid_t pid = g_pid;
     pthread_mutex_unlock(&g_lock);
-    if (pid > 0) waitpid(pid, &wstatus, 0);
+    pid_t waited = -1;
+    if (pid > 0) {
+        do waited = waitpid(pid, &wstatus, 0); while (waited < 0 && errno == EINTR);
+    }
     pthread_mutex_lock(&g_lock);
     g_pid = 0;
     g_status.running = false;
+    bool failed = waited != pid || !WIFEXITED(wstatus) || WEXITSTATUS(wstatus) != 0;
+    bool reported_error = !strcmp(g_status.state, "error");
     bool finished = !strcmp(g_status.state, "ready") || !strcmp(g_status.state, "error") ||
                     !strcmp(g_status.state, "none") || !strcmp(g_status.state, "invalid");
-    if (!finished) {  // it ended without saying how
+    if (failed || !finished) {  // a result line cannot turn a failed process into a successful job
         snprintf(g_status.state, sizeof g_status.state, "error");
-        if (!g_status.message[0]) snprintf(g_status.message, sizeof g_status.message, "%s",
-                                           WIFSIGNALED(wstatus) ? "The job was stopped." : "The job ended without a result.");
+        if (!reported_error || !g_status.message[0]) {
+            if (waited != pid) snprintf(g_status.message, sizeof g_status.message, "Could not read the job exit status.");
+            else if (WIFSIGNALED(wstatus)) snprintf(g_status.message, sizeof g_status.message, "The job was stopped.");
+            else if (failed) snprintf(g_status.message, sizeof g_status.message, "The job failed (exit %d).", WEXITSTATUS(wstatus));
+            else snprintf(g_status.message, sizeof g_status.message, "The job ended without a result.");
+        }
     }
     pthread_mutex_unlock(&g_lock);
     return NULL;

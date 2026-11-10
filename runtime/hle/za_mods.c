@@ -101,7 +101,7 @@ void rt_za_npc_capacity(void) {
     uint32_t logical = LD32(logical_addr);
     if (logical != 20 && logical != 64) return; // Not initialized, or an unexpected configuration.
     uint64_t selector = LD64(0x700610b858ull);
-    if (selector < ALIAS_BASE || selector > GUEST_HI - 0x318 || (selector & 7)) return;
+    if (selector < ALIAS_BASE || selector > ALIAS_BASE + ALIAS_SIZE - 0x318 || (selector & 7)) return;
     uint32_t selection = LD32(selector + 0x310);
     if ((selection != 25 && selection != 64) || (logical == 64 && selection == 64)) return;
 
@@ -119,7 +119,7 @@ void rt_za_npc_capacity(void) {
 // accumulators and explicit skip rules. All four policies are overridden, because the channels have to agree: relaxing only
 // the first left the second on the reduced rate, and a Pokémon's head alternated between two poses every frame.
 static bool za_anim_ptr(uint64_t p, size_t size) {
-    return p >= 0x7000000000ull && p <= GUEST_HI - size;
+    return guest_contains(p, size);
 }
 static void za_smooth_anim_policy(Cpu *c, uint64_t address) {
     static int logged = -1;

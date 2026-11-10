@@ -22,3 +22,26 @@ Run `python3 tools/test_shadow_cascade.py` for asset-free instruction-recognitio
 compilation and GPU math checks. In-game validation used the station at render scale 1.5x, with shadow quality 1x
 and 4x. The user confirmed the abrupt boundary was gone while a difference in distant detail remains. Other locations
 and game versions have not been visually verified.
+
+## Smooth shadow edges
+
+Each of the game's 16 shadow taps is one hard test against one map texel (lit = reference >= the map's depth), so a
+shadow's edge follows the texels. In close-ups (cutscenes: a Pokémon is about 25 texels tall in the game's 1024 map)
+the edge is a staircase, and a larger map only makes the steps smaller.
+
+In the same recognised fragment-shader pattern, the translator keeps where each tap of the depth map was taken and
+replaces the tap's own test with `shadow_tap_lit`: the same test on the four texels around the tap, blended by the
+tap's position between them. Each texel is compared with the depth the receiver would have there (the receiver's
+slope in the map, from the screen derivatives of the tap's coordinates and of the reference): without that, a surface
+tilted to the light fails the test in the neighbouring texels and darkens everywhere. A tap the game's self-shadow
+guard zeroed stays lit, as in the game's own test. The game's tolerance for that guard is too wide to stand in for
+the slope: used alone it lights everything.
+
+Tap count, radius, cascade choice and the self-shadow guard are unchanged. Enabled with the cascade filter; for the
+game's hard test, restart with `LARECOMP_SHADOW_SMOOTH=0`. It needs the cascade pattern: where that is not recognised
+(or `LARECOMP_SHADOW_CASCADE_FILTER=0`) the taps stay as they are.
+
+Seen in game in one cutscene (three Pokémon on the plaza, shadow resolution 2x, render scale 1.5x): steps gone, same
+light and shadow darkness as before. Not checked: other places and times of day, characters' self-shadowing, the cost.
+The screen derivatives are taken inside the shader's control flow: at a triangle or cascade border they can be wrong
+for a pixel.

@@ -172,27 +172,43 @@ static bool read_save(const char *file, SaveInfo *out) {
     return true;
 }
 
-// The start screen draws the cards every frame and a save is megabytes: a result is kept until the file's time changes
+// The start screen draws the cards every frame and a save is megabytes: keep a result until its file changes.
 static struct {
     char path[64];
-    long long stamp;
+    struct stat stamp;
     bool ok;
     SaveInfo info;
 } g_cache[SAVE_SLOTS_MAX];
 static int g_cached;
+
+void save_info_invalidate(const char *slot_path) {
+    for (int i = 0; i < g_cached; i++)
+        if (!strcmp(g_cache[i].path, slot_path)) { g_cache[i] = g_cache[--g_cached]; return; }
+}
+
+static bool same_stamp(const struct stat *a, const struct stat *b) {
+    if (a->st_dev != b->st_dev || a->st_ino != b->st_ino || a->st_size != b->st_size ||
+        a->st_mtime != b->st_mtime || a->st_ctime != b->st_ctime) return false;
+#ifdef __APPLE__
+    return a->st_mtimespec.tv_nsec == b->st_mtimespec.tv_nsec && a->st_ctimespec.tv_nsec == b->st_ctimespec.tv_nsec;
+#elif defined(_WIN32)
+    return true;
+#else
+    return a->st_mtim.tv_nsec == b->st_mtim.tv_nsec && a->st_ctim.tv_nsec == b->st_ctim.tv_nsec;
+#endif
+}
 
 const SaveInfo *save_info(const char *slot_path) {
     char file[128];
     snprintf(file, sizeof file, "%s/save_0/main", slot_path);
     struct stat st;
     if (stat(file, &st)) return NULL;
-    long long stamp = (long long)st.st_mtime;
     int i = 0;
     while (i < g_cached && strcmp(g_cache[i].path, slot_path)) i++;
-    if (i < g_cached && g_cache[i].stamp == stamp) return g_cache[i].ok ? &g_cache[i].info : NULL;
+    if (i < g_cached && same_stamp(&g_cache[i].stamp, &st)) return g_cache[i].ok ? &g_cache[i].info : NULL;
     if (i == g_cached) i = g_cached < SAVE_SLOTS_MAX ? g_cached++ : 0;  // (the list is capped: a full cache can't happen)
     snprintf(g_cache[i].path, sizeof g_cache[i].path, "%s", slot_path);
-    g_cache[i].stamp = stamp;
+    g_cache[i].stamp = st;
     g_cache[i].ok = read_save(file, &g_cache[i].info);
     return g_cache[i].ok ? &g_cache[i].info : NULL;
 }

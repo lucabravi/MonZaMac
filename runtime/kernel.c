@@ -1025,7 +1025,7 @@ static void svc_impl(Cpu *c, uint32_t imm, uint64_t pc) {
             if (src >= m->base && src - m->base < m->size && size <= m->size - (src - m->base)) source_ok = true;
         }
         if (hle_guest_code_range(src, size)) source_ok = true;
-        bool free_range = dst >= GUEST_LO && dst < GUEST_HI && size && size <= GUEST_HI - dst;
+        bool free_range = size && guest_contains(dst, size);
         for (int i = 0; free_range && i < nregions; i++)
             if (dst < regions[i].addr + regions[i].size && regions[i].addr < dst + size) free_range = false;
         if (!process_handle_is_current((uint32_t)x[1])) { x[0] = R_INVALID_HANDLE; break; }
@@ -1200,7 +1200,7 @@ static void svc_impl(Cpu *c, uint32_t imm, uint64_t pc) {
         }
         {   // the guest's call chain (frame records: [fp] = caller's fp, [fp + 8] = return address)
             uint64_t fp = c->x[29];
-            for (int i = 0; i < 16 && fp >= GUEST_LO && fp < GUEST_HI && !(fp & 7); i++, fp = LD64(fp))
+            for (int i = 0; i < 16 && guest_contains(fp, 16) && !(fp & 7); i++, fp = LD64(fp))
                 LOG("  guest #%d %llx\n", i, (unsigned long long)LD64(fp + 8));
         }
         FATAL("svcBreak(reason=%llx, info=%llx, size=%llx) at %llx\n", x[0], x[1], x[2], pc);
@@ -1222,7 +1222,7 @@ static void svc_impl(Cpu *c, uint32_t imm, uint64_t pc) {
         case 9: v = 0; break;
         case 11: v = ((uint64_t)arc4random() << 32) | arc4random(); break;
         case 12: v = GUEST_LO; break;
-        case 13: v = GUEST_HI - GUEST_LO; break;
+        case 13: v = guest_span_end() - GUEST_LO; break;
         case 14: v = STACK_BASE; break;
         case 15: v = STACK_SIZE; break;
         case 16: v = g_system_resource_size; break;
@@ -1433,6 +1433,11 @@ void kernel_init(void) {
     }
     // Reserve the heap, alias, stack, and TLS regions.
     region_add(TLS_BASE, TLS_SIZE, 0xC, 3);
+    // The host's own parts of the window, used by the game, not its to map over: the host-implemented functions'
+    // addresses and the memory host code hands out (dispatch.c). Unlisted, svcQueryMemory showed them free, and the
+    // Lumiose module, which places private copies of game code at random free addresses, could pick one of them.
+    region_add(HLE_BASE, HLE_SIZE, 3, 5);
+    region_add(HLE_HEAP, HLE_HEAP_SIZE, 0xC, 3);
     if (g_nmodules > 2) region_add(HLE_CODE_BASE, HLE_CODE_SIZE, 3, 5);
     hle_guest_code_init(g_nmodules > 2);
     for (int i = 0; i < g_nmodules; i++) {
