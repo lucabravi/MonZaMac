@@ -8,7 +8,7 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 A fix for online play: the game no longer crashes when entering the battle zone with Lumiose Online.
 
 ### Lumiose Online (online edition)
-- **Entering the battle zone no longer crashes the game.** Two parts of the mod could write numbers at the same time and get in each other's way; now they take turns. Thanks to **DarthMDev** for finding the cause and testing the fix. It also covers future versions of the mod, without a MonZaMac update.
+- **Entering the battle zone no longer crashes the game.** Two parts of the mod could write numbers at the same time and get in each other's way; now they take turns. Thanks to **DarthMDev** for finding the cause and testing the fix. New versions of the mod should keep the fix without a MonZaMac update.
 - After updating, the next **Play online** prepares the online version again (a few minutes, with a progress bar).
 
 ## 0.2.1
