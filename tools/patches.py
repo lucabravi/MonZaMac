@@ -1,5 +1,5 @@
 """Hand-written replacements for single guest instructions, applied while lifting (tools/gen.py): PATCHES maps an
-address to a function (generator, address) -> C statement. Only Pokémon Legends: Z-A's: ZA_BUILDS names the builds
+address to a function (generator, address) -> C statement. ZA_BUILDS names the Pokémon Legends: Z-A builds
 (main module build ids) and the address of the frame mode site each has; ZA_DOF, ZA_FXAA, ZA_BLOOM and ZA_WIDE the
 sites of the graphics options (runtime/hle/za_mods.c), from StevensND's and Fl4sh9174's exefs mods."""
 import struct
@@ -37,6 +37,63 @@ ZA_SHADOW = {'b1f12fd919eae86a': 0x7000a8aaa0}
 
 def _word(gen, a):
     return struct.unpack_from('<I', gen.nso.image, a - gen.base)[0]
+
+
+def _lumiose_decimal_call(gen, a):
+    ins = gen.lift(a)
+    assert ins.kind in ('b', 'bl'), (hex(a), ins.kind)
+    link = f'c->x[30] = {a + 4:#x}; ' if ins.kind == 'bl' else ''
+    tail = ' return;' if ins.kind == 'b' else ''
+    return ('{ extern void lumiose_decimal_call(Cpu *, uint64_t); '
+            f'{link}lumiose_decimal_call(c, {ins.target:#x});{tail} }}')
+
+
+def _masked(w):
+    """An instruction word without what a rebuild moves: the targets of branches and the pages and offsets of
+    PC-relative loads."""
+    if (w & 0x1f000000) == 0x10000000: return w & 0x9f00001f   # adr, adrp
+    if (w & 0x7c000000) == 0x14000000: return w & 0xfc000000   # b, bl
+    if (w & 0xff000010) == 0x54000000: return w & 0xff00001f   # b.cond
+    if (w & 0x7e000000) == 0x34000000: return w & 0xff00001f   # cbz, cbnz
+    if (w & 0x7e000000) == 0x36000000: return w & 0xfff8001f   # tbz, tbnz
+    if (w & 0x3b000000) == 0x18000000: return w & 0xff00001f   # ldr (literal)
+    return w
+
+
+# Lumiose Online's Newlib reaches its reentrancy object through one global pointer, so its threads share dtoa's scratch
+# storage and big integer freelist. Every direct call to these functions holds one lock (runtime/lumiose_module.c), over
+# the whole formatter because dtoa's result stays in that storage until the formatter consumes it. Found by their
+# first LUMIOSE_SPAN instructions, masked, so a new build of the mod with the same Newlib needs no new addresses:
+# (first masked word, sha256 of the span's masked words).
+LUMIOSE_SPAN = 24
+LUMIOSE_DECIMAL_FUNCS = {
+    'strtod': (0xa9b27bfd, '1568d21720112c02ee594986d75b4e3588ae990c74b66fc3e833c4a05afcd41d'),
+    'string formatter': (0xd113c3ff, 'd5e378f7d28556c002378d3406880a3e10468a3824850a6d46b0799e810f5891'),
+    'stream formatter': (0xd11443ff, 'f578ee57b3d4769d562951dc39612076449cbd6db18809c20c82461c4e7f4a52'),
+}
+
+
+def lumiose_decimal_funcs(words, lo):
+    """name -> address of each decimal function found exactly once in the module text (words from address lo)."""
+    import hashlib
+    found = {}
+    for name, (first, digest) in LUMIOSE_DECIMAL_FUNCS.items():
+        hits = [lo + 4 * i for i in range(len(words) - LUMIOSE_SPAN) if _masked(words[i]) == first and
+                hashlib.sha256(struct.pack(f'<{LUMIOSE_SPAN}I', *map(_masked, words[i:i + LUMIOSE_SPAN]))).hexdigest() == digest]
+        if len(hits) == 1:
+            found[name] = hits[0]
+    return found
+
+
+def lumiose_patches(gen):
+    funcs = lumiose_decimal_funcs(gen.words, gen.lo)
+    targets = set(funcs.values())
+    sites = [gen.lo + 4 * i for i, w in enumerate(gen.words)
+             if (w & 0x7c000000) == 0x14000000 and gen.lo + 4 * i + (((w & 0x3ffffff) ^ 0x2000000) - 0x2000000) * 4 in targets]
+    missing = sorted(set(LUMIOSE_DECIMAL_FUNCS) - set(funcs))
+    print(f'lumiose: {len(sites)} decimal conversion call(s) serialized' +
+          (f'; not found, left unserialized: {", ".join(missing)}' if missing else ''))
+    return dict.fromkeys(sites, _lumiose_decimal_call)
 
 
 def _za_frame_cfg(gen, a, aspect=None):

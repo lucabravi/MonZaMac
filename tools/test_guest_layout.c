@@ -39,6 +39,15 @@ static int trial(const uint64_t *blocks, uint64_t *alias, uint64_t *size) {
     return 0;
 }
 
+// true when this macOS already maps something in the window (macOS 27 does): the cases below place blocks at fixed
+// addresses and assume it empty
+static bool system_blocks(void) {
+    mach_vm_address_t at = GUEST_LO; mach_vm_size_t size = 0; natural_t depth = 0;
+    vm_region_submap_info_data_64_t info; mach_msg_type_number_t count = VM_REGION_SUBMAP_INFO_COUNT_64;
+    return mach_vm_region_recurse(mach_task_self(), &at, &size, &depth, (vm_region_recurse_info_t)&info, &count) == KERN_SUCCESS &&
+           at < GUEST_LIMIT;
+}
+
 static int run(const uint64_t *blocks, uint64_t *alias, uint64_t *size) {
     int fd[2]; if (pipe(fd)) return 2;
     pid_t pid = fork();
@@ -55,6 +64,13 @@ static int run(const uint64_t *blocks, uint64_t *alias, uint64_t *size) {
 
 int main(void) {
     uint64_t a, s;
+    if (system_blocks()) {  // the system's blocks already leave too little room for imitated ones: check this start's own layout
+        const uint64_t none_[] = {0};
+        int rc = run(none_, &a, &s);
+        if (rc == 2) { printf("FAIL this macOS's layout\n"); return 1; }
+        printf("PASS guest layout on this macOS's own blocks: %s\n", rc ? "no room this start, a restart is asked for" : "reserved");
+        return 0;
+    }
     // free space: the alias region right behind the low window, whole
     const uint64_t none_[] = {0};
     if (run(none_, &a, &s) != 0 || a != GUEST_LOW_END || s != 16 * GIB) { printf("FAIL free space (%llx %llx)\n", (unsigned long long)a, (unsigned long long)s); return 1; }
