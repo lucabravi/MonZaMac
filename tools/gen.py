@@ -559,7 +559,7 @@ def main():
     build = Nso(main_nso).build_id[:16]
     PATCHES.clear()
     if args.name == 'lumiose':
-        PATCHES.update(lumiose_patches(m.nso.build_id))
+        PATCHES.update(lumiose_patches(m))
     elif build in ZA_BUILDS and args.name == 'main':
         PATCHES.update(za_patches(build))
         print(f'{args.name}: Pokémon Legends Z-A (build {build}): {len(PATCHES)} game patch(es)')
