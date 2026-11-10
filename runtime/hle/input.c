@@ -157,7 +157,14 @@ static void snap_to_axis(int32_t *x, int32_t *y, int deg) {
 // Settings > Controls > Mouse camera: which button, held down, lets the mouse turn the camera. "No button" does it all the
 // time, with the cursor held inside the window (input_mouse_update), so it cannot leave the window and spin the camera.
 extern bool menu_input_captured(void);  // runtime/ui/menu.mm
+// With the left button turning the camera ("Left button" / "Any button"), a left press is not the camera until the cursor
+// moves: released before that, it was a tap (the touch screen, below); moved, it becomes the camera drag.
+static bool left_pending;
+static float left_x, left_y;
+static SDL_WindowID left_win;
+#define TAP_SLOP 6.0f  // points the cursor may move before a left press becomes a camera drag
 static bool mouse_camera_on(uint32_t state) {
+    if (left_pending) state &= ~SDL_BUTTON_LMASK;
     if (g_settings.mouse_camera == MOUSE_CAM_ALWAYS) return true;
     if (g_settings.mouse_camera != MOUSE_CAM_HOLD) return false;
     switch (g_settings.mouse_camera_button) {
@@ -190,8 +197,8 @@ void input_mouse_update(SDL_Window *w) {
 
 // The touch screen, from the mouse: the left button held is one finger where the cursor is, in the touch screen's own
 // coordinates (1280x720 over the game's picture, whatever the window and the render size). Only the Lumiose module asks
-// for it (nn::hid::GetTouchScreenStates, imported by its interface; the game imports none of it). Not while the left
-// button turns the camera, nor while the menu has the controls.
+// for it (nn::hid::GetTouchScreenStates, imported by its interface; the game imports none of it). When the left button also
+// turns the camera, only a tap (pressed and released without moving) is a touch. None while the menu has the controls.
 static pthread_mutex_t view_lock = PTHREAD_MUTEX_INITIALIZER;
 static double view[7];  // the picture in the drawable: x, y, w, h (pixels); the drawable's width; the shown part (uv y, height)
 static float view_crop[4];
@@ -225,10 +232,9 @@ static bool touch_point(SDL_WindowID id, float wx, float wy) {  // window points
     atomic_store(&touch_y, (int)(t * TOUCH_H));
     return true;
 }
-static bool touch_from_left(void) {
-    if (g_settings.mouse_camera == MOUSE_CAM_ALWAYS) return false;
-    return g_settings.mouse_camera != MOUSE_CAM_HOLD ||
-           (g_settings.mouse_camera_button != MOUSE_BTN_LEFT && g_settings.mouse_camera_button != MOUSE_BTN_ANY);
+static bool left_is_camera(void) {
+    return g_settings.mouse_camera == MOUSE_CAM_HOLD &&
+           (g_settings.mouse_camera_button == MOUSE_BTN_LEFT || g_settings.mouse_camera_button == MOUSE_BTN_ANY);
 }
 
 // mouse camera: the right stick from how fast the mouse moves with the right button held. Motion is added up between
@@ -297,7 +303,20 @@ void input_handle_event(const SDL_Event *e) {
         }
         break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN: case SDL_EVENT_MOUSE_BUTTON_UP:
-        if (e->button.button == SDL_BUTTON_LEFT && touch_from_left()) {
+        if (e->button.button != SDL_BUTTON_LEFT || g_settings.mouse_camera == MOUSE_CAM_ALWAYS) break;
+        if (left_is_camera()) {  // a tap is the touch screen, a drag the camera
+            bool press = e->type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+            if (press) {
+                left_pending = !mouse_held && touch_point(e->button.windowID, e->button.x, e->button.y);
+                left_x = e->button.x, left_y = e->button.y, left_win = e->button.windowID;
+            } else if (left_pending) {  // released where it was pressed: one tap (reported once, then lifted)
+                left_pending = false;
+                if (touch_point(left_win, left_x, left_y)) atomic_store(&touch_pressed, true);
+                atomic_store(&touch_down, false);
+            }
+            break;
+        }
+        {
             bool down = e->type == SDL_EVENT_MOUSE_BUTTON_DOWN && !mouse_held &&
                         touch_point(e->button.windowID, e->button.x, e->button.y);
             if (down) atomic_store(&touch_pressed, true);
@@ -305,6 +324,8 @@ void input_handle_event(const SDL_Event *e) {
         }
         break;
     case SDL_EVENT_MOUSE_MOTION:  // the chosen button held (or none): the mouse turns the camera (right stick)
+        if (left_pending && (fabsf(e->motion.x - left_x) > TAP_SLOP || fabsf(e->motion.y - left_y) > TAP_SLOP))
+            left_pending = false;  // moved: the camera from here on
         if (atomic_load(&touch_down) && !mouse_held && !touch_point(e->motion.windowID, e->motion.x, e->motion.y))
             atomic_store(&touch_down, false);  // (dragged off the picture: the finger is lifted)
         if (mouse_camera_on(e->motion.state)) {
