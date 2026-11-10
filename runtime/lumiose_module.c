@@ -18,9 +18,10 @@ static unsigned alias_count;
 
 static pthread_mutex_t alias_lock = PTHREAD_MUTEX_INITIALIZER;
 
-// The formatter and parser share Newlib's decimal conversion scratch storage.
+// The formatter and parser share Newlib's decimal conversion scratch storage. Recursive: the stream formatter
+// formats into a stack buffer through itself (__sbprintf) for unbuffered streams, holding the lock.
 void lumiose_decimal_call(Cpu *c, uint64_t target) {
-    static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+    static pthread_mutex_t lock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
     pthread_mutex_lock(&lock);
     c->pc = target;
     rt_dispatch(c);
