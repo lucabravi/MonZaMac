@@ -964,12 +964,12 @@ static void tab_about(void) {
         choice("Button to hold", &g_settings.mouse_camera_button, btn, 4);
     }
     {
-        static const char *const hide[] = {"Never", "After 3 seconds", "After 5 seconds", "After 10 seconds"};
-        static const int secs[] = {0, 3, 5, 10};
+        static const char *const hide[] = {"Never", "After 5 seconds", "After 10 seconds", "After 30 seconds", "After 60 seconds"};
+        static const int secs[] = {0, 5, 10, 30, 60};
         int i = 0;
-        while (i < 3 && secs[i] != g_settings.cursor_hide_s) i++;
-        if (secs[i] != g_settings.cursor_hide_s) i = 2;
-        if (choice("Hide the idle cursor", &i, hide, 4)) g_settings.cursor_hide_s = secs[i];
+        while (i < 4 && secs[i] != g_settings.cursor_hide_s) i++;
+        if (secs[i] != g_settings.cursor_hide_s) i = 1;  // (a value from an edited ini: shown as the default)
+        if (choice("Hide the idle cursor", &i, hide, 5)) g_settings.cursor_hide_s = secs[i];
         hint("Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse "
              "has not moved or clicked for this long, and comes back as soon as it does.");
     }
