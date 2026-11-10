@@ -55,7 +55,7 @@ Macs, fix bugs or make the documentation better. You do not have to be a develop
 - 🧩 **Fewer stutters.** **Prepare all shaders** builds the game's shaders once (about five minutes) so scenes and
   battle effects stall far less afterwards, and everything stays in a local cache on your Mac.
 - 🎮 **Your controls.** Remappable keyboard and controller input, camera on the mouse or trackpad, and docked or
-  handheld mode.
+  handheld mode. In online play the mouse also clicks the mod's buttons and lists.
 - 🌐 **Online play** *(optional, separate edition)*. **Play online** puts you in the same Lumiose City as every other
   Lumiose Online player: chat, trading, voice chat and more, from the mod's own team. Details
   [below](#play-online-with-lumiose-online).
@@ -124,7 +124,7 @@ For the technical side (what the runtime does for the mod, how a version is prep
 
 ## Download and play
 
-You need a Mac with Apple Silicon (macOS 15 or later) and **your own copy of the game** (see above).
+You need a Mac with Apple Silicon (macOS 15 or later, macOS 27 included) and **your own copy of the game** (see above).
 
 1. Download `MonZaMac-<version>-macOS.dmg` from the [latest release](https://github.com/lucabravi/MonZaMac/releases/latest)
    (or `MonZaMac-<version>-Online-macOS.dmg` if you want [online play](#play-online-with-lumiose-online)).

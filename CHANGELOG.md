@@ -3,6 +3,30 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
+## 0.2.1
+
+MonZaMac now also starts on macOS 27, the mouse works in online play, shadow edges are smooth in close-ups, and a set of smaller fixes. **After updating, run Prepare all shaders again** (the **All shaders** badge turns yellow): the shadows changed.
+
+### macOS 27
+- The game starts on **macOS 27**, where it used to stop right at launch. Tried on macOS 27.2.1 in a virtual machine: offline and online, with existing saves. Thanks to **DarthMDev** for reporting it and finding the cause. macOS 15 and 26 work as before.
+
+### Mouse
+- **Online play:** the cursor is visible in game, so you can click the buttons and lists of Lumiose Online. The left button works as the touch screen for the mod. When the left button also turns the camera, a click is a touch and a drag turns the camera.
+- The cursor hides after **5 seconds** without moving, and comes back as soon as you move it. **Settings > Controls > Hide the idle cursor** sets the time (never, 5, 10, 30 or 60 seconds); it shows only in the online edition. A two-finger swipe on the trackpad turns the camera and does not bring the cursor back.
+- **Offline play** keeps the cursor hidden in game, as before.
+
+### Graphics
+- **Smoother shadow edges** in close-ups and cutscenes: the edge of a shadow no longer shows steps.
+
+### Start screen
+- The cursor is back when you return to the start screen from a game.
+- **Compile all shaders** goes back to the start screen when it finishes, is stopped or fails, instead of carrying on into a new game. While it runs, the cursor stays visible, so **Stop** can be clicked.
+
+### Fixes
+- Saves: an existing backup is kept when an export fails, an imported save is always checked, and the save cards update right after a change.
+- Online preparation: a failed or stopped preparation is no longer reported as finished, folders with any character in their name work, and every download goes over a secure connection.
+- Several smaller robustness fixes in file handling and in the developer tools.
+
 ## 0.2.0
 
 A new start screen, and **Lumiose Online**: optional online play with the multiplayer mod of the same name, in a separate online edition. The offline edition is the one you know, with the new start screen. **After updating, the game code is rebuilt once on its own (a few minutes, with a progress bar), because the generator changed.**
