@@ -4,12 +4,14 @@
 // d-pad, K/J/L/I = A/B/X/Y, Q/E = L/R, 1/3 = ZL/ZR, Enter / Backspace = Plus / Minus, numpad 8/4/5/6 right stick;
 // controller by position, Switch A = east).
 #include <SDL3/SDL.h>
+#include <pthread.h>
 #include <ctype.h>
 #include <math.h>
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "../devlog.h"
 #include "../hle.h"
 #include "../nvn/nvn.h"
 #include "../nvn/renderer.h"
@@ -166,9 +168,10 @@ static bool mouse_camera_on(uint32_t state) {
     }
 }
 
-// Main thread, after each batch of events (runtime/nvn/metal.m ui_run): while the game has the controls the mouse is in
-// relative mode: the cursor is hidden (nothing in the game is clicked) and held in place, so the camera never stops at
-// the window's edge; the menu and the name entry get the cursor back.
+// Main thread, after each batch of events (runtime/nvn/metal.m ui_run): while the mouse turns the camera it is in relative
+// mode: the cursor is hidden and held in place, so the camera never stops at the window's edge. That is all the time with
+// Mouse camera "Always", and only while the chosen button is held with "While holding a button": the rest of the time the
+// cursor is shown (the Lumiose module's interface is clicked with it). The menu and the name entry get it back.
 static bool mouse_held;
 // Back to the start screen: it has no menu to take the mouse back, so the cursor must come back here.
 void input_mouse_release(SDL_Window *w) {
@@ -177,10 +180,55 @@ void input_mouse_release(SDL_Window *w) {
     mouse_held = false;
 }
 void input_mouse_update(SDL_Window *w) {
-    bool want = !menu_input_captured() && (SDL_GetWindowFlags(w) & SDL_WINDOW_INPUT_FOCUS);
+    bool want = !menu_input_captured() && (SDL_GetWindowFlags(w) & SDL_WINDOW_INPUT_FOCUS) &&
+                (g_settings.mouse_camera == MOUSE_CAM_ALWAYS ||
+                 (g_settings.mouse_camera == MOUSE_CAM_HOLD && mouse_camera_on(SDL_GetMouseState(NULL, NULL))));
     if (want == mouse_held) return;
     SDL_SetWindowRelativeMouseMode(w, want);
     mouse_held = want;
+}
+
+// The touch screen, from the mouse: the left button held is one finger where the cursor is, in the touch screen's own
+// coordinates (1280x720 over the game's picture, whatever the window and the render size). Only the Lumiose module asks
+// for it (nn::hid::GetTouchScreenStates, imported by its interface; the game imports none of it). Not while the left
+// button turns the camera, nor while the menu has the controls.
+static pthread_mutex_t view_lock = PTHREAD_MUTEX_INITIALIZER;
+static double view[7];  // the picture in the drawable: x, y, w, h (pixels); the drawable's width; the shown part (uv y, height)
+static float view_crop[4];
+static _Atomic int touch_x, touch_y;
+static _Atomic bool touch_down, touch_pressed;  // (pressed: a press not yet reported, so a click between two polls counts)
+#define TOUCH_W 1280
+#define TOUCH_H 720
+
+// The presenter (runtime/nvn/metal.m), each frame: where the shown part of the game's picture is in the drawable
+// (pixels), the drawable's width, and which part of the picture that is (uv origin and size, present_crop).
+void input_present_view(double vx, double vy, double vw, double vh, double dw, const float crop[4]) {
+    pthread_mutex_lock(&view_lock);
+    view[0] = vx, view[1] = vy, view[2] = vw, view[3] = vh, view[4] = dw;
+    memcpy(view_crop, crop, sizeof view_crop);
+    pthread_mutex_unlock(&view_lock);
+}
+static bool touch_point(SDL_WindowID id, float wx, float wy) {  // window points -> touch coordinates; false: off the picture
+    SDL_Window *w = SDL_GetWindowFromID(id);
+    int ww = 0, wh = 0;
+    if (!w || !SDL_GetWindowSize(w, &ww, &wh) || ww <= 0 || wh <= 0) return false;
+    pthread_mutex_lock(&view_lock);
+    double v[5]; memcpy(v, view, sizeof v);
+    float k[4]; memcpy(k, view_crop, sizeof k);
+    pthread_mutex_unlock(&view_lock);
+    if (v[2] <= 0 || v[3] <= 0 || v[4] <= 0) return false;
+    double scale = v[4] / ww;  // points -> the drawable's pixels
+    double u = (wx * scale - v[0]) / v[2], t = (wy * scale - v[1]) / v[3];  // 0..1 over the shown part
+    if (u < 0 || u >= 1 || t < 0 || t >= 1) return false;
+    u = k[0] + u * k[2], t = k[1] + t * k[3];  // over the whole picture
+    atomic_store(&touch_x, (int)(u * TOUCH_W));
+    atomic_store(&touch_y, (int)(t * TOUCH_H));
+    return true;
+}
+static bool touch_from_left(void) {
+    if (g_settings.mouse_camera == MOUSE_CAM_ALWAYS) return false;
+    return g_settings.mouse_camera != MOUSE_CAM_HOLD ||
+           (g_settings.mouse_camera_button != MOUSE_BTN_LEFT && g_settings.mouse_camera_button != MOUSE_BTN_ANY);
 }
 
 // mouse camera: the right stick from how fast the mouse moves with the right button held. Motion is added up between
@@ -248,7 +296,17 @@ void input_handle_event(const SDL_Event *e) {
             atomic_fetch_add(&mouse_acc_y, (int32_t)lround(sy * e->wheel.y * TRACKPAD_PX * 16));
         }
         break;
+    case SDL_EVENT_MOUSE_BUTTON_DOWN: case SDL_EVENT_MOUSE_BUTTON_UP:
+        if (e->button.button == SDL_BUTTON_LEFT && touch_from_left()) {
+            bool down = e->type == SDL_EVENT_MOUSE_BUTTON_DOWN && !mouse_held &&
+                        touch_point(e->button.windowID, e->button.x, e->button.y);
+            if (down) atomic_store(&touch_pressed, true);
+            atomic_store(&touch_down, down);
+        }
+        break;
     case SDL_EVENT_MOUSE_MOTION:  // the chosen button held (or none): the mouse turns the camera (right stick)
+        if (atomic_load(&touch_down) && !mouse_held && !touch_point(e->motion.windowID, e->motion.x, e->motion.y))
+            atomic_store(&touch_down, false);  // (dragged off the picture: the finger is lifted)
         if (mouse_camera_on(e->motion.state)) {
             atomic_fetch_add(&mouse_acc_x, (int32_t)lround((g_settings.invert_mouse_x ? -1 : 1) * e->motion.xrel * MOUSE_PX * 16));
             atomic_fetch_add(&mouse_acc_y, (int32_t)lround((g_settings.invert_mouse_y ? -1 : 1) * e->motion.yrel * MOUSE_PX * 16));
@@ -596,6 +654,33 @@ HLE_FUNC("_ZN2nn3hid15GetNpadStyleSetERKj", hid_style_set) {
     static int nlog;
     if (nlog++ < 4) LOG("[input] GetNpadStyleSet id %#x\n", id);
     c->x[0] = id == 0 ? 1 : 0;  // docked: no handheld controller
+}
+
+// GetTouchScreenStates<1>(TouchScreenState<1> *out, int count) -> states written. TouchScreenState<1>: {s64 sampling,
+// s32 count, u32 reserved, TouchState[1]}; TouchState (0x28): {s64 delta_time, u32 attributes (1 start, 2 end), s32 finger,
+// s32 x, s32 y, s32 diameter x, s32 diameter y, s32 angle, u32 reserved}. The latest state only.
+HLE_FUNC("_ZN2nn3hid20GetTouchScreenStatesILm1EEEiPNS0_16TouchScreenStateIXT_EEEi", hid_touch_states) {
+    uint8_t *s = (uint8_t *)(uintptr_t)c->x[0];
+    int count = (int)c->x[1];
+    static int64_t samples;
+    static bool was_down;
+    if (count < 1 || !s) { c->x[0] = 0; return; }
+    memset(s, 0, 0x38);
+    *(int64_t *)s = ++samples;
+    bool pressed = atomic_exchange(&touch_pressed, false);
+    bool down = (atomic_load(&touch_down) || pressed) && !menu_input_captured();
+    if (down) {
+        *(int32_t *)(s + 8) = 1;
+        uint8_t *t = s + 0x10;
+        *(uint32_t *)(t + 8) = was_down ? 0 : 1;  // start
+        *(int32_t *)(t + 0x10) = atomic_load(&touch_x);
+        *(int32_t *)(t + 0x14) = atomic_load(&touch_y);
+        *(int32_t *)(t + 0x18) = *(int32_t *)(t + 0x1c) = 15;
+        if (!was_down && devlog_on("touch"))  // (LARECOMP_DEVLOG=touch: where each press lands, to check the mapping)
+            devlog("touch", "press at %d,%d (of %dx%d)", atomic_load(&touch_x), atomic_load(&touch_y), TOUCH_W, TOUCH_H);
+    }
+    was_down = down && atomic_load(&touch_down);
+    c->x[0] = 1;
 }
 
 // BindNpadStyleSetUpdateEvent(id, SystemEventType*, clear mode): signaled once so the game sees a
