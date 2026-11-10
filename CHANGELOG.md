@@ -3,6 +3,14 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
+## 0.2.2
+
+A fix for online play: the game no longer crashes when entering the battle zone with Lumiose Online.
+
+### Lumiose Online (online edition)
+- **Entering the battle zone no longer crashes the game.** Two parts of the mod could write numbers at the same time and get in each other's way; now they take turns. Thanks to **DarthMDev** for finding the cause and testing the fix. It also covers future versions of the mod, without a MonZaMac update.
+- After updating, the next **Play online** prepares the online version again (a few minutes, with a progress bar).
+
 ## 0.2.1
 
 MonZaMac now also starts on macOS 27, the mouse works in online play, shadow edges are smooth in close-ups, and a set of smaller fixes. **After updating, run Prepare all shaders again** (the **All shaders** badge turns yellow): the shadows changed.
