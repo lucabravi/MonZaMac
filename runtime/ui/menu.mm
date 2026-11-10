@@ -971,7 +971,7 @@ static void tab_about(void) {
         if (secs[i] != g_settings.cursor_hide_s) i = 1;  // (a value from an edited ini: shown as the default)
         if (choice("Hide the idle cursor", &i, hide, 5)) g_settings.cursor_hide_s = secs[i];
         hint("Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse "
-             "has not moved or clicked for this long, and comes back as soon as it does.");
+             "has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).");
     }
     toggle("Two-finger drag on the trackpad", &g_settings.trackpad_camera);
     hint("The trackpad's two-finger scroll turns the camera, as the mouse does.");

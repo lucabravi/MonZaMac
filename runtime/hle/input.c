@@ -182,7 +182,7 @@ static bool mouse_camera_on(uint32_t state) {
 // is held with "While holding a button"; the rest of the time the cursor is shown.
 static bool online_mouse(void) { return g_nmodules > 2; }  // (the Lumiose module is loaded: runtime/loader.c)
 static bool mouse_held;
-static uint64_t mouse_seen;  // SDL_GetTicks of the last mouse movement, click or scroll (the idle cursor hides)
+static uint64_t mouse_seen;  // SDL_GetTicks of the last mouse movement or click (the idle cursor hides)
 static bool cursor_idle;     // hidden for being idle (Settings > Controls > Hide the idle cursor)
 // Back to the start screen: it has no menu to take the mouse back, so the cursor must come back here.
 void input_mouse_release(SDL_Window *w) {
@@ -280,8 +280,8 @@ static void mouse_stick(int32_t *rx, int32_t *ry) {
     *rx = (int32_t)(vx * d), *ry = (int32_t)(-vy * d);
 }
 void input_handle_event(const SDL_Event *e) {
-    if (e->type == SDL_EVENT_MOUSE_MOTION || e->type == SDL_EVENT_MOUSE_BUTTON_DOWN || e->type == SDL_EVENT_MOUSE_BUTTON_UP ||
-        e->type == SDL_EVENT_MOUSE_WHEEL)
+    // (not the scroll: a two-finger drag on the trackpad turns the camera, it does not bring the cursor back)
+    if (e->type == SDL_EVENT_MOUSE_MOTION || e->type == SDL_EVENT_MOUSE_BUTTON_DOWN || e->type == SDL_EVENT_MOUSE_BUTTON_UP)
         mouse_seen = SDL_GetTicks();
     static bool scanned;  // pads present at startup: their ADDED event may have gone to the start screen's loop
     if (!scanned) {
