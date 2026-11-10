@@ -18,6 +18,15 @@ static unsigned alias_count;
 
 static pthread_mutex_t alias_lock = PTHREAD_MUTEX_INITIALIZER;
 
+// The formatter and parser share Newlib's decimal conversion scratch storage.
+void lumiose_decimal_call(Cpu *c, uint64_t target) {
+    static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_lock(&lock);
+    c->pc = target;
+    rt_dispatch(c);
+    pthread_mutex_unlock(&lock);
+}
+
 // caller holds alias_lock
 static void mirror(uint64_t original, const void *value, unsigned size) {
     memcpy((void *)(uintptr_t)original, value, size);
