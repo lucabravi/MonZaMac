@@ -68,7 +68,7 @@ static bool hle_decode_detour(uint64_t pc, const uint32_t code[16], uint64_t *de
         memcpy(&target, (const uint8_t *)code + offset, sizeof target);
         scratch = reg + 1;
     } else return false;
-    if ((target & 3) || target < GUEST_LO || target >= GUEST_HI || target == pc) return false;
+    if ((target & 3) || !guest_contains(target, 4) || target == pc) return false;
     *detour = target | ((uint64_t)scratch << 40);
     return true;
 }
