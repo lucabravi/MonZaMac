@@ -29,7 +29,7 @@ static int trial(const uint64_t *blocks, uint64_t *alias, uint64_t *size) {
     if (!guest_reserve()) return 1;
     *alias = g_alias_base; *size = g_alias_size;
     if (g_alias_base < GUEST_LOW_END || g_alias_base + g_alias_size > GUEST_LIMIT) return 2;
-    if (g_alias_size != 16 * GIB && g_alias_size != 14 * GIB && g_alias_size != 13 * GIB) return 2;
+    if (g_alias_size != 16 * GIB) return 2;
     if (!taken(GUEST_LO, GUEST_LOW_END - GUEST_LO) || !taken(g_alias_base, g_alias_size)) return 2;  // both are ours
     volatile uint8_t *p = (volatile uint8_t *)(uintptr_t)GUEST_LO; p[0] = 1; p[GUEST_LOW_END - GUEST_LO - 1] = 1;
     p = (volatile uint8_t *)(uintptr_t)g_alias_base; p[0] = 1; p[g_alias_size - 1] = 1;
@@ -61,7 +61,7 @@ int main(void) {
     // a block right behind the low window: the alias region goes to the hole after it
     const uint64_t behind[] = {GUEST_LOW_END, 0};
     if (run(behind, &a, &s) != 0 || a != GUEST_LOW_END + 12 * GIB) { printf("FAIL hole after a block (%llx)\n", (unsigned long long)a); return 1; }
-    // no 13 GB hole anywhere (four 12 GB blocks, 1 GB apart): no layout
+    // no 16 GB hole anywhere (four 12 GB blocks, 1 GB apart): no layout
     const uint64_t full[] = {GUEST_LOW_END, GUEST_LOW_END + 13 * GIB, GUEST_LOW_END + 26 * GIB, GUEST_LOW_END + 39 * GIB, 0};
     if (run(full, &a, &s) != 1) { printf("FAIL full\n"); return 1; }
     // the low window itself taken: no layout

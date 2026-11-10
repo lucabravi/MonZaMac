@@ -4,23 +4,21 @@
 
 #define GIB (1ull << 30)
 
-uint64_t g_alias_base = GUEST_LOW_END, g_alias_size = 16 * GIB;  // (defaults: the alias region right behind the low window)
+uint64_t g_alias_base = GUEST_LOW_END, g_alias_size = 16 * GIB;  // (the alias region right behind the low window, unless it moved)
 
 // Claim both reservations, before anything else can map there. false: the low window is taken, or no hole below 2^39
 // holds the alias region (the caller starts again: the system's own regions move at every launch).
 bool guest_reserve(void) {
     if (!plat_reserve_guest(GUEST_LO, GUEST_LOW_END)) return false;
-    // The SDK's virtual address memory takes 12 GB of the alias region; smaller sizes only when no 16 GB hole is left.
-    static const uint64_t sizes[] = {16 * GIB, 14 * GIB, 13 * GIB};
-    for (unsigned i = 0; i < sizeof sizes / sizeof *sizes; i++)
-        for (uint64_t at = GUEST_LOW_END; at + sizes[i] <= GUEST_LIMIT; at += GIB)
-            if (plat_reserve_guest(at, at + sizes[i])) {
-                g_alias_base = at;
-                g_alias_size = sizes[i];
-                LOG("[mem] guest layout: low window %llx-%llx, alias region %llx+%llx%s\n", GUEST_LO, GUEST_LOW_END, at, sizes[i],
-                    at == GUEST_LOW_END ? "" : " (in a hole: the address space behind the low window is not free)");
-                return true;
-            }
+    // The SDK's virtual address memory takes 12 GB of the alias region (and its node area a little more): always the full
+    // 16 GB, never a smaller hole. A start that finds none is only a restart away (about 1 in 3 on macOS 27.0, measured).
+    for (uint64_t at = GUEST_LOW_END; at + g_alias_size <= GUEST_LIMIT; at += GIB)
+        if (plat_reserve_guest(at, at + g_alias_size)) {
+            g_alias_base = at;
+            LOG("[mem] guest layout: low window %llx-%llx, alias region %llx+%llx%s\n", GUEST_LO, GUEST_LOW_END, at, g_alias_size,
+                at == GUEST_LOW_END ? "" : " (in a hole: the address space behind the low window is not free)");
+            return true;
+        }
     return false;
 }
 

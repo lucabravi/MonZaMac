@@ -38,7 +38,7 @@ extern uint64_t g_alias_base, g_alias_size;
 #define HLE_HEAP     0x7092000000ull   // guest-visible memory owned by host code
 #define HLE_HEAP_SIZE 0x000E000000ull
 #define ALIAS_BASE   g_alias_base      // alias region (svcMapMemory targets; an SDK's virtual address memory reserves its address regions here)
-#define ALIAS_SIZE   g_alias_size      // 16 GB, or less when only a smaller hole is free
+#define ALIAS_SIZE   g_alias_size      // 16 GB
 #define HEAP_BASE    0x70E0000000ull
 #define HEAP_MAX     0x00D0000000ull   // 3.25 GB, up to GUEST_LOW_END
 
