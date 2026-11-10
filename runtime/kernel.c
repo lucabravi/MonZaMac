@@ -1433,6 +1433,11 @@ void kernel_init(void) {
     }
     // Reserve the heap, alias, stack, and TLS regions.
     region_add(TLS_BASE, TLS_SIZE, 0xC, 3);
+    // The host's own parts of the window, used by the game, not its to map over: the host-implemented functions'
+    // addresses and the memory host code hands out (dispatch.c). Unlisted, svcQueryMemory showed them free, and the
+    // Lumiose module, which places private copies of game code at random free addresses, could pick one of them.
+    region_add(HLE_BASE, HLE_SIZE, 3, 5);
+    region_add(HLE_HEAP, HLE_HEAP_SIZE, 0xC, 3);
     if (g_nmodules > 2) region_add(HLE_CODE_BASE, HLE_CODE_SIZE, 3, 5);
     hle_guest_code_init(g_nmodules > 2);
     for (int i = 0; i < g_nmodules; i++) {
