@@ -66,7 +66,8 @@ so and nothing is started. The online app runs these tools through its bundled h
 The mod's own interface reads the Switch touch screen (`nn::hid::GetTouchScreenStates`, which the game does not import):
 the left mouse button held is one finger where the cursor is, in the touch screen's 1280x720 over the game's picture
 (`runtime/hle/input.c`). When the left button also turns the camera (Mouse camera "Left button" / "Any button"), a tap is
-a touch and a drag the camera. The cursor is shown in game unless the mouse is turning the camera.
+a touch and a drag the camera. The cursor is shown in game unless the mouse is turning the camera, and hides after 5 seconds without movement or
+click (Settings > Controls > Hide the idle cursor: never, 5, 10, 30 or 60 seconds). Offline the cursor stays hidden in game.
 
 ## What is verified, and what is not
 
