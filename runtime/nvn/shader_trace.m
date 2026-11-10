@@ -119,7 +119,7 @@ static NSArray *trace_stack(Cpu *cpu) {
         uint64_t offset = 0;
         const char *name = loader_symbol_at(pc, &offset);
         [pcs addObject:@{@"pc": trace_hex(pc), @"symbol": name ? @(name) : @"?", @"symbol_offset": @(offset)}];
-        if (fp < GUEST_LO || fp > GUEST_HI - 16 || (fp & 15)) break;
+        if (!guest_contains(fp, 16) || (fp & 15)) break;
         uint64_t pair[2]; mach_vm_size_t got = 0;
         if (mach_vm_read_overwrite(mach_task_self(), fp, sizeof pair, (mach_vm_address_t)pair, &got) != KERN_SUCCESS || got != sizeof pair) break;
         if (pair[0] <= fp || pair[0] - fp > (16u << 20)) break;
@@ -132,8 +132,7 @@ void shader_trace_stage(Cpu *cpu, const NvnShaderStage *s, uint64_t program) {
     if (!shader_trace_enabled() || !cpu || !s) return;
     uint64_t size = (uint64_t)s->const_offset + s->const_size, observed = trace_ns();
     uint64_t frame = atomic_load(&trace_current_frame);
-    if (size < 16 || size > (16u << 20) || s->code_addr < GUEST_LO ||
-        s->code_addr >= GUEST_HI || size > GUEST_HI - s->code_addr) return;
+    if (size < 16 || size > (16u << 20) || !guest_contains(s->code_addr, size)) return;
     @autoreleasepool {
         NSMutableData *bytes = [NSMutableData dataWithLength:(NSUInteger)size]; mach_vm_size_t got = 0;
         if (mach_vm_read_overwrite(mach_task_self(), s->code_addr, size, (mach_vm_address_t)bytes.mutableBytes, &got) != KERN_SUCCESS || got != size) return;

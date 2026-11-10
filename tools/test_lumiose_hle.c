@@ -6,6 +6,7 @@
 #include <sys/mman.h>
 #include "../runtime/dispatch.c"
 #include "../runtime/lumiose_module.c"
+#include "../runtime/guest_layout.c"
 
 Module g_modules[4];int g_nmodules=2;
 void rt_unwind_point(void) {}

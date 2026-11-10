@@ -17,10 +17,15 @@ void rt_crash_explain(char *out, size_t n, const char *log_path);
 
 // ---- address space layout (guest addresses == host addresses)
 // Guest addresses must fit in 39 bits; the window starts at 0x70_0000_0000, above the region macOS reserves.
-// 32 GB: the SDK's virtual address memory (Pokémon Legends Z-A reserves 12 GB in the alias region) needs room
-// beyond the image, stacks and heap. Pages are committed on first touch, so the size costs address space only.
+// Two reservations (runtime/guest_layout.c). The low window, 7 GB at GUEST_LO: the images (their addresses are in the
+// generated code), the host-implemented functions, TLS, stacks and heap. The alias region: the SDK's virtual address
+// memory (Pokémon Legends Z-A reserves 12 GB in it), 16 GB, right behind the low window when the address space is free
+// there and in the first free hole below 2^39 when it is not (macOS 27 keeps two ~12 GB blocks of its own at random
+// places in 0x70_0000_0000..2^39, so one 32 GB window never fits). Pages are committed on first touch: address space only.
 #define GUEST_LO     0x7000000000ull
-#define GUEST_HI     0x7800000000ull
+#define GUEST_LOW_END 0x71C0000000ull
+#define GUEST_LIMIT  0x8000000000ull   // 2^39
+extern uint64_t g_alias_base, g_alias_size;
 #define MAIN_BASE    0x7000000000ull
 #define SDK_BASE     0x7008000000ull   // (128 MB for main: Pokémon Legends Z-A's image is 0x5f7a000)
 #define HLE_BASE     0x7080000000ull   // fake addresses for host-implemented functions
@@ -32,10 +37,21 @@ void rt_crash_explain(char *out, size_t n, const char *log_path);
 #define TLS_SIZE     0x0000100000ull
 #define HLE_HEAP     0x7092000000ull   // guest-visible memory owned by host code
 #define HLE_HEAP_SIZE 0x000E000000ull
-#define ALIAS_BASE   0x7400000000ull   // alias region (svcMapMemory targets; an SDK's virtual address memory reserves its address regions here)
-#define ALIAS_SIZE   0x0400000000ull   // 16 GB, up to GUEST_HI
-#define HEAP_BASE    0x7240000000ull
-#define HEAP_MAX     0x00D0000000ull   // 3.25 GB
+#define ALIAS_BASE   g_alias_base      // alias region (svcMapMemory targets; an SDK's virtual address memory reserves its address regions here)
+#define ALIAS_SIZE   g_alias_size      // 16 GB, or less when only a smaller hole is free
+#define HEAP_BASE    0x70E0000000ull
+#define HEAP_MAX     0x00D0000000ull   // 3.25 GB, up to GUEST_LOW_END
+
+// An address range inside memory the host reserved (the low window or the alias region).
+static inline bool guest_contains(uint64_t a, uint64_t n) {
+    if (a >= GUEST_LO && a < GUEST_LOW_END) return n <= GUEST_LOW_END - a;
+    return a >= g_alias_base && a - g_alias_base < g_alias_size && n <= g_alias_size - (a - g_alias_base);
+}
+// The end of the one reserved span that starts at GUEST_LO: both reservations when the alias region is right behind
+// the low window, else the low window alone. (What GetInfo reports as the ASLR region: all of it is memory we own.)
+static inline uint64_t guest_span_end(void) {
+    return g_alias_base == GUEST_LOW_END ? g_alias_base + g_alias_size : GUEST_LOW_END;
+}
 
 // ---- the game (kernel.c; set from exefs/main.npdm by main.c)
 extern uint64_t g_program_id;  // GetInfo 18, Pokémon Legends: Z-A's by default
@@ -84,6 +100,10 @@ Cpu *kernel_current_cpu(void);
 typedef struct Service Service;
 int ipc_handle_request(Cpu *c, uint32_t handle);
 uint32_t ipc_connect_named_port(const char *name);
+
+// ---- guest_layout.c
+bool guest_reserve(void);  // both reservations (the low window and the alias region); false: start again
+bool guest_reset(void);    // fresh zero pages over both
 
 // ---- in-place reboot (main.c): switch seeds or go back to the start screen without leaving the process
 enum { RT_REBOOT_NONE, RT_REBOOT_GAME, RT_REBOOT_TITLE };  // GAME: boot again at once (new seed); TITLE: start screen
