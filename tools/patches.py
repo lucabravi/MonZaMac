@@ -1,5 +1,5 @@
 """Hand-written replacements for single guest instructions, applied while lifting (tools/gen.py): PATCHES maps an
-address to a function (generator, address) -> C statement. Only Pokémon Legends: Z-A's: ZA_BUILDS names the builds
+address to a function (generator, address) -> C statement. ZA_BUILDS names the Pokémon Legends: Z-A builds
 (main module build ids) and the address of the frame mode site each has; ZA_DOF, ZA_FXAA, ZA_BLOOM and ZA_WIDE the
 sites of the graphics options (runtime/hle/za_mods.c), from StevensND's and Fl4sh9174's exefs mods."""
 import struct
@@ -37,6 +37,35 @@ ZA_SHADOW = {'b1f12fd919eae86a': 0x7000a8aaa0}
 
 def _word(gen, a):
     return struct.unpack_from('<I', gen.nso.image, a - gen.base)[0]
+
+
+def _lumiose_decimal_call(gen, a):
+    ins = gen.lift(a)
+    target, kind = LUMIOSE_DECIMAL_CALLS[a]
+    assert (ins.target, ins.kind) == (target, kind)
+    link = f'c->x[30] = {a + 4:#x}; ' if kind == 'bl' else ''
+    tail = ' return;' if kind == 'b' else ''
+    return ('{ extern void lumiose_decimal_call(Cpu *, uint64_t); '
+            f'{link}lumiose_decimal_call(c, {target:#x});{tail} }}')
+
+
+# Lumiose 1.5.1 build 1 uses a single Newlib reentrancy object. Keep the lock over the whole
+# formatter because dtoa's result stays in shared scratch storage until the formatter consumes it.
+# strtod uses the same big integer freelist.
+LUMIOSE_DECIMAL_CALLS = {
+    0x700636467c: (0x7006363340, 'b'),   # strtod
+    0x70063653d0: (0x7006369844, 'bl'),  # string formatter
+    0x7006366260: (0x7006369844, 'bl'),
+    0x700636da28: (0x7006369844, 'bl'),
+    0x7006365490: (0x700636f8a8, 'bl'),  # stream formatter
+    0x70063734fc: (0x700636f8a8, 'bl'),
+}
+
+
+def lumiose_patches(build_id):
+    if build_id == '0765800c58c8a1fd2ef4d517a096fe2db851c613':
+        return dict.fromkeys(LUMIOSE_DECIMAL_CALLS, _lumiose_decimal_call)
+    return {}
 
 
 def _za_frame_cfg(gen, a, aspect=None):
