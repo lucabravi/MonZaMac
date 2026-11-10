@@ -31,3 +31,6 @@ Measured on macOS 27.0 (beta 26A5368g, 300 starts each, in a virtual machine): o
 a fifth of them, in a hole in the rest), so a restart is needed in 1 launch out of 3 at most and 60 in a row are out of
 the question. The system's blocks seen there: 12.01 GB at `0x729a000000` and 11.98 GB at `0x759b400000` in one start.
 Not run: the game itself on macOS 27.
+
+To see that layout on any macOS (development): `LARECOMP_IMITATE_MACOS27=1` takes those two blocks first, so the alias
+region goes to a hole and the ASLR region is the low window alone, as on macOS 27.

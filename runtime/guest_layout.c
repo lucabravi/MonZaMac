@@ -1,4 +1,6 @@
 // Where the guest's address space lives (runtime/rt.h): the low window at GUEST_LO and the alias region.
+#include <stdlib.h>
+
 #include "platform.h"
 #include "rt.h"
 
@@ -9,6 +11,14 @@ uint64_t g_alias_base = GUEST_LOW_END, g_alias_size = 16 * GIB;  // (the alias r
 // Claim both reservations, before anything else can map there. false: the low window is taken, or no hole below 2^39
 // holds the alias region (the caller starts again: the system's own regions move at every launch).
 bool guest_reserve(void) {
+    // LARECOMP_IMITATE_MACOS27=1 (development): take the two ~12 GB blocks a macOS 27.0 start had there (measured in a
+    // virtual machine) before anything else, so that the alias region has to go to a hole, as there, on any macOS.
+    const char *imitate = getenv("LARECOMP_IMITATE_MACOS27");
+    if (imitate && atoi(imitate)) {
+        static const uint64_t blocks[][2] = {{0x729a000000ull, 0x759ac00000ull}, {0x759b400000ull, 0x789a000000ull}};
+        for (int i = 0; i < 2; i++)
+            if (!plat_reserve_guest(blocks[i][0], blocks[i][1])) LOG("[mem] imitating macOS 27: block %d not free\n", i);
+    }
     if (!plat_reserve_guest(GUEST_LO, GUEST_LOW_END)) return false;
     // The SDK's virtual address memory takes 12 GB of the alias region (and its node area a little more): always the full
     // 16 GB, never a smaller hole. A start that finds none is only a restart away (about 1 in 3 on macOS 27.0, measured).
