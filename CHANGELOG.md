@@ -3,6 +3,15 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
+## 0.2.3
+
+Ready for **Lumiose Online 1.5.2**. Recommended for everyone who plays online.
+
+### Lumiose Online (online edition)
+- **Lumiose Online 1.5.2 fixes the battle zone crash itself**, so MonZaMac now leaves its own fix off for that version and later ones. With 0.2.2 the two fixes together could, rarely, freeze the game; older versions of the mod keep MonZaMac's fix.
+- The developer benchmark option **Uncapped FPS** is never active online, so the game always runs at its normal speed next to other players.
+- After updating, the next **Play online** prepares the online version again (a few minutes, with a progress bar).
+
 ## 0.2.2
 
 A fix for online play: the game no longer crashes when entering the battle zone with Lumiose Online.
