@@ -85,11 +85,33 @@ def lumiose_decimal_funcs(words, lo):
     return found
 
 
+def _branch_target(gen, i):
+    w = gen.words[i]
+    return gen.lo + 4 * i + (((w & 0x3ffffff) ^ 0x2000000) - 0x2000000) * 4 if (w & 0x7c000000) == 0x14000000 else None
+
+
+def _own_float_lock(gen, sites):
+    """True when the mod locks its float conversions itself (from 1.5.2: Newlib's _dtoa_r and _strtod_r wrapped with a
+    spin lock that reads TPIDR_EL0 and yields). Ours on top would take the two locks in opposite orders (formatter, then
+    its _dtoa_r; their _strtod_r, then our serialized call inside it) and could hang two threads, so it stays off."""
+    near = [s - 0x100 for s in sites]
+    for i in range(len(gen.words)):
+        t = _branch_target(gen, i)
+        if t is None or not any(n <= t <= n + 0x100 for n in near):
+            continue
+        before = gen.words[max(0, i - 40):i]
+        if 0xd503203f in before and any(w & 0xffffffe0 == 0xd53bd040 for w in before):  # yield, mrs xN, tpidr_el0
+            return True
+    return False
+
+
 def lumiose_patches(gen):
     funcs = lumiose_decimal_funcs(gen.words, gen.lo)
     targets = set(funcs.values())
-    sites = [gen.lo + 4 * i for i, w in enumerate(gen.words)
-             if (w & 0x7c000000) == 0x14000000 and gen.lo + 4 * i + (((w & 0x3ffffff) ^ 0x2000000) - 0x2000000) * 4 in targets]
+    sites = [gen.lo + 4 * i for i in range(len(gen.words)) if _branch_target(gen, i) in targets]
+    if _own_float_lock(gen, sites):
+        print('lumiose: the mod locks its own float conversions: none serialized')
+        return {}
     missing = sorted(set(LUMIOSE_DECIMAL_FUNCS) - set(funcs))
     print(f'lumiose: {len(sites)} decimal conversion call(s) serialized' +
           (f'; not found, left unserialized: {", ".join(missing)}' if missing else ''))
