@@ -920,7 +920,8 @@ static void tab_developer(float scale) {
     opt_section("Experimental");
     opt_toggle("Uncapped FPS (benchmark)", &g_settings.dev_uncapped_fps, false,
                "For throughput measurements only. Removes frame pacing and display sync. Gameplay, animations and "
-               "timers may run too fast. Turn off for normal play; this overrides the selected frame rate and disables frame generation.");
+               "timers may run too fast. Turn off for normal play; this overrides the selected frame rate and disables frame generation. "
+               "Never active online.");
     opt_toggle("CPU/GPU overlap", &g_settings.gpu_overlap, true,
                "The game waits for each frame's GPU work right after sending it, so the CPU and the GPU take turns. On: the "
                "wait is one frame late, so the CPU prepares the next frame while the GPU draws this one: a higher frame "
