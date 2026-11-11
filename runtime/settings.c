@@ -265,8 +265,10 @@ void settings_save(void) {
     fclose(f);
 }
 
-// Deliberately leaves the game's time step alone: this mode measures throughput, not game speed.
+// Deliberately leaves the game's time step alone: this mode measures throughput, not game speed. Never online (the
+// Lumiose module loaded): the game's timers could run fast next to other players.
 bool settings_uncapped_fps(void) {
+    if (g_nmodules > 2) return false;
     const char *e = ENV("LARECOMP_UNCAPPED_FPS");
     return e ? atoi(e) != 0 : g_settings.dev_uncapped_fps;
 }
