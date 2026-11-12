@@ -12,7 +12,10 @@ void opt_begin(const char *id, float scale);
 void opt_section(const char *title);
 bool opt_toggle(const char *label, bool *v, bool def, const char *desc);
 // wrap: past the last value back to the first (and the other way); false: stops at the ends
-bool opt_choice(const char *label, int *v, const char *const *names, int n, int def, const char *desc, bool wrap = true);
+// values_are_literal: preserve device names and other externally supplied labels verbatim.
+bool opt_choice(const char *label, int *v, const char *const *names, int n, int def, const char *desc,
+                bool wrap = true, bool values_are_literal = false,
+                const int *flag_langs = nullptr);  // flag_langs: a UI_LANG_* per choice, shown as a flag left of it
 // steps of `step` between lo and hi; fmt formats the value (e.g. "%gx")
 bool opt_slider(const char *label, float *v, float lo, float hi, float step, float def, const char *fmt, const char *desc);
 // whole numbers lo..hi in steps of `step` (holding left / right speeds up); fmt formats it (e.g. "%d px"), lo_name
@@ -25,7 +28,9 @@ bool opt_button(const char *label, const char *desc);
 bool opt_radio(const char *label, bool selected, const char *desc);
 // an action / item row with a value on the right (upper: the label in capitals, as option rows; false: as written,
 // e.g. a seed name); true when activated
-bool opt_action(const char *label, const char *value, const char *desc, bool upper = true);
+// literal fields are user-owned data (e.g. save names), not translatable UI strings.
+bool opt_action(const char *label, const char *value, const char *desc, bool upper = true,
+                bool label_is_literal = false, bool value_is_literal = false);
 // text: the value shown on the right (hint when empty); A / click turns the row into a text field (the on-screen
 // keyboard with a controller). True when Enter / the keyboard confirmed a change.
 #include <stddef.h>

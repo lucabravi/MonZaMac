@@ -14,6 +14,7 @@
 #include "frame_generation_display.h"
 #include "../devlog.h"
 #import <QuartzCore/CAMetalLayer.h>
+#import <QuartzCore/QuartzCore.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_metal.h>
 #include <stdatomic.h>
@@ -1521,6 +1522,81 @@ void backend_shader_prepare_inputs(unsigned done, unsigned total) {
 
 // SDL lays out its native content/Metal views by frame. Auto Layout constraints
 // attached here can shrink that content view, leaving the game pinned left.
+// The loading cover after PLAY on the start screen (g_launch_loading, set by runtime/ui/launcher.mm): black, a Poke Ball turning in
+// the bottom right corner (a Core Animation rotation: it keeps turning whatever the threads are busy with) and the interface
+// language's "Starting...". It stays until the game has put up its first frame and two seconds more, then fades away.
+int g_launch_loading;
+extern const char *ui_tr(const char *english);  // runtime/ui/i18n.mm
+@interface LoadingCover : NSView {
+    @public CALayer *ball;
+    @public NSTextField *text;
+}
+@end
+@implementation LoadingCover
+- (instancetype)initWithFrame:(NSRect)frame {
+    if (!(self = [super initWithFrame:frame])) return nil;
+    self.wantsLayer = YES;
+    self.layer.backgroundColor = NSColor.blackColor.CGColor;
+    self.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    NSImage *img = [NSImage imageWithSize:NSMakeSize(96, 96) flipped:NO drawingHandler:^BOOL(NSRect r) {
+        CGContextRef c = NSGraphicsContext.currentContext.CGContext;
+        CGPoint m = CGPointMake(48, 48);
+        CGFloat R = 44;
+        CGContextSetRGBFillColor(c, 0.87, 0.24, 0.24, 1);
+        CGContextAddArc(c, m.x, m.y, R, 0, M_PI, 0); CGContextFillPath(c);
+        CGContextSetRGBFillColor(c, 0.96, 0.96, 0.94, 1);
+        CGContextAddArc(c, m.x, m.y, R, M_PI, 2 * M_PI, 0); CGContextFillPath(c);
+        CGContextSetRGBStrokeColor(c, 0.12, 0.14, 0.2, 1);
+        CGContextSetLineWidth(c, 5);
+        CGContextMoveToPoint(c, m.x - R, m.y); CGContextAddLineToPoint(c, m.x + R, m.y); CGContextStrokePath(c);
+        CGContextAddArc(c, m.x, m.y, R - 2.5, 0, 2 * M_PI, 0); CGContextStrokePath(c);
+        CGContextSetRGBFillColor(c, 0.12, 0.14, 0.2, 1);
+        CGContextAddArc(c, m.x, m.y, 15, 0, 2 * M_PI, 0); CGContextFillPath(c);
+        CGContextSetRGBFillColor(c, 0.96, 0.96, 0.94, 1);
+        CGContextAddArc(c, m.x, m.y, 9, 0, 2 * M_PI, 0); CGContextFillPath(c);
+        return YES;
+    }];
+    ball = [CALayer layer];
+    ball.bounds = CGRectMake(0, 0, 48, 48);
+    ball.contents = img;
+    ball.contentsGravity = kCAGravityResizeAspect;
+    [self.layer addSublayer:ball];
+    CABasicAnimation *spin = [CABasicAnimation animationWithKeyPath:@"transform.rotation.z"];
+    spin.fromValue = @0;
+    spin.toValue = @(-2 * M_PI);
+    spin.duration = 1.0;
+    spin.repeatCount = HUGE_VALF;
+    [ball addAnimation:spin forKey:@"spin"];
+    text = [NSTextField labelWithString:[NSString stringWithUTF8String:ui_tr("Starting...")]];
+    text.textColor = [NSColor colorWithWhite:0.93 alpha:1];
+    text.font = [NSFont systemFontOfSize:18 weight:NSFontWeightMedium];
+    [text sizeToFit];
+    [self addSubview:text];
+    return self;
+}
+- (void)layout {
+    [super layout];
+    NSRect b = self.bounds;
+    CGFloat s = fmax(0.75, b.size.height / 720.0);
+    ball.bounds = CGRectMake(0, 0, 48 * s, 48 * s);
+    ball.position = CGPointMake(b.size.width - 56 * s - 24 * s, 44 * s + 24 * s);
+    [text sizeToFit];
+    text.frame = NSMakeRect(b.size.width - 56 * s - 48 * s - 18 * s - text.frame.size.width, 44 * s + 24 * s - text.frame.size.height * 0.5, text.frame.size.width, text.frame.size.height);
+}
+@end
+
+// Put the cover over the window (fading in); called by the start screen on PLAY, on the main thread, and again (no-op) by ui_run.
+static LoadingCover *g_cover;
+void ui_loading_cover_show(SDL_Window *w, int instant) {  // instant: opaque at once (a new process: no fade, the old window is gone)
+    if (g_cover || !w) return;
+    NSWindow *nw = (__bridge NSWindow *)SDL_GetPointerProperty(SDL_GetWindowProperties(w), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
+    if (!nw) return;
+    g_cover = [[LoadingCover alloc] initWithFrame:nw.contentView.bounds];
+    g_cover.alphaValue = instant ? 1 : 0;
+    [nw.contentView addSubview:g_cover positioned:NSWindowAbove relativeTo:nil];
+    if (!instant) [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) { ctx.duration = 0.35; g_cover.animator.alphaValue = 1; }];
+}
+
 @interface PreparationPage : NSView {
 @public
     NSTextField *brand, *title, *detail, *count;
@@ -1671,7 +1747,19 @@ int ui_run(void) {
                               reason:@"Game emulation"];
     ui_window_init();
     atomic_store(&ui_ready, true);
+    double cover_since = 0;  // when the game's first frame was seen (0: not yet)
+    if (g_launch_loading) g_launch_loading = 0, ui_loading_cover_show(window, 0);  // (already up when the start screen made it)
     for (;;) {
+        if (g_cover) {  // (until the game shows its first frame and two seconds more)
+            double now = SDL_GetTicks() / 1000.0;
+            if (!cover_since && __atomic_load_n(&g_frame_counter, __ATOMIC_RELAXED) > 0) cover_since = now;
+            if (cover_since && now - cover_since > 2.0) {
+                LoadingCover *gone = g_cover;
+                g_cover = nil;
+                [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) { ctx.duration = 0.6; gone.animator.alphaValue = 0; }
+                                    completionHandler:^{ [gone removeFromSuperview]; }];
+            }
+        }
         if (rt_reboot_requested()) return rt_reboot_requested();  // (runtime/main.c tears the game down)
         SDL_Event e;
         while (SDL_WaitEventTimeout(&e, 16)) {

@@ -182,6 +182,7 @@ static void boot(const char *root) {
     kernel_run_main(t, t->handle, 0, init_fn, fini_fn, exit_fn);
 }
 
+int g_game_booted;  // the game library this process loaded: 0 none yet, 1 offline, 2 online (with the Lumiose module); it can't be swapped
 uint8_t g_game_build[8];  // the exefs/main build ID read at start (all zero when unreadable)
 
 extern int g_saves_first;  // runtime/ui/launcher.mm: the start screen opens on the save picker
@@ -246,12 +247,23 @@ int main(int argc, char **argv) {
 #endif
         }
     }
+    bool booted = false;
     for (bool title = !skip_launcher || g_saves_first;;) {
         if (title) {  // start screen (runtime/ui/launcher.mm): game files setup, seed choice, settings
-            extern void launcher_run(const char *root);
-            launcher_run(root);
+            extern bool launcher_run(const char *root, void (*boot_fn)(const char *));
+            booted = launcher_run(root, boot);  // (PLAY boots the game on a worker thread behind the loading screen)
         }
-        boot(root);
+        if (!booted && getenv("LARECOMP_LOADING_COVER")) {  // (restarted by the start screen: the window and the loading cover go up before the game starts)
+            extern void ui_window_init(void);
+            extern SDL_Window *ui_window(void);
+            extern void ui_loading_cover_show(SDL_Window *w, int instant);
+            unsetenv("LARECOMP_LOADING_COVER");
+            ui_window_init();
+            ui_loading_cover_show(ui_window(), 1);
+        }
+        if (!booted) boot(root);
+        if (!g_game_booted) g_game_booted = getenv("LUMIOSE_TEST_MODULE") ? 2 : 1;
+        booted = false;
         int kind = ui_run();  // window and input on the main thread
         if (kind == RT_REBOOT_NONE) {
             // SDL's signal handlers enqueue quit events; the window loop has finished consuming them.
@@ -267,18 +279,14 @@ int main(int argc, char **argv) {
         if (title && getenv("LUMIOSE_TEST_MODULE")) {
             // Back to the start screen from an online session: the game library with the Lumiose module is loaded once per
             // process, so a start without the module needs a fresh one (Play offline, or Play online again, as the player
-            // chooses). Its environment is the online one's; the start screen opens (no --play).
+            // chooses). The start screen opens (no --play).
             static const char *const online_env[] = {"LUMIOSE_TEST_MODULE", "LUMIOSE_TEST_LIBRARY", "LUMIOSE_TEST_NETWORK",
                                                      "LUMIOSE_TEST_SERVER", "LARECOMP_GAME_LIB", "LARECOMP_PLAY_SAVE"};
             for (size_t i = 0; i < sizeof online_env / sizeof *online_env; i++) unsetenv(online_env[i]);
-            char exe[1100];
-            if (plat_exe_path(exe, sizeof exe)) {
-                char *argv[] = {exe, (char *)root, NULL};
-                extern SDL_Window *ui_window(void);
-                extern void input_mouse_release(SDL_Window *);
-                input_mouse_release(ui_window());  // (the cursor hidden by the game must not outlive this process image)
-                plat_exec(argv);
-            }
+            // The start screen opens in this process; a game of the other kind later starts in a new one (launcher.mm, on PLAY).
+            extern SDL_Window *ui_window(void);
+            extern void input_mouse_release(SDL_Window *);
+            input_mouse_release(ui_window());  // (the cursor hidden by the game must not stay hidden on the start screen)
         }
         if (!title) g_save_dir = save_dir;  // a reboot into the game keeps the save it had or was switched to (the Saves tab)
     }

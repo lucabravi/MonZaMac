@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <atomic>
 
+#include "i18n.h"
 #include "imgui.h"
 #include "imgui_internal.h"  // (SetKeyOwner)
 #include "option_rows.h"
@@ -56,6 +57,8 @@ extern "C" void input_mouse_release(SDL_Window *w);  // runtime/hle/input.c
 void controls_bindings_draw(float scale);  // ui/controls_ui.mm
 void ui_window_init(void);
 SDL_Window *ui_window(void);
+void menu_language_rows(void);  // runtime/ui/menu.mm
+extern "C" bool menu_is_fullscreen_key(const SDL_Event *e);  // runtime/ui/menu.mm
 #ifdef __APPLE__
 void *ui_metal_layer(void);
 void *ui_metal_device(void);
@@ -96,7 +99,7 @@ static void save_png(id<MTLTexture> tex, const char *path) {
 static const uint8_t BUILD_ID[8] = {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a};  // Pokémon Legends: Z-A v2.0.2 main
 // The release tag this build is (also names the release files; Makefile / tools/bundle_macos.sh / make_dmg.sh read
 // it): v<major>.<minor>.<patch>, 0.x until 1.0.
-#define LARECOMP_VERSION "v0.2.3"
+#define LARECOMP_VERSION "v0.3.0"
 
 #include "menu.h"
 
@@ -231,6 +234,16 @@ static void set_job(const std::string &s, bool failed = false, const std::string
     pthread_mutex_unlock(&g_lock);
 }
 
+extern "C" void ui_loading_cover_show(SDL_Window *w, int instant);
+// The cover goes up on this window, then the program is replaced (a game with the module has run here): the pause lets it show.
+static void exec_under_cover(SDL_Window *w, char **argv) {
+    ui_loading_cover_show(w, 0);
+    for (Uint64 t0 = SDL_GetTicks(); SDL_GetTicks() - t0 < 450;) { SDL_PumpEvents(); SDL_Delay(8); }
+    plat_exec(argv);
+}
+extern "C" int g_game_booted;  // runtime/main.c
+static std::atomic<bool> g_play_request;  // Play online: the environment is set, the game starts from this process
+
 #ifdef LUMIOSE_ONLINE
 bool saves_use_latest(void);  // ui/saves_ui.mm (declared again below)
 
@@ -345,25 +358,30 @@ static void online_launch() {
     saves_use_latest();  // the chosen save, else the most recent (as CONTINUE)
     settings_save();
     setenv("LARECOMP_PLAY_SAVE", g_settings.save_slot, 1);  // (--play would take the most recent one)
-    char *argv[] = {exe, (char *)g_root.c_str(), (char *)"--play", NULL};  // (the same game folder as this run)
-    plat_exec(argv);
+    if (g_game_booted != 1 && !getenv("LARECOMP_ONLINE_RESTART")) {  // (none loaded yet, or the online one already: same process)  // first game of this process: the game library and the module load now, no restart needed (after a game it is the old way)
+        g_play_request = true;
+        return;
+    }
+    setenv("LARECOMP_LOADING_COVER", "1", 1);  // (the new process covers its window while the game starts)
+    char *argv[] = {exe, (char *)g_root.c_str(), (char *)"--play", NULL};  // (LARECOMP_ONLINE_RESTART=1: the old way, a new process)
+    exec_under_cover(ui_window(), argv);
     g_ou_note = "Could not restart the game for online play.";
 }
 
 // Once per frame on the home page: moves the state on and fills what the column shows. `files`: "" when the game files are
 // there and are the right version, else why not (the launcher's check: it needs the exact 2.0.2 build).
 static void online_view(const std::string &files, bool busy, OnlineView *v) {
-    static char headline[64], line[160], build[48], button[48];
+    static char headline[192], line[512], build[128], button[192];
     *v = {headline, line, build, false, false, false, button, false, -1.0f};
     snprintf(button, sizeof button, "Play online");
     snprintf(build, sizeof build, "Not prepared yet");
     snprintf(line, sizeof line, "Lumiose Online (separate service)");
     if (const char *test = getenv("LARECOMP_ONLINE_STATE_TEST")) {  // (UI check: ready, needs, setup, error, noserver (not found), off)
         snprintf(headline, sizeof headline, "Set up on first play");
-        if (!strcmp(test, "ready")) { snprintf(headline, sizeof headline, "Service ready"); snprintf(build, sizeof build, "Ready \xc2\xb7 1.4.3"); v->good = v->build_good = v->on = true; }
-        else if (!strcmp(test, "setup")) { snprintf(headline, sizeof headline, "Preparing the online version"); snprintf(line, sizeof line, "Compiling the module"); snprintf(button, sizeof button, "Preparing  42%%"); v->progress = 0.42f; }
+        if (!strcmp(test, "ready")) { snprintf(headline, sizeof headline, "Service ready"); snprintf(build, sizeof build, ui_tr("Ready \xc2\xb7 %s"), "1.4.3"); v->good = v->build_good = v->on = true; }
+        else if (!strcmp(test, "setup")) { snprintf(headline, sizeof headline, "Preparing the online version"); snprintf(line, sizeof line, "Compiling the module"); snprintf(button, sizeof button, ui_tr("Preparing  %d%%"), 42); v->progress = 0.42f; }
         else if (!strcmp(test, "error")) { snprintf(headline, sizeof headline, "Could not prepare"); snprintf(line, sizeof line, "Unsupported Lumiose build."); snprintf(button, sizeof button, "Try again"); v->bad = v->on = true; }
-        else if (!strcmp(test, "noserver")) { snprintf(headline, sizeof headline, "Server not found"); snprintf(line, sizeof line, "Check your connection and try again."); snprintf(build, sizeof build, "Ready \xc2\xb7 1.4.3"); v->build_good = v->bad = true; }
+        else if (!strcmp(test, "noserver")) { snprintf(headline, sizeof headline, "Server not found"); snprintf(line, sizeof line, "Check your connection and try again."); snprintf(build, sizeof build, ui_tr("Ready \xc2\xb7 %s"), "1.4.3"); v->build_good = v->bad = true; }
         else if (!strcmp(test, "off")) { snprintf(headline, sizeof headline, "Not available here"); snprintf(line, sizeof line, "This build has no online setup."); v->bad = true; }
         else v->on = true;
         return;
@@ -405,7 +423,7 @@ static void online_view(const std::string &files, bool busy, OnlineView *v) {
         snprintf(headline, sizeof headline, "Checking...");
         break;
     case OU_READY:
-        snprintf(build, sizeof build, "Ready \xc2\xb7 %s", g_ou_status.version);
+        snprintf(build, sizeof build, ui_tr("Ready \xc2\xb7 %s"), g_ou_status.version);
         v->build_good = true;
         if (!g_ou_status.endpoint[0]) {
             snprintf(headline, sizeof headline, "Server not found");  // (the name did not resolve: no network, most likely)
@@ -427,7 +445,7 @@ static void online_view(const std::string &files, bool busy, OnlineView *v) {
         snprintf(headline, sizeof headline, "%s", !strcmp(st.step, "Checking for updates") ? "Checking for updates" :
                                                   "Preparing the online version");
         snprintf(line, sizeof line, "%s", st.step[0] ? st.step : "Starting...");
-        snprintf(button, sizeof button, "Preparing  %d%%", (int)(st.fraction * 100));
+        snprintf(button, sizeof button, ui_tr("Preparing  %d%%"), (int)(st.fraction * 100));
         v->progress = st.fraction;
         break;
     case OU_ERROR:
@@ -732,6 +750,8 @@ static void SDLCALL picked_package(void *which, const char *const *files, int) {
 
 // Adding the DLC to an installed game: pick the .nsp, then prod.keys; only aoc/<id>.bin is written (no rebuild)
 static ImFont *g_font_title, *g_font_menu, *g_font_small;
+void ui_check(ImDrawList *dl, ImVec2 c, float r, ImU32 col);  // runtime/ui/saves_ui.mm
+ImFont *g_font_column_title;  // (the start screen's column titles, saves_ui.mm: big enough not to be drawn upscaled)
 static std::string g_dlc_pick, g_dlc_keys, g_dlc_msg;
 static std::atomic<bool> g_dlc_busy{false};
 static bool g_dlc_open;  // (the UI thread's: show dlc_popup)
@@ -784,37 +804,39 @@ static void dlc_popup(float s, SDL_Window *win) {
     pthread_mutex_unlock(&g_lock);
     ImGui::PushFont(g_font_small);
     ImGui::SetWindowFontScale(1.35f);
-    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), "Add the Mega Dimension DLC");
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), ui_tr("Add the Mega Dimension DLC"));
     ImGui::SetWindowFontScale(1.1f);
     ImGui::Dummy(ImVec2(0, 12 * s));
     ImGui::PushTextWrapPos(0);
-    ImGui::TextWrapped("Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.");
+    ImGui::TextWrapped("%s", ui_tr("Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt."));
     ImGui::PopTextWrapPos();
     ImGui::Dummy(ImVec2(0, 12 * s));
-    static const SDL_DialogFileFilter nf[] = {{"DLC package", "nsp"}, {"All files", "*"}};
-    static const SDL_DialogFileFilter kf[] = {{"Switch keys", "keys"}};
-    struct { const char *label; const std::string &value; } rows[] = {{"1. DLC package (.nsp)", dlc}, {"2. Your prod.keys", keys}};
+    static SDL_DialogFileFilter nf[] = {{"DLC package", "nsp"}, {"All files", "*"}};
+    nf[0].name = ui_tr("DLC package"); nf[1].name = ui_tr("All files");
+    static SDL_DialogFileFilter kf[] = {{"Switch keys", "keys"}};
+    kf[0].name = ui_tr("Switch keys");
+    struct { const char *label; const std::string &value; } rows[] = {{ui_tr("1. DLC package (.nsp)"), dlc}, {ui_tr("2. Your prod.keys"), keys}};
     for (int i = 0; i < 2; i++) {
         ImGui::PushID(i);
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(rows[i].label);
         ImGui::SameLine(250 * s);
-        if (ImGui::Button("Choose...", ImVec2(120 * s, 34 * s)))
+        if (ui_button(ui_tr("Choose..."), ImVec2(120 * s, 34 * s)))
             SDL_ShowOpenFileDialog(dlc_file_picked, i ? (void *)1 : NULL, win, i ? kf : nf, i ? 1 : 2, NULL, false);
         ImGui::SameLine();
         const char *name = strrchr(rows[i].value.c_str(), '/');
-        if (rows[i].value.empty()) ImGui::TextDisabled("Not chosen");
+        if (rows[i].value.empty()) ImGui::TextDisabled(ui_tr("Not chosen"));
         else ImGui::TextColored(ImVec4(0.45f, 0.95f, 0.55f, 1), "%s", name ? name + 1 : rows[i].value.c_str());
         ImGui::PopID();
         ImGui::Dummy(ImVec2(0, 6 * s));
     }
     float bw = 170 * s, gap = 16 * s;
     ImGui::SetCursorPos(ImVec2((ImGui::GetWindowWidth() - 2 * bw - gap) * 0.5f, ImGui::GetWindowHeight() - 62 * s));
-    bool back = ImGui::Button("Cancel", ImVec2(bw, 38 * s)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+    bool back = ui_button(ui_tr("Cancel"), ImVec2(bw, 38 * s)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
     ImGui::SameLine(0, gap);
     bool ready = !dlc.empty() && !keys.empty();
     ImGui::BeginDisabled(!ready);
-    bool go = ImGui::Button("Add DLC", ImVec2(bw, 38 * s));
+    bool go = ui_button(ui_tr("Add DLC"), ImVec2(bw, 38 * s));
     ImGui::EndDisabled();
     ImGui::PopFont();
     if (back || go) ImGui::CloseCurrentPopup();
@@ -834,6 +856,7 @@ static const char *FONT_STD[] = {"nintendo_udsg-r_std_003.bfttf", "nintendo_udsg
 static const char *FONT_EXT[] = {"nintendo_ext_003.bfttf", "nintendo_ext_003.ttf"};
 static std::vector<std::string> g_font_picks;
 static std::string g_font_msg;
+static int g_fonts_imported = -1, g_fonts_unrecognized;
 
 static bool have_font(const char *const *names, int n) {
     for (int i = 0; i < n; i++)
@@ -873,13 +896,14 @@ static void import_fonts() {
         if (in) fclose(in);
         if (out) fclose(out);
     }
-    g_font_msg = std::to_string(ok) + " font file(s) imported" + (skipped ? ", " + std::to_string(skipped) + " not recognized" : "") +
-                 ". Used from the next game start.";
+    g_fonts_imported = ok, g_fonts_unrecognized = skipped;
+    g_font_msg.clear(); // format in the currently selected language when drawn
 }
 
 static void remove_fonts() {
     for (auto n : FONT_STD) unlink((std::string("fonts/") + n).c_str());
     for (auto n : FONT_EXT) unlink((std::string("fonts/") + n).c_str());
+    g_fonts_imported = -1;
     g_font_msg = "Imported fonts removed: the substitute font is used.";
 }
 
@@ -1002,7 +1026,7 @@ extern "C" { int g_start_screen; int g_saves_first; }  // the start screen is up
 static bool g_play_focused;  // PLAY has the controller's selection (false: put it there again)
 static Uint64 g_fs_entered;  // SDL_GetTicks() when the window finished entering fullscreen
 void saves_screen_open(void);  // ui/saves_ui.mm
-int saves_screen_draw(float scale, ImFont *body, ImFont *small_);
+int saves_screen_draw(float scale, ImFont *body, ImFont *small_, float top_y = 0, float hint_x = 0, float hint_y = 0);
 int saves_home_draw(ImFont *small_, bool ready, bool show_setup, bool focus_first, bool local_chip, float rx, float ry, float rw, float rh);
 #ifdef LUMIOSE_ONLINE
 int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const OnlineView &v, float rx, float ry, float rw, float rh);
@@ -1023,6 +1047,7 @@ static void merge_name_fonts(ImGuiIO &io, float size) {
         saves_name_glyphs(&b);
         b.BuildRanges(&wanted);  // (the atlas keeps the pointer: it stays)
     }
+    ui_merge_translation_fonts(io, size * 0.78f);
     if (wanted.Size <= 1) return;
     static const char *const sys[] = {"/System/Library/Fonts/PingFang.ttc", "/System/Library/Fonts/Hiragino Sans GB.ttc",
                                       "/System/Library/Fonts/AppleSDGothicNeo.ttc",
@@ -1047,6 +1072,43 @@ static bool g_precompile_go;  // "Compile" was chosen: start the game, which pre
 // the legal notice), the column(s) in the middle, and a bar along the bottom (game files state, the shader chips, the
 // version). Metrics in pixels, set each frame by home_chrome and read by the chips below.
 static float g_hdr_h, g_bar_y, g_bar_h, g_legal_right;  // (g_legal_right: the running left edge of the header chips)
+// The header chips share one bar: no box of their own, a highlight when hot, a thin divider between neighbours.
+static void nav_chip(ImDrawList *dl, ImVec2 p, ImVec2 q, bool hot, float s, bool divider) {
+    if (hot) dl->AddRectFilled(p, q, IM_COL32(40, 78, 120, 200), 9 * s);
+    if (divider) dl->AddLine(ImVec2(q.x + 6 * s, p.y + 8 * s), ImVec2(q.x + 6 * s, q.y - 8 * s), IM_COL32(76, 100, 137, 150), 1.0f * s);
+}
+
+// The header's language chip: the interface language's flag; a click lists every language (Automatic follows the system).
+static void language_chip(float s, float by, float bh, float *right) {
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    float fw = 38 * s, fh = 26 * s, w = fw + 36 * s;
+    ImVec2 p(*right - w, by), q(p.x + w, p.y + bh);
+    ImGui::SetCursorScreenPos(p);
+    bool clicked = ImGui::InvisibleButton("##hdr-language", ImVec2(w, bh), ImGuiButtonFlags_EnableNav);
+    bool hovered = ImGui::IsItemHovered(), hot = hovered || ImGui::IsItemFocused();
+    nav_chip(dl, p, q, hot, s, true);
+    int cur = g_settings.ui_language > UI_LANG_AUTO && g_settings.ui_language < UI_LANGUAGE_COUNT ? g_settings.ui_language : ui_auto_language();
+    ui_draw_flag(dl, cur, p.x + 18 * s, p.y + (bh - fh) * 0.5f, fw, fh);
+    if (hovered && !ImGui::IsPopupOpen("##uilang")) ImGui::SetTooltip("%s: %s", ui_tr("Interface language"),  // (not while the mouse is elsewhere: the chip keeps the focus after a click)
+                               g_settings.ui_language == UI_LANG_AUTO ? ui_tr("Automatic") : ui_language_names[g_settings.ui_language]);
+    *right = p.x - 12 * s;
+    if (clicked) ImGui::OpenPopup("##uilang");
+    ImGui::SetNextWindowPos(ImVec2(q.x, q.y + 6 * s), ImGuiCond_Always, ImVec2(1, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 14 * s);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * s, 8 * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 3 * s));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.04f, 0.08f, 0.16f, 0.98f));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1, 1, 1, 0.16f));
+    ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0, 0, 0, 0));
+    if (ImGui::BeginPopup("##uilang")) {
+        if (ui_language_list(s)) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleColor(5);
+    ImGui::PopStyleVar(3);
+}
 
 // Draws the header and the bottom bar; returns 4 when Settings was chosen, 6 for Quit, else 0
 static int home_chrome(float s, ImVec2 ds) {
@@ -1067,25 +1129,35 @@ static int home_chrome(float s, ImVec2 ds) {
     dl->AddImage(LOGO_TEXID, ImVec2(x, y), ImVec2(x + ls, y + ls));
     float ts = 34 * s;
     ImVec2 tp(x + ls + 16 * s, y - 2 * s);
-    for (float d : {3.0f, 1.5f}) dl->AddText(g_font_title, ts, ImVec2(tp.x + d, tp.y + d), IM_COL32(0, 4, 20, 140), "MonZaMac");
-    dl->AddText(g_font_title, ts, tp, IM_COL32(238, 244, 255, 255), "MonZaMac");
-    dl->AddText(g_font_small, 15 * s, ImVec2(tp.x + 2 * s, tp.y + ts + 2 * s), IM_COL32(166, 185, 207, 255), "Pok\xc3\xa9mon Legends: Z-A \xc2\xb7 Apple Silicon");
+    for (float d : {3.0f, 1.5f}) dl->AddText(g_font_title, ts, ImVec2(tp.x + d, tp.y + d), IM_COL32(0, 4, 20, 140), ui_tr("MonZaMac"));
+    dl->AddText(g_font_title, ts, tp, IM_COL32(238, 244, 255, 255), ui_tr("MonZaMac"));
+    dl->AddText(g_font_small, 20 * s, ImVec2(tp.x + 2 * s, tp.y + ts + 2 * s), IM_COL32(166, 185, 207, 255), ui_tr("Pok\xc3\xa9mon Legends: Z-A \xc2\xb7 Apple Silicon"));
 
     int act = 0;
     ImVec2 saved = ImGui::GetCursorScreenPos();
+    {   // the logo, name and subtitle are one button: back to the home page (from Settings or Saves)
+        const char *sub = ui_tr("Pok\xc3\xa9mon Legends: Z-A \xc2\xb7 Apple Silicon");
+        float tw = fmaxf(g_font_title->CalcTextSizeA(ts, FLT_MAX, 0, ui_tr("MonZaMac")).x, g_font_small->CalcTextSizeA(20 * s, FLT_MAX, 0, sub).x);
+        ImVec2 a0(x - 10 * s, y - 8 * s), a1(tp.x + tw + 14 * s, y + ls + 8 * s);
+        ImGui::SetCursorScreenPos(a0);
+        if (ImGui::InvisibleButton("##hdr-home", ImVec2(a1.x - a0.x, a1.y - a0.y), ImGuiButtonFlags_EnableNav)) act = 7;
+        if (ImGui::IsItemHovered() || ImGui::IsItemFocused()) dl->AddRectFilled(a0, a1, IM_COL32(255, 255, 255, 18), 12 * s);
+    }
     float bh = 40 * s, by = (g_hdr_h - bh) * 0.5f, right = ds.x - 40 * s;
+    if (g_legal_right > 0 && g_legal_right < right)  // (g_legal_right still holds the last frame's final left edge)
+        dl->AddRectFilled(ImVec2(g_legal_right + 2 * s, by - 6 * s), ImVec2(right + 10 * s, by + bh + 6 * s), IM_COL32(8, 18, 35, 225), 14 * s),
+        dl->AddRect(ImVec2(g_legal_right + 2 * s, by - 6 * s), ImVec2(right + 10 * s, by + bh + 6 * s), edge, 14 * s);
     auto button = [&](const char *label, const char *id, bool gear) {
-        float w = g_font_small->CalcTextSizeA(24 * s, FLT_MAX, 0, label).x + 24 * s * 2 + 32 * s;
+        float w = g_font_small->CalcTextSizeA(24 * s, FLT_MAX, 0, ui_tr(label)).x + 24 * s * 2 + 32 * s;
         ImVec2 p(right - w, by), q(p.x + w, p.y + bh);
         ImGui::SetCursorScreenPos(p);
         bool clicked = ImGui::InvisibleButton(id, ImVec2(w, bh), ImGuiButtonFlags_EnableNav);
         bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
-        dl->AddRectFilled(p, q, hot ? IM_COL32(25, 49, 78, 245) : IM_COL32(8, 18, 35, 225), 9 * s);
-        dl->AddRect(p, q, hot ? IM_COL32(72, 214, 255, 230) : edge, 9 * s);
-        ImVec2 t = g_font_small->CalcTextSizeA(24 * s, FLT_MAX, 0, label);
+        nav_chip(dl, p, q, hot, s, gear);  // (Quit is the last chip: no divider after it)
+        ImVec2 t = g_font_small->CalcTextSizeA(24 * s, FLT_MAX, 0, ui_tr(label));
         const ImU32 ink = IM_COL32(238, 244, 255, 255);
         float tx = p.x + 24 * s + 32 * s;
-        dl->AddText(g_font_small, 24 * s, ImVec2(tx, p.y + (bh - t.y) * 0.5f), ink, label);
+        dl->AddText(g_font_small, 24 * s, ImVec2(tx, p.y + (bh - t.y) * 0.5f), ink, ui_tr(label));
         ImVec2 ic(p.x + 24 * s + 10 * s, p.y + bh * 0.5f);  // the icon: a gear, or the power symbol
         if (gear) {
             dl->AddCircle(ic, 6 * s, ink, 16, 2.2f * s);
@@ -1103,6 +1175,7 @@ static int home_chrome(float s, ImVec2 ds) {
     };
     if (button("Quit", "##hdr-quit", false)) act = 6;
     if (button("Settings", "##hdr-settings", true)) act = 4;
+    language_chip(s, by, bh, &right);
     g_legal_right = right;
     ImGui::SetCursorScreenPos(saved);
     return act;
@@ -1140,7 +1213,7 @@ static void shader_catalog_badge(float s) {
     // a header chip like the legal notice's: a status dot and the name; when there is something to do (update, check again)
     // the whole chip is the button
     float fs = 24 * s, h = 40 * s;
-    float w = font->CalcTextSizeA(fs, FLT_MAX, 0, "Shader catalog").x + 24 * s * 2 + 32 * s;
+    float w = font->CalcTextSizeA(fs, FLT_MAX, 0, ui_tr("Shader catalog")).x + 24 * s * 2 + 32 * s;
     ImVec2 p(g_legal_right - w, (g_hdr_h - h) * 0.5f), q(p.x + w, p.y + h);
     g_legal_right = p.x - 12 * s;
     ImDrawList *dl = ImGui::GetWindowDrawList();
@@ -1153,17 +1226,16 @@ static void shader_catalog_badge(float s) {
         ImGui::InvisibleButton("##catalog-status", ImVec2(w, h));
         hot = ImGui::IsItemHovered();
     }
-    dl->AddRectFilled(p, q, hot ? IM_COL32(25, 49, 78, 245) : IM_COL32(8, 18, 35, 225), 9 * s);
-    dl->AddRect(p, q, hot ? IM_COL32(72, 214, 255, 230) : IM_COL32(76, 100, 137, 180), 9 * s);
+    nav_chip(dl, p, q, hot, s, true);
     ImU32 color = state == CATALOG_CURRENT ? IM_COL32(125, 229, 165, 255) :
                   state == CATALOG_AVAILABLE ? IM_COL32(255, 201, 100, 255) : IM_COL32(166, 185, 207, 255);
     dl->AddCircleFilled(ImVec2(p.x + 34 * s, p.y + h * 0.5f), 8 * s, color);
-    ImVec2 text = font->CalcTextSizeA(fs, FLT_MAX, 0, "Shader catalog");
-    dl->AddText(font, fs, ImVec2(p.x + 24 * s + 32 * s, p.y + (h - text.y) * 0.5f), IM_COL32(238, 244, 255, 255), "Shader catalog");
+    ImVec2 text = font->CalcTextSizeA(fs, FLT_MAX, 0, ui_tr("Shader catalog"));
+    dl->AddText(font, fs, ImVec2(p.x + 24 * s + 32 * s, p.y + (h - text.y) * 0.5f), IM_COL32(238, 244, 255, 255), ui_tr("Shader catalog"));
     if (click) { if (state == CATALOG_AVAILABLE || state == CATALOG_UPDATE_ERROR) menu_catalog_update(); else checked = menu_catalog_check(); }
     if (hot) {
-        const char *act = (state == CATALOG_AVAILABLE || state == CATALOG_UPDATE_ERROR) ? " Click to update." : action ? " Click to check again." : "";
-        ImGui::SetTooltip("Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.", status, act);
+        const char *act = (state == CATALOG_AVAILABLE || state == CATALOG_UPDATE_ERROR) ? ui_tr(" Click to update.") : action ? ui_tr(" Click to check again.") : "";
+        ImGui::SetTooltip(ui_tr("Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered."), ui_tr(status), act);
     }
     ImGui::SetCursorScreenPos(saved);
 #endif
@@ -1173,7 +1245,7 @@ static void legal_notice(float s) {
     ImVec2 ds = ImGui::GetIO().DisplaySize, saved = ImGui::GetCursorScreenPos();
     ImFont *font = g_font_small;
     float fs = 24 * s, h = 40 * s;
-    ImVec2 text = font->CalcTextSizeA(fs, FLT_MAX, 0, "Legal notice");
+    ImVec2 text = font->CalcTextSizeA(fs, FLT_MAX, 0, ui_tr("Legal notice"));
     float w = text.x + 24 * s * 2 + 32 * s;
     ImVec2 p(g_legal_right - w, (g_hdr_h - h) * 0.5f), q(p.x + w, p.y + h);
     g_legal_right = p.x - 12 * s;  // (the chips after it go further left)
@@ -1181,17 +1253,29 @@ static void legal_notice(float s) {
     bool clicked = ImGui::InvisibleButton("Legal notice", ImVec2(w, h), ImGuiButtonFlags_EnableNav);
     bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
     ImDrawList *dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(p, q, hot ? IM_COL32(25, 49, 78, 245) : IM_COL32(8, 18, 35, 225), 9 * s);
-    dl->AddRect(p, q, hot ? IM_COL32(72, 214, 255, 230) : IM_COL32(76, 100, 137, 180), 9 * s);
+    nav_chip(dl, p, q, hot, s, true);
     ImVec2 c(p.x + 34 * s, p.y + h * 0.5f);
-    dl->AddTriangleFilled(ImVec2(c.x, c.y - 9 * s), ImVec2(c.x + 10 * s, c.y + 9 * s),
-                          ImVec2(c.x - 10 * s, c.y + 9 * s), IM_COL32(255, 195, 85, 255));
-    dl->AddLine(ImVec2(c.x, c.y - 3.8f * s), ImVec2(c.x, c.y + 2.5f * s), IM_COL32(17, 25, 40, 255), 2 * s);
-    dl->AddCircleFilled(ImVec2(c.x, c.y + 5.5f * s), 1.1f * s, IM_COL32(17, 25, 40, 255));
-    dl->AddText(font, fs, ImVec2(p.x + 24 * s + 32 * s, p.y + (h - text.y) * 0.5f), IM_COL32(238, 244, 255, 255), "Legal notice");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Ownership, non-affiliation and responsible use");
+    // a warning until the notice has been opened once (a marker file in the data folder), then the same check as the other "ok" chips
+    static int seen = -1;
+    std::string marker = std::string(rt_data_root()) + "/legal-notice-seen";
+    if (seen < 0) seen = access(marker.c_str(), F_OK) == 0;
+    if (seen) {
+        dl->AddCircleFilled(c, 11 * s, IM_COL32(125, 229, 165, 255));
+        ui_check(dl, c, 11 * s, IM_COL32(17, 25, 40, 255));
+    } else {
+        dl->AddTriangleFilled(ImVec2(c.x, c.y - 9 * s), ImVec2(c.x + 10 * s, c.y + 9 * s),
+                              ImVec2(c.x - 10 * s, c.y + 9 * s), IM_COL32(255, 195, 85, 255));
+        dl->AddLine(ImVec2(c.x, c.y - 3.8f * s), ImVec2(c.x, c.y + 2.5f * s), IM_COL32(17, 25, 40, 255), 2 * s);
+        dl->AddCircleFilled(ImVec2(c.x, c.y + 5.5f * s), 1.1f * s, IM_COL32(17, 25, 40, 255));
+    }
+    dl->AddText(font, fs, ImVec2(p.x + 24 * s + 32 * s, p.y + (h - text.y) * 0.5f), IM_COL32(238, 244, 255, 255), ui_tr("Legal notice"));
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip(ui_tr("Ownership, non-affiliation and responsible use"));
     ImGui::SetCursorScreenPos(saved);
-    if (clicked || g_legal_test) { ImGui::OpenPopup("##legal_notice"); g_legal_test = false; }
+    if (clicked || g_legal_test) {
+        ImGui::OpenPopup("##legal_notice");
+        g_legal_test = false;
+        if (!seen) { if (FILE *f = fopen(marker.c_str(), "w")) { fputs("seen\n", f); fclose(f); } seen = 1; }
+    }
 
     ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(fminf(ds.x * 0.92f, 830 * s), fminf(ds.y * 0.9f, 470 * s)));
@@ -1205,39 +1289,39 @@ static void legal_notice(float s) {
     if (!open) return;
     ImGui::PushFont(g_font_small);
     ImGui::SetWindowFontScale(0.82f);
-    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), "Legal notice & responsible use");
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), ui_tr("Legal notice & responsible use"));
     ImGui::Dummy(ImVec2(0, 12 * s));
     ImGui::BeginChild("##legal_text", ImVec2(0, -68 * s), false);
     ImGui::PushTextWrapPos(0);
-    ImGui::TextUnformatted("Independent and unofficial");
-    ImGui::TextWrapped("Neither MonZaMac nor this application is affiliated with, endorsed by, sponsored by or approved by "
-                       "Nintendo, GAME FREAK, Creatures Inc. or The Pokémon Company.");
+    ImGui::TextUnformatted(ui_tr("Independent and unofficial"));
+    ImGui::TextWrapped("%s", ui_tr("Neither MonZaMac nor this application is affiliated with, endorsed by, sponsored by or approved by "
+                       "Nintendo, GAME FREAK, Creatures Inc. or The Pokémon Company."));
     ImGui::Dummy(ImVec2(0, 12 * s));
-    ImGui::TextUnformatted("Your game, your responsibility");
-    ImGui::TextWrapped("By using MonZaMac, you confirm that you own an original copy of Pokémon Legends: Z-A and are entitled "
+    ImGui::TextUnformatted(ui_tr("Your game, your responsibility"));
+    ImGui::TextWrapped("%s", ui_tr("By using MonZaMac, you confirm that you own an original copy of Pokémon Legends: Z-A and are entitled "
                        "under applicable law to use the game files, updates, DLC and keys you provide. You are responsible "
-                       "for obtaining and using those files lawfully.");
+                       "for obtaining and using those files lawfully."));
     ImGui::Dummy(ImVec2(0, 12 * s));
-    ImGui::TextWrapped("MonZaMac does not provide game files or keys. Ownership alone does not authorize downloading someone "
+    ImGui::TextWrapped("%s", ui_tr("MonZaMac does not provide game files or keys. Ownership alone does not authorize downloading someone "
                        "else's dump or redistributing the game. Do not distribute game dumps, keys, extracted assets or "
-                       "builds containing game content.");
+                       "builds containing game content."));
     ImGui::Dummy(ImVec2(0, 12 * s));
-    ImGui::TextUnformatted("Rights and trademarks");
-    ImGui::TextWrapped("Pokémon and related names, characters and trademarks belong to their respective owners. "
+    ImGui::TextUnformatted(ui_tr("Rights and trademarks"));
+    ImGui::TextWrapped("%s", ui_tr("Pokémon and related names, characters and trademarks belong to their respective owners. "
                        "The project's open-source license covers its software, not the game or its content. "
-                       "This notice does not grant additional rights or replace applicable law.");
+                       "This notice does not grant additional rights or replace applicable law."));
 #ifdef LUMIOSE_ONLINE
     ImGui::Dummy(ImVec2(0, 12 * s));
-    ImGui::TextUnformatted("Online play (Lumiose Online)");
-    ImGui::TextWrapped("Play online is optional. If you use it, game data is shared with Lumiose Online while you play. "
+    ImGui::TextUnformatted(ui_tr("Online play (Lumiose Online)"));
+    ImGui::TextWrapped("%s", ui_tr("Play online is optional. If you use it, game data is shared with Lumiose Online while you play. "
                        "Lumiose Online is a separate service run by its own team, not by MonZaMac, and MonZaMac does not "
-                       "control it or what it does with that data. Playing offline does not use it.");
+                       "control it or what it does with that data. Playing offline does not use it."));
 #endif
     ImGui::PopTextWrapPos();
     ImGui::EndChild();
     ImGui::Dummy(ImVec2(0, 10 * s));
     ImGui::SetCursorPosX((ImGui::GetWindowWidth() - 160 * s) * 0.5f);
-    if (ImGui::Button("Close", ImVec2(160 * s, 42 * s)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+    if (ui_button(ui_tr("Close"), ImVec2(160 * s, 42 * s)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) ImGui::CloseCurrentPopup();
     ImGui::PopFont();
     ImGui::EndPopup();
@@ -1260,27 +1344,27 @@ static void online_consent_popup(float s) {
     if (!open) return;
     ImGui::PushFont(g_font_small);
     ImGui::SetWindowFontScale(0.82f);
-    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), "Play online with Lumiose Online?");
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), ui_tr("Play online with Lumiose Online?"));
     ImGui::Dummy(ImVec2(0, 12 * s));
     ImGui::BeginChild("##online_consent_text", ImVec2(0, -60 * s), false);
     ImGui::PushTextWrapPos(0);
-    ImGui::TextWrapped("Lumiose Online is a separate service run by its own team, not by MonZaMac.");
+    ImGui::TextWrapped("%s", ui_tr("Lumiose Online is a separate service run by its own team, not by MonZaMac."));
     ImGui::Dummy(ImVec2(0, 12 * s));
-    ImGui::TextWrapped("If you continue, your game data will be shared with Lumiose Online while you play. MonZaMac does not "
-                       "control it or what it does with that data.");
+    ImGui::TextWrapped("%s", ui_tr("If you continue, your game data will be shared with Lumiose Online while you play. MonZaMac does not "
+                       "control it or what it does with that data."));
     ImGui::Dummy(ImVec2(0, 12 * s));
-    ImGui::TextWrapped("The first time, the online version is prepared on this Mac (it can take a few minutes). You can play "
-                       "offline at any time.");
+    ImGui::TextWrapped("%s", ui_tr("The first time, the online version is prepared on this Mac (it can take a few minutes). You can play "
+                       "offline at any time."));
     ImGui::PopTextWrapPos();
     ImGui::EndChild();
     ImGui::Dummy(ImVec2(0, 10 * s));
     float bw = 170 * s, gap = 16 * s;
     ImGui::SetCursorPosX((ImGui::GetWindowWidth() - 2 * bw - gap) * 0.5f);
-    bool back = ImGui::Button("Cancel", ImVec2(bw, 38 * s)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+    bool back = ui_button(ui_tr("Cancel"), ImVec2(bw, 38 * s)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
                 ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false);
     ImGui::SameLine(0, gap);
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-    bool go = ImGui::Button("Continue", ImVec2(bw, 38 * s));
+    bool go = ui_button(ui_tr("Continue"), ImVec2(bw, 38 * s));
     ImGui::PopFont();
     if (back || go) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
@@ -1308,30 +1392,28 @@ static void precompile_badge(float s) {
     bool good = state == PRECOMPILE_CURRENT;
     ImVec2 ds = ImGui::GetIO().DisplaySize, saved = ImGui::GetCursorScreenPos();
     ImFont *font = g_font_small;
-    float fs = 24 * s, h = 40 * s, w = font->CalcTextSizeA(fs, FLT_MAX, 0, "All shaders").x + 24 * s * 2 + 32 * s;
+    float fs = 24 * s, h = 40 * s, w = font->CalcTextSizeA(fs, FLT_MAX, 0, ui_tr("All shaders")).x + 24 * s * 2 + 32 * s;
     ImVec2 p(g_legal_right - w, (g_hdr_h - h) * 0.5f), q(p.x + w, p.y + h);
     g_legal_right = p.x - 12 * s;  // (a header chip like the legal notice's; its state is the icon)
     ImGui::SetCursorScreenPos(p);
     bool clicked = ImGui::InvisibleButton("##precompile-badge", ImVec2(w, h), ImGuiButtonFlags_EnableNav);
     bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
     ImDrawList *dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(p, q, hot ? IM_COL32(25, 49, 78, 245) : IM_COL32(8, 18, 35, 225), 9 * s);
-    dl->AddRect(p, q, hot ? IM_COL32(72, 214, 255, 230) : IM_COL32(76, 100, 137, 180), 9 * s);
+    nav_chip(dl, p, q, hot, s, true);
     ImVec2 c(p.x + 34 * s, p.y + h * 0.5f);
     if (good) {
         dl->AddCircleFilled(c, 11 * s, IM_COL32(125, 229, 165, 255));
-        dl->AddPolyline((ImVec2[]){ImVec2(c.x - 5 * s, c.y), ImVec2(c.x - 1.5f * s, c.y + 4 * s), ImVec2(c.x + 5.5f * s, c.y - 4 * s)},
-                        3, IM_COL32(17, 25, 40, 255), 0, 2.2f * s);
+        ui_check(dl, c, 11 * s, IM_COL32(17, 25, 40, 255));
     } else {
         dl->AddTriangleFilled(ImVec2(c.x, c.y - 10 * s), ImVec2(c.x + 11 * s, c.y + 9 * s), ImVec2(c.x - 11 * s, c.y + 9 * s),
                               IM_COL32(255, 195, 85, 255));
         dl->AddLine(ImVec2(c.x, c.y - 4.5f * s), ImVec2(c.x, c.y + 2.5f * s), IM_COL32(17, 25, 40, 255), 2 * s);
         dl->AddCircleFilled(ImVec2(c.x, c.y + 5.5f * s), 1.1f * s, IM_COL32(17, 25, 40, 255));
     }
-    dl->AddText(font, fs, ImVec2(p.x + 24 * s + 32 * s, p.y + (h - fs) * 0.5f), IM_COL32(238, 244, 255, 255), "All shaders");
+    dl->AddText(font, fs, ImVec2(p.x + 24 * s + 32 * s, p.y + (h - fs) * 0.5f), IM_COL32(238, 244, 255, 255), ui_tr("All shaders"));
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Compile every shader of the game before you play (%s)",
-                          good ? "precompiled" : state == PRECOMPILE_OUTDATED ? "out of date" : "not done yet");
+        ImGui::SetTooltip(ui_tr("Compile every shader of the game before you play (%s)"),
+                          ui_tr(good ? "precompiled" : state == PRECOMPILE_OUTDATED ? "out of date" : "not done yet"));
     ImGui::SetCursorScreenPos(saved);
     if (clicked || g_precompile_test) { ImGui::OpenPopup("##precompile"); g_precompile_test = false; }
 
@@ -1346,31 +1428,31 @@ static void precompile_badge(float s) {
     if (!open) return;
     ImGui::PushFont(g_font_small);
     ImGui::SetWindowFontScale(0.82f);
-    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), "Prepare all shaders");
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), ui_tr("Prepare all shaders"));
     ImGui::Dummy(ImVec2(0, 10 * s));
-    ImGui::TextColored(good ? ImVec4(0.49f, 0.9f, 0.65f, 1) : ImVec4(1, 0.79f, 0.39f, 1), "%s", reason);
+    ImGui::TextColored(good ? ImVec4(0.49f, 0.9f, 0.65f, 1) : ImVec4(1, 0.79f, 0.39f, 1), "%s", ui_tr(reason));
     ImGui::Dummy(ImVec2(0, 8 * s));
     ImGui::BeginChild("##precompile_text", ImVec2(0, -68 * s), false);
     ImGui::PushTextWrapPos(0);
-    ImGui::TextWrapped("Compiles every graphics program of the game now, on your Mac, so most scenes load without the stalls "
-                       "of a first visit. Some variants can still compile when first used.");
+    ImGui::TextWrapped("%s", ui_tr("Compiles every graphics program of the game now, on your Mac, so most scenes load without the stalls "
+                       "of a first visit. Some variants can still compile when first used."));
     ImGui::Dummy(ImVec2(0, 10 * s));
-    ImGui::TextWrapped("Time: several minutes (about 5 on a 10-core M5, longer elsewhere), using every CPU core: the Mac gets "
-                       "warm. You can stop any time; what was compiled is kept.");
-    ImGui::TextWrapped("Space: about 400 MB in Metal's shader cache and 120 MB of temporary files, deleted at the end.");
+    ImGui::TextWrapped("%s", ui_tr("Time: several minutes (about 5 on a 10-core M5, longer elsewhere), using every CPU core: the Mac gets "
+                       "warm. You can stop any time; what was compiled is kept."));
+    ImGui::TextWrapped("%s", ui_tr("Space: about 400 MB in Metal's shader cache and 120 MB of temporary files, deleted at the end."));
     ImGui::Dummy(ImVec2(0, 10 * s));
-    ImGui::TextWrapped("Nothing is uploaded. It starts the game, which does this, then comes back here. Redo it when MonZaMac, macOS, your GPU "
-                       "or the game files change: the badge turns yellow then.");
+    ImGui::TextWrapped("%s", ui_tr("Nothing is uploaded. It starts the game, which does this, then comes back here. Redo it when MonZaMac, macOS, your GPU "
+                       "or the game files change: the badge turns yellow then."));
     ImGui::PopTextWrapPos();
     ImGui::EndChild();
     ImGui::Dummy(ImVec2(0, 10 * s));
     float bw = 250 * s, gap = 16 * s;
     ImGui::SetCursorPosX((ImGui::GetWindowWidth() - 2 * bw - gap) * 0.5f);
-    if (ImGui::Button(good ? "Compile again" : "Compile all shaders", ImVec2(bw, 42 * s))) {
+    if (ui_button(good ? ui_tr("Compile again") : ui_tr("Compile all shaders"), ImVec2(bw, 42 * s))) {
         g_settings.precompile_request = true; g_precompile_go = true; ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine(0, gap);
-    if (ImGui::Button("Cancel", ImVec2(bw, 42 * s)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+    if (ui_button(ui_tr("Cancel"), ImVec2(bw, 42 * s)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) ImGui::CloseCurrentPopup();
     ImGui::PopFont();
     ImGui::EndPopup();
@@ -1396,18 +1478,18 @@ static bool aspect_prompt(float s) {
     if (open) {
         ImGui::SetWindowFontScale(1.25f);
         ImGui::PushTextWrapPos(0);
-        ImGui::TextUnformatted("How would you like to play?");
+        ImGui::TextUnformatted(ui_tr("How would you like to play?"));
         ImGui::Spacing();
-        ImGui::TextDisabled("You can change this any time in Settings.");
+        ImGui::TextDisabled(ui_tr("You can change this any time in Settings."));
         ImGui::PopTextWrapPos();
         ImGui::Dummy(ImVec2(0, 14 * s));
         float bw = 300 * s, gap = 20 * s;
         ImGui::SetCursorPosX((ImGui::GetWindowWidth() - 2 * bw - gap) * 0.5f);
         int pick = -1;
         ImGui::SetItemDefaultFocus();
-        if (ImGui::Button("Authentic 16:9", ImVec2(bw, 44 * s))) pick = ASPECT_ORIGINAL;
+        if (ui_button(ui_tr("Authentic 16:9"), ImVec2(bw, 44 * s))) pick = ASPECT_ORIGINAL;
         ImGui::SameLine(0, gap);
-        if (ImGui::Button("Unlocked (fill the screen)", ImVec2(bw, 44 * s))) pick = ASPECT_UNLOCKED;
+        if (ui_button(ui_tr("Unlocked (fill the screen)"), ImVec2(bw, 44 * s))) pick = ASPECT_UNLOCKED;
         if (pick >= 0) {
             g_settings.aspect = pick;
             g_settings.aspect_asked = true;
@@ -1438,15 +1520,15 @@ static bool menu_tip(float s) {
         static const char *const home[] = {"Home button", "Xbox button", "PlayStation button"};  // (bind_label_family)
         static const char *const pad[] = {"Minus + Plus", "View + Menu", "Create + Options"};
         ImGui::PushTextWrapPos(0);
-        ImGui::TextUnformatted("MonZaMac has its own menu for settings, controls, graphics and more.");
+        ImGui::TextUnformatted(ui_tr("MonZaMac has its own menu for settings, controls, graphics and more."));
         ImGui::Spacing();
         int fam = bind_label_family() % 3;
-        ImGui::Text("Open it in game with F1 or Esc, or on a controller with the %s (or %s together).", home[fam], pad[fam]);
+        ImGui::Text(ui_tr("Open it in game with F1 or Esc, or on a controller with the %s (or %s together)."), ui_tr(home[fam]), ui_tr(pad[fam]));
         ImGui::PopTextWrapPos();
         ImGui::Dummy(ImVec2(0, 14 * s));
         ImGui::SetCursorPosX((ImGui::GetWindowWidth() - 180 * s) * 0.5f);
         ImGui::SetItemDefaultFocus();
-        if (ImGui::Button("OK", ImVec2(180 * s, 44 * s)) || ImGui::IsKeyPressed(ImGuiKey_Enter) ||
+        if (ui_button(ui_tr("OK"), ImVec2(180 * s, 44 * s)) || ImGui::IsKeyPressed(ImGuiKey_Enter) ||
             ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown)) {
             g_settings.menu_tip_seen = true;
             settings_save();
@@ -1496,7 +1578,7 @@ static bool menu_item(const char *label, bool enabled, bool *hovered = NULL, con
     ImVec2 at = ImGui::GetCursorScreenPos();
     // (the ID from the label's fixed part: PLAY's changes with the seed shown, and a new ID loses the selection)
     ImGui::PushID(label, split ? split : label + strlen(label));
-    ImVec2 sz = ImGui::CalcTextSize(label);
+    ImVec2 sz = ImGui::CalcTextSize(split ? label : ui_tr(label));
     // (EnableNav: otherwise an InvisibleButton can't be reached with the d-pad / arrow keys - ImGui 1.91)
     ImGui::PushStyleColor(ImGuiCol_NavCursor, ImVec4(0, 0, 0, 0));  // (the hover band shows the selection, no box)
     bool clicked = ImGui::InvisibleButton("##b", ImVec2(sz.x + 40, sz.y + 6), ImGuiButtonFlags_EnableNav);
@@ -1531,7 +1613,7 @@ static bool menu_item(const char *label, bool enabled, bool *hovered = NULL, con
             text_fx(dl, ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(at.x + ImGui::CalcTextSize(label, split_end).x, at.y),
                     col, col, split_end, sz.y * 0.05f);
     } else
-        text_fx(dl, ImGui::GetFont(), ImGui::GetFontSize(), at, col, col_b, label, enabled ? sz.y * 0.05f : 0);
+        text_fx(dl, ImGui::GetFont(), ImGui::GetFontSize(), at, col, col_b, ui_tr(label), enabled ? sz.y * 0.05f : 0);
     if (g_menu_gap >= 0) ImGui::Dummy(ImVec2(0, sz.y * g_menu_gap));  // line spacing
     else ImGui::SetCursorPosY(ImGui::GetCursorPosY() + sz.y * g_menu_gap);  // (tighter than the font's line height)
     ImGui::EndDisabled();
@@ -1632,40 +1714,34 @@ static void reveal_folder(const std::string &dir) {
 static SDL_Window *g_launcher_win;
 static bool g_files_deleted;  // set here: the start screen goes back to setting the game files up
 static void prelaunch_tab(float sc) {
-    const ImVec4 gold(0.28f, 0.84f, 1.0f, 1);  // (the accent)
-    auto heading = [&](const char *t) {
-        ImGui::PushFont(g_font_menu);
-        ImGui::TextColored(gold, "%s", t);
-        ImGui::PopFont();
-        ImGui::Separator();
-        ImGui::Spacing();
-    };
-    heading("Game files");
+    opt_begin("##prelaunch", ImGui::GetFontSize() / 34);  // (option rows with the description on the right, like Video / Audio)
+    menu_language_rows();  // (first on the first page; the header flag does the same)
+    opt_section("Game files");
     static double gb = -1;
     if (gb < 0) gb = rt_game_files_size(g_root.c_str()) / 1e9;
 #ifdef _WIN32
-    if (ImGui::Button("Show in Explorer")) reveal_folder(g_root);
+    if (opt_button("Show in Explorer", "Open the folder holding MonZaMac's copy of the game files.")) reveal_folder(g_root);
 #elif defined(__linux__)
-    if (ImGui::Button("Open folder")) reveal_folder(g_root);
+    if (opt_button("Open folder", "Open the folder holding MonZaMac's copy of the game files.")) reveal_folder(g_root);
 #else
-    if (ImGui::Button("Show in Finder")) reveal_folder(g_root);
+    if (opt_button("Show in Finder", "Open the folder holding MonZaMac's copy of the game files.")) reveal_folder(g_root);
 #endif
-    ImGui::SameLine();
     static bool shot_del = getenv("LARECOMP_LAUNCHER_SHOT") && strstr(getenv("LARECOMP_LAUNCHER_SHOT"), ":askdelete");
-    if (ImGui::Button("Delete game files") || shot_del) ImGui::OpenPopup("##delfiles"), shot_del = false;  // (test: :askdelete)
+    if (opt_button("Delete game files", "Deletes MonZaMac's copy of the game files. Saves, seeds and settings are kept, and your own game files are not touched.") || shot_del)
+        ImGui::OpenPopup("##delfiles"), shot_del = false;  // (test: :askdelete)
     if (ImGui::BeginPopupModal("##delfiles", NULL, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
         ImGui::PushFont(g_font_menu);
-        ImGui::TextColored(ImVec4(1, 0.72f, 0.4f, 1), "Are you sure?");
+        ImGui::TextColored(ImVec4(1, 0.72f, 0.4f, 1), ui_tr("Are you sure?"));
         ImGui::PopFont();
-        ImGui::Text("This deletes MonZaMac's copy of the game files (%.1f GB).", gb);
-        ImGui::TextDisabled("Saves, seeds and settings are kept. Your own game files aren't touched.");
+        ImGui::Text(ui_tr("This deletes MonZaMac's copy of the game files (%.1f GB)."), gb);
+        ImGui::TextDisabled(ui_tr("Saves, seeds and settings are kept. Your own game files aren't touched."));
         if (rt_dev_mode()) {  // (a source checkout: the files are the project's own extracted/)
             bool abs = !g_root.empty() && (g_root[0] == '/' || (g_root.size() > 1 && g_root[1] == ':'));
             std::string where = abs ? g_root : std::string(rt_data_root()) + "/" + g_root;
-            ImGui::TextColored(ImVec4(1, 0.5f, 0.4f, 1), "Dev checkout: this is %s", where.c_str());
+            ImGui::TextColored(ImVec4(1, 0.5f, 0.4f, 1), ui_tr("Dev checkout: this is %s"), where.c_str());
         }
         ImGui::Spacing();
-        if (ImGui::Button("Delete", ImVec2(220 * sc, 0))) {
+        if (ui_button(ui_tr("Delete"), ImVec2(220 * sc, 0))) {
             bool ok = rt_remove_game_files(g_root.c_str());  // (runtime/paths.c: only what the extraction made)
             set_job(ok ? "Game files deleted." : "Could not delete the game files (not in MonZaMac's data folder?).", !ok);
             g_files_deleted = true, gb = -1;
@@ -1673,33 +1749,44 @@ static void prelaunch_tab(float sc) {
         }
         ImGui::SameLine();
         ImGui::SetItemDefaultFocus();
-        if (ImGui::Button("Cancel", ImVec2(220 * sc, 0)) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
+        if (ui_button(ui_tr("Cancel"), ImVec2(220 * sc, 0)) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
             ImGui::IsKeyPressed(ImGuiKey_Escape, false))
             ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
-    ImGui::Spacing();
-    ImGui::Spacing();
-    heading("Game font");
+    opt_section("Game font");
     import_fonts();
     bool fs = have_font(FONT_STD, 4), fe = have_font(FONT_EXT, 2);
-    ImGui::Text("Text: %s    Button icons: %s", fs ? "Nintendo font (imported)" : "substitute (Hiragino Sans)",
-                fe ? "imported" : "substitute");
-    ImGui::PushTextWrapPos(0);
-    ImGui::TextDisabled("Fonts aren't included. For the original look, import your own copies of: "
-                        "nintendo_udsg-r_std_003.bfttf (text) and nintendo_ext_003.bfttf (button icons). "
-                        ".ttf versions with the same names work too.");
-    ImGui::PopTextWrapPos();
-    if (!g_font_msg.empty()) ImGui::Text("%s", g_font_msg.c_str());
-    static const SDL_DialogFileFilter font_f[] = {{"Switch fonts", "bfttf;ttf"}};
-    if (ImGui::Button("Import fonts")) SDL_ShowOpenFileDialog(picked_fonts, NULL, g_launcher_win, font_f, 1, NULL, true);
-    if (fs || fe) {
-        ImGui::SameLine();
-        if (ImGui::Button("Use substitute font")) remove_fonts();
+    {
+        char state[96];
+        snprintf(state, sizeof state, "%s  \xc2\xb7  %s", ui_tr(fs ? "Text: imported" : "Text: substitute"), ui_tr(fe ? "Icons: imported" : "Icons: substitute"));  // (whole phrases: the words agree in gender and number)
+        static SDL_DialogFileFilter font_f[] = {{"Switch fonts", "bfttf;ttf"}};
+        font_f[0].name = ui_tr("Switch fonts");
+        if (opt_action("Import fonts", state, "Fonts aren't included. For the original look, import your own copies of: nintendo_udsg-r_std_003.bfttf (text) and nintendo_ext_003.bfttf (button icons). .ttf versions with the same names work too.", true, false, true))
+            SDL_ShowOpenFileDialog(picked_fonts, NULL, g_launcher_win, font_f, 1, NULL, true);
     }
+    if ((fs || fe) && opt_button("Use substitute font", "Go back to the substitute fonts (Hiragino Sans for text).")) remove_fonts();
+    opt_end();
+    if (g_fonts_imported >= 0) ImGui::Text(ui_tr("Imported fonts: %d. Unrecognized files: %d. Active after the next game start."),
+                                          g_fonts_imported, g_fonts_unrecognized);
+    else if (!g_font_msg.empty()) ImGui::Text("%s", ui_tr(g_font_msg.c_str()));
 }
 
-extern "C" void launcher_run(const char *root) {
+// boot_fn: what starts the game (runtime/main.c). On PLAY it runs on a worker thread while this loop goes on drawing the loading
+// screen, so the spinning ball keeps spinning; true is returned when it did (LARECOMP_BOOT_ON_MAIN=1: not, main boots as before).
+extern "C" int g_launch_loading;  // runtime/nvn/metal.m: the cover over the window until the game's first frame
+static std::atomic<bool> g_boot_done;
+static void *launcher_boot_thread(void *arg) {
+    auto *job = (std::pair<void (*)(const char *), const char *> *)arg;
+    job->first(job->second);
+    g_boot_done = true;
+    return NULL;
+}
+extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
+    bool boot_started = false;
+    g_play_request = false;  // (a Play online from an earlier visit must not start a game as this one opens)
+    pthread_t boot_thread;
+    std::pair<void (*)(const char *), const char *> boot_job(boot_fn, root);
     g_root = root;
     g_ownership = false;
     g_start_screen = 1;
@@ -1752,6 +1839,7 @@ extern "C" void launcher_run(const char *root) {
         g_font_title = io.Fonts->AddFontFromFileTTF(p, 92 * (b2 ? 2.3f : 1), NULL, ranges);
     }
     if (!g_font_menu) g_font_small = g_font_menu = g_font_title = io.Fonts->AddFontDefault();
+    g_font_column_title = g_font_menu;
     ImGuiStyle &st = ImGui::GetStyle();
     st.Colors[ImGuiCol_Header] = ImVec4(0, 0, 0, 0);
     st.Colors[ImGuiCol_HeaderHovered] = ImVec4(1, 1, 1, 0.08f);
@@ -1857,7 +1945,29 @@ extern "C" void launcher_run(const char *root) {
         pthread_detach(th);
     }
     const bool test_busy = getenv("LARECOMP_LAUNCHER_SHOT") && strstr(getenv("LARECOMP_LAUNCHER_SHOT"), ":extracting");
-    while (!play) {
+    Uint64 play_at = 0;  // when PLAY was pressed (ms): the screen fades to black with a spinning ball and "Starting..." before the game takes the window
+    auto loading_ms = [&]() { return play_at ? (float)(SDL_GetTicks() - play_at) : 0.0f; };
+    while (!play || !play_at || loading_ms() < 600 || (boot_started && !g_boot_done)) {  // (play_at: set at the top of the first pass after PLAY)
+        if (g_play_request) play = true;
+        if (play && !play_at && !g_play_request && g_game_booted == 2) {  // offline after an online game here: a new process
+            settings_save();
+            static const char *const online_env[] = {"LUMIOSE_TEST_MODULE", "LUMIOSE_TEST_LIBRARY", "LUMIOSE_TEST_NETWORK",
+                                                     "LUMIOSE_TEST_SERVER", "LARECOMP_GAME_LIB"};
+            for (const char *e : online_env) unsetenv(e);
+            setenv("LARECOMP_LOADING_COVER", "1", 1);
+            setenv("LARECOMP_PLAY_SAVE", g_settings.save_slot, 1);
+            char exe[4096];
+            if (plat_exe_path(exe, sizeof exe)) {
+                char *argv[] = {exe, (char *)g_root.c_str(), (char *)"--play", NULL};
+                exec_under_cover(win, argv);
+            }
+        }
+        if (play && !play_at) { play_at = SDL_GetTicks(); g_launch_loading = 1; ui_loading_cover_show(win, 0); }  // (the cover over the window, fading in, until the game's first frame: runtime/nvn/metal.m)
+        if (play && getenv("LARECOMP_LOADING_LOG")) { static int n; if (n++ % 15 == 0) fprintf(stderr, "[loading] %.0f ms, boot %s\n", loading_ms(), g_boot_done ? "done" : boot_started ? "running" : "not started"); }
+        if (play && !boot_started && boot_fn && !getenv("LARECOMP_BOOT_ON_MAIN") && loading_ms() >= 350) {  // (after the fade: the game starts behind it)
+            g_boot_done = false;
+            boot_started = pthread_create(&boot_thread, NULL, launcher_boot_thread, &boot_job) == 0;
+        }
         menu_apply_window_requests(win);  // (the Video tab's Fullscreen)
         if (g_files_deleted) {  // (Settings > Prelaunch deleted them)
             g_files_deleted = false;
@@ -1870,7 +1980,14 @@ extern "C" void launcher_run(const char *root) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_QUIT) exit(0);
+            if (play) continue;  // (the game is starting: nothing more to click)
             if (e.type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN) g_fs_entered = SDL_GetTicks();
+            if (menu_is_fullscreen_key(&e)) {  // (the game's shortcuts work here too)
+                g_settings.fullscreen = !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN);
+                SDL_SetWindowFullscreen(win, g_settings.fullscreen);
+                settings_save();
+                continue;
+            }
             if (busy) {  // the progress overlay is modal: no underlying mouse, keyboard or pad input (a pad plugged in meanwhile is still opened)
                 if (e.type == SDL_EVENT_GAMEPAD_ADDED) launcher_pad_event(e);
                 continue;
@@ -2051,14 +2168,57 @@ extern "C" void launcher_run(const char *root) {
                 if (ready) precompile_badge(s);
                 if (g_precompile_go) g_precompile_go = false, saves_use_latest(), play = true;  // (a save as CONTINUE, though the game goes back here once the shaders are done)
             } else if (page == SAVES) {
+                // framed like Settings: the home page's header, a "Saves" title and a Back button in the corner, the list under them
+                int chrome = home_chrome(s, ds);
+                if (chrome == 6) exit(0);
+                if (chrome == 7) { settings_save(); page = MAIN, g_play_focused = false; }  // (the logo and name: back to the home page)
+                if (chrome == 4) {  // (the header's Settings: leave the list, as from the home page)
+                    static bool opened;
+                    menu_tabs_focus(!opened);
+                    opened = true;
+                    page = SETTINGS;
+                }
+                legal_notice(s);
+                shader_catalog_badge(s);
+                if (status.empty()) precompile_badge(s);
+                float sc = ds.y / 1080.0f;
+                bool back = false;
+                float hint_x = 0, hint_y = 0;
+                {
+                    ImDrawList *dl = ImGui::GetWindowDrawList();
+                    ImVec2 wp = ImGui::GetWindowPos();
+                    dl->AddRectFilled(ImVec2(wp.x, wp.y + g_hdr_h), ImVec2(wp.x + ds.x, wp.y + ds.y), IM_COL32(10, 18, 36, 250));
+                    float ty = wp.y + g_hdr_h + 28 * sc;
+                    dl->AddText(g_font_menu, 39.4f * s, ImVec2(wp.x + 48 * sc, ty), IM_COL32(72, 214, 255, 255), ui_tr("Saves"));
+                    const char *label = ui_tr("Back");
+                    float fs = 24 * s, bh = 40 * s, bw = g_font_small->CalcTextSizeA(fs, FLT_MAX, 0, label).x + 24 * s * 2 + 32 * s;
+                    ImVec2 p(wp.x + ds.x - 40 * s - bw, ty), q(p.x + bw, p.y + bh);
+                    hint_x = p.x - 24 * s, hint_y = p.y + bh * 0.5f;  // (the team hint sits left of Back, on its row)
+                    ImGui::SetCursorScreenPos(p);
+                    ImGui::PushStyleColor(ImGuiCol_NavCursor, ImVec4(0, 0, 0, 0));
+                    back = ImGui::InvisibleButton("##back", ImVec2(bw, bh), ImGuiButtonFlags_EnableNav);
+                    ImGui::PopStyleColor();
+                    bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
+                    const ImU32 ink = IM_COL32(238, 244, 255, 255);
+                    dl->AddRectFilled(p, q, hot ? IM_COL32(25, 49, 78, 245) : IM_COL32(8, 18, 35, 225), 9 * s);
+                    dl->AddRect(p, q, hot ? IM_COL32(72, 214, 255, 230) : IM_COL32(76, 100, 137, 180), 9 * s);
+                    ImVec2 c(p.x + 24 * s + 10 * s, p.y + bh * 0.5f);  // an arrow pointing left
+                    dl->AddLine(ImVec2(c.x - 10 * s, c.y), ImVec2(c.x + 10 * s, c.y), ink, 2.4f * s);
+                    dl->AddLine(ImVec2(c.x - 10 * s, c.y), ImVec2(c.x - 3 * s, c.y - 7 * s), ink, 2.4f * s);
+                    dl->AddLine(ImVec2(c.x - 10 * s, c.y), ImVec2(c.x - 3 * s, c.y + 7 * s), ink, 2.4f * s);
+                    dl->AddText(g_font_small, fs, ImVec2(p.x + 24 * s + 32 * s, p.y + (bh - fs) * 0.5f), ink, label);
+                }
                 ImGui::PushFont(g_font_menu);
-                int pick = saves_screen_draw(ds.y / 1080.0f, g_font_menu, g_font_small);
+                int pick = saves_screen_draw(sc, g_font_menu, g_font_small, g_hdr_h + 128 * sc, hint_x, hint_y);
                 ImGui::PopFont();
+                if (back) settings_save(), pick = -1;
                 if (pick) page = MAIN, g_play_focused = false;  // (a chosen save is selected and remembered; the home page's CONTINUE plays it)
             } else if (page == SETTINGS) {
                 // the in-game menu's tabs (runtime/ui/menu.mm), over the whole window under the home page's header (outside
                 // the game there is nothing else to see); tabs that need a loaded game say so
-                if (home_chrome(s, ds) == 6) exit(0);  // (Settings in the header: already here)
+                int chrome = home_chrome(s, ds);
+                if (chrome == 6) exit(0);  // (Settings in the header: already here)
+                if (chrome == 7) { bind_capture_cancel(); settings_save(); page = MAIN, g_play_focused = false; }  // (the logo and name: back to the home page)
                 legal_notice(s);
                 shader_catalog_badge(s);
                 if (status.empty()) precompile_badge(s);
@@ -2072,14 +2232,14 @@ extern "C" void launcher_run(const char *root) {
                 ImGui::BeginChild("##settings", ImVec2(w, h), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NavFlattened);
                 ImGui::PopStyleVar(2);
                 ImGui::PopStyleColor();
-                ImGui::SetWindowFontScale(0.68f);  // (the start screen's fonts are sized for its big type)
+                ImGui::SetWindowFontScale(0.82f);  // (the start screen's fonts are sized for its big type)
                 ImGui::PushFont(g_font_small);
                 ImGui::PushFont(g_font_menu);
-                ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "Settings");
+                ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), ui_tr("Settings"));
                 ImGui::PopFont();
                 bool back;
                 {  // a Back button in the corner, drawn like the header's (B / Esc too)
-                    const char *label = "Back";
+                    const char *label = ui_tr("Back");
                     float fs = 24 * s, bh = 40 * s, bw = g_font_small->CalcTextSizeA(fs, FLT_MAX, 0, label).x + 24 * s * 2 + 32 * s;
                     ImGui::SameLine();
                     ImVec2 p = ImGui::GetCursorScreenPos();
@@ -2130,7 +2290,7 @@ extern "C" void launcher_run(const char *root) {
                 ImGui::PopStyleColor();
                 ImGui::PushFont(g_font_small);
                 ImGui::PushFont(g_font_menu);
-                ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "Game Files");
+                ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), ui_tr("Game Files"));
                 ImGui::PopFont();
                 bool back = false;
                 if (!busy) {  // close: the drawn X in the corner, as Settings (B / Esc too)
@@ -2163,7 +2323,7 @@ extern "C" void launcher_run(const char *root) {
                 auto check_left_of_value = [&](const std::string &v) {
                     if (v != "Selected") return;
                     ImVec2 rb = ImGui::GetItemRectMax(), ra = ImGui::GetItemRectMin();
-                    float fs = ImGui::GetFontSize(), vw = ImGui::CalcTextSize(v.c_str()).x;
+                    float fs = ImGui::GetFontSize(), vw = ImGui::CalcTextSize(ui_tr(v.c_str())).x;
                     float x = rb.x - 16 * sc - vw - fs * 0.95f, cy = (ra.y + rb.y) * 0.5f, u = fs * 0.62f;
                     ImU32 g = IM_COL32(120, 220, 120, 255);
                     ImDrawList *dl = ImGui::GetWindowDrawList();
@@ -2175,14 +2335,14 @@ extern "C" void launcher_run(const char *root) {
                     ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
                     ImGui::GetWindowDrawList()->AddRect(a, b, IM_COL32(255, 82, 72, 255), 9 * sc, 0, 2.5f * sc);
                 };
-                std::string src_d = "The folder with your own game folders (exefs/romfs) of Pokémon Legends: Z-A "
-                                    "for Nintendo Switch, version 2.0.2. The game isn't included with MonZaMac.";
-                if (!src.empty()) src_d += "\n\nChosen: " + display_path(src);
+                std::string src_d = ui_tr("The folder with your own game folders (exefs/romfs) of Pokémon Legends: Z-A "
+                                    "for Nintendo Switch, version 2.0.2. The game isn't included with MonZaMac.");
+                if (!src.empty()) src_d += std::string("\n\n") + ui_tr("Chosen: ") + display_path(src);
                 // the step that's running / its result, under the rows and in the Set up row's explanation
                 const std::string &job_line = job;
-                std::string ex_d = "Copies the game files MonZaMac needs and recompiles the game from them. This only "
-                                   "needs to be done once and may take a while. Your own files aren't changed.";
-                if (!job.empty()) ex_d += "\n\n" + job + (job_hint.empty() ? "" : ".\n" + job_hint);
+                std::string ex_d = ui_tr("Copies the game files MonZaMac needs and recompiles the game from them. This only "
+                                   "needs to be done once and may take a while. Your own files aren't changed.");
+                if (!job.empty()) ex_d += "\n\n" + std::string(ui_tr(job.c_str())) + (job_hint.empty() ? "" : ".\n" + std::string(ui_tr(job_hint.c_str())));
 
                 // the controller's cursor starts on the first row (not the X), a few frames while the window lays out
                 static int seen_frame = -10, focus_first;  // (not drawn last frame: the window has just opened)
@@ -2194,8 +2354,8 @@ extern "C" void launcher_run(const char *root) {
                 opt_begin("##files", sc);
                 if (!ready) {
                     opt_section("Your copy of the game");
-                    ImGui::TextWrapped("MonZaMac does not include or provide game files or keys. Use only files you "
-                                           "have the right to use, in accordance with applicable law.");
+                    ImGui::TextWrapped("%s", ui_tr("MonZaMac does not include or provide game files or keys. Use only files you "
+                                           "have the right to use, in accordance with applicable law."));
                     static const char *modes[] = {"Game packages", "Extracted folder"};
                     if (busy) opt_disable_next();
                     if (opt_choice("Import from", &g_import_mode, modes, 2, 0,
@@ -2208,9 +2368,12 @@ extern "C" void launcher_run(const char *root) {
                     }
                     ImGui::Dummy(ImVec2(0, 12 * sc));
                     if (g_import_mode == 0) {
-                        static const SDL_DialogFileFilter bf[] = {{"Game packages", "nsp;xci"}, {"All files", "*"}};
-                        static const SDL_DialogFileFilter uf[] = {{"Update package", "nsp"}, {"All files", "*"}};
-                        static const SDL_DialogFileFilter kf[] = {{"Switch keys", "keys"}};
+                        static SDL_DialogFileFilter bf[] = {{"Game packages", "nsp;xci"}, {"All files", "*"}};
+                        bf[0].name = ui_tr("Game packages"); bf[1].name = ui_tr("All files");
+                        static SDL_DialogFileFilter uf[] = {{"Update package", "nsp"}, {"All files", "*"}};
+                        uf[0].name = ui_tr("Update package"); uf[1].name = ui_tr("All files");
+                        static SDL_DialogFileFilter kf[] = {{"Switch keys", "keys"}};
+                        kf[0].name = ui_tr("Switch keys");
                         const char *labels[] = {"Base game", "Update (2.0.2)", "prod.keys", "DLC (optional)"};
                         std::string values[] = {base, update, keys, dlc};
                         for (int i = 0; i < 4; i++) {
@@ -2219,8 +2382,8 @@ extern "C" void launcher_run(const char *root) {
                             const char *hint = i == 2 ? "Drop prod.keys here or choose it. Read locally for setup; not copied or uploaded." :
                                                i == 3 ? "Optional: the Mega Dimension DLC .nsp. Leave empty to play without it." :
                                                        "Drop the matching dump here or choose it. Compressed NSZ/XCZ files are not supported.";
-                            std::string detail = hint;
-                            if (!values[i].empty()) detail += "\n\nChosen: " + display_path(values[i]);
+                            std::string detail = ui_tr(hint);
+                            if (!values[i].empty()) detail += std::string("\n\n") + ui_tr("Chosen: ") + display_path(values[i]);
                             bool chosen = opt_action(labels[i], values[i].empty() ? "Choose..." : "Selected", detail.c_str(), true);
                             mark_input_error(field);
                             bool dropped = !busy && take_drop_on_item(values[i]);
@@ -2242,7 +2405,7 @@ extern "C" void launcher_run(const char *root) {
                             first_row();
                         }
                         if (!gameimport_available())
-                            ImGui::TextWrapped("Package import tools are missing. Install the complete app or use an extracted folder.");
+                            ImGui::TextWrapped("%s", ui_tr("Package import tools are missing. Install the complete app or use an extracted folder."));
                     } else {
                         if (busy) opt_disable_next();
                         bool chosen = opt_action("Game files folder", src_v.c_str(), src_d.c_str(), true);
@@ -2270,8 +2433,8 @@ extern "C" void launcher_run(const char *root) {
                     }
                     ImGui::Dummy(ImVec2(0, 16 * sc));
                     ImGui::BeginDisabled(busy);
-                    ImGui::Checkbox("I own an original copy of Pokémon Legends: Z-A", &g_ownership);
-                    ImGui::TextWrapped("By continuing, I confirm that I have permission to use the selected game files and keys.");
+                    ImGui::Checkbox(ui_tr("I own an original copy of Pokémon Legends: Z-A"), &g_ownership);
+                    ImGui::TextWrapped("%s", ui_tr("By continuing, I confirm that I have permission to use the selected game files and keys."));
                     ImGui::EndDisabled();
                     ImGui::Dummy(ImVec2(0, 10 * sc));
                     opt_section("Set up");
@@ -2362,15 +2525,15 @@ extern "C" void launcher_run(const char *root) {
                     float f = test_busy ? 0.42f : extract_progress();
                     // (while the game code is built: what's happening, on whose files - runtime/gamebuild.c)
                     bool recompiling = g_build_frac >= 0;
-                    const char *title = recompiling ? "Recompiling the game" : "Setting up the game files";
+                    const char *title = ui_tr(recompiling ? "Recompiling the game" : "Setting up the game files");
                     static const char *const notes[] = {"This only needs to be done once and may take a while."};
                     int nnotes = recompiling ? 1 : 0;
                     float tfs = g_font_menu->FontSize * 0.75f, sfs = g_font_small->FontSize * 0.85f;
                     ImVec2 ts = g_font_menu->CalcTextSizeA(tfs, FLT_MAX, 0, title);
-                    float line_h = g_font_small->CalcTextSizeA(sfs, FLT_MAX, 0, "A").y;
+                    float line_h = g_font_small->CalcTextSizeA(sfs, FLT_MAX, 0, ui_tr("A")).y;
                     float pw = fminf(ds.x * 0.6f, 900 * sc), bar_y = 36 * sc + ts.y + 30 * sc;
                     for (int i = 0; i < nnotes; i++)  // (wide enough for its text, within the window)
-                        pw = fmaxf(pw, g_font_small->CalcTextSizeA(sfs, FLT_MAX, 0, notes[i]).x + 96 * sc);
+                        pw = fmaxf(pw, g_font_small->CalcTextSizeA(sfs, FLT_MAX, 0, ui_tr(notes[i])).x + 96 * sc);
                     pw = fminf(fmaxf(pw, ts.x + 96 * sc), ds.x - 32 * sc);
                     float ph = bar_y + 24 * sc + 26 * sc + line_h + (nnotes ? 14 * sc + nnotes * line_h : 0) + 40 * sc;
                     ImVec2 a(o.x + (ds.x - pw) * 0.5f, o.y + (ds.y - ph) * 0.5f), b(a.x + pw, a.y + ph);
@@ -2381,14 +2544,14 @@ extern "C" void launcher_run(const char *root) {
                     fg->AddRectFilled(ba, bb, IM_COL32(255, 255, 255, 25), 12 * sc);
                     if (f > 0) fg->AddRectFilled(ba, ImVec2(ba.x + (bb.x - ba.x) * f, bb.y), IM_COL32(72, 214, 255, 255), 12 * sc);
                     char line[200];
-                    snprintf(line, sizeof line, "%s   %d%%", test_busy ? "Setting up the game files..." : job.c_str(),
+                    snprintf(line, sizeof line, "%s   %d%%", test_busy ? ui_tr("Setting up the game files...") : ui_tr(job.c_str()),
                              (int)(f * 100));
                     ImVec2 ls = g_font_small->CalcTextSizeA(sfs, FLT_MAX, 0, line);
                     fg->AddText(g_font_small, sfs, ImVec2((a.x + b.x - ls.x) * 0.5f, bb.y + 26 * sc), IM_COL32(220, 216, 205, 255), line);
                     for (int i = 0; i < nnotes; i++) {
-                        ImVec2 ns = g_font_small->CalcTextSizeA(sfs, FLT_MAX, 0, notes[i]);
+                        ImVec2 ns = g_font_small->CalcTextSizeA(sfs, FLT_MAX, 0, ui_tr(notes[i]));
                         fg->AddText(g_font_small, sfs, ImVec2((a.x + b.x - ns.x) * 0.5f, bb.y + 26 * sc + (i + 1) * line_h + 14 * sc),
-                                    IM_COL32(150, 148, 140, 255), notes[i]);
+                                    IM_COL32(150, 148, 140, 255), ui_tr(notes[i]));
                     }
                 }
             }
@@ -2400,17 +2563,17 @@ extern "C" void launcher_run(const char *root) {
             float fx = 40 * s, fy = g_bar_y + 12 * s, fw = ds.x - 80 * s, fu = 22 * s;  // (the bottom bar's lines)
             x0 = fx;
             ImGui::SetWindowFontScale(fu * 0.8f / ImGui::GetFontSize());
+            fy = g_bar_y + (g_bar_h - (2 * ImGui::GetTextLineHeight() + ImGui::GetStyle().ItemSpacing.y)) * 0.5f;  // (the two lines centred in the bar)
             ImGui::SetCursorScreenPos(ImVec2(fx, fy));
             if (status.empty()) {
                 {  // a drawn check mark (the Switch font has no ✓)
                     ImVec2 p = ImGui::GetCursorScreenPos();
                     float u = ImGui::GetTextLineHeight();
                     ImU32 g = IM_COL32(140, 230, 140, 255);
-                    ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x + u * 0.1f, p.y + u * 0.55f), ImVec2(p.x + u * 0.35f, p.y + u * 0.8f), g, u * 0.12f);
-                    ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x + u * 0.35f, p.y + u * 0.8f), ImVec2(p.x + u * 0.85f, p.y + u * 0.2f), g, u * 0.12f);
+                    ui_check(ImGui::GetWindowDrawList(), ImVec2(p.x + u * 0.5f, p.y + u * 0.5f), u * 0.7f, g);
                     ImGui::SetCursorPosX(x0 + u * 1.3f);
                 }
-                ImGui::TextColored(ImVec4(0.45f, 0.95f, 0.55f, 1), "Game files ready.");
+                ImGui::TextColored(ImVec4(0.45f, 0.95f, 0.55f, 1), ui_tr("Game files ready."));
                 ImGui::SetCursorPosX(x0);
                 {
                     // The Mega Dimension add-on is one aoc/<id>.bin RomFS image (tools/game_extract.py --dlc)
@@ -2419,12 +2582,12 @@ extern "C" void launcher_run(const char *root) {
                         while (struct dirent *e = readdir(d)) dlc |= strstr(e->d_name, ".bin") != NULL;
                         closedir(d);
                     }
-                    ImGui::TextColored(ImVec4(0.66f, 0.76f, 0.98f, 1), "Nintendo Switch  \xc2\xb7  v2.0.2  \xc2\xb7  %s",
-                                       dlc ? "DLC found" : "DLC not found");
+                    ImGui::TextColored(ImVec4(0.66f, 0.76f, 0.98f, 1), ui_tr("Nintendo Switch  \xc2\xb7  v2.0.2  \xc2\xb7  %s"),
+                                       ui_tr(dlc ? "DLC found" : "DLC not found"));
                     if (!dlc && !busy) {
                         ImGui::SameLine();
-                        if (g_dlc_busy) ImGui::TextDisabled("Adding DLC...");
-                        else if (ImGui::SmallButton("Add DLC...")) {
+                        if (g_dlc_busy) ImGui::TextDisabled(ui_tr("Adding DLC..."));
+                        else if (ImGui::SmallButton(ui_tr("Add DLC..."))) {
                             pthread_mutex_lock(&g_lock);
                             g_dlc_msg.clear(); g_dlc_pick.clear(); g_dlc_keys.clear();
                             pthread_mutex_unlock(&g_lock);
@@ -2433,12 +2596,12 @@ extern "C" void launcher_run(const char *root) {
                     }
                     dlc_popup(s, win);
                     pthread_mutex_lock(&g_lock); std::string dm = g_dlc_msg; pthread_mutex_unlock(&g_lock);
-                    if (!dm.empty()) { ImGui::SetCursorPosX(x0); ImGui::TextDisabled("%s", dm.c_str()); }
+                    if (!dm.empty()) { ImGui::SetCursorPosX(x0); ImGui::TextDisabled("%s", ui_tr(dm.c_str())); }
                 }
             } else {
-                ImGui::TextColored(ImVec4(1, 0.72f, 0.4f, 1), "!  %s", busy ? "Setting up the game files..." : status.c_str());
+                ImGui::TextColored(ImVec4(1, 0.72f, 0.4f, 1), ui_tr("!  %s"), busy ? ui_tr("Setting up the game files...") : ui_tr(status.c_str()));
                 ImGui::SetCursorPosX(x0);
-                ImGui::TextDisabled("Set up the game files to play.");
+                ImGui::TextDisabled(ui_tr("Set up the game files to play."));
             }
             if (const char *f = getenv("LARECOMP_LAUNCHER_FONT")) {  // (test) which typeface this window shows
                 const char *b = strrchr(f, '/');
@@ -2456,8 +2619,9 @@ extern "C" void launcher_run(const char *root) {
                     if (bold) dl->AddText(font, size, ImVec2(p.x + 0.7f * s, p.y), col, t);
                 };
                 const std::string ver = tag_label(LARECOMP_VERSION, true), by = "by Rhapsodos93";  // (the build first: bug reports name it)
-                float vs = fs, y = fy;
+                float vs = fs;
                 ImVec2 vsz = font->CalcTextSizeA(vs, FLT_MAX, 0, ver.c_str()), bsz = font->CalcTextSizeA(vs, FLT_MAX, 0, by.c_str());
+                float y = g_bar_y + (g_bar_h - 2 * vsz.y) * 0.5f;  // (centred in the bar like the lines on the left)
                 text(ImVec2(right - vsz.x, y), vs, IM_COL32(255, 255, 255, 255), ver.c_str(), false);
                 text(ImVec2(right - bsz.x, y + vsz.y), vs, IM_COL32(255, 255, 255, 255), by.c_str(), false);
                 y += vsz.y;  // (the update link sits under the credit)
@@ -2466,7 +2630,7 @@ extern "C" void launcher_run(const char *root) {
                 pthread_mutex_unlock(&g_update_lock);
                 if (!upd.empty()) {
                     const char *arrow = font->FindGlyphNoFallback(0x2192) ? " \xe2\x86\x92" : " \xe2\x96\xb8";
-                    std::string pre = "Update available!  ", link = "DOWNLOAD " + tag_label(upd, false) + arrow;
+                    std::string pre = ui_tr("Update available!  "), link = std::string(ui_tr("DOWNLOAD ")) + tag_label(upd, false) + arrow;
                     float wp = font->CalcTextSizeA(fs, FLT_MAX, 0, pre.c_str()).x;
                     ImVec2 lsz = font->CalcTextSizeA(fs, FLT_MAX, 0, link.c_str());
                     ImVec2 lp(right - lsz.x, y + vsz.y + 2 * s);
@@ -2542,4 +2706,6 @@ extern "C" void launcher_run(const char *root) {
     ImGui::SetCurrentContext(prev_ctx);
     g_bg = 0;
     g_start_screen = 0;
+    if (boot_started) pthread_join(boot_thread, NULL);
+    return boot_started;
 }
