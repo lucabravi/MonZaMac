@@ -59,6 +59,9 @@ Macs, fix bugs or make the documentation better. You do not have to be a develop
 - 🌐 **Online play** *(optional, separate edition)*. **Play online** puts you in the same Lumiose City as every other
   Lumiose Online player: chat, trading, voice chat and more, from the mod's own team. Details
   [below](#play-online-with-lumiose-online).
+- 🌍 **In your language.** The app speaks **11 languages**: English, Italian, French, Spanish, German, Portuguese (Brazil),
+  Japanese, Chinese (Simplified and Traditional), Korean and Russian. It follows your Mac's language, and you can change
+  it from the flag in the top bar or in **SETTINGS**. The game itself still asks for its own language, as on the Switch.
 - 💾 **Your saves.** Named save slots on the start screen, **import and export** as .zip, copies as backups, and
   **Reload this save** from the in-game menu.
 - 📦 **A Mac app you can set up yourself.** Download the app, select your game files and let the guided setup build

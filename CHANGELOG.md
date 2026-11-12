@@ -3,6 +3,20 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
+## 0.3.0
+
+A new look for the start screen and the settings, and the app now speaks 11 languages.
+
+### Languages
+- The whole app is translated: **English, Italian, French, Spanish, German, Portuguese (Brazil), Japanese, Chinese (Simplified and Traditional), Korean and Russian**. It follows your Mac's language at first. Change it from the **flag in the top bar** or in **Settings**; the in-game menu shows the game's own language as a flag. The game still asks for its language itself, as on the Switch.
+- The translations were written without native review. Corrections are welcome on GitHub.
+
+### Start screen and settings
+- One top bar for the whole app; the logo takes you back to the start screen.
+- A cleaner **Play online** card with the new Lumiose banner, and a modern save card and buttons.
+- **Settings**, **Saves** and the first-start screen share one style. Dialog buttons grow to fit longer texts.
+- A **loading screen with a spinning Poké Ball** while the game starts. Going back to the menu no longer closes and reopens the window; only switching between the offline and the online game still does.
+
 ## 0.2.3
 
 Ready for **Lumiose Online 1.5.2**. Recommended for everyone who plays online.
