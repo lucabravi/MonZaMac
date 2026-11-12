@@ -234,6 +234,16 @@ static void set_job(const std::string &s, bool failed = false, const std::string
     pthread_mutex_unlock(&g_lock);
 }
 
+extern "C" void ui_loading_cover_show(SDL_Window *w, int instant);
+// The cover goes up on this window, then the program is replaced (a game with the module has run here): the pause lets it show.
+static void exec_under_cover(SDL_Window *w, char **argv) {
+    ui_loading_cover_show(w, 0);
+    for (Uint64 t0 = SDL_GetTicks(); SDL_GetTicks() - t0 < 450;) { SDL_PumpEvents(); SDL_Delay(8); }
+    plat_exec(argv);
+}
+extern "C" int g_game_booted;  // runtime/main.c
+static std::atomic<bool> g_play_request;  // Play online: the environment is set, the game starts from this process
+
 #ifdef LUMIOSE_ONLINE
 bool saves_use_latest(void);  // ui/saves_ui.mm (declared again below)
 
@@ -332,15 +342,6 @@ static std::string online_marker() { return std::string(rt_data_root()) + "/lumi
 static bool online_consent_given() { return access(online_marker().c_str(), F_OK) == 0; }
 
 // Start the game again with the active online version (this process only returns if that fails)
-extern "C" void ui_loading_cover_show(SDL_Window *w, int instant);
-// The cover goes up on this window, then the program is replaced (a game with the module has run here): the pause lets it show.
-static void exec_under_cover(SDL_Window *w, char **argv) {
-    ui_loading_cover_show(w, 0);
-    for (Uint64 t0 = SDL_GetTicks(); SDL_GetTicks() - t0 < 450;) { SDL_PumpEvents(); SDL_Delay(8); }
-    plat_exec(argv);
-}
-extern "C" int g_game_booted;  // runtime/main.c
-static std::atomic<bool> g_play_request;  // Play online: the environment is set, the game starts from this process
 static void online_launch() {
     if (g_ou_status.endpoint[0] == 0) {
         g_ou_note = "Could not find the Lumiose Online server. Check your connection.";
