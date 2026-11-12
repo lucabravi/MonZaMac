@@ -14,6 +14,7 @@
 #include <vector>
 #include <string>
 
+#include "i18n.h"
 #include "imgui.h"
 #include "option_rows.h"
 #include "menu.h"
@@ -88,9 +89,9 @@ static void recipe_export_dialog(void) {  // main thread; the game never uploads
     if (g_recipe_export_busy.exchange(true)) return;
     input_reset();
     NSSavePanel *panel = [NSSavePanel savePanel];
-    panel.title = @"Export shader recipes";
-    panel.message = @"Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.";
-    panel.prompt = @"Export";
+    panel.title = [NSString stringWithUTF8String:ui_tr("Export shader recipes")];
+    panel.message = [NSString stringWithUTF8String:ui_tr("Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.")];
+    panel.prompt = [NSString stringWithUTF8String:ui_tr("Export")];
     panel.allowedContentTypes = @[ UTTypeJSON ];
     panel.nameFieldStringValue = @"MonZaMac-shader-recipes.json";
     [panel beginWithCompletionHandler:^(NSModalResponse response) {
@@ -135,6 +136,7 @@ extern "C" void menu_test_open(void) {
 }
 
 void menu_tabs_focus(bool first_tab);
+extern int g_tab_request_ext;  // (the tab to switch to; set below)
 static void set_open(bool open) {
     if (open == g_open.load()) return;
     g_open.store(open);
@@ -213,6 +215,15 @@ static bool capturing() { return g_open.load() || g_kbd.load() == 1; }
 // The game gets no input while this is true (runtime/hle/input.c): menu or name entry up.
 extern "C" bool menu_input_captured(void) { return capturing(); }
 
+// The full-screen shortcuts (the game's window and the start screen's: runtime/ui/launcher.mm): Cmd+Ctrl+F, the macOS one,
+// Cmd+Enter, and F11 / Alt+Enter for a Windows habit
+extern "C" bool menu_is_fullscreen_key(const SDL_Event *e) {
+    if (e->type != SDL_EVENT_KEY_DOWN || e->key.repeat) return false;
+    return e->key.scancode == SDL_SCANCODE_F11 ||
+           (e->key.scancode == SDL_SCANCODE_RETURN && (e->key.mod & (SDL_KMOD_ALT | SDL_KMOD_GUI))) ||
+           (e->key.scancode == SDL_SCANCODE_F && (e->key.mod & SDL_KMOD_GUI) && (e->key.mod & SDL_KMOD_CTRL));
+}
+
 bool menu_handle_event(const SDL_Event *e) {
     static bool back_down, start_down;
     if (g_open.load() && bind_capture_event(e)) return true;  // Controls tab waiting for a new binding: it takes the press
@@ -246,9 +257,7 @@ bool menu_handle_event(const SDL_Event *e) {
             g_stats = !g_stats.load();
             return true;
         }
-        if (!e->key.repeat && (e->key.scancode == SDL_SCANCODE_F11 ||
-                               (e->key.scancode == SDL_SCANCODE_RETURN && (e->key.mod & (SDL_KMOD_ALT | SDL_KMOD_GUI))) ||
-                               (e->key.scancode == SDL_SCANCODE_F && (e->key.mod & SDL_KMOD_GUI) && (e->key.mod & SDL_KMOD_CTRL)))) {
+        if (menu_is_fullscreen_key(e)) {
             g_settings.fullscreen = !g_settings.fullscreen;
             g_want_fullscreen_apply.store(true);
             settings_save();
@@ -363,7 +372,7 @@ static ImGuiContext *g_ctx;  // ours: the start screen (back to it after a reboo
 static ImFont *g_font, *g_font_big;
 static ImFont *g_menu_font, *g_menu_font_big;  // the menu window (Baloo 2); everything else keeps g_font
 static int g_tab_request_next = -2;  // (set while the tab bar is drawn: the tab the cursor moved onto)
-static int g_tab, g_tab_request = -2;  // (-2: no request; -1 is the Prelaunch tab)
+static int g_tab = 8, g_tab_request = -2;  // (8: Controls, the first tab in the game)  // (-2: no request; -1 is the Prelaunch tab)
 static int g_focus_tab = -99;  // put the nav cursor on this tab next frame (-100: the selected one; -99: none)
 static int g_focus_frames;
 
@@ -427,8 +436,8 @@ static void init(void) {
     for (const char *p : paths) {
         if (FILE *f = fopen(p, "rb")) fclose(f);  // a missing file is an assertion in ImGui, not a NULL return
         else continue;
-        if (!g_font) g_font = io.Fonts->AddFontFromFileTTF(p, 34, &cfg);
-        if (g_font && !g_font_big) { ImFontConfig b = cfg; b.FontNo = 0; g_font_big = io.Fonts->AddFontFromFileTTF(p, 56, &b); }
+        if (!g_font) { g_font = io.Fonts->AddFontFromFileTTF(p, 34, &cfg); ui_merge_translation_fonts(io, 34); }
+        if (g_font && !g_font_big) { ImFontConfig b = cfg; b.FontNo = 0; g_font_big = io.Fonts->AddFontFromFileTTF(p, 56, &b); ui_merge_translation_fonts(io, 56); }
     }
     // the menu window itself: Baloo 2 SemiBold, as on the start screen (shipped, OFL), at its Settings window's sizes; the
     // FPS counter, overlays and on-screen keyboard keep the fonts above
@@ -436,7 +445,9 @@ static void init(void) {
     if (const char *f = getenv("LARECOMP_MENU_FONT")) strlcpy(baloo, f, sizeof baloo);  // (test) another weight / face
     if (getenv("LARECOMP_MENU_FONT") || rt_resource("Baloo2-SemiBold.ttf", "third_party/fonts/Baloo2/Baloo2-SemiBold.ttf", baloo, sizeof baloo)) {
         g_menu_font = io.Fonts->AddFontFromFileTTF(baloo, 33, &cfg);
+        ui_merge_translation_fonts(io, 33);
         g_menu_font_big = io.Fonts->AddFontFromFileTTF(baloo, 54, &cfg);
+        ui_merge_translation_fonts(io, 54);
     }
     if (!g_font) g_font = io.Fonts->AddFontDefault();
     if (!g_font_big) g_font_big = g_font;
@@ -468,32 +479,85 @@ static void drain_events(ImGuiIO &io) {
 }
 
 // Section header in the big font.
+// A section title, the same as opt_section's (runtime/ui/option_rows.mm): small, capitals, blue
 static void header(const char *t) {
-    ImGui::PushFont(g_font_big);
-    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "%s", t);
-    ImGui::PopFont();
-    ImGui::Separator();
-    ImGui::Spacing();
+    std::string up = ui_uppercase(ui_tr(t));
+    if (ImGui::GetCursorPosY() > ImGui::GetStyle().WindowPadding.y + 1) ImGui::Dummy(ImVec2(0, ImGui::GetFontSize() * 0.3f));
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "%s", up.c_str());
 }
 
 static void hint(const char *t) {
     ImGui::PushTextWrapPos(0);
-    ImGui::TextDisabled("%s", t);
+    ImGui::TextDisabled("%s", ui_tr(t));
     ImGui::PopTextWrapPos();
+}
+
+// A read-only row laid out like choice(): the label on the left, its value where the controls sit
+static void info_row(const char *label, const char *value) {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(ui_tr(label));
+    ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.45f);
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextDisabled("%s", ui_tr(value));
+    ImGui::PopTextWrapPos();
+}
+
+// A yes/no row laid out like choice(): the label on the left, a rounded checkbox where the controls sit
+static bool check_row(const char *label, bool *v) {
+    ImGui::PushID(label);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(ui_tr(label));
+    ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.45f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetFontSize() * 0.3f, ImGui::GetFontSize() * 0.3f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGui::GetFontSize() * 0.3f);
+    ImGui::PushStyleColor(ImGuiCol_CheckMark, ImVec4(0.28f, 0.84f, 1.0f, 1));
+    bool ch = ImGui::Checkbox("##c", v);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+    ImGui::PopID();
+    return ch;
 }
 
 // A row with a label on the left and a choice of options on the right (dpad left/right cycles).
 // reserve: room kept free right of the combo (a button on the same line)
-static bool choice(const char *label, int *value, const char *const *names, int n, float reserve = 0) {
+static bool choice(const char *label, int *value, const char *const *names, int n, float reserve = 0, const int *flags = nullptr) {  // flags: a UI_LANG_* per choice, drawn left of it
     ImGui::PushID(label);
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(label);
+    ImGui::TextUnformatted(ui_tr(label));
     ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.45f);
     bool changed = false;
     ImGui::SetNextItemWidth(reserve > 0 ? -reserve : -1);
-    if (ImGui::BeginCombo("##c", names[*value])) {
+    // with flags: the flag and the text are drawn by hand (the popup has its own font size: no spaces to count on)
+    if (flags) {
+        auto flag_w = [] { return ImGui::GetFontSize() * 1.45f; };
+        if (ImGui::BeginCombo("##c", "")) {
+            const float fw = flag_w(), fh = ImGui::GetFontSize() * 0.95f, lh = ImGui::GetTextLineHeightWithSpacing();
+            for (int i = 0; i < n; i++) {
+                ImGui::PushID(i);
+                ImVec2 p0 = ImGui::GetCursorScreenPos();
+                float w = ImGui::GetContentRegionAvail().x;
+                if (ImGui::Selectable("##i", i == *value, 0, ImVec2(0, lh))) { *value = i; changed = true; }
+                ImDrawList *dl = ImGui::GetWindowDrawList();
+                ui_draw_flag(dl, flags[i], p0.x + ImGui::GetStyle().FramePadding.x, p0.y + (lh - fh) * 0.5f, fw, fh);
+                dl->AddText(ImVec2(p0.x + ImGui::GetStyle().FramePadding.x + fw + ImGui::GetFontSize() * 0.5f, p0.y + (lh - ImGui::GetFontSize()) * 0.5f),
+                            ImGui::GetColorU32(ImGuiCol_Text), ui_tr(names[i]));
+                (void)w;
+                ImGui::PopID();
+                if (i == *value) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        ImVec2 a = ImGui::GetItemRectMin(), sz = ImGui::GetItemRectSize();
+        float fh = ImGui::GetFontSize() * 0.95f, fw = flag_w(), pad = ImGui::GetStyle().FramePadding.x;
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        ui_draw_flag(dl, flags[*value], a.x + pad, a.y + (sz.y - fh) * 0.5f, fw, fh);
+        dl->AddText(ImVec2(a.x + pad + fw + ImGui::GetFontSize() * 0.5f, a.y + (sz.y - ImGui::GetFontSize()) * 0.5f),
+                    ImGui::GetColorU32(ImGuiCol_Text), ui_tr(names[*value]));
+    } else if (ImGui::BeginCombo("##c", ui_tr(names[*value]))) {
         for (int i = 0; i < n; i++) {
-            if (ImGui::Selectable(names[i], i == *value)) { *value = i; changed = true; }
+            ImGui::PushID(i);
+            if (ImGui::Selectable(ui_tr(names[i]), i == *value)) { *value = i; changed = true; }
+            ImGui::PopID();
             if (i == *value) ImGui::SetItemDefaultFocus();
         }
         ImGui::EndCombo();
@@ -565,16 +629,16 @@ static void tab_display(void) {
     // (the same names in both: lines of the game's image - 1080p docked, 720p handheld - N times, or the display's own)
     // (the same names in both: lines of the game's image - 1080p docked, 720p handheld - N times, or the display's own;
     // each list in order of lines, Match display and the shares of it where the window puts them)
-    static char lines[5][16], up[2][24], match[32], up_match[40], share[3][24];
+    static char lines[5][16], up[2][96], match[128], up_match[160], share[3][24];
     int base = g_settings.handheld ? 720 : 1080;
     const double mul[5] = {1, 1.5, 2, 3, 4};
     for (int i = 0; i < 5; i++) snprintf(lines[i], sizeof lines[i], "%dp", (int)(base * mul[i]));
-    for (int i = 0; i < 2; i++) snprintf(up[i], sizeof up[i], "Up to %s", lines[i]);
+    for (int i = 0; i < 2; i++) snprintf(up[i], sizeof up[i], ui_tr("Up to %s"), lines[i]);
     int ml = shown_picture_height();
     const int pct[3] = {25, 50, 75};  // (of the game's own image)
     for (int i = 0; i < 3; i++) snprintf(share[i], sizeof share[i], "%dp (%d%%)", base * pct[i] / 100, pct[i]);
-    if (ml) snprintf(match, sizeof match, "Match display (%dp)", ml), snprintf(up_match, sizeof up_match, "Up to match display (%dp)", ml);
-    else snprintf(match, sizeof match, "Match display"), snprintf(up_match, sizeof up_match, "Up to match display");
+    if (ml) snprintf(match, sizeof match, ui_tr("Match display (%dp)"), ml), snprintf(up_match, sizeof up_match, ui_tr("Up to match display (%dp)"), ml);
+    else snprintf(match, sizeof match, "%s", ui_tr("Match display")), snprintf(up_match, sizeof up_match, "%s", ui_tr("Up to match display"));
     struct Res { const char *name; int mode, lines; };
     Res fr[] = {{share[0], RES_Q25, base / 4}, {share[1], RES_Q50, base / 2}, {share[2], RES_Q75, base * 3 / 4}, {match, RES_MATCH, ml},
                 {lines[0], 1, base}, {lines[1], RES_X15, base * 3 / 2}, {lines[2], 2, base * 2}, {lines[3], 3, base * 3},
@@ -791,7 +855,9 @@ static void tab_shaders(void) {
                "and saved in the background; game code, keys and saves are not included. Nothing is uploaded. "
                "New shader programs are collected from the next game start.");
     unsigned recipes = renderer_recipe_count();
-    char value[48]; snprintf(value, sizeof value, g_recipe_export_busy.load() ? "Working..." : "%u recipes", recipes);
+    char value[48];
+    if (g_recipe_export_busy.load()) snprintf(value, sizeof value, "%s", ui_tr("Working..."));
+    else snprintf(value, sizeof value, ui_tr("%u recipes"), recipes);
     std::string description = "Save a metadata-only JSON contribution for manual review and sharing. "
                               "Export does not submit it anywhere. Recipes with unknown source locations still need investigation.";
     pthread_mutex_lock(&recipe_message_lock);
@@ -835,7 +901,7 @@ static void tab_audio(void) {
         static int count = -1;
         static double listed;
         if (count < 0 || ImGui::GetTime() - listed > 3) { count = audio_input_device_names(names, 8); listed = ImGui::GetTime(); }
-        const char *labels[9] = {"System default"};
+        const char *labels[9] = {ui_tr("System default")};
         int selected = 0;
         for (int i = 0; i < count; i++) {
             labels[i + 1] = names[i];
@@ -843,7 +909,7 @@ static void tab_audio(void) {
         }
         if (opt_choice("Input device", &selected, labels, count + 1, 0,
                        "The microphone the game listens to. System default follows the Mac's choice in System Settings > Sound.",
-                       false)) {
+                       false, true)) {
             snprintf(g_settings.mic_device, sizeof g_settings.mic_device, "%s", selected ? labels[selected] : "");
             settings_save();
         }
@@ -858,7 +924,7 @@ static void tab_audio(void) {
         if (testing) {
             float level = audio_input_test_level();
             ImGui::ProgressBar(level > 1 ? 1 : level, ImVec2(-FLT_MIN, ImGui::GetFontSize() * 0.9f), "");
-            ImGui::TextDisabled("If nothing moves, check the permission in macOS: System Settings > Privacy & Security > Microphone.");
+            ImGui::TextDisabled(ui_tr("If nothing moves, check the permission in macOS: System Settings > Privacy & Security > Microphone."));
         }
     }
     opt_end();
@@ -871,10 +937,11 @@ static void tab_quit(float scale, bool in_game) {
     static int ask;  // 0: the two choices; 1: start screen?; 2: desktop?
     if (ask && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)))
         ask = 0;
-    const char *lost = in_game ? "\n\nProgress since your last save is lost." : "";
-    char d1[200], d2[200];
-    snprintf(d1, sizeof d1, "Leaves the game and goes back to the MonZaMac start screen.%s", lost);
-    snprintf(d2, sizeof d2, "Closes MonZaMac.%s", lost);
+    const char *lost = in_game ? ui_tr("Progress since your last save is lost.") : "";
+    char d1[384], d2[384];
+    snprintf(d1, sizeof d1, "%s%s%s", ui_tr("Leaves the game and goes back to the MonZaMac start screen."),
+             in_game ? "\n\n" : "", lost);
+    snprintf(d2, sizeof d2, "%s%s%s", ui_tr("Closes MonZaMac."), in_game ? "\n\n" : "", lost);
     opt_begin("##quit", scale);
     opt_section("Quit");
     if (!ask) {
@@ -942,13 +1009,30 @@ static void tab_developer(float scale) {
     saves_route_dialog(scale, g_font_big, g_font);
 }
 
+// The interface language (changes at once; the game asks for its own text language itself). In the game it is the Language tab; on the start screen the first rows of Prelaunch (runtime/ui/launcher.mm). Inside opt_begin / opt_end.
+extern "C" void menu_language_rows(void) {
+    opt_section("Language");
+    {
+        char auto_label[96];
+        snprintf(auto_label, sizeof auto_label, "%s (%s)", ui_tr("Automatic"), ui_language_name());
+        const char *names[UI_LANGUAGE_COUNT];
+        names[0] = auto_label;
+        for (int i = UI_LANG_EN; i < UI_LANGUAGE_COUNT; i++) names[i] = ui_language_names[i];
+        int flags[UI_LANGUAGE_COUNT];
+        for (int i = 0; i < UI_LANGUAGE_COUNT; i++) flags[i] = i == UI_LANG_AUTO ? ui_auto_language() : i;
+        if (opt_choice("Interface", &g_settings.ui_language, names, UI_LANGUAGE_COUNT, UI_LANG_AUTO,
+                       "Changes the MonZaMac interface, not the game's text or the Lumiose Online mod.", true, true, flags))
+            settings_save();
+    }
+}
+
 static void tab_about(void) {
     header("Movement");
     toggle("D-pad moves the character", &g_settings.dpad_move);
     hint("The d-pad and the arrow keys move like the left stick.");
     {
         float snap = (float)g_settings.rstick_snap;
-        if (opt_slider("Right stick snap", &snap, 0, 20, 1, 0, "%g degrees",
+        if (opt_slider("Right stick snap", &snap, 0, 20, 1, 0, ui_tr("%g degrees"),
                    "A right stick (or mouse camera) pointed within this many degrees of up, down, left or right is held exactly on that direction. 0: off."))
             g_settings.rstick_snap = (int)roundf(snap);
     }
@@ -981,8 +1065,8 @@ static void tab_about(void) {
 #endif
     toggle("Two-finger drag on the trackpad", &g_settings.trackpad_camera);
     hint("The trackpad's two-finger scroll turns the camera, as the mouse does.");
-    ImGui::Checkbox("Invert horizontal", &g_settings.invert_mouse_x);
-    ImGui::Checkbox("Invert vertical", &g_settings.invert_mouse_y);
+    check_row("Invert horizontal", &g_settings.invert_mouse_x);
+    check_row("Invert vertical", &g_settings.invert_mouse_y);
     {
         float pct = roundf(g_settings.mouse_speed * 100);
         if (opt_slider("Mouse camera speed", &pct, 25, 300, 5, 100, "%g%%",
@@ -994,31 +1078,20 @@ static void tab_about(void) {
     {
         static const char *const fam[] = {"Nintendo", "Xbox", "PlayStation"};
         char autol[64];
-        snprintf(autol, sizeof autol, "Auto (%s)", fam[input_pad_family() % 3]);
+        snprintf(autol, sizeof autol, ui_tr("Auto (%s)"), fam[input_pad_family() % 3]);
         const char *names[] = {autol, "Nintendo", "Xbox", "PlayStation", "Keyboard"};  // (Keyboard: Z-A, from the next boot)
         choice("Button icons", &g_settings.prompts, names, 5);
     }
     ImGui::Spacing();
-    header("System language");
-    {
-        // what the game is told the console's language is: its text follows this (runtime/settings.c)
-        char autol[64];
-        snprintf(autol, sizeof autol, "Auto (%s)", settings_language_name());
-        const char *names[N_LANGUAGES];
-        names[0] = autol;
-        for (int i = 1; i < N_LANGUAGES; i++) names[i] = g_language_names[i];
-        if (choice("Language", &g_settings.language, names, N_LANGUAGES)) settings_save();
-    }
-    hint("The game's text language, as its own system setting. Applies when the game restarts: Quit -> Title "
-         "screen, then Play.");
     ImGui::Spacing();
     header("Controls");
     controls_bindings_draw(ImGui::GetFontSize() / 34);
     ImGui::Spacing();
     header("Menu");
-    ImGui::TextUnformatted("Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start");
-    ImGui::TextUnformatted("Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)");
-    ImGui::TextUnformatted("Fullscreen:  F11 / Alt+Enter");
+    info_row("Open or close this menu", "F1, Esc, Home / Xbox / PlayStation, or Back + Start");
+    info_row("Switch tabs", "L / R  (Q / E)");
+    info_row("Back", "B  (Esc)");
+    info_row("Fullscreen", "Cmd+Ctrl+F or Cmd+Enter");
 }
 
 // Reboot (runtime/main.c): the game is gone - menu and name dialog close; the ImGui context stays.
@@ -1039,7 +1112,7 @@ static void keyboard_draw(ImGuiIO &io, float scale) {
     ImGui::Begin("##kbd", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                                     ImGuiWindowFlags_AlwaysAutoResize);
     ImGui::PushFont(g_font_big);
-    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "Enter your name");
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), ui_tr("Enter your name"));
     ImGui::PopFont();
     static bool was_open, was_pad;
     bool pad = g_last_pad.load(), appearing = !was_open || pad != was_pad;  // (switching device: focus the new one)
@@ -1059,7 +1132,7 @@ static void keyboard_draw(ImGuiIO &io, float scale) {
             pthread_mutex_unlock(&q_lock);
             if (drained) { g_kbd_enter = false; g_kbd = 2; }
         }
-        ImGui::TextDisabled("Enter  confirm      Esc  cancel      (%d / %d)", (int)strlen(g_kbd_text), g_kbd_max);
+        ImGui::TextDisabled(ui_tr("Enter  confirm      Esc  cancel      (%d / %d)"), (int)strlen(g_kbd_text), g_kbd_max);
     } else {  // controller: on-screen keyboard (osk.mm, shared with our menus' text fields)
         int r = osk_keys(g_kbd_text, sizeof g_kbd_text, g_kbd_max, appearing, scale, g_font_big);
         if (r) g_kbd = r > 0 ? 2 : 3;  // (Start / + confirms in menu_handle_event too)
@@ -1145,7 +1218,7 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
             const Tab &t = tabs[k];
             ImGuiTabItemFlags f = g_tab_request == t.id && t.on ? ImGuiTabItemFlags_SetSelected : 0;
             char lbl[64];
-            snprintf(lbl, sizeof lbl, prelaunch ? " %s " : "  %s  ", t.name);  // (ten tabs: tighter, so none is cut short)
+            snprintf(lbl, sizeof lbl, prelaunch ? " %s " : "  %s  ", ui_tr(t.name));  // (ten tabs: tighter, so none is cut short)
             ImGui::BeginDisabled(!t.on);  // (out of the game: Save Editor, Warp, Cheats)
             // focus (controller / keyboard): the tab lights up a little with a gold bar along its bottom, instead of
             // ImGui's outline (it sits 4 px outside the tab and the tab bar's clipping could cut its top off on macOS)
@@ -1298,11 +1371,11 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
 #ifdef __APPLE__
         double fg_fps=0;
         if(!open && settings_frame_generation() && fg_presentation_active(&fg_fps))
-            ImGui::Text("%.0ffps -> FG %.0ffps",io.Framerate,fg_fps);
+            ImGui::Text(ui_tr("%.0ffps -> FG %.0ffps"),io.Framerate,fg_fps);
         else
 #endif
-            ImGui::Text("%.0ffps",io.Framerate);
-        if (settings_uncapped_fps()) ImGui::TextUnformatted("BENCHMARK: game speed may change");
+            ImGui::Text(ui_tr("%.0ffps"),io.Framerate);
+        if (settings_uncapped_fps()) ImGui::TextUnformatted(ui_tr("BENCHMARK: game speed may change"));
         if (g_stats.load()) {  // F3: what the 3D image renders at (the game's own size times the output scale)
             extern int g_out_present_interval;
             float sx, sy;
@@ -1312,20 +1385,20 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
             double rw = (hh ? 1280.0 : 1920.0) * sx, rh = (hh ? 720.0 : 1080.0) * sy;
             int shown = shown_picture_height();  // (the picture's size in the window; differs when an upscaler or the window scales it)
             if (shown && (int)lround(rh) != shown)
-                ImGui::Text("render %.0f x %.0f -> %d x %d%s", rw, rh, (int)lround(shown * 16.0 / 9.0), shown, hh ? " (handheld)" : "");
+                ImGui::Text(ui_tr("render %.0f x %.0f -> %d x %d%s"), rw, rh, (int)lround(shown * 16.0 / 9.0), shown, hh ? " (handheld)" : "");
             else
-                ImGui::Text("render %.0f x %.0f%s", rw, rh, hh ? " (handheld)" : "");
+                ImGui::Text(ui_tr("render %.0f x %.0f%s"), rw, rh, hh ? " (handheld)" : "");
             if (res_is_dynamic(g_settings.res_mode)) {
                 double fm, gm;
                 bool gok = output_scale_dynamic_stats(&fm, &gm);
-                ImGui::Text("dynamic %.0f%%  (frame %.1f ms, gpu %.1f ms%s)", output_scale_dynamic_factor() * 100, fm, gm, gok ? "" : ", not used");
+                ImGui::Text(ui_tr("dynamic %.0f%%  (frame %.1f ms, gpu %.1f ms%s)"), output_scale_dynamic_factor() * 100, fm, gm, gok ? "" : ", not used");
             }
-            ImGui::Text("present interval %d", g_out_present_interval);
+            ImGui::Text(ui_tr("present interval %d"), g_out_present_interval);
 
 
             if (g_settings.dev_frame_stats) {  // Developer: where the frame's time goes
                 extern double g_stat_cpu_ms, g_stat_gpu_ms;
-                ImGui::Text("submit cpu %.1f ms   gpu %.1f ms   (frame %.1f ms)", g_stat_cpu_ms, g_stat_gpu_ms, 1000.0 / fmax(io.Framerate, 1.0f));
+                ImGui::Text(ui_tr("submit cpu %.1f ms   gpu %.1f ms   (frame %.1f ms)"), g_stat_cpu_ms, g_stat_gpu_ms, 1000.0 / fmax(io.Framerate, 1.0f));
             }
         }
         ImGui::End();
@@ -1345,7 +1418,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         // screen" - rt_request_reboot(RT_REBOOT_TITLE) - is to find a new home; user 2026-10-11.)
         ImVec2 title_at = ImGui::GetCursorScreenPos();
         ImGui::PushFont(g_font_big);
-        ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "Settings");
+        ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), ui_tr("Settings"));
         float title_h = ImGui::GetTextLineHeight();
         ImGui::PopFont();
         {   // the build's version (bug reports name it): small, right side of the header, before the close X
@@ -1355,6 +1428,35 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
             float right = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - 44 * scale - 26 * scale;
             ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), vs, ImVec2(right - vw, title_at.y + (title_h - vs) * 0.6f),
                                                 IM_COL32(150, 172, 210, 255), ver);
+        }
+        {   // the interface language's flag, left of the version: the list of languages (the only place for it in the game)
+            float s = scale * 1.5f, fh = title_h * 0.7f, fw = fh * 1.5f, cw = fw + 24 * scale, ch = title_h;
+            float vw2 = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize() * 0.85f, FLT_MAX, 0, "MonZaMac 0.0.0").x;
+            ImVec2 cp(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - 44 * scale - 26 * scale - vw2 - 30 * scale - cw, title_at.y);
+            ImGui::SetCursorScreenPos(cp);
+            ImGui::PushStyleColor(ImGuiCol_NavCursor, ImVec4(0, 0, 0, 0));
+            bool open_list = ImGui::InvisibleButton("##uilang-chip", ImVec2(cw, ch), ImGuiButtonFlags_EnableNav);
+            ImGui::PopStyleColor();
+            bool hov = ImGui::IsItemHovered();
+            ImDrawList *dl = ImGui::GetWindowDrawList();
+            if (hov || ImGui::IsItemFocused()) dl->AddRectFilled(cp, ImVec2(cp.x + cw, cp.y + ch), IM_COL32(255, 255, 255, 20), 8 * scale);
+            int cur = g_settings.ui_language > UI_LANG_AUTO ? g_settings.ui_language : ui_auto_language();
+            ui_draw_flag(dl, cur, cp.x + 12 * scale, cp.y + (ch - fh) * 0.5f, fw, fh);
+            if (hov && !ImGui::IsPopupOpen("##uilang-menu")) ImGui::SetTooltip("%s", ui_tr("Interface language"));
+            if (open_list) ImGui::OpenPopup("##uilang-menu");
+            ImGui::SetNextWindowPos(ImVec2(cp.x + cw, cp.y + ch + 6 * scale), ImGuiCond_Always, ImVec2(1, 0));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 14 * scale * 1.5f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * s, 8 * s));
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 3 * s));
+            ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0, 0, 0, 0));
+            if (ImGui::BeginPopup("##uilang-menu")) {
+                if (ui_language_list(s)) ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+            }
+            ImGui::PopStyleColor(3);
+            ImGui::PopStyleVar(3);
         }
         {
             float bx = 44 * scale;

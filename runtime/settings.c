@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "ui/i18n.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -64,11 +65,22 @@ const char *const g_language_names[N_LANGUAGES] = {"Auto", "Japanese", "English"
                                                    "Italian", "Dutch", "Russian", "Korean", "Chinese (Simplified)",
                                                    "Chinese (Traditional)"};
 
-// LANG_AUTO: the host's own language (LANG=es_ES.UTF-8 -> es), en-US when it is none of the game's. Linux only:
-// macOS / Windows apps get no locale variables from the system, so Auto is English there (pick one in settings).
+// LANG_AUTO: the host's own language, en-US when it is none of the game's. Linux: from the locale variables
+// (LANG=es_ES.UTF-8 -> es). Elsewhere: the system language the interface already follows (ui_auto_language); Portuguese and
+// Russian, which the game has no text for, give English. Only while the player hasn't picked one (that choice is kept).
 static const char *host_language(void) {
 #ifndef __linux__
-    return "en-US";
+    switch (ui_auto_language()) {
+    case UI_LANG_IT: return "it";
+    case UI_LANG_FR: return "fr";
+    case UI_LANG_ES: return "es";
+    case UI_LANG_DE: return "de";
+    case UI_LANG_JA: return "ja";
+    case UI_LANG_KO: return "ko";
+    case UI_LANG_ZH_HANS: return "zh-CN";
+    case UI_LANG_ZH_HANT: return "zh-TW";
+    default: return "en-US";
+    }
 #endif
     const char *e = getenv("LC_ALL");
     if (!e || !*e) e = getenv("LC_MESSAGES");
@@ -180,6 +192,11 @@ void settings_load(void) {
         else if (!strcmp(key, "mirror_mode")) g_settings.mirror_mode = atoi(val) != 0;
         else if (!strcmp(key, "prompts")) g_settings.prompts = !strcmp(val, "nintendo") ? PROMPTS_NINTENDO : !strcmp(val, "xbox") ?
                                                               PROMPTS_XBOX : !strcmp(val, "playstation") ? PROMPTS_PLAYSTATION : !strcmp(val, "keyboard") ? PROMPTS_KEYBOARD : PROMPTS_AUTO;
+        else if (!strcmp(key, "ui_language")) {
+            g_settings.ui_language = UI_LANG_AUTO;
+            for (int i = UI_LANG_EN; i < UI_LANGUAGE_COUNT; i++)
+                if (!strcmp(val, ui_language_codes[i])) g_settings.ui_language = i;
+        }
         else if (!strcmp(key, "language")) {  // ("auto" or one of the game's codes; anything else: auto)
             g_settings.language = LANG_AUTO;
             for (int i = 1; i < N_LANGUAGES; i++)
@@ -256,6 +273,8 @@ void settings_save(void) {
     static const char *const prompts[] = {"auto", "nintendo", "xbox", "playstation", "keyboard"};
     fprintf(f, "prompts = %s\n", prompts[g_settings.prompts <= 4 ? g_settings.prompts : 0]);
     fprintf(f, "mirror_mode = %d\n", g_settings.mirror_mode);
+    fprintf(f, "ui_language = %s\n", ui_language_codes[g_settings.ui_language > UI_LANG_AUTO && g_settings.ui_language < UI_LANGUAGE_COUNT
+                                                     ? g_settings.ui_language : UI_LANG_AUTO]);
     fprintf(f, "language = %s\n", g_language_codes[g_settings.language > LANG_AUTO && g_settings.language < N_LANGUAGES
                                                      ? g_settings.language : LANG_AUTO]);
     fprintf(f, "aspect_asked = %d\n", g_settings.aspect_asked);
