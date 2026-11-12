@@ -1542,7 +1542,8 @@ extern const char *ui_tr(const char *english);  // runtime/ui/i18n.mm
         CGContextRef c = NSGraphicsContext.currentContext.CGContext;
         CGPoint m = CGPointMake(48, 48);
         CGFloat R = 44;
-        CGContextSetRGBFillColor(c, 0.87, 0.24, 0.24, 1);
+        if (getenv("LUMIOSE_TEST_MODULE")) CGContextSetRGBFillColor(c, 0.98, 0.78, 0.33, 1);  // (online: Lumiose Online's gold)
+        else CGContextSetRGBFillColor(c, 0.87, 0.24, 0.24, 1);
         CGContextAddArc(c, m.x, m.y, R, 0, M_PI, 0); CGContextFillPath(c);
         CGContextSetRGBFillColor(c, 0.96, 0.96, 0.94, 1);
         CGContextAddArc(c, m.x, m.y, R, M_PI, 2 * M_PI, 0); CGContextFillPath(c);
