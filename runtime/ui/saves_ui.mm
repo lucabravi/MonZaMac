@@ -1043,10 +1043,27 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
         dl->AddLine(ImVec2(c.x - R, c.y), ImVec2(c.x - ring, c.y), gold, th);
         dl->AddLine(ImVec2(c.x + ring, c.y), ImVec2(c.x + R, c.y), gold, th);
         dl->AddCircle(c, ring, gold, 24, th);
-        dl->AddCircleFilled(ImVec2(c.x - R, c.y), th * 0.5f, gold);  // (round ends)
-        dl->AddCircleFilled(ImVec2(c.x + R, c.y), th * 0.5f, gold);
+        // the arcs go on below the middle (about 70 degrees) and fade out, thinner towards the bottom
+        const int n = 14;
+        const float span = 1.22f;
+        for (int side = -1; side <= 1; side += 2)
+            for (int i = 0; i < n; i++) {
+                float t0 = span * i / n, t1 = span * (i + 1) / n, f = 1.0f - (float)(i + 1) / n;
+                ImVec2 a0(c.x + side * R * cosf(t0), c.y + R * sinf(t0)), a1(c.x + side * R * cosf(t1), c.y + R * sinf(t1));
+                ImU32 col = IM_COL32(250, 198, 84, (int)(255 * f));
+                float w = th * (0.35f + 0.65f * f);
+                dl->AddLine(a0, a1, col, w);
+                dl->AddCircleFilled(a0, i == 0 ? th * 0.5f : th * (0.35f + 0.65f * (1.0f - (float)i / n)) * 0.5f, i == 0 ? IM_COL32(250, 198, 84, 255) : col);  // (round joints: no gaps between segments, nor at the join with the top arc)
+            }
     }
-    dl->AddText(g_font_column_title ? g_font_column_title : small_, u * 1.75f, ImVec2(x + u * 4.2f, ry + u * 1.3f), IM_COL32(255, 255, 255, 255), ui_tr("Lumiose Online"));
+    {   // "Lumiose" in the gold of the mark, the rest white
+        ImFont *tf = g_font_column_title ? g_font_column_title : small_;
+        const char *name = ui_tr("Lumiose Online"), *sp = strchr(name, ' ');
+        ImVec2 tp(x + u * 4.2f, ry + u * 1.3f);
+        float tw = sp ? tf->CalcTextSizeA(u * 1.75f, FLT_MAX, 0, name, sp).x : 0;
+        dl->AddText(tf, u * 1.75f, tp, sp ? IM_COL32(250, 198, 84, 255) : IM_COL32(255, 255, 255, 255), name, sp);
+        if (sp) dl->AddText(tf, u * 1.75f, ImVec2(tp.x + tw, tp.y), IM_COL32(255, 255, 255, 255), sp);
+    }
     // the state
     float ch = u * 3.4f, cy = ry + ph - u - u * 2.05f - u * 0.9f - ch;  // (the state sits right above the button, at the column's bottom)
     ImVec2 ic(x + u * 1.0f, cy + u * 1.35f);
@@ -1071,15 +1088,15 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
     bool hot = v.on && (ImGui::IsItemHovered() || ImGui::IsItemFocused());
     ImGui::EndDisabled();
     ImGui::PopStyleColor();
-    if (hot) dl->AddRectFilled(ImVec2(p.x - 3, p.y - 3), ImVec2(q.x + 3, q.y + 3), IM_COL32(72, 214, 255, 50), u * 0.7f);
+    if (hot) dl->AddRectFilled(ImVec2(p.x - 3, p.y - 3), ImVec2(q.x + 3, q.y + 3), IM_COL32(250, 198, 84, 55), u * 0.7f);
     const ImU32 ink = v.on ? IM_COL32(6, 20, 44, 255) : IM_COL32(150, 172, 210, 255);
     if (v.progress >= 0) {  // preparing: the button fills as it goes
-        dl->AddRectFilled(p, q, IM_COL32(20, 44, 78, 255), u * 0.55f);
+        dl->AddRectFilled(p, q, IM_COL32(58, 46, 20, 255), u * 0.55f);
         dl->PushClipRect(p, ImVec2(p.x + (q.x - p.x) * fminf(1.0f, v.progress), q.y), true);
-        dl->AddRectFilled(p, q, IM_COL32(38, 128, 200, 255), u * 0.55f);
+        dl->AddRectFilled(p, q, IM_COL32(190, 140, 40, 255), u * 0.55f);
         dl->PopClipRect();
     } else {
-        dl->AddRectFilled(p, q, !v.on ? IM_COL32(22, 36, 64, 255) : hot ? IM_COL32(120, 232, 255, 255) : IM_COL32(60, 205, 255, 255), u * 0.55f);
+        dl->AddRectFilled(p, q, !v.on ? IM_COL32(22, 36, 64, 255) : hot ? IM_COL32(255, 218, 125, 255) : IM_COL32(250, 198, 84, 255), u * 0.55f);
     }
     ImVec2 ts = small_->CalcTextSizeA(u * 1.2f, FLT_MAX, 0, ui_tr(v.button));
     float tx0 = p.x + (w - ts.x - u * 1.8f) * 0.5f + u * 1.8f, my = (p.y + q.y) * 0.5f;
