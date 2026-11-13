@@ -30,6 +30,11 @@ int main(void) {
     assert(!strcmp(st.state, "running") && st.fraction > 0.42f && st.fraction < 0.43f);
     assert(!strcmp(st.step, "Compiled 3 of 61 \"files\" \xc3\xa8\xe2\x82\xac"));
     assert(online_prep_parse_line("PROGRESS {\"fraction\": 7}", &st) && st.fraction == 1.0f);
+    assert(online_prep_parse_line("PROGRESS {\"fraction\": \"NaN\"}", &st) && st.fraction == 1.0f);
+    assert(online_prep_parse_line("PROGRESS {\"fraction\": \"Infinity\"}", &st) && st.fraction == 1.0f);
+    assert(online_prep_parse_line("PROGRESS {\"fraction\": \"0.5oops\"}", &st) && st.fraction == 1.0f);
+    assert(online_prep_parse_line("PROGRESS {\"fraction\": -10}", &st) && st.fraction == 0.0f);
+    assert(online_prep_parse_line("PROGRESS {\"fraction\": 2e-1}", &st) && st.fraction > 0.19f && st.fraction < 0.21f);
     assert(online_prep_parse_line("STATUS {\"state\": \"ready\", \"active\": \"x\", \"version\": \"1.4.3-build2\", \"server\": false}", &st));
     assert(!strcmp(st.state, "ready") && !strcmp(st.version, "1.4.3-build2"));
     assert(online_prep_parse_line("STATUS {\"state\": \"ready\", \"endpoint\": \"203.0.113.5:27777\"}", &st));

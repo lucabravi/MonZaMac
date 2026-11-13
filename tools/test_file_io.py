@@ -14,7 +14,9 @@ CASES = (
     'read-error', 'interrupted-read', 'missing-read-buffer', 'negative-read-size',
     'negative-read-offset', 'read-offset-overflow', 'bounded-read', 'read-eof', 'getsize-error', 'getsize',
     'close-file', 'close-cloned-file', 'close-directory', 'close-aoc', 'close-cloned-aoc', 'confine',
-    'route-mounts', 'confine-links', 'recursive-delete-links', 'recursive-clean-links', 'recursive-clean-missing',
+    'route-mounts', 'romfs-index-valid', 'romfs-index-subdir', 'romfs-index-cycle', 'romfs-index-bad-bounds',
+    'romfs-index-bad-size', 'romfs-index-bad-name', 'romfs-index-dirname', 'romfs-index-new-file', 'romfs-index-new-directory', 'romfs-patch-valid', 'romfs-patch-bad-name',
+    'romfs-patch-bad-size', 'romfs-patch-offset-overflow', 'romfs-patch-truncated', 'romfs-patch-many', 'trpfd-short', 'trpfd-bad-root', 'trpfd-bad-vtable', 'trpfd-bad-vector', 'trpfd-valid-removal', 'confine-links', 'recursive-delete-links', 'recursive-clean-links', 'recursive-clean-missing',
 )
 
 with tempfile.TemporaryDirectory(prefix='monzamac-file-test-') as tmp:

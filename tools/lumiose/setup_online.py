@@ -15,6 +15,7 @@ is remembered (skipped-modules in the versions folder) and not tried again on ev
 import argparse
 import hashlib
 import json
+import math
 import shutil
 import subprocess
 import sys
@@ -24,7 +25,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 from prepare import report  # noqa: E402
-from fetch import fetch_latest, latest_sha256  # noqa: E402
+from fetch import LIMIT, fetch_latest, latest_sha256  # noqa: E402
 from commands import tool  # noqa: E402
 from nso import Nso  # noqa: E402
 from versions import module_info  # noqa: E402
@@ -32,19 +33,53 @@ from versions import module_info  # noqa: E402
 
 
 def find_module(*folders):
-    """The newest regular file in these folders, or None."""
-    found = [p for folder in folders for p in Path(folder).glob('*') if p.is_file() and not p.name.startswith('.')]
-    return max(found, key=lambda p: p.stat().st_mtime) if found else None
+    """Newest plausible NSO: ignore notes, partial downloads and files above the download limit."""
+    found = []
+    for folder in folders:
+        for path in Path(folder).glob('*'):
+            if path.name.startswith('.') or path.name.endswith(('.part', '.tmp')):
+                continue
+            try:
+                stat = path.stat()
+                if not path.is_file() or not 0x100 <= stat.st_size <= LIMIT:
+                    continue
+                with path.open('rb') as source:
+                    if source.read(4) == b'NSO0':
+                        found.append((stat.st_mtime_ns, path))
+            except OSError:
+                continue
+    return max(found, key=lambda item: item[0])[1] if found else None
+
+
+def status_info(root):
+    """Read the helper's verified status, treating missing tools and malformed output as unavailable."""
+    try:
+        proc = subprocess.run([*tool('activate'), '--root', str(root), 'status'],
+                              capture_output=True, text=True)
+        if proc.returncode:
+            return {}
+        for line in proc.stdout.splitlines():
+            if not line.startswith('STATUS '):
+                continue
+            try:
+                info = json.loads(line[7:])
+            except ValueError:
+                continue
+            if isinstance(info, dict):
+                return info
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    return {}
 
 
 def active_module(root):
-    """(folder, SHA-256 of the module it was prepared from) of the active prepared version when it verifies, else None."""
-    state = subprocess.run([*tool('activate'), '--root', str(root), 'status'], capture_output=True, text=True)
-    info = next((json.loads(l[7:]) for l in state.stdout.splitlines() if l.startswith('STATUS ')), {})
+    """(folder, SHA-256 of the module it was prepared from) when the prepared version verifies, else None."""
+    info = status_info(root)
     if info.get('state') != 'ready':
         return None
     try:
-        return Path(info['dir']), json.loads((Path(info['dir']) / 'ready.json').read_text())['inputs']['module']
+        directory = Path(info['dir'])
+        return directory, json.loads((directory / 'ready.json').read_text())['inputs']['module']
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
@@ -54,11 +89,26 @@ def built_for_this_game(directory, game):
     try:
         return (Path(directory) / 'lasgame.dylib.id').read_text().strip() == (Path(game) / 'lasgame.dylib.id').read_text().strip()
     except OSError:
-        return True  # (the check of the prepared files, or the start itself, reports a missing one)
+        return False  # Missing build identities cannot establish that the prepared binary is compatible.
 
 
 def sha256_of(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    digest = hashlib.sha256()
+    with Path(path).open('rb') as source:
+        for block in iter(lambda: source.read(1024 * 1024), b''):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def cached_module(downloads, expected):
+    """A cached download is trusted only if its *complete* SHA-256 still matches the published one."""
+    for path in Path(downloads).glob('subsdk9-' + expected[:16]):
+        try:
+            if path.is_file() and 0 < path.stat().st_size <= LIMIT and sha256_of(path) == expected:
+                return path
+        except OSError:
+            continue
+    return None
 
 
 def skipped(root):
@@ -69,6 +119,7 @@ def skipped(root):
 
 
 def skip(root, sha):
+    Path(root).mkdir(parents=True, exist_ok=True)
     with Path(root, 'skipped-modules').open('a') as f:
         f.write(sha + '\n')
 
@@ -86,7 +137,7 @@ def mod_download(path, active, root, downloads):
     """The module the mod installed by itself, kept among the downloads, when it is one to try; else None. With no active
     version the site decides: this file can be old, and there is nothing to compare it with."""
     try:
-        if not path or not active or not Path(path).is_file():
+        if not path or not active or not Path(path).is_file() or Path(path).stat().st_size > LIMIT:
             return None
         sha = sha256_of(path)
         if sha == active[1] or sha in skipped(root):
@@ -100,22 +151,40 @@ def mod_download(path, active, root, downloads):
         return None
 
 
-def run_stage(argv, low, high, label):
-    """Run a script; its PROGRESS fractions are mapped into low..high. Returns (ok, last ready dir, last message)."""
-    p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+def run_stage(argv, low, high, label, require_ready=True):
+    """Run a script; map its PROGRESS fractions into low..high without trusting their shape."""
+    try:
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    except OSError as exc:
+        return False, '', str(exc)
     ready_dir, message = '', ''
-    for line in p.stdout:
+    for line in proc.stdout:
         if line.startswith('PROGRESS '):
-            try: info = json.loads(line[9:])
-            except ValueError: continue
-            if info.get('state') == 'running':
-                report(low + (high - low) * float(info.get('fraction', 0)), info.get('step') or label)
-            elif info.get('state') == 'ready': ready_dir = info.get('dir', '')
-            elif info.get('state') == 'error': message = info.get('message', '')
+            try:
+                info = json.loads(line[9:])
+            except ValueError:
+                continue
+            if not isinstance(info, dict):
+                continue
+            state = info.get('state')
+            if state == 'running':
+                try:
+                    fraction = float(info.get('fraction', 0))
+                except (TypeError, ValueError):
+                    fraction = 0.0
+                if not math.isfinite(fraction):
+                    fraction = 0.0
+                step = info.get('step')
+                report(low + (high - low) * max(0.0, min(1.0, fraction)),
+                       step if isinstance(step, str) and step else label)
+            elif state == 'ready' and isinstance(info.get('dir'), str):
+                ready_dir = info['dir']
+            elif state == 'error' and isinstance(info.get('message'), str):
+                message = info['message']
         elif not message and line.strip():
             message = line.strip()[:200]
-    code = p.wait()
-    return code == 0 and bool(ready_dir), ready_dir, message
+    code = proc.wait()
+    return code == 0 and (bool(ready_dir) or not require_ready), ready_dir, message
 
 
 def main():
@@ -148,7 +217,7 @@ def main():
             report(1.0, 'Ready', 'ready', dir=str(active[0]))
             return 0
         if latest:
-            module = next((p for p in Path(downloads).glob('subsdk9-' + latest[:16]) if p.is_file()), None)
+            module = cached_module(downloads, latest)
         else:
             module = find_module(args.modules) if args.modules else find_module(
                 *(base / f for base in (Path.cwd(), ROOT) for f in ('lumiose-module', 'build/lumiose-modules')))
@@ -177,13 +246,10 @@ def main():
     report(0.90, 'Checking that it starts')
     name = Path(directory).name
     ok, _, message = run_stage([*tool('activate'), '--root', str(args.root), 'activate', name, '--smoke',
-                                '--runtime', str(args.runtime), '--game', str(args.game)], 0.90, 0.99, 'Checking')
+                                '--runtime', str(args.runtime), '--game', str(args.game)], 0.90, 0.99, 'Checking', False)
     # (activate.py prints no PROGRESS lines: success is its exit code, read from the status afterwards)
-    status = subprocess.run([*tool('activate'), '--root', str(args.root), 'status'], capture_output=True, text=True)
-    state = {}
-    for line in status.stdout.splitlines():
-        if line.startswith('STATUS '): state = json.loads(line[7:])
-    if state.get('active') == name and state.get('state') == 'ready':
+    state = status_info(args.root)
+    if ok and state.get('active') == name and state.get('state') == 'ready' and state.get('dir'):
         report(1.0, 'Ready', 'ready', dir=state['dir'])
         return 0
     if from_mod: skip(args.root, sha256_of(from_mod))
