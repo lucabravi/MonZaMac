@@ -114,6 +114,8 @@ static int name_cmp(const void *a, const void *b) { return strcmp((const char *)
 static void layer_init(void) {
     if (nlayers >= 0) return;
     nlayers = 0;
+    // Online play shares the game with other players and a server: RomFS mods stay out of it.
+    if (getenv("LUMIOSE_TEST_MODULE")) { LOG("[fs] online: RomFS mods are not loaded\n"); return; }
     DIR *d = opendir("mods");
     if (!d) return;
     char names[15][256];
