@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "discord_presence.h"
 #include "gamelib.h"
 #include "paths.h"
 #include "settings.h"
@@ -264,7 +265,9 @@ int main(int argc, char **argv) {
         if (!booted) boot(root);
         if (!g_game_booted) g_game_booted = getenv("LUMIOSE_TEST_MODULE") ? 2 : 1;
         booted = false;
+        discord_presence_start();
         int kind = ui_run();  // window and input on the main thread
+        discord_presence_stop();
         if (kind == RT_REBOOT_NONE) {
             // SDL's signal handlers enqueue quit events; the window loop has finished consuming them.
             signal(SIGINT, SIG_DFL);
