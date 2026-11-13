@@ -22,6 +22,12 @@ static void slot_path(const char *id, char *out, size_t n) {
     else snprintf(out, n, DEFAULT_DIR);
 }
 
+// Public slot identifiers also come from the filesystem; keep existing names, but never accept path traversal.
+static bool valid_id(const char *id) {
+    return id && strlen(id) <= SAVE_NAME_MAX && !strchr(id, '/') && !strchr(id, '\\') &&
+           strcmp(id, ".") && strcmp(id, "..");
+}
+
 // A name that is safe as a folder name: trimmed, only letters, digits, space, - and _. false: nothing left of it.
 static bool clean_name(const char *in, char *out) {
     while (*in == ' ') in++;
@@ -103,15 +109,26 @@ int saves_list(SaveSlot *out, int max) {
 }
 
 static bool copy_file(const char *from, const char *to) {
-    int a = open(from, O_RDONLY), b = open(to, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    bool ok = a >= 0 && b >= 0;
+    int a = open(from, O_RDONLY);
+    if (a < 0) return false;
+    int b = open(to, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (b < 0) { close(a); return false; }
+    bool ok = true;
     char buf[65536];
-    ssize_t r;
-    while (ok && (r = read(a, buf, sizeof buf)) > 0)
-        if (write(b, buf, (size_t)r) != r) ok = false;
-    if (r < 0) ok = false;
-    if (a >= 0) close(a);
-    if (b >= 0) close(b);
+    while (ok) {
+        ssize_t r = read(a, buf, sizeof buf);
+        if (r < 0 && errno == EINTR) continue;
+        if (r < 0) { ok = false; break; }
+        if (r == 0) break;
+        for (ssize_t written = 0; written < r;) {
+            ssize_t n = write(b, buf + written, (size_t)(r - written));
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) { ok = false; break; }
+            written += n;
+        }
+    }
+    close(a);
+    if (close(b) != 0) ok = false;
     return ok;
 }
 
@@ -176,6 +193,7 @@ bool saves_create(const char *name, char *id_out) {
 }
 
 bool saves_copy(const char *id, const char *name) {
+    if (!valid_id(id)) return false;
     char nid[SAVE_NAME_MAX + 1], to[128], from[128];
     if (!new_slot_path(name, nid, to, sizeof to)) return false;
     slot_path(id, from, sizeof from);
@@ -185,6 +203,7 @@ bool saves_copy(const char *id, const char *name) {
 }
 
 bool saves_rename(const char *id, const char *name, char *id_out) {
+    if (!valid_id(id)) return false;
     char nid[SAVE_NAME_MAX + 1], to[128], from[128];
     if (!new_slot_path(name, nid, to, sizeof to)) return false;
     slot_path(id, from, sizeof from);  // (the original save/ moves into saves/ under its new name)
@@ -194,6 +213,7 @@ bool saves_rename(const char *id, const char *name, char *id_out) {
 }
 
 bool saves_delete(const char *id) {
+    if (!valid_id(id)) return false;
     char p[128];
     slot_path(id, p, sizeof p);
     remove_tree(p);
@@ -208,12 +228,15 @@ bool saves_route_begin(const char *name, char *route_out, size_t n) {
     snprintf(dir, sizeof dir, "routes/%s", id);
     if (exists(dir)) return false;
     mkdir("routes", 0755);
+    // A caller-supplied buffer that is too small must not leave a newly created route behind.
+    if (!route_out || !n || (size_t)snprintf(route_out, n, "%s/route.txt", dir) >= n) return false;
     snprintf(save, sizeof save, "%s/save", dir);
     if (mkdir(dir, 0755) != 0 || !copy_tree(saves_current_path(), save)) { remove_tree(dir); return false; }
-    return (size_t)snprintf(route_out, n, "%s/route.txt", dir) < n;
+    return true;
 }
 
 bool saves_route_names(const char *name) {  // is there a route of this name
+    if (!valid_id(name) || !*name) return false;
     char dir[160];
     snprintf(dir, sizeof dir, "routes/%s", name);
     return exists(dir);
@@ -221,6 +244,7 @@ bool saves_route_names(const char *name) {  // is there a route of this name
 
 // The save dir for replaying route `name`: a new copy of its starting point (build/route-run), or NULL.
 const char *saves_route_replay_dir(const char *name) {
+    if (!valid_id(name) || !*name) return NULL;
     static char run[] = "build/route-run";
     char src[200];
     snprintf(src, sizeof src, "routes/%s/save", name);
@@ -234,6 +258,7 @@ const char *saves_route_replay_dir(const char *name) {
 const char *saves_current_path(void) { return g_save_dir ? g_save_dir : DEFAULT_DIR; }
 
 void saves_select(const char *id) {
+    if (!valid_id(id)) id = "";
     static char dir[128];
     slot_path(id, dir, sizeof dir);
     if (*id && !exists(dir)) slot_path("", dir, sizeof dir);
@@ -292,9 +317,10 @@ static long long tree_bytes(const char *p) {
         struct stat st;
         snprintf(q, sizeof q, "%s/%s", p, e->d_name);
         if (lstat(q, &st) != 0) continue;
-        if (S_ISDIR(st.st_mode)) sum += tree_bytes(q);
-        else if (S_ISREG(st.st_mode)) sum += st.st_size;
-        if (sum > IMPORT_MAX_BYTES) break;
+        long long size = S_ISDIR(st.st_mode) ? tree_bytes(q) :
+                         S_ISREG(st.st_mode) ? (long long)st.st_size : 0;
+        if (size > IMPORT_MAX_BYTES - sum) { sum = IMPORT_MAX_BYTES + 1; break; }
+        sum += size;
     }
     closedir(d);
     return sum;
@@ -359,6 +385,7 @@ bool saves_import_commit(const char *name, char *id_out) {
 void saves_import_cancel(void) { remove_tree(STAGE); }
 
 bool saves_export(const char *id, const char *zip) {
+    if (!valid_id(id)) return false;
     char slot[128], s0[160];
     slot_path(id, slot, sizeof slot);
     snprintf(s0, sizeof s0, "%s/save_0", slot);

@@ -245,8 +245,199 @@ static void check_route_mounts(void) {
     puts("PASS route-mounts");
 }
 
+// A malformed locally supplied button-prompt patch must not read beyond its record or alter the RomFS.
+static void check_romfs_patch(const char *which) {
+    char oldcwd[PATH_MAX], root[] = "/tmp/monzamac-prompt.XXXXXX";
+    assert(getcwd(oldcwd, sizeof oldcwd));
+    assert(mkdtemp(root));
+    assert(!chdir(root));
+    assert(!mkdir("textures", 0700));
+    assert(!mkdir("textures/prompts", 0700));
+    assert(!mkdir("textures/prompts/default", 0700));
+    int fd = open("image.bin", O_CREAT | O_RDWR, 0600);
+    assert(fd >= 0 && write(fd, "old!", 4) == 4);
+    RomFile entry = {.off = 0, .size = 4, .path = "icon"};
+    rom_files = &entry;
+    rom_nfiles = 1;
+    npatches = 0;
+    unsigned char patch[12 + 27 + 4 + 4] = {0};
+    memcpy(patch, "ZAROMFS2", 8);
+    uint32_t count = !strcmp(which, "romfs-patch-many") ? 300 : 1;
+    memcpy(patch + 8, &count, 4);
+    uint16_t name_len = !strcmp(which, "romfs-patch-bad-name") ? 255 : 4;
+    memcpy(patch + 13, &name_len, 2);
+    memcpy(patch + 15, "icon", 4);
+    uint64_t off = !strcmp(which, "romfs-patch-offset-overflow") ? UINT64_MAX : 0;
+    uint64_t size = !strcmp(which, "romfs-patch-bad-size") ? UINT64_MAX : 4;
+    uint64_t hash = 0xCBF29CE484222645ull;
+    for (const char *b = "old!"; *b; b++) hash = (hash ^ (uint8_t)*b) * 0x100000001B3ull;
+    memcpy(patch + 19, &off, 8);
+    memcpy(patch + 27, &size, 8);
+    memcpy(patch + 35, &hash, 8);
+    memcpy(patch + 43, "new!", 4);
+    FILE *out = fopen("textures/prompts/default/romfs.patch", "wb");
+    assert(out);
+    size_t bytes = !strcmp(which, "romfs-patch-truncated") ? sizeof patch - 1 : sizeof patch;
+    if (!strcmp(which, "romfs-patch-many")) {
+        assert(fwrite(patch, 1, 12, out) == 12);
+        for (uint32_t i = 0; i < count; i++) assert(fwrite(patch + 12, 1, sizeof patch - 12, out) == sizeof patch - 12);
+    } else {
+        assert(fwrite(patch, 1, bytes, out) == bytes);
+    }
+    assert(!fclose(out));
+    prompt_patch(fd);
+    bool valid = !strcmp(which, "romfs-patch-valid");
+    assert(npatches == (!strcmp(which, "romfs-patch-many") ? FS_PATCH_CAPACITY - FS_PATCH_RESERVED : valid ? 1 : 0));
+    if (valid) {
+        assert(patches[0].off == 0 && patches[0].size == 4);
+        assert(!memcmp(patches[0].data, "new!", 4));
+        free(patches[0].data);
+    }
+    if (!strcmp(which, "romfs-patch-many")) {
+        for (int i = 0; i < npatches; i++) free(patches[i].data);
+    }
+    npatches = 0;
+    rom_files = NULL;
+    rom_nfiles = 0;
+    assert(!close(fd));
+    assert(!unlink("image.bin"));
+    assert(!unlink("textures/prompts/default/romfs.patch"));
+    assert(!rmdir("textures/prompts/default"));
+    assert(!rmdir("textures/prompts"));
+    assert(!rmdir("textures"));
+    assert(!chdir(oldcwd));
+    assert(!rmdir(root));
+    printf("PASS %s\n", which);
+}
+
+
+// The runtime must reject corrupt RomFS metadata before dereferencing it or building overlays.
+static void check_romfs_index(const char *which) {
+    char oldcwd[PATH_MAX], root[] = "/tmp/monzamac-index.XXXXXX";
+    assert(getcwd(oldcwd, sizeof oldcwd) && mkdtemp(root) && !chdir(root));
+    char image[0xD4] = {0};
+    uint64_t h[10] = {0x50, 0x50, 4, 0x58, 0x40, 0x98, 4, 0xA0, 0x24, 0xD0};
+    uint32_t name_len = 4;
+    uint64_t size = 4;
+    uint32_t parent = 0;
+    if (!strcmp(which, "romfs-index-bad-bounds")) h[3] = UINT64_MAX;
+    if (!strcmp(which, "romfs-index-bad-size")) size = UINT64_MAX;
+    if (!strcmp(which, "romfs-index-bad-name")) name_len = UINT32_MAX;
+    if (!strcmp(which, "romfs-index-cycle") || !strcmp(which, "romfs-index-dirname") || !strcmp(which, "romfs-index-subdir")) {
+        parent = 0x18;
+        uint32_t directory_parent = !strcmp(which, "romfs-index-cycle") ? 0x18 : 0;
+        uint32_t directory_length = !strcmp(which, "romfs-index-dirname") ? 0x40 : 4;
+        memcpy(image + 0x58 + 0x18, &directory_parent, 4);
+        memcpy(image + 0x58 + 0x18 + 0x14, &directory_length, 4);
+        memcpy(image + 0x58 + 0x18 + 0x18, "loop", 4);
+    }
+    memcpy(image, h, sizeof h);
+    uint32_t none = UINT32_MAX;
+    for (int i = 1; i <= 4; i++) memcpy(image + 0x58 + i * 4, &none, 4);
+    memcpy(image + 0xA0, &parent, 4);
+    memcpy(image + 0xA0 + 8, &(uint64_t){0}, 8);
+    memcpy(image + 0xA0 + 0x10, &size, 8);
+    memcpy(image + 0xA0 + 0x1C, &name_len, 4);
+    memcpy(image + 0xA0 + 0x20, "file", 4);
+    memcpy(image + 0xD0, "DATA", 4);
+    int fd = open("image.bin", O_CREAT | O_EXCL | O_RDWR, 0600);
+    assert(fd >= 0 && write(fd, image, sizeof image) == sizeof image);
+    bool add = !strcmp(which, "romfs-index-new-file") || !strcmp(which, "romfs-index-new-directory");
+    if (add) {
+        assert(!mkdir("mods", 0700) && !mkdir("mods/demo", 0700) && !mkdir("mods/demo/romfs", 0700));
+        const char *path = "mods/demo/romfs/newfile";
+        if (!strcmp(which, "romfs-index-new-directory")) {
+            assert(!mkdir("mods/demo/romfs/sub", 0700));
+            path = "mods/demo/romfs/sub/newfile";
+        }
+        int extra = open(path, O_CREAT | O_EXCL | O_WRONLY, 0600);
+        assert(extra >= 0 && write(extra, "NEW!", 4) == 4 && !close(extra));
+        // An optional symlink cycle in a mod cannot recursively scan itself forever.
+        assert(!symlink(".", "mods/demo/romfs/loop"));
+    }
+    layer_reset();
+    rom_index(fd);
+    bool valid = add || !strcmp(which, "romfs-index-valid") || !strcmp(which, "romfs-index-subdir");
+    if (valid) {
+        assert(rom_nfiles == (add ? 2 : 1));
+        bool have_old = false, have_new = false;
+        for (int i = 0; i < rom_nfiles; i++) {
+            if (!strcmp(rom_files[i].path, "file") || !strcmp(rom_files[i].path, "loop/file")) {
+                have_old = rom_files[i].off == 0xD0 && rom_files[i].size == 4;
+            }
+            if (add && !strcmp(rom_files[i].path,
+                   !strcmp(which, "romfs-index-new-directory") ? "sub/newfile" : "newfile")) {
+                have_new = rom_files[i].size == 4;
+            }
+        }
+        assert(have_old && (!add || have_new));
+        if (add) assert(ov_n >= 2 && patches[0].data != NULL);
+    } else {
+        assert(rom_nfiles == 0 && rom_files == NULL);
+    }
+    fs_reset(); layer_reset();
+    assert(!close(fd) && !unlink("image.bin") && !chdir(oldcwd));
+    remove_tree(root);
+    printf("PASS %s\n", which);
+}
+
+
+// The data.trpfd FlatBuffer can be malformed; the game must keep its original rather than indexing out of bounds.
+static void check_trpfd(const char *which) {
+    char oldcwd[PATH_MAX], root[] = "/tmp/monzamac-trpfd.XXXXXX";
+    assert(getcwd(oldcwd, sizeof oldcwd) && mkdtemp(root) && !chdir(root));
+    assert(!mkdir("mods", 0700) && !mkdir("mods/demo", 0700) && !mkdir("mods/demo/romfs", 0700));
+    int extra = open("mods/demo/romfs/extra", O_CREAT | O_EXCL | O_WRONLY, 0600);
+    assert(extra >= 0 && write(extra, "EXTRA", 5) == 5 && !close(extra));
+    uint8_t data[128] = {0};
+    bool valid = !strcmp(which, "trpfd-valid-removal");
+    uint32_t root_off = !strcmp(which, "trpfd-bad-root") ? UINT32_MAX : 0x20;
+    memcpy(data, &root_off, 4);
+    int32_t vt_delta = !strcmp(which, "trpfd-bad-vtable") ? INT32_MAX : 0x10;
+    memcpy(data + 0x20, &vt_delta, 4);
+    uint16_t first = 4, second = 8;
+    memcpy(data + 0x10 + 4, &first, 2);
+    memcpy(data + 0x10 + 8, &second, 2);
+    uint32_t f0 = 0x40 - (0x20 + first), f2 = 0x60 - (0x20 + second);
+    memcpy(data + 0x20 + first, &f0, 4);
+    memcpy(data + 0x20 + second, &f2, 4);
+    uint32_t count = !strcmp(which, "trpfd-bad-vector") ? UINT32_MAX : 1;
+    memcpy(data + 0x40, &count, 4);
+    memcpy(data + 0x60, &count, 4);
+    uint64_t hash = 0xCBF29CE484222645ull;
+    for (const char *p = "extra"; *p; p++) hash = (hash ^ (uint8_t)*p) * 0x100000001B3ull;
+    memcpy(data + 0x44, &hash, 8);
+    size_t file_size = !strcmp(which, "trpfd-short") ? 8 : sizeof data;
+    int fd = open("trpfd.bin", O_CREAT | O_EXCL | O_RDWR, 0600);
+    assert(fd >= 0 && write(fd, data, file_size) == (ssize_t)file_size);
+    RomFile file = {.off = 0, .size = file_size, .path = "arc/data.trpfd", .meta = 0};
+    uint8_t fmeta[0x20] = {0};
+    rom_files = &file;
+    rom_nfiles = 1;
+    layer_reset();
+    trpfd_unlist(fd, fmeta, 0, sizeof fmeta);
+    assert(trinity);
+    assert(ov_n == (valid ? 1 : 0));
+    if (valid) {
+        assert(ov_meta && ov[0].mem);
+        uint32_t zero;
+        memcpy(&zero, ov[0].mem + 0x40, 4);
+        assert(zero == 0);
+        patches[npatches++] = (Patch){0, sizeof fmeta, ov_meta};  // rom_index does this after returning
+    } else assert(!ov_meta);
+    rom_files = NULL;
+    rom_nfiles = 0;
+    fs_reset(); layer_reset();
+    assert(!close(fd) && !unlink("trpfd.bin") && !chdir(oldcwd));
+    remove_tree(root);
+    printf("PASS %s\n", which);
+}
+
 int main(int argc, char **argv) {
     assert(argc == 2);
+    if (!strncmp(argv[1], "trpfd-", 6)) { check_trpfd(argv[1]); return 0; }
+    if (!strncmp(argv[1], "romfs-index-", 12)) { check_romfs_index(argv[1]); return 0; }
+    if (!strncmp(argv[1], "romfs-patch-", 12)) { check_romfs_patch(argv[1]); return 0; }
     if (!strcmp(argv[1], "route-mounts")) { check_route_mounts(); return 0; }
     if (!strcmp(argv[1], "confine")) { check_confine(); return 0; }
     if (!strcmp(argv[1], "confine-links")) { check_link_paths(); return 0; }
