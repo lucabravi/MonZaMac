@@ -1788,7 +1788,17 @@ int ui_run(void) {
 
         NSWindow *native=(__bridge NSWindow *)SDL_GetPointerProperty(SDL_GetWindowProperties(window),SDL_PROP_WINDOW_COCOA_WINDOW_POINTER,NULL);
         int hz=0;
-        if(@available(macOS 12.0,*))hz=(int)native.screen.maximumFramesPerSecond;
+        // The refresh the display runs at now: the panel's maximum (120 on a ProMotion screen) is only what it can do. A
+        // variable-refresh mode reports 0, and Low Power Mode holds such a screen at 60.
+        NSNumber *display_id=native.screen.deviceDescription[@"NSScreenNumber"];
+        if(display_id){
+            CGDisplayModeRef dm=CGDisplayCopyDisplayMode((CGDirectDisplayID)display_id.unsignedIntValue);
+            if(dm){hz=(int)lround(CGDisplayModeGetRefreshRate(dm));CFRelease(dm);}
+        }
+        if(!hz && @available(macOS 12.0,*)){
+            hz=(int)native.screen.maximumFramesPerSecond;
+            if(hz>60 && NSProcessInfo.processInfo.lowPowerModeEnabled)hz=60;
+        }
         if(!hz) { const SDL_DisplayMode *mode=SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));if(mode)hz=(int)lround(mode->refresh_rate); }
         atomic_store_explicit(&fg_screen_hz,hz,memory_order_relaxed);
         atomic_store_explicit(&fg_window_visible,(native.occlusionState & NSWindowOcclusionStateVisible)!=0,memory_order_relaxed);
