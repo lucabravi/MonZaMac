@@ -273,8 +273,8 @@ static bool tool_button(const char *id, const char *label, int icon, ImVec2 p, f
     ImGui::SetCursorScreenPos(p);
     ImGui::PushID(id);
     ImGui::PushStyleColor(ImGuiCol_NavCursor, ImVec4(0, 0, 0, 0));
-    bool off = ImGui::GetItemFlags() & ImGuiItemFlags_Disabled;
     bool clicked = ImGui::InvisibleButton("##t", ImVec2(w, h), ImGuiButtonFlags_EnableNav);
+    bool off = ImGui::GetItemFlags() & ImGuiItemFlags_Disabled;  // (the flags of the item just made: before it they are the previous item's)
     ImGui::PopStyleColor();
     ImGui::PopID();
     bool hot = !off && (ImGui::IsItemHovered() || ImGui::IsItemFocused());
