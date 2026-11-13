@@ -387,6 +387,7 @@ static void style_init(void) {
     s.WindowRounding = 14; s.FrameRounding = 8; s.GrabRounding = 8; s.TabRounding = 8; s.ChildRounding = 10;
     s.WindowPadding = ImVec2(28, 24); s.FramePadding = ImVec2(14, 8); s.ItemSpacing = ImVec2(14, 12);
     s.WindowBorderSize = 0; s.ScrollbarSize = 18;
+    s.DisabledAlpha = 0.35f;  // (a disabled button must not look clickable: the default 0.6 is too close)
     ImVec4 *c = s.Colors;
     ImVec4 gold(0.28f, 0.84f, 1.0f, 1), gold_dim(0.16f, 0.46f, 0.58f, 1), green(0.10f, 0.25f, 0.45f, 1);  // (the accent, kept under its old names)
     c[ImGuiCol_WindowBg] = ImVec4(0.04f, 0.07f, 0.14f, 0.94f);
