@@ -2546,6 +2546,7 @@ static bool emit_forward_flow(Ctx *c, const uint64_t *code, size_t end,
         else if (op == 0xe240000000000000ull && norm_target((int64_t)i * 8 + 8 + sbits(w, 20, 24)) / 8 == i) continue;  // BRA self: the padding after the last EXIT
         else if (op == 0xe240000000000000ull) f[i].kind = FLOW_BRA;
         else if (op == 0xe250000000000000ull) {
+            if (c->stage == STAGE_VERTEX) goto done;  // (jump tables in vertex programs: not checked on the GPU, the dispatcher)
             f[i].kind = FLOW_BRX; has_brx = true;
             if (!forward_table(f, code, end, i, constants, constants_size)) goto done;
         } else if ((w & 0xfff8000000000000ull) == 0xf0f8000000000000ull) f[i].kind = FLOW_SYNC;
