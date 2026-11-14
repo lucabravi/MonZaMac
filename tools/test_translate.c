@@ -240,6 +240,9 @@ static int run_cases(void) {
         // instance id from 0 (Metal's instance_id includes the base); driver word c0[0x644] = the draw's base instance
         {"instance id + base instance", STAGE_VERTEX, false, 0, 0xefd8ull << 48 | 0x2f8ull << 20 | 255 << 8 | PT_ | 1,
          0x4c10ull << 48 | (0x644ull / 4) << 20 | PT_ | 1 << 8, "(iid - biid)", "cb0[100]"},
+        // BRA.NE (condition-code test 13): taken only when the flags say so (it was a plain jump: a contact-shadow ray
+        // counted every step as a hit). A test that needs carry / overflow stays a plain jump.
+        {"bra cc ne", STAGE_FRAGMENT, false, 0, 0xe240ull << 48 | 13 | PT_, 0, "if (!ccz) { pc = ", NULL},
         {"base instance glsl", STAGE_VERTEX, true, 0, 0xefd8ull << 48 | 0x2f8ull << 20 | 255 << 8 | PT_ | 1,
          0x4c10ull << 48 | (0x644ull / 4) << 20 | PT_ | 1 << 8, "(r1 + uint(gl_BaseInstance))", "cb0[100]"},
     };
