@@ -2237,7 +2237,10 @@ static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
     // the compiler constants follow the code, so they bound the instruction scan
     size_t vmax = p->stages[0].const_offset ? p->stages[0].const_offset : 0x10000;
     size_t fmax = p->stages[1].const_offset ? p->stages[1].const_offset : 0x10000;
-    pr->vi = maxwell_translate((const uint8_t *)(uintptr_t)p->stages[0].code_addr, vmax, STAGE_VERTEX, vkey);
+    // (with the compiler constants, as the fragment stage and the precompile: branchy programs get structured flow)
+    NvnShaderStage *vs = &p->stages[0];
+    pr->vi = maxwell_translate_with_constants((const uint8_t *)(uintptr_t)vs->code_addr, vmax, STAGE_VERTEX, vkey,
+                                             (const uint8_t *)(uintptr_t)(vs->code_addr + vs->const_offset), vs->const_offset ? vs->const_size : 0);
     if (!pr->vi->msl) {
         LOG("[shader] VS translate failed: %s (code %llx)\n", pr->vi->error, p->stages[0].code_addr);
         char path[128];
