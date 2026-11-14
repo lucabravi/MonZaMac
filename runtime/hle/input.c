@@ -10,6 +10,7 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "../devlog.h"
 #include "../discord_presence.h"
@@ -280,6 +281,51 @@ static void mouse_stick(int32_t *rx, int32_t *ry) {
     double d = (MOUSE_FLOOR + (1 - MOUSE_FLOOR) * (m > 1 ? 1 : m)) * 32767 / v;
     *rx = (int32_t)(vx * d), *ry = (int32_t)(-vy * d);
 }
+// Developers (LARECOMP_DEVTOOLS=1): the 0 key takes one frame dump (a Mac's F9 is awkward to reach, and the passes take ~30 s
+// to write, so shots cannot follow each other): its pass_*.png go to build/shot_<time>_<n>/ (in the data root), the draw log is in the log.
+extern uint64_t renderer_present_count(void);
+static SDL_AtomicInt g_burst_running;
+static int dump_burst_thread(void *unused) {
+    (void)unused;
+    static int shot;
+    int n = ++shot;
+    SDL_CreateDirectory("build");
+    char **old = NULL;
+    int count = 0;
+    old = SDL_GlobDirectory("build", "pass_*.png", 0, &count);  // (left over from an earlier dump: not this shot's)
+    for (int i = 0; old && i < count; i++) { char p[512]; snprintf(p, sizeof p, "build/%s", old[i]); SDL_RemovePath(p); }
+    SDL_free(old);
+    FILE *t = fopen("build/dumpframe", "w");
+    if (t) fclose(t);
+    uint64_t t0 = SDL_GetTicks();
+    while (SDL_GetPathInfo("build/dumpframe", NULL) && SDL_GetTicks() - t0 < 5000) SDL_Delay(100);  // (taken at the next frame)
+    // The passes are written while the game is frozen on the dump frame (~30 s, with long pauses): the dump is done when the
+    // game has presented a few frames again after the one that was dumped.
+    uint64_t p0 = renderer_present_count();
+    for (uint64_t w0 = SDL_GetTicks(); SDL_GetTicks() - w0 < 180000 && renderer_present_count() < p0 + 4;) SDL_Delay(200);
+    SDL_Delay(500);
+    char dir[64];
+    snprintf(dir, sizeof dir, "build/shot_%lld_%d", (long long)time(NULL), n);  // (the time: never over an earlier session's shots)
+    SDL_CreateDirectory(dir);
+    char **f = SDL_GlobDirectory("build", "pass_*.png", 0, &count);
+    for (int i = 0; f && i < count; i++) {
+        char from[512], to[512];
+        snprintf(from, sizeof from, "build/%s", f[i]);
+        snprintf(to, sizeof to, "%s/%s", dir, f[i]);
+        SDL_RenamePath(from, to);
+    }
+    SDL_free(f);
+    LOG("[devtools] dump %d -> %s (%d pass images)\n", n, dir, count);
+    SDL_SetAtomicInt(&g_burst_running, 0);
+    return 0;
+}
+static void dump_burst_start(void) {
+    if (!SDL_CompareAndSwapAtomicInt(&g_burst_running, 0, 1)) return;
+    SDL_Thread *t = SDL_CreateThread(dump_burst_thread, "dump burst", NULL);
+    if (t) SDL_DetachThread(t);
+    else SDL_SetAtomicInt(&g_burst_running, 0);
+}
+
 void input_handle_event(const SDL_Event *e) {
     // (not the scroll: a two-finger drag on the trackpad turns the camera, it does not bring the cursor back)
     if (e->type == SDL_EVENT_MOUSE_MOTION || e->type == SDL_EVENT_MOUSE_BUTTON_DOWN || e->type == SDL_EVENT_MOUSE_BUTTON_UP)
@@ -304,6 +350,8 @@ void input_handle_event(const SDL_Event *e) {
         if (devtools < 0) devtools = getenv("LARECOMP_DEVTOOLS") != NULL;
         if (devtools && e->type == SDL_EVENT_KEY_DOWN && !e->key.repeat && e->key.scancode == SDL_SCANCODE_F9)
             g_debug_frame_request = 1;
+        if (devtools && e->type == SDL_EVENT_KEY_DOWN && !e->key.repeat && e->key.scancode == SDL_SCANCODE_0)
+            dump_burst_start();
         if (e->key.scancode < SDL_SCANCODE_COUNT) keys_down[e->key.scancode] = e->type == SDL_EVENT_KEY_DOWN;
         recompute_keyboard();
         break;

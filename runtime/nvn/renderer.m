@@ -2802,11 +2802,15 @@ static void dump_pending_arrays(void) {
         id<MTLBlitCommandEncoder> bb = [c blitCommandEncoder];
         [bb copyFromTexture:t sourceSlice:g_arr_pend[k].layer sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
                  sourceSize:MTLSizeMake(t.width, t.height, 1) toBuffer:rb destinationOffset:0
-             destinationBytesPerRow:t.width * bpp destinationBytesPerImage:n options:MTLBlitOptionNone];
+             destinationBytesPerRow:t.width * bpp destinationBytesPerImage:n
+                         options:t.pixelFormat == MTLPixelFormatDepth32Float_Stencil8 ? MTLBlitOptionDepthFromDepthStencil : MTLBlitOptionNone];
         [bb endEncoding];
         [c commit];
         [c waitUntilCompleted];
         char path[128];
+        if (t.textureType == MTLTextureType2D)  // (a 2D depth texture: raw floats, its size in the name)
+            snprintf(path, sizeof path, "build/dz_%03d_%d_%lux%lu.f32", g_arr_pend[k].idx, g_arr_pend[k].slot, (unsigned long)t.width, (unsigned long)t.height);
+        else
         snprintf(path, sizeof path, bpp == 1 ? "build/arr_%03d_%d_L%d.u8" : "build/arr_%03d_%d_L%d.f32", g_arr_pend[k].idx, g_arr_pend[k].slot, g_arr_pend[k].layer);
         FILE *ff = fopen(path, "wb");
         if (ff) { fwrite(rb.contents, 1, n, ff); fclose(ff); }
@@ -2963,6 +2967,13 @@ static void bind_textures(int stage, ShaderInfo *si) {
             }
         }
         if (!smp) smp = default_sampler();
+        static int dev_tools = -1;  // LARECOMP_DEVTOOLS: the developer's extra logs
+        if (dev_tools < 0) dev_tools = getenv("LARECOMP_DEVTOOLS") != NULL;
+        if (dev_tools && g_debug_frame && stage == 1 && sd)  // (diagnostics) the game's sampler state per slot and draw
+            LOG("[dsmp] slot %d tsc %u min %u mag %u wrap %u %u lod %g..%g bias %g aniso %g cmp %u/%u red %u | tex %lux%lu mips %lu\n",
+                i, tsc, sd->min_filter, sd->mag_filter, sd->wrap[0], sd->wrap[1], sd->lod_min, sd->lod_max, sd->lod_bias,
+                sd->max_aniso, sd->compare_mode, sd->compare_func, sd->reduction, (unsigned long)tex.width,
+                (unsigned long)tex.height, (unsigned long)tex.mipmapLevelCount);
         if (g_debug_frame && tex.textureType == MTLTextureType2D && stage == 1) {
             static int dn;
             char path[128];
@@ -2978,6 +2989,14 @@ static void bind_textures(int stage, ShaderInfo *si) {
             static int sn;
             id<MTLTexture> base = renderer_texture(e_dbg_tex, nil, false);
             if (base.pixelFormat == MTLPixelFormatDepth32Float_Stencil8) g_arr_pend[g_arr_n++] = (ArrPend){base, sn++, i, 0, true};
+        }
+        if (g_debug_frame && stage == 1 && !st_->stencil && tex.textureType == MTLTextureType2D && g_arr_n < 16 &&
+            (tex.pixelFormat == MTLPixelFormatDepth32Float || tex.pixelFormat == MTLPixelFormatDepth32Float_Stencil8) &&
+            getenv("LARECOMP_DUMP_UBO") && si->msl && fnv64(si->msl) == strtoull(getenv("LARECOMP_DUMP_UBO"), NULL, 16)) {
+            // (diagnostics) depth the LARECOMP_DUMP_UBO shader samples, as raw floats (CPU re-runs of its maths)
+            static int dzn;
+            LOG("[dtex]   build/dz_%03d_%d_%lux%lu.f32 depth\n", dzn, i, (unsigned long)tex.width, (unsigned long)tex.height);
+            g_arr_pend[g_arr_n++] = (ArrPend){tex, dzn++, i, 0};
         }
         if (g_debug_frame && tex.textureType == MTLTextureType2DArray && stage == 1 && tex.width >= 512 && !st_->is_image) {
             // (diagnostics) array textures (shadow cascades...): every layer (up to 4) as its own image
@@ -3339,9 +3358,14 @@ static void debug_draw(Prog *pr, CmdRec *r, bool indexed) {
             if (!st.ubuf[1][i].addr) continue;
             const float *f = (const float *)(uintptr_t)st.ubuf[1][i].addr;
             LOG("[ubo] f%d (%llu):", i, st.ubuf[1][i].size);
-            for (uint64_t k = 0; k < st.ubuf[1][i].size / 4 && k < 1200; k++) LOG(" %g", f[k]);
+            for (uint64_t k = 0; k < st.ubuf[1][i].size / 4 && k < 1200; k++) LOG(" %.9g", f[k]);
             LOG("\n");
         }
+        NvnShaderStage *ss = &st.program->stages[1];  // the compiler constants (shader bank 1)
+        const float *c1 = (const float *)(uintptr_t)(ss->code_addr + ss->const_offset);
+        LOG("[ubo] c1 (%llu):", (unsigned long long)ss->const_size);
+        for (uint64_t k = 0; ss->const_size && k < ss->const_size / 4 && k < 256; k++) LOG(" %.9g", c1[k]);
+        LOG("\n");
     }
     static int dump_vs = -1;  // LARECOMP_DUMP_VSUBO: every vertex-stage UBO (first 48 floats) of debug-frame draws
     if (dump_vs < 0) dump_vs = getenv("LARECOMP_DUMP_VSUBO") != NULL;
