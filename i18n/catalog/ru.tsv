@@ -142,6 +142,7 @@ Dev checkout: this is %s	Рабочая копия разработчика: %s
 Developer	Разработчик
 Developer log	Журнал разработчика
 Diagnostics	Диагностика
+Discord	Discord
 Display	Экран
 Docked (1080p)	Режим ТВ (1080p)
 Download	Скачать
@@ -159,6 +160,7 @@ Enter text	Введите текст
 Enter your name	Введите имя
 Error	Ошибка
 Experimental	Экспериментально
+Exploring Lumiose	Исследует Люминопольс
 Export	Экспорт
 Export a save	Экспорт сохранения
 Export save	Экспортировать сохранение
@@ -377,6 +379,7 @@ Recompiling the game	Перекомпиляция игры
 Record a route	Записать последовательность ввода
 Recording "%s".	Запись ввода «%s».
 Recording "%s": the pad is written to route.txt in the folder of that save. Stop when the route is done.	Идёт запись ввода «%s»: команды геймпада сохраняются в route.txt в папке этого сохранения. Остановите запись по завершении последовательности.
+Relaxing in Lumiose	Отдыхает в Люминопольсе
 Reload "%s"? The game restarts from its last save: progress since then is lost.	Загрузить «%s» заново? Игра начнётся с последнего сохранения; дальнейший прогресс будет потерян.
 Reload it (the game restarts from its last save), or copy or export what the game last saved (save in the game first for the latest).	Можно загрузить последнее сохранение заново (игра перезапустится), скопировать его или экспортировать. Сначала сохранитесь в игре, чтобы включить последние изменения.
 Reload this save	Загрузить это сохранение заново
@@ -427,7 +430,9 @@ Sharper textures	Повышенная чёткость текстур
 Show FPS	Показывать FPS
 Show in Explorer	Показать в Проводнике
 Show in Finder	Показать в Finder
+Show on Discord	Показывать в Discord
 Show this tab	Показать эту вкладку
+Shows on your Discord profile that you are playing MonZaMac, through the Discord app on this Mac. Nothing else is shared: no name, save or game data. Turn it off to remove it again.	Показывает в вашем профиле Discord, что вы играете в MonZaMac, через приложение Discord на этом Mac. Больше ничего не передаётся: ни имя, ни сохранения, ни данные игры. Выключите, чтобы убрать снова.
 Shows the frame rate in the top right corner.\n\nF3 does it for this run only, adding the render resolution.	Показывает частоту кадров справа вверху.\n\nF3 включает показ только на текущий сеанс, вместе с разрешением рендеринга.
 Shows what the chosen microphone hears while this is on. macOS asks for the microphone permission the first time.\n\nIf you hear or see nothing, check the permission in macOS: System Settings > Privacy & Security > Microphone.	Показывает, что слышит выбранный микрофон, пока опция включена. При первом использовании macOS запросит разрешение на микрофон.\n\nЕсли вы ничего не слышите и не видите, проверьте разрешение в macOS: Системные настройки > Конфиденциальность и безопасность > Микрофон.
 Smooth distant animation	Плавная анимация вдали

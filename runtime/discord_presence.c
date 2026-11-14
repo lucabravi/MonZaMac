@@ -1,5 +1,8 @@
 // Discord's local RPC transport. All I/O stays off the game and rendering threads.
 #include "discord_presence.h"
+#include "settings.h"
+
+const char *ui_tr_c(const char *english);  // runtime/ui/i18n.mm
 #include <SDL3/SDL.h>
 #include <stdatomic.h>
 #include <stdint.h>
@@ -22,8 +25,11 @@ typedef int connection;
 #define BAD_CONNECTION (-1)
 #endif
 
-// Shared with the Windows/Linux port so both appear under the same Discord application.
-#define CLIENT_ID "1569847514134351932"
+// The Application ID of MonZaMac's own Discord application (public; set at build time or here). Empty: no presence.
+#ifndef DISCORD_CLIENT_ID
+#define DISCORD_CLIENT_ID ""
+#endif
+#define CLIENT_ID DISCORD_CLIENT_ID
 #ifndef DISCORD_IDLE_MS
 #define DISCORD_IDLE_MS (5 * 60 * 1000)
 #endif
@@ -31,28 +37,17 @@ static SDL_Thread *worker;
 static atomic_bool running;
 static time_t started;
 static _Atomic uint64_t last_input_ms;
-static pthread_mutex_t trainer_lock = PTHREAD_MUTEX_INITIALIZER;
-static char trainer[24];
 
 void discord_presence_note_input(void) {
     atomic_store_explicit(&last_input_ms, SDL_GetTicks(), memory_order_relaxed);
 }
 
-void discord_presence_set_trainer(const char *name) {
-    pthread_mutex_lock(&trainer_lock);
-    snprintf(trainer, sizeof trainer, "%s", name ? name : "");
-    pthread_mutex_unlock(&trainer_lock);
-}
-
-static void trainer_json(char *out, size_t capacity) {
-    char name[sizeof trainer];
-    pthread_mutex_lock(&trainer_lock);
-    memcpy(name, trainer, sizeof name);
-    pthread_mutex_unlock(&trainer_lock);
+// The text as a JSON string body (a translation can hold a quote or a backslash).
+static void json_escape(const char *in, char *out, size_t capacity) {
     size_t j = 0;
-    for (size_t i = 0; name[i] && j + 7 < capacity; ++i) {
-        unsigned char ch = (unsigned char)name[i];
-        if (ch < 0x20) { j += (size_t)snprintf(out + j, capacity - j, "\\u%04x", ch); }
+    for (size_t i = 0; in[i] && j + 7 < capacity; ++i) {
+        unsigned char ch = (unsigned char)in[i];
+        if (ch < 0x20) j += (size_t)snprintf(out + j, capacity - j, "\\u%04x", ch);
         else { if (ch == '"' || ch == '\\') out[j++] = '\\'; out[j++] = (char)ch; }
     }
     out[j] = 0;
@@ -156,6 +151,18 @@ static int receive_frames(connection c, unsigned char *buf, size_t *used, int *r
     }
     return 1;
 }
+static unsigned long own_pid(void) {
+#ifdef _WIN32
+    return GetCurrentProcessId();
+#else
+    return (unsigned long)getpid();
+#endif
+}
+static void clear_activity(connection c) {
+    char json[192];
+    snprintf(json, sizeof json, "{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":%lu,\"activity\":null},\"nonce\":\"za-clear\"}", own_pid());
+    send_frame(c, 1, json, strlen(json));
+}
 static int presence_thread(void *unused) {
     (void)unused;
     unsigned char *buf = malloc(65537);
@@ -163,9 +170,15 @@ static int presence_thread(void *unused) {
     connection c = BAD_CONNECTION;
     size_t used = 0;
     int ready = 0, sent = 0, retry = 0, handshake_wait = 0;
-    int last_idle = 0;
-    char last_name[160] = "";
+    char last_text[160] = "";
     while (atomic_load(&running)) {
+        // The setting is read all the time: turning it off clears the status and closes the connection at once.
+        if (!*CLIENT_ID || !g_settings.discord_presence) {
+            if (c != BAD_CONNECTION) { if (ready) clear_activity(c); disconnect(c); c = BAD_CONNECTION; }
+            retry = 0;
+            SDL_Delay(200);
+            continue;
+        }
         if (c == BAD_CONNECTION && retry-- <= 0) {
             c = connect_discord();
             used = 0; ready = sent = handshake_wait = 0;
@@ -175,43 +188,30 @@ static int presence_thread(void *unused) {
         if (c != BAD_CONNECTION) {
             int ok = receive_frames(c, buf, &used, &ready);
             if (ok && !ready && ++handshake_wait > 50) ok = 0;
-            char name[160];
-            trainer_json(name, sizeof name);
             uint64_t now = SDL_GetTicks();
             uint64_t last = atomic_load_explicit(&last_input_ms, memory_order_relaxed);
             int idle = now >= last && now - last >= DISCORD_IDLE_MS;
-            if (ok && ready && (!sent || strcmp(name, last_name) || idle != last_idle)) {
+            char text[160];  // in the interface language (it can change while playing)
+            json_escape(ui_tr_c(idle ? "Relaxing in Lumiose" : "Exploring Lumiose"), text, sizeof text);
+            if (ok && ready && (!sent || strcmp(text, last_text))) {
                 char json[512];
-#ifdef _WIN32
-                unsigned long pid = GetCurrentProcessId();
-#else
-                unsigned long pid = (unsigned long)getpid();
-#endif
-                snprintf(json, sizeof json, "{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":%lu,\"activity\":{\"details\":\"%s\",%s%s%s\"timestamps\":{\"start\":%lld}}},\"nonce\":\"za-presence\"}", pid, idle ? "Relaxing in Lumiose" : "Exploring Lumiose", *name ? "\"state\":\"Trainer: " : "", name, *name ? "\"," : "", (long long)started);
+                snprintf(json, sizeof json, "{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":%lu,\"activity\":{\"details\":\"%s\",\"timestamps\":{\"start\":%lld}}},\"nonce\":\"za-presence\"}", own_pid(), text, (long long)started);
                 ok = send_frame(c, 1, json, strlen(json)); sent = ok;
-                if (ok) { memcpy(last_name, name, strlen(name) + 1); last_idle = idle; }
+                if (ok) snprintf(last_text, sizeof last_text, "%s", text);
             }
             if (!ok) { disconnect(c); c = BAD_CONNECTION; retry = 50; }
         }
         SDL_Delay(100);
     }
     if (c != BAD_CONNECTION) {
-        char json[192];
-#ifdef _WIN32
-        unsigned long pid = GetCurrentProcessId();
-#else
-        unsigned long pid = (unsigned long)getpid();
-#endif
-        snprintf(json, sizeof json, "{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":%lu,\"activity\":null},\"nonce\":\"za-clear\"}", pid);
-        if (ready) send_frame(c, 1, json, strlen(json));
+        if (ready) clear_activity(c);
         disconnect(c);
     }
     free(buf);
     return 0;
 }
 void discord_presence_start(void) {
-    const char *disabled = getenv("LARECOMP_DISCORD");
-    if (worker || (disabled && !strcmp(disabled, "0"))) return;
+    if (worker) return;
     started = time(NULL);
     discord_presence_note_input();
     atomic_store(&running, 1);
@@ -223,5 +223,4 @@ void discord_presence_stop(void) {
     atomic_store(&running, 0);
     SDL_WaitThread(worker, NULL);
     worker = NULL;
-    discord_presence_set_trainer(NULL);
 }

@@ -337,3 +337,5 @@ bool ui_button(const char *label, ImVec2 size) {
     if (size.x > 0 && size.x < need) size.x = need;
     return ImGui::Button(label, size);
 }
+
+extern "C" const char *ui_tr_c(const char *english) { return ui_tr(english); }  // (the Discord presence thread, plain C)
