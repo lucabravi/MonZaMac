@@ -69,6 +69,7 @@ $(B)/rt/gamelib.o: $(GAMELIB_SRCS) Makefile
 $(B)/rt/gamelib.o: RTFLAGS += -DGAMELIB_ID='"$(GAMELIB_ID)"'
 # the start screen's build of it (runtime/gamebuild.c) uses the same flags
 $(B)/rt/gamebuild.o: $(GAMELIB_SRCS) Makefile
+$(B)/rt/discord_presence.o: RTFLAGS += $(if $(LUMIOSE_ONLINE),-DLUMIOSE_ONLINE)
 $(B)/rt/gamebuild.o: RTFLAGS += $(if $(LUMIOSE_ONLINE),-DLUMIOSE_ONLINE) -DGAMELIB_ID='"$(GAMELIB_ID)"' -DGAMELIB_CFLAGS='"$(strip $(filter-out -Iruntime,$(GENFLAGS)))"' \
                                 -DGAMELIB_SHARED='"$(GAMELIB_SHARED)"'
 

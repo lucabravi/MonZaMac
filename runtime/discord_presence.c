@@ -3,6 +3,7 @@
 #include "settings.h"
 
 const char *ui_tr_c(const char *english);  // runtime/ui/i18n.mm
+#ifdef LUMIOSE_ONLINE  // (the online edition only: the standard app keeps nothing of it)
 #include <SDL3/SDL.h>
 #include <stdatomic.h>
 #include <stdint.h>
@@ -224,3 +225,8 @@ void discord_presence_stop(void) {
     SDL_WaitThread(worker, NULL);
     worker = NULL;
 }
+#else
+void discord_presence_start(void) {}
+void discord_presence_stop(void) {}
+void discord_presence_note_input(void) {}
+#endif
