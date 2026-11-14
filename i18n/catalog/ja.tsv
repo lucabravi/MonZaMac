@@ -142,6 +142,7 @@ Dev checkout: this is %s	開発用チェックアウト：%s
 Developer	開発者
 Developer log	開発者ログ
 Diagnostics	診断
+Discord	Discord
 Display	ディスプレイ
 Docked (1080p)	TVモード (1080p)
 Download	ダウンロード
@@ -159,6 +160,7 @@ Enter text	テキストを入力
 Enter your name	名前を入力してください
 Error	エラー
 Experimental	試験的
+Exploring Lumiose	ミアレシティを探索中
 Export	エクスポート
 Export a save	セーブデータをエクスポート
 Export save	セーブをエクスポート
@@ -377,6 +379,7 @@ Recompiling the game	ゲームを再コンパイルしています
 Record a route	入力操作を記録
 Recording "%s".	「%s」の操作を記録中です。
 Recording "%s": the pad is written to route.txt in the folder of that save. Stop when the route is done.	「%s」の操作を記録中です。コントローラーの入力は対象セーブのフォルダー内のroute.txtに記録されます。操作が終わったら記録を停止してください。
+Relaxing in Lumiose	ミアレシティでのんびり中
 Reload "%s"? The game restarts from its last save: progress since then is lost.	「%s」を読み込み直しますか？最後のセーブ以降の進行は失われます。
 Reload it (the game restarts from its last save), or copy or export what the game last saved (save in the game first for the latest).	最後のセーブを再読み込みできます（ゲームが再起動します）。または保存済みデータをコピー・エクスポートできます。最新の進行を残すには、先にゲーム内でセーブしてください。
 Reload this save	このセーブを再読み込み
@@ -427,7 +430,9 @@ Sharper textures	テクスチャを鮮明に
 Show FPS	FPSを表示
 Show in Explorer	エクスプローラーで表示
 Show in Finder	Finderで表示
+Show on Discord	Discordに表示
 Show this tab	このタブを表示
+Shows on your Discord profile that you are playing MonZaMac, through the Discord app on this Mac. Nothing else is shared: no name, save or game data. Turn it off to remove it again.	このMacのDiscordアプリを通じて、MonZaMacをプレイ中であることをDiscordのプロフィールに表示します。名前、セーブデータ、ゲームデータなど、ほかには何も共有されません。オフにすると表示が消えます。
 Shows the frame rate in the top right corner.\n\nF3 does it for this run only, adding the render resolution.	右上にフレームレートを表示します。\n\nF3キーでは現在のセッションのみ、描画解像度とともに表示します。
 Shows what the chosen microphone hears while this is on. macOS asks for the microphone permission the first time.\n\nIf you hear or see nothing, check the permission in macOS: System Settings > Privacy & Security > Microphone.	オンの間、選択したマイクが拾う音を表示します。初回はmacOSがマイクの使用許可を求めます。\n\n何も聞こえない・表示されない場合は、macOSで許可を確認してください：システム設定 > プライバシーとセキュリティ > マイク。
 Smooth distant animation	遠景アニメーションを滑らかに
@@ -510,6 +515,7 @@ Update failed	更新に失敗
 Update game code	ゲームコードを更新
 Update package	更新パッケージ
 Update shader catalog	シェーダーカタログを更新
+Updating the online version	オンライン版を更新中
 Updating...	更新中...
 Upscaler	アップスケーラー
 Upscaling and AA	アップスケーリングとAA

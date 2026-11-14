@@ -99,7 +99,7 @@ static void save_png(id<MTLTexture> tex, const char *path) {
 static const uint8_t BUILD_ID[8] = {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a};  // Pokémon Legends: Z-A v2.0.2 main
 // The release tag this build is (also names the release files; Makefile / tools/bundle_macos.sh / make_dmg.sh read
 // it): v<major>.<minor>.<patch>, 0.x until 1.0.
-#define LARECOMP_VERSION "v0.3.0"
+#define LARECOMP_VERSION "v0.3.1"
 
 #include "menu.h"
 
@@ -443,6 +443,7 @@ static void online_view(const std::string &files, bool busy, OnlineView *v) {
         break;
     case OU_SETUP:
         snprintf(headline, sizeof headline, "%s", !strcmp(st.step, "Checking for updates") ? "Checking for updates" :
+                                                  !strcmp(st.step, "Updating the online version") ? "Updating the online version" :
                                                   "Preparing the online version");
         snprintf(line, sizeof line, "%s", st.step[0] ? st.step : "Starting...");
         snprintf(button, sizeof button, ui_tr("Preparing  %d%%"), (int)(st.fraction * 100));

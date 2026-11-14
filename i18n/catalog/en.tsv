@@ -142,6 +142,7 @@ Dev checkout: this is %s	Dev checkout: this is %s
 Developer	Developer
 Developer log	Developer log
 Diagnostics	Diagnostics
+Discord	Discord
 Display	Display
 Docked (1080p)	Docked (1080p)
 Download	Download
@@ -159,6 +160,7 @@ Enter text	Enter text
 Enter your name	Enter your name
 Error	Error
 Experimental	Experimental
+Exploring Lumiose	Exploring Lumiose
 Export	Export
 Export a save	Export a save
 Export save	Export save
@@ -377,6 +379,7 @@ Recompiling the game	Recompiling the game
 Record a route	Record a route
 Recording "%s".	Recording "%s".
 Recording "%s": the pad is written to route.txt in the folder of that save. Stop when the route is done.	Recording "%s": the pad is written to route.txt in the folder of that save. Stop when the route is done.
+Relaxing in Lumiose	Relaxing in Lumiose
 Reload "%s"? The game restarts from its last save: progress since then is lost.	Reload "%s"? The game restarts from its last save: progress since then is lost.
 Reload it (the game restarts from its last save), or copy or export what the game last saved (save in the game first for the latest).	Reload it (the game restarts from its last save), or copy or export what the game last saved (save in the game first for the latest).
 Reload this save	Reload this save
@@ -427,7 +430,9 @@ Sharper textures	Sharper textures
 Show FPS	Show FPS
 Show in Explorer	Show in Explorer
 Show in Finder	Show in Finder
+Show on Discord	Show on Discord
 Show this tab	Show this tab
+Shows on your Discord profile that you are playing MonZaMac, through the Discord app on this Mac. Nothing else is shared: no name, save or game data. Turn it off to remove it again.	Shows on your Discord profile that you are playing MonZaMac, through the Discord app on this Mac. Nothing else is shared: no name, save or game data. Turn it off to remove it again.
 Shows the frame rate in the top right corner.\n\nF3 does it for this run only, adding the render resolution.	Shows the frame rate in the top right corner.\n\nF3 does it for this run only, adding the render resolution.
 Shows what the chosen microphone hears while this is on. macOS asks for the microphone permission the first time.\n\nIf you hear or see nothing, check the permission in macOS: System Settings > Privacy & Security > Microphone.	Shows what the chosen microphone hears while this is on. macOS asks for the microphone permission the first time.\n\nIf you hear or see nothing, check the permission in macOS: System Settings > Privacy & Security > Microphone.
 Smooth distant animation	Smooth distant animation
@@ -510,6 +515,7 @@ Update failed	Update failed
 Update game code	Update game code
 Update package	Update package
 Update shader catalog	Update shader catalog
+Updating the online version	Updating the online version
 Updating...	Updating...
 Upscaler	Upscaler
 Upscaling and AA	Upscaling and AA

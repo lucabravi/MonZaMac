@@ -1,6 +1,7 @@
 #include "online_prep.h"
 
 #include <errno.h>
+#include <math.h>
 #include <pthread.h>
 #include <signal.h>
 #include <spawn.h>
@@ -22,6 +23,7 @@ static bool json_hex4(const char *p, unsigned *out) {
     unsigned v = 0;
     for (int i = 0; i < 4; i++) {
         char h = p[i];
+        if (!h) return false;  // a truncated \uXXXX escape must not read past the terminator
         if (!((h >= '0' && h <= '9') || (h >= 'a' && h <= 'f') || (h >= 'A' && h <= 'F'))) return false;
         v = v * 16 + (unsigned)(h <= '9' ? h - '0' : (h | 0x20) - 'a' + 10);
     }
@@ -86,8 +88,11 @@ bool online_prep_parse_line(const char *line, OnlinePrepStatus *st) {
     char v[1024];
     if (json_value(json, "state", v, sizeof v)) snprintf(st->state, sizeof st->state, "%s", v);
     if (json_value(json, "fraction", v, sizeof v)) {
-        float f = (float)atof(v);
-        st->fraction = f < 0 ? 0 : f > 1 ? 1 : f;
+        char *end;
+        float f = strtof(v, &end);
+        // Ignore malformed / NaN / infinite progress rather than propagating it to the progress bar.
+        if (end != v && *end == 0 && isfinite(f))
+            st->fraction = f < 0 ? 0 : f > 1 ? 1 : f;
     }
     if (json_value(json, "step", v, sizeof v)) snprintf(st->step, sizeof st->step, "%s", v);
     if (json_value(json, "message", v, sizeof v)) snprintf(st->message, sizeof st->message, "%s", v);

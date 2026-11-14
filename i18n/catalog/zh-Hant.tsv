@@ -142,6 +142,7 @@ Dev checkout: this is %s	開發工作副本：%s
 Developer	開發者
 Developer log	開發者日誌
 Diagnostics	診斷
+Discord	Discord
 Display	顯示
 Docked (1080p)	TV 模式 (1080p)
 Download	下載
@@ -159,6 +160,7 @@ Enter text	輸入文字
 Enter your name	請輸入名稱
 Error	錯誤
 Experimental	實驗性功能
+Exploring Lumiose	正在探索密阿雷市
 Export	匯出
 Export a save	匯出存檔
 Export save	匯出存檔
@@ -377,6 +379,7 @@ Recompiling the game	正在重新編譯遊戲
 Record a route	錄製操作序列
 Recording "%s".	正在錄製「%s」的操作。
 Recording "%s": the pad is written to route.txt in the folder of that save. Stop when the route is done.	正在錄製「%s」的操作：控制器輸入會寫入該存檔資料夾中的 route.txt。操作序列完成後停止錄製。
+Relaxing in Lumiose	在密阿雷市休息中
 Reload "%s"? The game restarts from its last save: progress since then is lost.	重新載入「%s」？遊戲將從上次存檔重新開始，之後的進度會遺失。
 Reload it (the game restarts from its last save), or copy or export what the game last saved (save in the game first for the latest).	可重新載入上次存檔（遊戲會重新啟動），也可複製或匯出已儲存的資料。請先在遊戲內存檔，以保留最新進度。
 Reload this save	重新載入此存檔
@@ -427,7 +430,9 @@ Sharper textures	更清晰的紋理
 Show FPS	顯示 FPS
 Show in Explorer	在檔案總管中顯示
 Show in Finder	在 Finder 中顯示
+Show on Discord	在 Discord 上顯示
 Show this tab	顯示此分頁
+Shows on your Discord profile that you are playing MonZaMac, through the Discord app on this Mac. Nothing else is shared: no name, save or game data. Turn it off to remove it again.	透過這台 Mac 上的 Discord App，在你的 Discord 個人檔案中顯示你正在玩 MonZaMac。不會分享其他任何內容：沒有名字、存檔或遊戲資料。關閉即可再次移除。
 Shows the frame rate in the top right corner.\n\nF3 does it for this run only, adding the render resolution.	在右上角顯示影格率。\n\n按 F3 僅在本次執行期間顯示影格率與渲染解析度。
 Shows what the chosen microphone hears while this is on. macOS asks for the microphone permission the first time.\n\nIf you hear or see nothing, check the permission in macOS: System Settings > Privacy & Security > Microphone.	開啟時顯示所選麥克風聽到的內容。首次使用時 macOS 會要求麥克風權限。\n\n如果聽不到或看不到任何內容，請在 macOS 中檢查權限：系統設定 > 隱私權與安全性 > 麥克風。
 Smooth distant animation	遠景動畫更流暢
@@ -510,6 +515,7 @@ Update failed	更新失敗
 Update game code	更新遊戲程式碼
 Update package	更新套件
 Update shader catalog	更新著色器目錄
+Updating the online version	正在更新線上版本
 Updating...	正在更新...
 Upscaler	影像放大演算法
 Upscaling and AA	畫面放大與反鋸齒
