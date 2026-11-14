@@ -228,7 +228,8 @@ def main():
         except (ValueError, OSError) as e:
             report(0.0, 'Download failed', 'error', message=f'Could not download the Lumiose module: {e}')
             return 1
-    report(0.01, 'Preparing the online version')
+    # (a version prepared before for this game: only the module is built again, much quicker than a first preparation)
+    report(0.01, 'Updating the online version' if active else 'Preparing the online version')
     extra = [x for flag, value in [('--cache', args.cache), ('--include', args.include), ('--cc', args.cc)] if value
              for x in (flag, str(value))]
     ok, directory, message = run_stage([*tool('prepare'), '--module', str(module), '--runtime', str(args.runtime),

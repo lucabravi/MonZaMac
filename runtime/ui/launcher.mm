@@ -443,6 +443,7 @@ static void online_view(const std::string &files, bool busy, OnlineView *v) {
         break;
     case OU_SETUP:
         snprintf(headline, sizeof headline, "%s", !strcmp(st.step, "Checking for updates") ? "Checking for updates" :
+                                                  !strcmp(st.step, "Updating the online version") ? "Updating the online version" :
                                                   "Preparing the online version");
         snprintf(line, sizeof line, "%s", st.step[0] ? st.step : "Starting...");
         snprintf(button, sizeof button, ui_tr("Preparing  %d%%"), (int)(st.fraction * 100));
