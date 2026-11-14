@@ -142,6 +142,7 @@ Dev checkout: this is %s	开发工作副本：%s
 Developer	开发者
 Developer log	开发者日志
 Diagnostics	诊断
+Discord	Discord
 Display	显示
 Docked (1080p)	主机模式 (1080p)
 Download	下载
@@ -159,6 +160,7 @@ Enter text	输入文本
 Enter your name	请输入姓名
 Error	错误
 Experimental	实验性功能
+Exploring Lumiose	正在探索密阿雷市
 Export	导出
 Export a save	导出存档
 Export save	导出存档
@@ -377,6 +379,7 @@ Recompiling the game	正在重新编译游戏
 Record a route	录制操作序列
 Recording "%s".	正在录制“%s”的操作。
 Recording "%s": the pad is written to route.txt in the folder of that save. Stop when the route is done.	正在录制“%s”的操作：手柄输入将写入该存档文件夹中的 route.txt。操作序列完成后停止录制。
+Relaxing in Lumiose	在密阿雷市休息中
 Reload "%s"? The game restarts from its last save: progress since then is lost.	重新载入“%s”？游戏将从上次存档重新开始，之后的进度会丢失。
 Reload it (the game restarts from its last save), or copy or export what the game last saved (save in the game first for the latest).	可重新加载上次存档（游戏会重启），也可复制或导出已保存的数据。请先在游戏内存档，以保留最新进度。
 Reload this save	重新加载此存档
@@ -427,7 +430,9 @@ Sharper textures	更清晰的纹理
 Show FPS	显示 FPS
 Show in Explorer	在资源管理器中显示
 Show in Finder	在 Finder 中显示
+Show on Discord	在 Discord 上显示
 Show this tab	显示此标签页
+Shows on your Discord profile that you are playing MonZaMac, through the Discord app on this Mac. Nothing else is shared: no name, save or game data. Turn it off to remove it again.	通过这台 Mac 上的 Discord 应用，在你的 Discord 个人资料中显示你正在玩 MonZaMac。不会分享其他任何内容：没有名字、存档或游戏数据。关闭即可再次移除。
 Shows the frame rate in the top right corner.\n\nF3 does it for this run only, adding the render resolution.	在右上角显示帧率。\n\n按 F3 仅在当前会话中显示帧率及渲染分辨率。
 Shows what the chosen microphone hears while this is on. macOS asks for the microphone permission the first time.\n\nIf you hear or see nothing, check the permission in macOS: System Settings > Privacy & Security > Microphone.	开启时显示所选麦克风听到的内容。首次使用时 macOS 会请求麦克风权限。\n\n如果听不到或看不到任何内容，请在 macOS 中检查权限：系统设置 > 隐私与安全性 > 麦克风。
 Smooth distant animation	远处动画更流畅

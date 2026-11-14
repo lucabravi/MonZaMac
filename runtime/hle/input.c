@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "../devlog.h"
+#include "../discord_presence.h"
 #include "../hle.h"
 #include "../nvn/nvn.h"
 #include "../nvn/renderer.h"
@@ -283,6 +284,11 @@ void input_handle_event(const SDL_Event *e) {
     // (not the scroll: a two-finger drag on the trackpad turns the camera, it does not bring the cursor back)
     if (e->type == SDL_EVENT_MOUSE_MOTION || e->type == SDL_EVENT_MOUSE_BUTTON_DOWN || e->type == SDL_EVENT_MOUSE_BUTTON_UP)
         mouse_seen = SDL_GetTicks();
+    // Discord Rich Presence: a key, the mouse/trackpad or a pad counts as the player being there.
+    if (e->type == SDL_EVENT_KEY_DOWN || e->type == SDL_EVENT_MOUSE_MOTION || e->type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+        e->type == SDL_EVENT_MOUSE_WHEEL || e->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN ||
+        (e->type == SDL_EVENT_GAMEPAD_AXIS_MOTION && abs(e->gaxis.value) > 16000))
+        discord_presence_note_input();
     static bool scanned;  // pads present at startup: their ADDED event may have gone to the start screen's loop
     if (!scanned) {
         scanned = true;
@@ -601,6 +607,8 @@ static void fill_state(Cpu *c) {
     mouse_stick(&mrx, &mry);
     int32_t rx = clamp_axis((menu ? 0 : key_rx + pad_rx + mrx) + script_rx), ry = clamp_axis((menu ? 0 : key_ry + pad_ry + mry) + script_ry);
     snap_to_axis(&rx, &ry, g_settings.rstick_snap);
+    if (b || abs(lx) > 16000 || abs(ly) > 16000 || abs(rx) > 16000 || abs(ry) > 16000)
+        discord_presence_note_input();
     extern bool mirror_input(void);  // mirror mode, the world on screen (runtime/hle/mirror.c): left and right swap
     bool mirrored = !menu && mirror_input();
     if (mirrored) {

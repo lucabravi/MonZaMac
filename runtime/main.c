@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "discord_presence.h"
 #include "gamelib.h"
 #include "paths.h"
 #include "settings.h"
@@ -249,6 +250,7 @@ int main(int argc, char **argv) {
     }
     bool booted = false;
     for (bool title = !skip_launcher || g_saves_first;;) {
+        discord_presence_start();  // (from the start screen on: its settings turn it on; it stops when the window is done)
         if (title) {  // start screen (runtime/ui/launcher.mm): game files setup, seed choice, settings
             extern bool launcher_run(const char *root, void (*boot_fn)(const char *));
             booted = launcher_run(root, boot);  // (PLAY boots the game on a worker thread behind the loading screen)
@@ -265,6 +267,7 @@ int main(int argc, char **argv) {
         if (!g_game_booted) g_game_booted = getenv("LUMIOSE_TEST_MODULE") ? 2 : 1;
         booted = false;
         int kind = ui_run();  // window and input on the main thread
+        discord_presence_stop();
         if (kind == RT_REBOOT_NONE) {
             // SDL's signal handlers enqueue quit events; the window loop has finished consuming them.
             signal(SIGINT, SIG_DFL);

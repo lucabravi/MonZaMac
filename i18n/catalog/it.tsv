@@ -142,6 +142,7 @@ Dev checkout: this is %s	Checkout di sviluppo: %s
 Developer	Sviluppatore
 Developer log	Log sviluppatore
 Diagnostics	Diagnostica
+Discord	Discord
 Display	Schermo
 Docked (1080p)	Modalità TV (1080p)
 Download	Scarica
@@ -159,6 +160,7 @@ Enter text	Inserisci testo
 Enter your name	Inserisci il tuo nome
 Error	Errore
 Experimental	Sperimentale
+Exploring Lumiose	Alla scoperta di Luminopoli
 Export	Esporta
 Export a save	Esporta un salvataggio
 Export save	Esporta salvataggio
@@ -377,6 +379,7 @@ Recompiling the game	Ricompilazione del gioco
 Record a route	Registra una sequenza di comandi
 Recording "%s".	Registrazione dei comandi «%s» in corso.
 Recording "%s": the pad is written to route.txt in the folder of that save. Stop when the route is done.	Registrazione dei comandi «%s»: gli input del controller vengono scritti in route.txt nella cartella di quel salvataggio. Interrompi quando la sequenza è completa.
+Relaxing in Lumiose	Rilassandosi a Luminopoli
 Reload "%s"? The game restarts from its last save: progress since then is lost.	Ricaricare "%s"? Il gioco ripartirà dall’ultimo salvataggio: i progressi successivi andranno persi.
 Reload it (the game restarts from its last save), or copy or export what the game last saved (save in the game first for the latest).	Ricarica l'ultimo salvataggio (il gioco si riavvia) oppure copia o esporta i dati salvati. Prima salva nel gioco per includere gli ultimi progressi.
 Reload this save	Ricarica questo salvataggio
@@ -427,7 +430,9 @@ Sharper textures	Texture più nitide
 Show FPS	Mostra FPS
 Show in Explorer	Mostra in Esplora file
 Show in Finder	Mostra nel Finder
+Show on Discord	Mostra su Discord
 Show this tab	Mostra questa scheda
+Shows on your Discord profile that you are playing MonZaMac, through the Discord app on this Mac. Nothing else is shared: no name, save or game data. Turn it off to remove it again.	Mostra sul tuo profilo Discord che stai giocando a MonZaMac, tramite l'app Discord su questo Mac. Non viene condiviso altro: né nome, né salvataggi, né dati di gioco. Disattivalo per toglierlo di nuovo.
 Shows the frame rate in the top right corner.\n\nF3 does it for this run only, adding the render resolution.	Mostra gli FPS in alto a destra.\n\nF3 li visualizza solo per la sessione corrente, insieme alla risoluzione di rendering.
 Shows what the chosen microphone hears while this is on. macOS asks for the microphone permission the first time.\n\nIf you hear or see nothing, check the permission in macOS: System Settings > Privacy & Security > Microphone.	Mostra ciò che sente il microfono scelto finché è attivo. macOS chiede il permesso per il microfono la prima volta.\n\nSe non senti o non vedi nulla, controlla il permesso in macOS: Impostazioni di Sistema > Privacy e sicurezza > Microfono.
 Smooth distant animation	Animazioni fluide a distanza

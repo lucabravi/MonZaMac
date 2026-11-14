@@ -1025,6 +1025,13 @@ extern "C" void menu_language_rows(void) {
                        "Changes the MonZaMac interface, not the game's text or the Lumiose Online mod.", true, true, flags))
             settings_save();
     }
+#ifdef LUMIOSE_ONLINE  // (the online edition only)
+    opt_section("Discord");
+    if (opt_toggle("Show on Discord", &g_settings.discord_presence, false,
+                   "Shows on your Discord profile that you are playing MonZaMac, through the Discord app on this Mac. "
+                   "Nothing else is shared: no name, save or game data. Turn it off to remove it again."))
+        settings_save();
+#endif
 }
 
 static void tab_about(void) {

@@ -142,6 +142,7 @@ Dev checkout: this is %s	개발용 체크아웃: %s
 Developer	개발자
 Developer log	개발자 로그
 Diagnostics	진단
+Discord	Discord
 Display	디스플레이
 Docked (1080p)	TV 모드 (1080p)
 Download	다운로드
@@ -159,6 +160,7 @@ Enter text	텍스트 입력
 Enter your name	이름을 입력하세요
 Error	오류
 Experimental	실험적
+Exploring Lumiose	미아레 시티 탐험 중
 Export	내보내기
 Export a save	저장 데이터 내보내기
 Export save	저장 데이터 내보내기
@@ -377,6 +379,7 @@ Recompiling the game	게임을 다시 컴파일하는 중
 Record a route	입력 동작 기록
 Recording "%s".	"%s" 입력 기록 중입니다.
 Recording "%s": the pad is written to route.txt in the folder of that save. Stop when the route is done.	"%s" 입력 기록 중: 컨트롤러 입력이 해당 저장 폴더의 route.txt에 기록됩니다. 입력 순서가 끝나면 기록을 중지하세요.
+Relaxing in Lumiose	미아레 시티에서 휴식 중
 Reload "%s"? The game restarts from its last save: progress since then is lost.	"%s"을(를) 다시 불러올까요? 마지막 저장 이후 진행 상황이 사라집니다.
 Reload it (the game restarts from its last save), or copy or export what the game last saved (save in the game first for the latest).	마지막 저장 내용을 다시 불러오거나(게임이 재시작됩니다), 저장된 데이터를 복사 또는 내보낼 수 있습니다. 최신 진행 내용을 포함하려면 게임 안에서 먼저 저장하세요.
 Reload this save	이 저장 데이터 다시 불러오기
@@ -427,7 +430,9 @@ Sharper textures	선명한 텍스처
 Show FPS	FPS 표시
 Show in Explorer	탐색기에서 보기
 Show in Finder	Finder에서 보기
+Show on Discord	Discord에 표시
 Show this tab	이 탭 표시
+Shows on your Discord profile that you are playing MonZaMac, through the Discord app on this Mac. Nothing else is shared: no name, save or game data. Turn it off to remove it again.	이 Mac의 Discord 앱을 통해 MonZaMac을 플레이 중이라는 것을 Discord 프로필에 표시합니다. 이름, 저장 데이터, 게임 데이터 등 다른 것은 공유되지 않습니다. 끄면 다시 사라집니다.
 Shows the frame rate in the top right corner.\n\nF3 does it for this run only, adding the render resolution.	오른쪽 위에 프레임 속도를 표시합니다.\n\nF3을 누르면 현재 실행 중에만 렌더링 해상도와 함께 표시됩니다.
 Shows what the chosen microphone hears while this is on. macOS asks for the microphone permission the first time.\n\nIf you hear or see nothing, check the permission in macOS: System Settings > Privacy & Security > Microphone.	켜져 있는 동안 선택한 마이크가 듣는 소리를 보여 줍니다. 처음에는 macOS가 마이크 권한을 요청합니다.\n\n아무것도 들리거나 보이지 않으면 macOS에서 권한을 확인하세요: 시스템 설정 > 개인정보 보호 및 보안 > 마이크.
 Smooth distant animation	원거리 애니메이션 부드럽게
