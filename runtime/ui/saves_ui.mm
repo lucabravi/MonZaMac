@@ -154,7 +154,7 @@ static void team_row(ImDrawList *dl, ImFont *small_, ImVec2 at, float u, const S
         dl->AddText(small_, u * 0.8f, ImVec2(at.x, at.y - u * 0.4f), pal::sub, ui_tr("No Pokémon yet"));
         return;
     }
-    float r = u * 0.40f, step = u * 1.9f;
+    float r = u * 0.52f, step = u * 2.5f;
     for (int i = 0; i < SAVE_PARTY_MAX; i++) {
         bool on = i < si->party_n;
         ImVec2 c(at.x + r + step * i, at.y);
@@ -162,8 +162,8 @@ static void team_row(ImDrawList *dl, ImFont *small_, ImVec2 at, float u, const S
         if (!on) continue;
         char lv[8];
         snprintf(lv, sizeof lv, "%u", si->party[i].level);
-        float w = small_->CalcTextSizeA(u * 0.55f, FLT_MAX, 0, lv).x;
-        dl->AddText(small_, u * 0.55f, ImVec2(c.x - w * 0.5f, c.y + r + u * 0.10f), pal::sub, lv);
+        float w = small_->CalcTextSizeA(u * 0.62f, FLT_MAX, 0, lv).x;
+        dl->AddText(small_, u * 0.62f, ImVec2(c.x - w * 0.5f, c.y + r + u * 0.10f), pal::sub, lv);
     }
 }
 
@@ -914,9 +914,9 @@ int saves_home_draw(ImFont *small_, bool ready, bool show_setup, bool focus_firs
     ImDrawList *dl = ImGui::GetWindowDrawList();
     // one unit u: the small font's size, shrunk until the column's content fits its rectangle
     int n = show_setup ? 4 : 3;
-    const float card_u = 8.6f;  // the save card's height (room for the trainer's data)
+    const float card_u = 9.4f;  // the save card's height (room for the trainer's data)
     float u = small_->FontSize, rows = 2.9f + card_u + 0.55f + (n - 1) * 1.6f + 0.2f;
-    u *= fminf(1.0f, fminf(rh / ((rows + 2.0f) * u), rw / (19.0f * u)));
+    u *= fminf(1.0f, fminf(rh / ((rows + 1.6f) * u), rw / (19.0f * u)));
     g_home_u = u;
     float x = rx + u, w = rw - 2 * u, y = ry + u;
 
@@ -953,7 +953,7 @@ int saves_home_draw(ImFont *small_, bool ready, bool show_setup, bool focus_firs
     float ch = u * card_u;
     // the buttons sit at the column's bottom like PLAY ONLINE; the card is centred in the space between the title and them
     float bh = u * 1.3f, step = u * 1.6f, gap = u * 0.4f, hw = (w - gap) * 0.5f;
-    float by = ry + rh - u - ((n - 2) * step + bh);
+    float by = ry + rh - u * 0.6f - ((n - 2) * step + bh);
     float cty = ty + fmaxf(0.0f, (by - u * 0.55f - ty - ch) * 0.5f);
     ImVec2 cp(x, cty), cq(x + w, cty + ch);
     dl->AddRectFilled(cp, cq, IM_COL32(20, 36, 68, 150), u * 0.5f);  // (a light card: no outline)
@@ -971,8 +971,8 @@ int saves_home_draw(ImFont *small_, bool ready, bool show_setup, bool focus_firs
         }
         const char *who = si && si->trainer[0] ? si->trainer : cur->name;
         dl->AddText(small_, u * 1.45f, ImVec2(tx, cty + u * 1.2f), pal::text, fit(small_, u * 1.45f, who, rx - tx, cut, sizeof cut));
-        dl->AddLine(ImVec2(tx, cty + u * 3.0f), ImVec2(rx, cty + u * 3.0f), IM_COL32(76, 100, 137, 120), 1.0f);
-        float r1 = cty + u * 3.4f, r2 = cty + u * 5.4f, vfs = u * 1.0f;  // (the two rows of label + value)
+        dl->AddLine(ImVec2(tx, cty + u * 2.8f), ImVec2(rx, cty + u * 2.8f), IM_COL32(76, 100, 137, 120), 1.0f);
+        float r1 = cty + u * 3.05f, r2 = cty + u * 4.95f, vfs = u * 1.0f;  // (the two rows of label + value)
         label(tx, r1, "Save name");
         dl->AddText(small_, vfs, ImVec2(tx, r1 + u * 0.85f), pal::text, fit(small_, vfs, cur->name, tx2 - tx - u * 0.5f, cut, sizeof cut));
         label(tx2, r1, "Play time");
@@ -991,7 +991,7 @@ int saves_home_draw(ImFont *small_, bool ready, bool show_setup, bool focus_firs
         char line[96], lcut[96];
         when(*cur, line, sizeof line, false);
         dl->AddText(small_, u * 0.85f, ImVec2(tx2, r2 + u * 0.88f), pal::text, fit(small_, u * 0.85f, line, rx - tx2, lcut, sizeof lcut));
-        if (si) team_row(dl, small_, ImVec2(tx, cty + u * 7.7f), u, si);
+        if (si) team_row(dl, small_, ImVec2(tx + u * 0.1f, cty + u * 7.7f), u, si);
     } else {
         dl->AddText(small_, u * 1.0f, ImVec2(x + u * 0.7f, cty + u * 0.45f), pal::text, ui_tr("No saves yet"));
         dl->AddText(small_, u * 0.8f, ImVec2(x + u * 0.7f, cty + u * 1.55f), pal::sub, ui_tr("Choose NEW GAME to begin."));
@@ -1065,7 +1065,7 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
         if (sp) dl->AddText(tf, u * 1.75f, ImVec2(tp.x + tw, tp.y), IM_COL32(255, 255, 255, 255), sp);
     }
     // the state
-    float ch = u * 3.4f, cy = ry + ph - u - u * 2.05f - u * 0.9f - ch;  // (the state sits right above the button, at the column's bottom)
+    float ch = u * 3.4f, cy = ry + ph - u * 0.6f - u * 2.05f - u * 0.9f - ch;  // (the state sits right above the button, at the column's bottom)
     ImVec2 ic(x + u * 1.0f, cy + u * 1.35f);
     const ImU32 dot = v.good ? IM_COL32(70, 214, 110, 255) : v.bad ? IM_COL32(255, 170, 90, 255) : IM_COL32(150, 172, 210, 255);
     const ImU32 dark = IM_COL32(8, 18, 35, 255);
