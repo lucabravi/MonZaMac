@@ -75,6 +75,32 @@ an invalid-motion sentinel, so covered background motion cannot leak into foregr
 a shader compile when first drawn, so a new character can cause a short hitch. These limits do not establish
 artifact-free interpolation.
 
+## Known limit: narrow gaps in front of a fast background
+
+While the camera turns around the player at 30 → 60, blocky patches in the character's colours can appear in the gap
+between an arm and the torso. This comes from MetalFX's frame interpolator, not from the data MonZaMac gives it.
+
+Measured on a dump of one such frame (station, camera turning, 2880 x 1620; `LARECOMP_FG_SHOT_AT=<frame>` with
+`LARECOMP_FG_DUMP=1` writes the generated image, the scene and the interpolator's colour, depth and motion inputs):
+
+- The character's motion vectors are 2–5 pixels per frame and equal the arms' real displacement between the two frames.
+- The background's motion vectors in the gap are 75–88 pixels per frame, as that camera turn requires.
+- The gap is about 64 pixels wide.
+
+The background moves further than the gap is wide, so the piece of background the intermediate image needs there is
+hidden by the arm in one real frame and by the torso in the other. The interpolator has no source for it and fills the
+hole in blocks.
+
+Checked and ruled out as causes:
+
+- **Depth direction.** Giving the interpolator the opposite direction makes the image much worse; the one in use is right.
+- **Near and far planes.** Scaling both by 100 and by 0.01 gives the same image.
+- **Edge motion.** Giving each pixel the motion of the nearest surface among its 3 x 3 neighbours changes nothing.
+
+This was checked for the path without MetalFX temporal upscaling, in that scene; other artifacts (particles, geometry
+without previous-vertex motion) have their own causes, described above. 60 → 120 halves the motion per frame and so
+reduces the effect. Repairing the holes would need a pass of our own after the interpolator; that is not implemented.
+
 ## Temporal reconstruction
 
 Frame generation can also consume reconstructed color from the optional [MetalFX temporal upscaler](temporal-upscaling.md), sharing its low-resolution depth/motion. Select MetalFX temporal in Video and then either generation target. Combined mode uses the reconstructed output resolution; the saved generated-frame Performance choice is restored when temporal is off. The option remains experimental because incomplete motion coverage can create edge artifacts.
