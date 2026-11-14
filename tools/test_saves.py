@@ -70,6 +70,17 @@ class SaveFiles(unittest.TestCase):
         cls.lib.test_init.argtypes = [SPAWN, WAIT]
         cls.lib.saves_export.argtypes = [ct.c_char_p, ct.c_char_p]
         cls.lib.saves_export.restype = ct.c_bool
+        cls.lib.saves_delete.argtypes = [ct.c_char_p]
+        cls.lib.saves_delete.restype = ct.c_bool
+        cls.lib.saves_copy.argtypes = [ct.c_char_p, ct.c_char_p]
+        cls.lib.saves_copy.restype = ct.c_bool
+        cls.lib.saves_select.argtypes = [ct.c_char_p]
+        cls.lib.saves_current_path.restype = ct.c_char_p
+        cls.lib.saves_route_replay_dir.argtypes = [ct.c_char_p]
+        cls.lib.saves_route_replay_dir.restype = ct.c_char_p
+        cls.lib.saves_route_begin.argtypes = [ct.c_char_p, ct.c_void_p, ct.c_size_t]
+        cls.lib.saves_route_begin.restype = ct.c_bool
+
         cls.lib.saves_import_stage.argtypes = [ct.c_char_p, ct.c_void_p, ct.c_size_t]
         cls.lib.saves_import_stage.restype = ct.c_bool
         cls.lib.saves_import_cancel.argtypes = []
@@ -126,6 +137,37 @@ class SaveFiles(unittest.TestCase):
         result = self.lib.saves_import_stage(os.fsencode(path), why, len(why))
         self.why = why.value
         return result
+
+    def test_short_route_path_leaves_no_half_created_route(self):
+        self.lib.saves_select(b'Trainer')
+        path = ct.create_string_buffer(4)
+        self.assertFalse(self.lib.saves_route_begin(b'Recording', path, len(path)))
+        self.assertFalse((self.root / 'routes/Recording').exists())
+
+    def test_slot_ids_cannot_escape_saves_folder(self):
+        # Delete / copy / export / replay all receive identifiers from elsewhere in the UI.
+        outside = self.root / 'outside'; outside.mkdir()
+        sentinel = outside / 'keep'; sentinel.write_text('preserve')
+        self.assertFalse(self.lib.saves_delete(b'../outside'))
+        self.assertFalse(self.lib.saves_copy(b'../outside', b'Copy'))
+        self.assertFalse(self.lib.saves_export(b'../outside', os.fsencode(self.root / 'backup.zip')))
+        self.lib.saves_select(b'../outside')
+        self.assertEqual(self.lib.saves_current_path(), b'save')
+        self.assertIsNone(self.lib.saves_route_replay_dir(b'../outside'))
+        self.assertEqual(sentinel.read_text(), 'preserve')
+        self.assertFalse((self.root / 'saves/Copy').exists())
+
+    def test_missing_source_copy_does_not_leave_target(self):
+        self.assertFalse(self.lib.saves_copy(b'NoSuchSlot', b'Copy'))
+        self.assertFalse((self.root / 'saves/Copy').exists())
+
+    def test_sparse_import_cannot_overflow_total_size(self):
+        source = self.root / 'sparse'; source.mkdir()
+        (source / 'main').write_bytes(synthetic_save('Audit'))
+        with (source / 'huge').open('wb') as output:
+            output.truncate(1 << 30)
+        self.assertFalse(self.import_folder(source))
+        self.assertIn(b'too big', self.why)
 
     def test_import_rechecks_recreated_stage(self):
         source = self.root / 'input'; source.mkdir()

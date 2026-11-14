@@ -29,7 +29,10 @@ static const char *replay_save_dir;
 typedef struct { uint64_t start, size; char *path; int fd; const uint8_t *mem; } Overlay;
 // in-image patches (copies of RomFS tables with changes): header, dir meta, file hash, file meta
 typedef struct { uint64_t off, size; uint8_t *data; } Patch;
-static Patch patches[16];
+// A few slots are always reserved for the file/dir/hash/header overlays appended after prompt patches.
+#define FS_PATCH_CAPACITY 256
+#define FS_PATCH_RESERVED 4
+static Patch patches[FS_PATCH_CAPACITY];
 static int npatches;
 static Overlay *ov;
 static int ov_n, ov_cap;
@@ -46,8 +49,9 @@ RT_ON_RESET(fs_reset) {
     for (int i = 0; i < ov_n; i++) {
         if (ov[i].fd >= 0) close(ov[i].fd);
         free(ov[i].path);
+        free((void *)ov[i].mem);  // extended tables and unlisted TRPFD bytes are owned by overlays
     }
-    for (int i = 0; i < npatches; i++) free(patches[i].data);  // (ov_meta and the extended table are among these)
+    for (int i = 0; i < npatches; i++) free(patches[i].data);  // patched header/hash/metadata copies
     for (int i = 0; i < rom_nfiles; i++) free(rom_files[i].path);
     free(ov), free(rom_files);
     ov = NULL, ov_n = ov_cap = 0;
@@ -66,21 +70,31 @@ static int rom_cmp(const void *a, const void *b) {
     return x->off < y->off ? -1 : x->off > y->off;
 }
 
-static void rom_dir_path(const uint8_t *dmeta, uint32_t dsize, uint32_t dir, char *out, size_t cap) {
-    char parts[16][256];
+// Return false for an invalid parent chain instead of reading outside a damaged RomFS table.
+static bool rom_dir_path(const uint8_t *dmeta, uint32_t dsize, uint32_t dir, char *out, size_t cap) {
+    char parts[64][256];
+    uint32_t visited[64];
     int n = 0;
-    while (dir != 0 && dir < dsize && n < 16) {  // root (offset 0) has an empty name
+    while (dir != 0) {  // root (offset 0) has an empty name
+        if (n == 64 || dir > dsize || dsize - dir < 0x18) return false;
+        for (int i = 0; i < n; i++) if (visited[i] == dir) return false;
+        visited[n] = dir;
         uint32_t parent, namelen;
         memcpy(&parent, dmeta + dir, 4);
         memcpy(&namelen, dmeta + dir + 0x14, 4);
-        if (namelen > 255) namelen = 255;
+        if (!namelen || namelen > 255 || namelen > dsize - dir - 0x18) return false;
         memcpy(parts[n], dmeta + dir + 0x18, namelen);
         parts[n][namelen] = 0;
+        if (strlen(parts[n]) != namelen || strchr(parts[n], '/') || strchr(parts[n], '\\') ||
+            !strcmp(parts[n], ".") || !strcmp(parts[n], "..")) return false;
         n++;
         dir = parent;
     }
     out[0] = 0;
-    for (int i = n - 1; i >= 0; i--) { strlcat(out, parts[i], cap); strlcat(out, "/", cap); }
+    for (int i = n - 1; i >= 0; i--) {
+        if (strlcat(out, parts[i], cap) >= cap || strlcat(out, "/", cap) >= cap) return false;
+    }
+    return true;
 }
 
 // ---- layered files: each mods/<name>/romfs folder in name order (a folder
@@ -100,6 +114,8 @@ static int name_cmp(const void *a, const void *b) { return strcmp((const char *)
 static void layer_init(void) {
     if (nlayers >= 0) return;
     nlayers = 0;
+    // Online play shares the game with other players and a server: RomFS mods stay out of it.
+    if (getenv("LUMIOSE_TEST_MODULE")) { LOG("[fs] online: RomFS mods are not loaded\n"); return; }
     DIR *d = opendir("mods");
     if (!d) return;
     char names[15][256];
@@ -108,8 +124,10 @@ static void layer_init(void) {
         if (e->d_name[0] == '.' || e->d_name[0] == '_') continue;
         char p[1100];
         struct stat sb;
-        snprintf(p, sizeof p, "mods/%s/romfs", e->d_name);
-        if (!stat(p, &sb) && S_ISDIR(sb.st_mode)) strlcpy(names[n++], e->d_name, sizeof *names);
+        int written = snprintf(p, sizeof p, "mods/%s/romfs", e->d_name);
+        if (written > 0 && (size_t)written < sizeof p && strlen(e->d_name) < sizeof *names &&
+            !stat(p, &sb) && S_ISDIR(sb.st_mode))
+            strlcpy(names[n++], e->d_name, sizeof *names);
     }
     closedir(d);
     qsort(names, n, sizeof *names, name_cmp);
@@ -123,9 +141,9 @@ static bool layer_file(const char *path, char *out, size_t cap) {
     layer_init();
     if (trinity && !strcmp(path, "arc/data.trpfd")) return false;
     for (int i = 0; i < nlayers; i++) {
-        snprintf(out, cap, "%s/%s", layer_root[i], path);
+        int written = snprintf(out, cap, "%s/%s", layer_root[i], path);
         struct stat sb;
-        if (!stat(out, &sb) && S_ISREG(sb.st_mode)) return true;
+        if (written > 0 && (size_t)written < cap && !lstat(out, &sb) && S_ISREG(sb.st_mode)) return true;
     }
     return false;
 }
@@ -143,21 +161,32 @@ typedef struct { char rel[1024]; char host[1200]; uint64_t size; uint32_t dir; }
 // the files under root/rel not in `known` (sorted; NULL: all of them)
 static void walk_new(const char *root, const char *rel, char **known, int nknown, NewFile **out, int *n, int *cap) {
     char dirp[1200];
-    snprintf(dirp, sizeof dirp, "%s/%s", root, rel);
+    int written = snprintf(dirp, sizeof dirp, "%s/%s", root, rel);
+    if (written < 0 || (size_t)written >= sizeof dirp) return;
     DIR *d = opendir(dirp);
     if (!d) return;
     struct dirent *e;
     while ((e = readdir(d))) {
         if (e->d_name[0] == '.') continue;
         char r2[1024], h2[1200];
-        snprintf(r2, sizeof r2, "%s%s%s", rel, rel[0] ? "/" : "", e->d_name);
-        snprintf(h2, sizeof h2, "%s/%s", root, r2);
+        int rn = snprintf(r2, sizeof r2, "%s%s%s", rel, rel[0] ? "/" : "", e->d_name);
+        if (rn < 0 || (size_t)rn >= sizeof r2) continue;
+        int hn = snprintf(h2, sizeof h2, "%s/%s", root, r2);
+        if (hn < 0 || (size_t)hn >= sizeof h2) continue;
         struct stat sb;
-        if (stat(h2, &sb)) continue;
+        if (lstat(h2, &sb)) continue;  // never recurse into symlink loops or index files outside a mod
         if (S_ISDIR(sb.st_mode)) { walk_new(root, r2, known, nknown, out, n, cap); continue; }
+        if (!S_ISREG(sb.st_mode)) continue;
         const char *key = r2;
         if (known && bsearch(&key, known, nknown, sizeof *known, path_cmp)) continue;  // replaces an existing file
-        if (*n == *cap) { *cap = *cap ? *cap * 2 : 64; *out = realloc(*out, sizeof **out * *cap); }
+        if (*n == *cap) {
+            int next_cap = *cap ? *cap * 2 : 64;
+            if (next_cap <= *cap) break;
+            NewFile *grown = realloc(*out, sizeof **out * (size_t)next_cap);
+            if (!grown) break;
+            *out = grown;
+            *cap = next_cap;
+        }
         strlcpy((*out)[*n].rel, r2, sizeof (*out)[*n].rel);
         strlcpy((*out)[*n].host, h2, sizeof (*out)[*n].host);
         (*out)[*n].size = (uint64_t)sb.st_size;
@@ -317,9 +346,13 @@ static void add_new_files(int fd, const uint64_t *h, const uint8_t *dmeta, uint6
     patches[npatches++] = (Patch){0, 0x50, head};
     patches[npatches++] = (Patch){hoff, hsz, hcopy};
     LOG("[fs] %d new romfs files, %d new directories\n", added, dirs);
+    free(nf);
 }
 
 static int u64_cmp(const void *a, const void *b) { uint64_t x = *(const uint64_t *)a, y = *(const uint64_t *)b; return x < y ? -1 : x > y; }
+static bool rom_span(uint64_t total, uint64_t off, uint64_t size) {
+    return off <= total && size <= total - off;
+}
 
 // Pokémon Z-A: the game's arc/data.trpfd without the layered files (their FNV-1a 64 path hashes) - field 0 of its
 // root table is the files' hashes, field 2 their pack entries (in step) - served in its place
@@ -332,7 +365,9 @@ static void trpfd_unlist(int fd, const uint8_t *fmeta, uint64_t foff, uint64_t f
     NewFile *all = NULL;
     int n = 0, cap = 0;
     for (int r = 0; r < nlayers; r++) walk_new(layer_root[r], "", NULL, 0, &all, &n, &cap);
-    uint64_t *hs = malloc(sizeof *hs * (n + 1));
+    if (!n || rf->size < 16 || rf->size > (256ull << 20)) { free(all); return; }
+    uint64_t *hs = malloc(sizeof *hs * (size_t)n);
+    if (!hs) { free(all); return; }
     for (int i = 0; i < n; i++) {
         uint64_t x = 0xCBF29CE484222645ull;
         for (const char *p = all[i].rel; *p; p++) x = (x ^ (uint8_t)*p) * 0x100000001B3ull;
@@ -340,22 +375,32 @@ static void trpfd_unlist(int fd, const uint8_t *fmeta, uint64_t foff, uint64_t f
     }
     free(all);
     qsort(hs, n, sizeof *hs, u64_cmp);
-    uint8_t *d = malloc(rf->size);
-    if (pread(fd, d, rf->size, (off_t)rf->off) != (ssize_t)rf->size) { free(d); free(hs); return; }
+    uint8_t *d = malloc((size_t)rf->size);
+    if (!d) { free(hs); return; }
+    if (pread(fd, d, (size_t)rf->size, (off_t)rf->off) != (ssize_t)rf->size) goto malformed;
+    uint64_t length = rf->size;
     uint32_t root, f0, f2, n0, n2;
     int32_t so;
     memcpy(&root, d, 4);
+    if (!rom_span(length, root, 4)) goto malformed;
     memcpy(&so, d + root, 4);
-    uint32_t vt = root - so;
+    if (so <= 0 || (uint32_t)so > root) goto malformed;
+    uint64_t vt = root - (uint32_t)so;
+    if (!rom_span(length, vt, 10)) goto malformed;
     uint16_t fo0, fo2;
     memcpy(&fo0, d + vt + 4, 2);
     memcpy(&fo2, d + vt + 8, 2);
+    if (!fo0 || !fo2 || !rom_span(length, (uint64_t)root + fo0, 4) ||
+        !rom_span(length, (uint64_t)root + fo2, 4)) goto malformed;
     memcpy(&f0, d + root + fo0, 4);
     memcpy(&f2, d + root + fo2, 4);
-    uint64_t v0 = root + fo0 + f0, v2 = root + fo2 + f2;
+    uint64_t v0 = (uint64_t)root + fo0 + f0, v2 = (uint64_t)root + fo2 + f2;
+    if (!rom_span(length, v0, 4) || !rom_span(length, v2, 4)) goto malformed;
     memcpy(&n0, d + v0, 4);
     memcpy(&n2, d + v2, 4);
-    if (n0 != n2) { LOG("[fs] arc/data.trpfd: unexpected layout\n"); free(d); free(hs); return; }
+    if (n0 != n2) { LOG("[fs] arc/data.trpfd: unexpected layout\n"); goto malformed; }
+    if (!rom_span(length, v0 + 4, (uint64_t)n0 * 8) ||
+        !rom_span(length, v2 + 4, (uint64_t)n2 * 4)) goto malformed;
     uint32_t k = 0;
     for (uint32_t i = 0; i < n0; i++) {
         uint64_t x;
@@ -389,6 +434,12 @@ static void trpfd_unlist(int fd, const uint8_t *fmeta, uint64_t foff, uint64_t f
     ov[ov_n++] = (Overlay){ov_end, rf->size, NULL, -1, d};
     ov_end = (ov_end + rf->size + 0xF) & ~0xFull;
     LOG("[fs] arc/data.trpfd: %u files the mods have taken out of the packs' list\n", n0 - k);
+    return;
+
+malformed:
+    LOG("[fs] arc/data.trpfd: malformed pack index; leaving original unchanged\n");
+    free(d);
+    free(hs);
 }
 
 // Button prompts (runtime/hle/pl.c pl_prompt_set): textures/prompts/<style>/romfs.patch, made by
@@ -404,37 +455,48 @@ static void prompt_patch(int fd) {
     snprintf(path, sizeof path, "textures/prompts/%s/romfs.patch", set);
     FILE *f = fopen(path, "rb");
     if (!f) return;
-    fseek(f, 0, SEEK_END);
+    // Mod-supplied patch files are not trusted: never allocate from an unchecked file length.
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return; }
     long len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    uint8_t *d = malloc(len > 0 ? len : 1);
-    bool ok = len > 12 && fread(d, 1, len, f) == (size_t)len && !memcmp(d, "ZAROMFS2", 8);
+    if (len <= 12 || (uint64_t)len > (64ull << 20) || fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        LOG("[fs] %s: invalid patch size\n", path);
+        return;
+    }
+    uint8_t *d = malloc((size_t)len);
+    if (!d) { fclose(f); return; }
+    bool ok = fread(d, 1, (size_t)len, f) == (size_t)len && !memcmp(d, "ZAROMFS2", 8);
     fclose(f);
     if (!ok) { LOG("[fs] %s: not a patch file\n", path); free(d); return; }
     uint32_t n;
     memcpy(&n, d + 8, 4);
     uint64_t p = 12;
     int applied = 0;
-    for (uint32_t r = 0; r < n && p + 27 <= (uint64_t)len; r++) {
+    for (uint32_t r = 0; r < n && (uint64_t)len - p >= 27; r++) {
         uint16_t pl;
         memcpy(&pl, d + p + 1, 2);
+        // 27 fixed bytes + the path precede the replacement bytes. Validate before reading any of them.
+        if (pl > 255 || pl > (uint64_t)len - p - 27) break;
         char name[256];
-        snprintf(name, sizeof name, "%.*s", pl, (const char *)d + p + 3);
+        memcpy(name, d + p + 3, pl);
+        name[pl] = 0;
         uint64_t off, size, want;
         memcpy(&off, d + p + 3 + pl, 8);
         memcpy(&size, d + p + 11 + pl, 8);
         memcpy(&want, d + p + 19 + pl, 8);
+        if (size > (uint64_t)len - p - 27 - pl) break;
         const uint8_t *data = d + p + 27 + pl;
         uint8_t kind = d[p];
         p += 27 + pl + size;
-        if (p > (uint64_t)len) break;
         RomFile *rf = NULL;
         for (int i = 0; i < rom_nfiles && !rf; i++) if (!strcmp(rom_files[i].path, name)) rf = &rom_files[i];
-        if (kind || !rf || off + size > rf->size || npatches == (int)(sizeof patches / sizeof *patches)) {
+        if (kind || !rf || !size || off > rf->size || size > rf->size - off ||
+            npatches >= FS_PATCH_CAPACITY - FS_PATCH_RESERVED) {
             LOG("[fs] %s: %s not patched\n", path, name);
             continue;
         }
-        uint8_t *copy = malloc(size);
+        uint8_t *copy = malloc((size_t)size);
+        if (!copy) break;
         uint64_t have = 0xCBF29CE484222645ull;
         if (pread(fd, copy, size, (off_t)(rf->off + off)) == (ssize_t)size)
             for (uint64_t i = 0; i < size; i++) have = (have ^ copy[i]) * 0x100000001B3ull;
@@ -449,32 +511,64 @@ static void prompt_patch(int fd) {
 
 static void rom_index(int fd) {
     uint64_t h[10];
-    if (pread(fd, h, sizeof h, 0) != (ssize_t)sizeof h) return;
+    struct stat sb;
+    if (fstat(fd, &sb) || sb.st_size < (off_t)sizeof h ||
+        pread(fd, h, sizeof h, 0) != (ssize_t)sizeof h) return;
     // header: size, dir hash (off,size), dir meta (off,size), file hash (off,size), file meta (off,size), data off
+    uint64_t length = (uint64_t)sb.st_size;
     uint64_t doff = h[3], dsz = h[4], foff = h[7], fsz = h[8];
-    rom_data_off = h[9];
-    uint8_t *dmeta = malloc(dsz), *fmeta = malloc(fsz);
-    if (pread(fd, dmeta, dsz, (off_t)doff) != (ssize_t)dsz || pread(fd, fmeta, fsz, (off_t)foff) != (ssize_t)fsz) return;
+    // File metadata offsets are stored in u32 fields; reject invalid or oversized input tables before allocating.
+    const uint64_t max_table = 256ull << 20;
+    if (h[0] < sizeof h || dsz < 0x18 || dsz > max_table || fsz > max_table ||
+        h[9] > length ||
+        doff > length || dsz > length - doff || foff > length || fsz > length - foff ||
+        !h[2] || !h[6] || (h[2] & 3) || (h[6] & 3) ||
+        h[1] > length || h[2] > length - h[1] ||
+        h[5] > length || h[6] > length - h[5]) {
+        LOG("[fs] invalid RomFS table bounds\n");
+        return;
+    }
+    uint8_t *dmeta = malloc((size_t)dsz), *fmeta = malloc((size_t)(fsz ? fsz : 1));
+    if (!dmeta || !fmeta) { free(dmeta); free(fmeta); return; }
+    if (pread(fd, dmeta, (size_t)dsz, (off_t)doff) != (ssize_t)dsz ||
+        pread(fd, fmeta, (size_t)fsz, (off_t)foff) != (ssize_t)fsz) {
+        free(dmeta); free(fmeta); return;
+    }
     int cap = 4096;
-    rom_files = malloc(sizeof(RomFile) * cap);
-    for (uint64_t o = 0; o + 0x20 <= fsz;) {
+    rom_files = malloc(sizeof(RomFile) * (size_t)cap);
+    if (!rom_files) { free(dmeta); free(fmeta); return; }
+    rom_data_off = h[9];
+    for (uint64_t o = 0; o < fsz;) {
+        if (fsz - o < 0x20) goto invalid_metadata;
         uint32_t parent, namelen;
         uint64_t data, size;
         memcpy(&parent, fmeta + o, 4);
         memcpy(&data, fmeta + o + 8, 8);
         memcpy(&size, fmeta + o + 0x10, 8);
         memcpy(&namelen, fmeta + o + 0x1C, 4);
+        if (!namelen || namelen > 255 || namelen > fsz - o - 0x20 ||
+            data > length - rom_data_off || size > length - rom_data_off - data) goto invalid_metadata;
+        uint64_t entry_size = 0x20 + (((uint64_t)namelen + 3) & ~3ull);
+        if (entry_size > fsz - o) goto invalid_metadata;
         char dir[1024], name[256];
-        rom_dir_path(dmeta, (uint32_t)dsz, parent, dir, sizeof dir);
-        uint32_t nl = namelen > 255 ? 255 : namelen;
-        memcpy(name, fmeta + o + 0x20, nl);
-        name[nl] = 0;
-        if (rom_nfiles == cap) { cap *= 2; rom_files = realloc(rom_files, sizeof(RomFile) * cap); }
-        char *path = malloc(strlen(dir) + nl + 1);
+        if (!rom_dir_path(dmeta, (uint32_t)dsz, parent, dir, sizeof dir)) goto invalid_metadata;
+        memcpy(name, fmeta + o + 0x20, namelen);
+        name[namelen] = 0;
+        if (strlen(name) != namelen || strchr(name, '/') || strchr(name, '\\') ||
+            !strcmp(name, ".") || !strcmp(name, "..")) goto invalid_metadata;
+        if (rom_nfiles == cap) {
+            if (cap > INT32_MAX / 2) goto invalid_metadata;
+            cap *= 2;
+            RomFile *next = realloc(rom_files, sizeof(RomFile) * (size_t)cap);
+            if (!next) goto invalid_metadata;
+            rom_files = next;
+        }
+        char *path = malloc(strlen(dir) + namelen + 1);
+        if (!path) goto invalid_metadata;
         strcpy(path, dir);
         strcat(path, name);
         rom_files[rom_nfiles++] = (RomFile){rom_data_off + data, size, path, (uint32_t)o};
-        o += 0x20 + ((namelen + 3) & ~3u);
+        o += entry_size;
     }
     // Layered files (mods): replacements are served from their folders. The file-meta table is patched
     // (in a copy) to point them at data appended past the end of the image; reads there go to host files.
@@ -513,6 +607,15 @@ static void rom_index(int fd) {
     free(dmeta);
     free(fmeta);
     LOG("[fs] romfs index: %d files\n", rom_nfiles);
+    return;
+
+invalid_metadata:
+    LOG("[fs] malformed RomFS file metadata; overlay indexing skipped\n");
+    for (int i = 0; i < rom_nfiles; i++) free(rom_files[i].path);
+    free(rom_files); rom_files = NULL; rom_nfiles = 0; rom_data_off = 0;
+    free(dmeta);
+    free(fmeta);
+
 }
 
 // Virtual RomFS image read: original bytes, with the patched file table and appended replacement files.

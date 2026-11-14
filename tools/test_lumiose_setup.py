@@ -1,5 +1,10 @@
 """setup_online.py's update decision, with the network, the status and the preparation replaced (nothing runs)."""
 from pathlib import Path
+import hashlib
+import io
+import math
+import os
+from unittest.mock import patch
 import importlib.util
 import sys
 import tempfile
@@ -11,7 +16,7 @@ spec = importlib.util.spec_from_file_location('setup_online', ROOT / 'tools/lumi
 so = importlib.util.module_from_spec(spec); spec.loader.exec_module(so)
 sys.path.insert(0, str(ROOT / 'tools'))
 from test_nso import fixture  # noqa: E402
-LATEST = 'ab' * 32
+LATEST = hashlib.sha256(b'x').hexdigest()
 
 
 class UpdateTests(unittest.TestCase):
@@ -23,16 +28,19 @@ class UpdateTests(unittest.TestCase):
             def lookup():
                 if latest is None: raise OSError('offline')
                 return latest
-            so.latest_sha256 = lookup
-            so.active_module = lambda root: active
-            so.fetch_latest = lambda out: (_ for _ in ()).throw(OSError('no download in a test'))
-            so.run_stage = lambda argv, *a: (stages.append(argv), (bool(prepared), str(prepared or ''), 'stop'))[1]
             (Path(tmp) / 'skipped-modules').write_text(skipped)
-            so.report = lambda f, step, state='running', **kw: reports.append((state, step, kw))
             sys.argv = ['setup_online.py', '--runtime', 'rt', '--game', 'g', '--root', tmp, '--modules', str(mods)]
             if mod_file:
                 sys.argv += ['--downloaded', str(mod_file)]
-            code = so.main()
+            # This helper tests the update decision, not the game build identity on fake /v/1.
+            with patch.multiple(so, latest_sha256=lookup, active_module=lambda root: active,
+                                fetch_latest=lambda out: (_ for _ in ()).throw(OSError('no download in a test')),
+                                run_stage=lambda argv, *a: (stages.append(argv),
+                                                             (bool(prepared), str(prepared or ''), 'stop'))[1],
+                                report=lambda f, step, state='running', **kw: reports.append((state, step, kw))), \
+                    patch.object(so, 'built_for_this_game', return_value=True), \
+                    patch.object(so, 'status_info', return_value={}):
+                code = so.main()
             self.skipped_after = (Path(tmp) / 'skipped-modules').read_text()
             return code, stages, reports, mods
 
@@ -66,6 +74,67 @@ class UpdateTests(unittest.TestCase):
             self.assertFalse(so.built_for_this_game(old, game))
             (game / 'lasgame.dylib.id').write_text('aaaa\n')
             self.assertTrue(so.built_for_this_game(old, game))
+            (game / 'lasgame.dylib.id').unlink()
+            self.assertFalse(so.built_for_this_game(old, game))
+
+    def test_cached_download_must_match_full_sha256(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / ('subsdk9-' + LATEST[:16])
+            path.write_bytes(b'x')
+            self.assertEqual(so.cached_module(tmp, LATEST), path)
+            path.write_bytes(b'y')
+            self.assertIsNone(so.cached_module(tmp, LATEST))
+
+    def test_partial_download_is_not_selected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'module'
+            path.write_bytes(fixture(compressed=True, hashes=True))
+            partial = Path(tmp) / 'newer.part'
+            partial.write_bytes(fixture(compressed=True, hashes=True))
+            readme = Path(tmp) / 'README.txt'
+            readme.write_bytes(b'instructions' * 100)
+            newest = path.stat().st_mtime + 100
+            os.utime(partial, (newest, newest))
+            os.utime(readme, (newest + 10, newest + 10))
+            self.assertEqual(so.find_module(tmp), path)
+
+    def test_skipping_after_failed_preparation_creates_parent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / 'missing' / 'versions'
+            so.skip(folder, 'deadbeef')
+            self.assertEqual((folder / 'skipped-modules').read_text(), 'deadbeef\n')
+
+    def test_malformed_helper_status_fails_closed(self):
+        from subprocess import CompletedProcess
+        with patch.object(so, 'tool', return_value=['dummy']), patch.object(so.subprocess, 'run',
+                   return_value=CompletedProcess(['dummy'], 0, 'STATUS not json\nSTATUS []\n', '')):
+            self.assertEqual(so.status_info('/tmp/nonexistent'), {})
+            self.assertIsNone(so.active_module('/tmp/nonexistent'))
+
+    def test_malformed_progress_does_not_propagate_nan_or_crash(self):
+        class FakeProcess:
+            stdout = io.StringIO('PROGRESS []\nPROGRESS {"state":"running","fraction": "NaN"}\n'
+                                 'PROGRESS {"state":"running","fraction": {}}\n'
+                                 'PROGRESS {"state":"running","fraction": 3}\n'
+                                 'PROGRESS {"state":"ready","dir":"/out"}\n')
+            def wait(self): return 0
+        values = []
+        with patch.object(so.subprocess, 'Popen', return_value=FakeProcess()), \
+                patch.object(so, 'report', side_effect=lambda fraction, *args: values.append(fraction)):
+            ok, folder, _ = so.run_stage(['dummy'], 0.2, 0.8, 'Preparing')
+        self.assertTrue(ok)
+        self.assertEqual(folder, '/out')
+        self.assertTrue(all(math.isfinite(value) and 0.2 <= value <= 0.8 for value in values))
+        self.assertEqual(values[-1], 0.8)
+
+    def test_activation_requires_successful_exit_not_progress_marker(self):
+        class FakeProcess:
+            stdout = io.StringIO('')
+            def wait(self): return 0
+        with patch.object(so.subprocess, 'Popen', return_value=FakeProcess()):
+            self.assertEqual(so.run_stage(['dummy'], 0, 1, 'Activating', False)[0], True)
+        with patch.object(so.subprocess, 'Popen', return_value=FakeProcess()):
+            self.assertEqual(so.run_stage(['dummy'], 0, 1, 'Preparing')[0], False)
 
     def module_file(self, tmp):
         path = Path(tmp) / 'subsdk9'
