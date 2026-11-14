@@ -3,6 +3,24 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
+## 0.3.1
+
+Discord status for online players, and a set of fixes.
+
+### Lumiose Online (online edition)
+- **Discord status** *(optional)*: **Settings > Show on Discord** (off until you turn it on) shows on your Discord profile that you are playing MonZaMac, through the Discord app on your Mac, with "Exploring Lumiose" and, after five minutes without input, "Relaxing in Lumiose". Nothing else is shared: no name, save or game data. Thanks to **DarthMDev** for the first version.
+- When a new version of the mod is downloaded and the online version was prepared before, the start screen says **Updating the online version** (the quick one) instead of **Preparing the online version**, which stays for a first preparation.
+- Online play does not load RomFS mods (`mods/<name>/romfs`), so the game is the same for every player. Offline play loads them as before.
+
+### Graphics
+- **Frame generation follows your display's current refresh rate**: with the screen set to a fixed 60 Hz, 60 -> 120 fps no longer stays on. On an adaptive (ProMotion) screen nothing changes.
+
+### Start screen
+- **Saves:** on a save with no progress, **Copy** and **Export** now look disabled and **Rename** and **Delete** stay available; the toolbar showed the state of the previous button. Disabled buttons are dimmer everywhere.
+
+### Safety
+- A damaged RomFS index, a broken mod patch file or a save name with a path in it can no longer read or write outside where it should; copying a save handles interrupted writes. The online setup trusts a downloaded mod from its cache only if its full checksum matches.
+
 ## 0.3.0
 
 A new look for the start screen and the settings, and the app now speaks 11 languages.
