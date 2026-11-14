@@ -336,6 +336,13 @@ static const char *cc_test(int test) {
     }
 }
 
+// A BRA's condition-code test as an extra condition; NULL when it always holds (15) or tests carry / overflow, which
+// aren't tracked (taken whenever the predicate holds, as before).
+static const char *bra_cc(uint64_t w) {
+    int test = (int)bits(w, 0, 5);
+    return test == 15 ? NULL : cc_test(test);
+}
+
 static void icmp_expr(char *out, int op, const char *a, const char *b, bool is_signed) {
     static const char *const ops[] = {"false", "<", "==", "<=", ">", "!=", ">=", "true"};
     if (op == 0) strcpy(out, "false");
@@ -1498,9 +1505,8 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
     } else if (OPM(0xe240000000000000ull, 0xfff0000000000020ull)) {  // BRA
         uint32_t target = norm_target((int64_t)pc + 8 + sbits(w, 20, 24));
         c->uses_branches = true;
-        int test = (int)bits(w, 0, 5);  // the condition-code test: taken only when it holds (15: always)
-        const char *cond = cc_test(test);  // (NULL: carry / overflow tests, not tracked: taken as before, whenever the predicate holds)
-        if (cond && test != 15) { c->uses_cc = true; sp(&c->body, "    if (%s) { pc = %uu; continue; }\n", cond, target); }
+        const char *cond = bra_cc(w);  // the condition-code test: taken only when it holds
+        if (cond) { c->uses_cc = true; sp(&c->body, "    if (%s) { pc = %uu; continue; }\n", cond, target); }
         else sp(&c->body, "    pc = %uu; continue;\n", target);
     } else if (OPM(0xe290000000000000ull, 0xfff0000000000020ull)) {  // SSY
         c->uses_branches = true;
@@ -2538,7 +2544,6 @@ static bool emit_forward_flow(Ctx *c, const uint64_t *code, size_t end,
         if (op == 0xe290000000000000ull) f[i].kind = FLOW_SSY;
         else if (op == 0xe2a0000000000000ull) f[i].kind = FLOW_PBK;
         else if (op == 0xe240000000000000ull && norm_target((int64_t)i * 8 + 8 + sbits(w, 20, 24)) / 8 == i) continue;  // BRA self: the padding after the last EXIT
-        else if (op == 0xe240000000000000ull && bits(w, 0, 5) != 15) goto done;  // a condition-code test: the dispatcher
         else if (op == 0xe240000000000000ull) f[i].kind = FLOW_BRA;
         else if (op == 0xe250000000000000ull) {
             f[i].kind = FLOW_BRX; has_brx = true;
@@ -2578,7 +2583,7 @@ static bool emit_forward_flow(Ctx *c, const uint64_t *code, size_t end,
             for (unsigned j = 0; j < f[i].njumps; j++)
                 if (!forward_edge(f, end, i, f[i].jumps[j], ssy, pbk)) goto done;
         }
-        if (f[i].kind < FLOW_SYNC || bits(code[i], 16, 4) != PT) {
+        if (f[i].kind < FLOW_SYNC || bits(code[i], 16, 4) != PT || (f[i].kind == FLOW_BRA && bra_cc(code[i]))) {
             if (f[i].kind >= FLOW_SYNC) { ssy = f[i].ssy; pbk = f[i].pbk; }
             if (!forward_edge(f, end, i, norm_target(i * 8 + 8) / 8, ssy, pbk)) goto done;
         }
@@ -2600,8 +2605,11 @@ static bool emit_forward_flow(Ctx *c, const uint64_t *code, size_t end,
         if (annotate) sp(&c->body, "    // pc %x: %016llx\n", pc, (unsigned long long)w);
         if (f[i].kind == FLOW_LINEAR) emit_insn(c, w, pc);
         else if (f[i].kind >= FLOW_SYNC) {
-            bool predicated = bits(w, 16, 4) != PT;
-            if (predicated) sp(&c->body, "    if (%s) {\n", P((int)bits(w, 16, 3), bits(w, 19, 1)));
+            const char *cc = f[i].kind == FLOW_BRA ? bra_cc(w) : NULL;  // (the flags are function locals: live across blocks)
+            bool predicated = bits(w, 16, 4) != PT || cc;
+            if (cc) c->uses_cc = true;
+            if (predicated && !cc) sp(&c->body, "    if (%s) {\n", P((int)bits(w, 16, 3), bits(w, 19, 1)));
+            else if (predicated) sp(&c->body, "    if (%s && %s) {\n", P((int)bits(w, 16, 3), bits(w, 19, 1)), cc);
             if (f[i].kind == FLOW_BRX) {
                 sp(&c->body, "    { uint t = %uu + %s + 0x%08xu; if (((t >> 3) & 3u) == 0u) t += 8u;\n    switch (t) {\n",
                    pc + 8, R((int)bits(w, 8, 8)), (uint32_t)sbits(w, 20, 24));
