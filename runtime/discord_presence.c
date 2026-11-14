@@ -28,7 +28,7 @@ typedef int connection;
 
 // The Application ID of MonZaMac's own Discord application (public; set at build time or here). Empty: no presence.
 #ifndef DISCORD_CLIENT_ID
-#define DISCORD_CLIENT_ID ""
+#define DISCORD_CLIENT_ID "1571088466094325770"
 #endif
 #define CLIENT_ID DISCORD_CLIENT_ID
 #ifndef DISCORD_IDLE_MS
