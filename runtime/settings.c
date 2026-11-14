@@ -186,6 +186,7 @@ void settings_load(void) {
             for (int i = 0; i < 4; i++) if (!strcmp(val, names[i])) g_settings.mouse_camera_button = i;
         }
         else if (!strcmp(key, "trackpad_camera")) g_settings.trackpad_camera = atoi(val) != 0;
+        else if (!strcmp(key, "discord_presence")) g_settings.discord_presence = atoi(val) != 0;
         else if (!strcmp(key, "cursor_hide_after")) { int v = atoi(val); g_settings.cursor_hide_s = v < 0 ? 0 : v > 60 ? 60 : v; }
         else if (!strcmp(key, "invert_mouse_x")) g_settings.invert_mouse_x = atoi(val) != 0;
         else if (!strcmp(key, "invert_mouse_y")) g_settings.invert_mouse_y = atoi(val) != 0;
@@ -265,6 +266,7 @@ void settings_save(void) {
     fprintf(f, "dpad_move = %d\n", g_settings.dpad_move);
     fprintf(f, "mouse_speed = %g\ncursor_hide_after = %d\n", g_settings.mouse_speed, g_settings.cursor_hide_s);
     fprintf(f, "rstick_snap = %d\n", g_settings.rstick_snap);
+    fprintf(f, "discord_presence = %d\n", g_settings.discord_presence);
     static const char *const mouse_cam[] = {"off", "hold", "always"}, *const mouse_btn[] = {"right", "left", "middle", "any"};
     fprintf(f, "mouse_camera = %s\nmouse_camera_button = %s\ntrackpad_camera = %d\ninvert_mouse_x = %d\ninvert_mouse_y = %d\n",
             mouse_cam[g_settings.mouse_camera >= 0 && g_settings.mouse_camera <= 2 ? g_settings.mouse_camera : 1],
