@@ -155,8 +155,10 @@ reason in `~/Library/Logs/DiagnosticReports/MTLCompilerService-*.ips` (the JSON 
 `cannot select: ...`; the frames show the compiler pass). To find the construct that triggers it, take the program's MSL
 (`LARECOMP_SAVE_MSL=1`) and compile edited copies with `LARECOMP_FS_OVERRIDE_HASH=<fnv64 of the saved MSL>:<file>`
 (the hash is of the annotated text, so keep `LARECOMP_SAVE_MSL=1` set when overriding): remove one construct per copy
-until the failure goes away. Known case: the facing flag converted to float inside the structured flow of a program
-without BRX (the translator keeps the dispatcher for those).
+until the failure goes away. Whether it fails depends on the pipeline, not only on the source: try the program with the
+render target formats of the failing pipeline. Known case: a structured program that reads the facing flag and writes a
+value the compiler has folded to a choice between constants to an RG11B10 target. The translator XORs the outputs of
+those programs with a zero the compiler cannot fold (`fz_`), which keeps the values and avoids the fold.
 
 ## First-run setup in the packaged app
 

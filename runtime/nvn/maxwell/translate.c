@@ -398,7 +398,7 @@ static void attr_load(Ctx *c, int dst, uint32_t addr, const char *idx) {
                     sprintf(e, "as_type<uint>(in.v%d[%d] * in.pos.w * as_type<float>(%s))", a, comp, reg(c, c->ipa_mul, mb));
                 } else sprintf(e, "as_type<uint>(in.v%d[%d])", a, comp);
             }
-        } else if (addr == 0x3FC) { c->uses_front_facing = true; strcpy(e, "(front_facing ? 0xFFFFFFFFu : 0u)"); }
+        } else if (addr == 0x3FC) { c->uses_front_facing = true; strcpy(e, "ff_"); }
         else if (addr == 0x2E0 || addr == 0x2E4) { sprintf(e, "as_type<uint>(point_coord[%d])", (addr >> 2) & 1); }
         else if (addr == 0x64) { c->uses_layer = true; strcpy(e, "rt_layer"); }  // the render target layer drawn to
         else { sprintf(e, "0u /* attr %#x */", addr); }
@@ -2533,7 +2533,7 @@ static bool emit_forward_flow(Ctx *c, const uint64_t *code, size_t end,
     if (c->glsl || (enabled && !atoi(enabled)) || !constants || !constants_size || end < 2) return false;
     ForwardFlow *f = calloc(end + 2, sizeof *f);
     if (!f) return false;
-    bool ok = false, has_brx = false;
+    bool ok = false;
     for (size_t i = 1; i < end; i++) {
         if (!(i % 4)) continue;
         uint64_t w = code[i], op = w & 0xfff0000000000000ull;
@@ -2547,7 +2547,7 @@ static bool emit_forward_flow(Ctx *c, const uint64_t *code, size_t end,
         else if (op == 0xe240000000000000ull) f[i].kind = FLOW_BRA;
         else if (op == 0xe250000000000000ull) {
             if (c->stage == STAGE_VERTEX) goto done;  // (jump tables in vertex programs: not checked on the GPU, the dispatcher)
-            f[i].kind = FLOW_BRX; has_brx = true;
+            f[i].kind = FLOW_BRX;
             if (!forward_table(f, code, end, i, constants, constants_size)) goto done;
         } else if ((w & 0xfff8000000000000ull) == 0xf0f8000000000000ull) f[i].kind = FLOW_SYNC;
         else if (op == 0xe340000000000000ull) f[i].kind = FLOW_BRK;
@@ -2589,7 +2589,6 @@ static bool emit_forward_flow(Ctx *c, const uint64_t *code, size_t end,
             if (!forward_edge(f, end, i, norm_target(i * 8 + 8) / 8, ssy, pbk)) goto done;
         }
     }
-    size_t body0 = c->body.len, insts0 = c->info->num_insts;
     c->branchy = false;
     sp(&c->body, "  bool flow_live = true;\n");
     for (size_t i = 1; i < end; i++) if (f[i].seen && f[i].entry)
@@ -2625,12 +2624,6 @@ static bool emit_forward_flow(Ctx *c, const uint64_t *code, size_t end,
         c->info->num_insts++;
     }
     if (open) sp(&c->body, "  }\n");
-    // Metal's GPU compiler aborts ("cannot select") on the facing flag converted to float in this flow without BRX
-    // (it works under the dispatcher); shaders that read it keep the dispatcher.
-    if (!has_brx && c->uses_front_facing) {
-        c->body.len = body0; c->body.buf[body0] = 0; c->info->num_insts = insts0; c->branchy = true;
-        goto done;
-    }
     c->info->structured_flow = true;
     ok = true;
 done:
@@ -2941,6 +2934,7 @@ static ShaderInfo *glsl_finish(Ctx *c, bool any_branch, bool dbg) {
         if (c->reg_used[i]) sp(&s, "  uint r%d = 0u;\n", i);
     for (int i = 0; i < 7; i++)
         if (c->pred_used[i]) sp(&s, "  bool p%d = false;\n", i);
+    if (c->uses_front_facing) sp(&s, "  uint ff_ = gl_FrontFacing ? 0xFFFFFFFFu : 0u;\n");
     if (c->uses_cc) sp(&s, "  uint cc = 0u; bool ccz = false, ccs = false;\n");
     if (c->uses_local) sp(&s, "  uint lmem[%d]; for (int li_ = 0; li_ < %d; li_++) lmem[li_] = 0u;\n", LMEM_WORDS, LMEM_WORDS);
     if (dbg) sp(&s, maxwell_dbg_pc == 0xffffffffu ? "  float dbgv = 1.0f;\n" : "  float dbgv = -1.0f;\n");
@@ -3342,6 +3336,7 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
         if (c->rsc_track[i]) sp(&s, "  float2 rp%d = float2(0.5f);\n", i);
     for (int i = 0; i < 7; i++)
         if (c->pred_used[i]) sp(&s, "  bool p%d = false;\n", i);
+    if (c->uses_front_facing) sp(&s, "  uint ff_ = front_facing ? 0xFFFFFFFFu : 0u;\n");  // (read once: see emit_forward_flow)
     if (c->uses_cc) sp(&s, "  uint cc = 0; bool ccz = false, ccs = false;\n");
     if (c->uses_local) sp(&s, "  uint lmem[%d] = {};\n", LMEM_WORDS);
     if (dbg) sp(&s, maxwell_dbg_pc == 0xffffffffu ? "  float dbgv = 1.0f;\n" : "  float dbgv = -1.0f;\n");
@@ -3390,6 +3385,11 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
         sp(&s, key && key->xfb_void ? "  return;\n}\n" : "  return out;\n}\n");
     } else if (stage == STAGE_FRAGMENT) {
         sp(&s, "  FOut o;\n");
+        // Metal's GPU compiler aborts ("cannot select") when a structured program that reads the facing flag writes a
+        // value it has folded to a choice between constants to an RG11B10 target. A zero it cannot fold (no fragment
+        // is left of x = -1) XORed into each output keeps the value and avoids the fold.
+        bool opaque = c->info->structured_flow && c->uses_front_facing && !dbg;
+        if (opaque) sp(&s, "  uint fz_ = uint(in.pos.x < -1.0f);\n");
         int r = 0;
         for (int rt = 0; rt < 8; rt++) {
             uint32_t m = (c->omap_target >> (rt * 4)) & 0xF;
@@ -3400,7 +3400,7 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
                 if (dbg) {
                     sp(&s, comp == 3 ? "  o.c%d[%d] = 1.0f;\n" : "  o.c%d[%d] = dbgv;\n", rt, comp);
                 } else if (r < 256 && c->reg_used[r]) {
-                    if (kind == 0) sp(&s, "  o.c%d[%d] = as_type<float>(r%d);\n", rt, comp, r);
+                    if (kind == 0) sp(&s, opaque ? "  o.c%d[%d] = as_type<float>(r%d ^ fz_);\n" : "  o.c%d[%d] = as_type<float>(r%d);\n", rt, comp, r);
                     else sp(&s, "  o.c%d[%d] = r%d;\n", rt, comp, r);
                 } else {
                     sp(&s, "  o.c%d[%d] = 0;\n", rt, comp);
