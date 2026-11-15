@@ -17,6 +17,7 @@
 30 fps: as on the Switch.\n60 fps: smoother motion, with the world step adapting to the time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU.\n\nFrame generation selects its own source rate; turning it off restores your choice here.	30 fps: as on the Switch.\n60 fps: smoother motion, with the world step adapting to the time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU.\n\nFrame generation selects its own source rate; turning it off restores your choice here.
 60 fps	60 fps
 A  type      B  delete      Start / +  OK      (%d / %d)	A  type      B  delete      Start / +  OK      (%d / %d)
+A .nup container packed from your own dump: base game, update and DLC, already decrypted. No prod.keys needed.	A .nup container packed from your own dump: base game, update and DLC, already decrypted. No prod.keys needed.
 A .zip exported from MonZaMac, or a folder with a Z-A save (a JKSV backup, a copy from a console). It becomes a new save: yours stay as they are.	A .zip exported from MonZaMac, or a folder with a Z-A save (a JKSV backup, a copy from a console). It becomes a new save: yours stay as they are.
 A .zip of this save: keep it, or import it on another Mac.	A .zip of this save: keep it, or import it on another Mac.
 A right stick (or mouse camera) pointed within this many degrees of up, down, left or right is held exactly on that direction. 0: off.	A right stick (or mouse camera) pointed within this many degrees of up, down, left or right is held exactly on that direction. 0: off.
@@ -331,7 +332,6 @@ Off	Off
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.
 Offline play	Offline play
 On	On
-One unencrypted container with the base game, update and DLC. No prod.keys needed.	One unencrypted container with the base game, update and DLC. No prod.keys needed.
 Online play	Online play
 Online play (Lumiose Online)	Online play (Lumiose Online)
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).

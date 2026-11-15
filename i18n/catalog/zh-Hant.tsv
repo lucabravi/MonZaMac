@@ -17,6 +17,7 @@
 30 fps: as on the Switch.\n60 fps: smoother motion, with the world step adapting to the time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU.\n\nFrame generation selects its own source rate; turning it off restores your choice here.	30 fps：與 Switch 相同。\n60 fps：動作更流暢，遊戲世界的步進會隨每幀耗時調整，直到 30 fps 都能維持遊戲速度穩定。需要更快的 CPU。\n\n幀生成會自行選擇來源幀率；關閉後將恢復你在此的選擇。
 60 fps	60 FPS
 A  type      B  delete      Start / +  OK      (%d / %d)	A 輸入   B 刪除   Start / + 確認   (%d / %d)
+A .nup container packed from your own dump: base game, update and DLC, already decrypted. No prod.keys needed.	由你自己的傾印製作的 .nup 容器：基礎遊戲、更新和 DLC，皆已解密。不需要 prod.keys。
 A .zip exported from MonZaMac, or a folder with a Z-A save (a JKSV backup, a copy from a console). It becomes a new save: yours stay as they are.	匯入 MonZaMac 匯出的 .zip，或包含 Z-A 存檔的資料夾（JKSV 備份或主機複本）。會新增存檔，不會修改現有存檔。
 A .zip of this save: keep it, or import it on another Mac.	此存檔的 .zip 壓縮檔，可保留或匯入另一台 Mac。
 A right stick (or mouse camera) pointed within this many degrees of up, down, left or right is held exactly on that direction. 0: off.	右搖桿（或滑鼠鏡頭）指向上、下、左、右方向的偏差在此角度內時，會被精確鎖定在該方向。0：關閉。
@@ -331,7 +332,6 @@ Off	關
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	官方著色器配方目錄：%s.%s 不會上傳遊戲資料。著色器會於啟動或註冊時編譯。
 Offline play	離線遊玩
 On	開
-One unencrypted container with the base game, update and DLC. No prod.keys needed.	一個包含基礎遊戲、更新和 DLC 的未加密容器。不需要 prod.keys。
 Online play	線上遊玩
 Online play (Lumiose Online)	線上遊玩（Lumiose Online）
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	線上時，遊戲內會顯示游標（Lumiose 介面需用它點擊）：滑鼠在此時間內未移動或點擊時會隱藏，一有操作便立即重新顯示（雙指拖曳不計入）。

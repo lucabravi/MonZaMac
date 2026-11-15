@@ -17,6 +17,7 @@
 30 fps: as on the Switch.\n60 fps: smoother motion, with the world step adapting to the time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU.\n\nFrame generation selects its own source rate; turning it off restores your choice here.	30 fps: как на Switch.\n60 fps: более плавное движение; шаг мира подстраивается под время каждого кадра, сохраняя скорость игры стабильной вплоть до 30 fps. Нужен более быстрый процессор.\n\nГенерация кадров сама выбирает исходную частоту; при её отключении возвращается ваш выбор.
 60 fps	60 FPS
 A  type      B  delete      Start / +  OK      (%d / %d)	A ввод   B удалить   Start / + ОК   (%d / %d)
+A .nup container packed from your own dump: base game, update and DLC, already decrypted. No prod.keys needed.	Контейнер .nup, созданный из вашего собственного дампа: базовая игра, обновление и DLC, уже расшифрованы. prod.keys не нужен.
 A .zip exported from MonZaMac, or a folder with a Z-A save (a JKSV backup, a copy from a console). It becomes a new save: yours stay as they are.	Импортируйте .zip из MonZaMac или папку с сохранением Z-A (резервная копия JKSV либо копия с консоли). Будет создано новое сохранение, существующие не изменятся.
 A .zip of this save: keep it, or import it on another Mac.	ZIP-архив этого сохранения: храните его или импортируйте на другой Mac.
 A right stick (or mouse camera) pointed within this many degrees of up, down, left or right is held exactly on that direction. 0: off.	Правый стик (или камера мышью), направленный в пределах этого числа градусов от верха, низа, лева или права, фиксируется точно на этом направлении. 0: выключено.
@@ -331,7 +332,6 @@ Off	Выкл.
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	Официальный каталог рецептов шейдеров: %s.%s Игровые данные не загружаются. Компиляция выполняется при запуске игры или регистрации шейдеров.
 Offline play	Игра без сети
 On	Вкл.
-One unencrypted container with the base game, update and DLC. No prod.keys needed.	Один незашифрованный контейнер с базовой игрой, обновлением и DLC. prod.keys не нужен.
 Online play	Игра онлайн
 Online play (Lumiose Online)	Онлайн-игра (Lumiose Online)
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	Онлайн, где в игре виден курсор (интерфейс Lumiose управляется щелчками): он скрывается, если мышь не двигалась и не нажималась столько времени, и сразу возвращается при действии (перетаскивание двумя пальцами не считается).

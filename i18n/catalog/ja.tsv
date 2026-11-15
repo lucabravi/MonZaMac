@@ -17,6 +17,7 @@
 30 fps: as on the Switch.\n60 fps: smoother motion, with the world step adapting to the time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU.\n\nFrame generation selects its own source rate; turning it off restores your choice here.	30 fps：Switchと同じです。\n60 fps：動きがより滑らかになり、1フレームにかかる時間に合わせてゲーム内の時間を進め、30 fpsまでゲームの速度を一定に保ちます。高速なCPUが必要です。\n\nフレーム生成は元のフレームレートを自動で選びます。オフにするとここでの選択に戻ります。
 60 fps	60 FPS
 A  type      B  delete      Start / +  OK      (%d / %d)	A 入力   B 削除   Start / + 決定   (%d / %d)
+A .nup container packed from your own dump: base game, update and DLC, already decrypted. No prod.keys needed.	自分のダンプから作成した.nupコンテナ：ベース、アップデート、DLCが復号済みで入っています。prod.keysは不要です。
 A .zip exported from MonZaMac, or a folder with a Z-A save (a JKSV backup, a copy from a console). It becomes a new save: yours stay as they are.	MonZaMacから出力した.zip、またはZ-Aのセーブを含むフォルダー（JKSVバックアップや本体からのコピー）を読み込みます。既存のセーブは変更せず、新しいセーブとして追加します。
 A .zip of this save: keep it, or import it on another Mac.	このセーブの.zipアーカイブです。保管したり、別のMacにインポートしたりできます。
 A right stick (or mouse camera) pointed within this many degrees of up, down, left or right is held exactly on that direction. 0: off.	右スティック（またはマウスカメラ）が上・下・左・右からこの角度以内にあるとき、その方向にぴったり固定されます。0：オフ。
@@ -331,7 +332,6 @@ Off	オフ
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	公式シェーダーレシピカタログ：%s.%s ゲームデータはアップロードされません。コンパイルは起動時またはシェーダー登録時に実行されます。
 Offline play	オフラインプレイ
 On	オン
-One unencrypted container with the base game, update and DLC. No prod.keys needed.	ベース、アップデート、DLCを含む暗号化されていない1つのコンテナ。prod.keysは不要です。
 Online play	オンラインプレイ
 Online play (Lumiose Online)	オンラインプレイ（Lumiose Online）
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	オンラインでゲーム内にカーソルが表示されるとき（Lumioseの画面はカーソルでクリックして操作します）：マウスの移動やクリックがこの時間ない場合は非表示になり、操作するとすぐに再表示されます（2本指のドラッグは含まれません）。

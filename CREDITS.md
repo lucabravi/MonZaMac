@@ -57,7 +57,11 @@ Thanks also to everyone who reports issues and tests builds; your logs and scree
 - The helper bundles CPython (PSF License),
   [Capstone](https://www.capstone-engine.org) (BSD 3-clause; disassembly), [Unicorn](https://www.unicorn-engine.org)
   (GPL 2.0; Python bindings BSD; runs small pieces of code to resolve jump tables) and
-  [python-lz4](https://github.com/python-lz4/python-lz4) (BSD 3-clause, with the LZ4 library: BSD 2-clause)
+  [python-lz4](https://github.com/python-lz4/python-lz4) (BSD 3-clause, with the LZ4 library: BSD 2-clause) and
+  [python-zstandard](https://github.com/indygreg/python-zstandard) (BSD 3-clause, with the Zstandard library: BSD 3-clause;
+  reads compressed files of a `.nup` container)
+- [NUP](https://github.com/a55uka/nup) by a55uka - the container format the `.nup` import reads (specification: MIT;
+  the reader in `tools/nup.py` is this project's own)
 - [envytools](https://github.com/envytools/envytools) - NVIDIA GPU documentation used for the shader translator
 - **Dusklight** by the TwilitRealm team (https://github.com/TwilitRealm/dusklight) - design inspiration for the start
   screen (Play / Settings / Game Files layout)
@@ -93,6 +97,7 @@ code only - it grants nothing for Nintendo's game, which you must supply yoursel
 | Capstone (game code generator) | 5.0.9 | BSD 3-clause | https://pypi.org/project/capstone/5.0.9/ |
 | Unicorn (game code generator) | 2.1.4 | GPL 2.0 (Python bindings: BSD) | https://pypi.org/project/unicorn/2.1.4/, https://github.com/unicorn-engine/unicorn |
 | python-lz4 (game code generator; includes LZ4) | 4.4.5 | BSD 3-clause; LZ4: BSD 2-clause | https://pypi.org/project/lz4/4.4.5/ |
+| python-zstandard (.nup import; includes Zstandard) | 0.25.0 | BSD 3-clause | https://pypi.org/project/zstandard/0.25.0/ |
 | FFmpeg (LGPL configuration) | 9.0.2 | LGPL 2.1+ | https://ffmpeg.org/releases/ |
 | SDL 3 | 3.4.18 | zlib | https://github.com/libsdl-org/SDL/releases/tag/release-3.4.18 |
 | Baloo 2 font (SemiBold) | 1.640 | SIL OFL 1.1 | https://github.com/EkType/Baloo2 |

@@ -17,6 +17,7 @@
 30 fps: as on the Switch.\n60 fps: smoother motion, with the world step adapting to the time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU.\n\nFrame generation selects its own source rate; turning it off restores your choice here.	30 fps: como no Switch.\n60 fps: movimento mais fluido, com o passo do mundo se adaptando ao tempo de cada quadro para manter a velocidade do jogo estável até 30 fps. Exige uma CPU mais rápida.\n\nA geração de quadros escolhe a própria taxa de origem; ao desativá-la, sua escolha volta.
 60 fps	60 FPS
 A  type      B  delete      Start / +  OK      (%d / %d)	A  digitar      B  apagar      Start / +  OK      (%d / %d)
+A .nup container packed from your own dump: base game, update and DLC, already decrypted. No prod.keys needed.	Um contêiner .nup criado a partir do seu próprio dump: jogo base, atualização e DLC, já descriptografados. Não precisa de prod.keys.
 A .zip exported from MonZaMac, or a folder with a Z-A save (a JKSV backup, a copy from a console). It becomes a new save: yours stay as they are.	Importe um .zip exportado pelo MonZaMac ou uma pasta com salvamento de Z-A (backup JKSV ou cópia do console). Um novo salvamento será criado sem alterar os existentes.
 A .zip of this save: keep it, or import it on another Mac.	Arquivo .zip deste salvamento: guarde-o ou importe-o em outro Mac.
 A right stick (or mouse camera) pointed within this many degrees of up, down, left or right is held exactly on that direction. 0: off.	Um analógico direito (ou a câmera do mouse) apontado dentro desta quantidade de graus de cima, baixo, esquerda ou direita é fixado exatamente nessa direção. 0: desativado.
@@ -331,7 +332,6 @@ Off	Desativado
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	Catálogo oficial de receitas de shaders: %s.%s Nenhum dado do jogo é enviado. A compilação ocorre na inicialização ou ao registrar shaders.
 Offline play	Jogo offline
 On	Ativado
-One unencrypted container with the base game, update and DLC. No prod.keys needed.	Um único contêiner não criptografado com jogo base, atualização e DLC. Não precisa de prod.keys.
 Online play	Jogo online
 Online play (Lumiose Online)	Jogo online (Lumiose Online)
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	Online, onde o cursor aparece no jogo (a interface do Lumiose é clicada com ele): ele some quando o mouse não se move nem clica por esse tempo e volta assim que isso acontece (arrastar com dois dedos não conta).

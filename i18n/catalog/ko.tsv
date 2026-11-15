@@ -17,6 +17,7 @@
 30 fps: as on the Switch.\n60 fps: smoother motion, with the world step adapting to the time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU.\n\nFrame generation selects its own source rate; turning it off restores your choice here.	30 fps: Switch와 같습니다.\n60 fps: 더 부드러운 움직임으로, 프레임마다 걸리는 시간에 맞춰 게임 내 시간 단위를 조정해 30 fps까지 게임 속도를 일정하게 유지합니다. 더 빠른 CPU가 필요합니다.\n\n프레임 생성은 원본 프레임 속도를 스스로 정합니다. 끄면 여기서 고른 값으로 돌아갑니다.
 60 fps	60 FPS
 A  type      B  delete      Start / +  OK      (%d / %d)	A 입력   B 삭제   Start / + 확인   (%d / %d)
+A .nup container packed from your own dump: base game, update and DLC, already decrypted. No prod.keys needed.	직접 덤프한 파일로 만든 .nup 컨테이너: 기본 게임, 업데이트, DLC가 이미 복호화되어 있습니다. prod.keys가 필요 없습니다.
 A .zip exported from MonZaMac, or a folder with a Z-A save (a JKSV backup, a copy from a console). It becomes a new save: yours stay as they are.	MonZaMac에서 내보낸 .zip 또는 Z-A 저장 데이터가 있는 폴더(JKSV 백업이나 콘솔 복사본)를 가져옵니다. 기존 저장 데이터는 유지되고 새 저장 데이터가 추가됩니다.
 A .zip of this save: keep it, or import it on another Mac.	이 저장 데이터의 .zip 파일입니다. 보관하거나 다른 Mac으로 가져올 수 있습니다.
 A right stick (or mouse camera) pointed within this many degrees of up, down, left or right is held exactly on that direction. 0: off.	오른쪽 스틱(또는 마우스 카메라)이 위, 아래, 왼쪽, 오른쪽에서 이 각도 이내를 가리키면 정확히 그 방향으로 고정됩니다. 0: 끔.
@@ -331,7 +332,6 @@ Off	꺼짐
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	공식 셰이더 레시피 카탈로그: %s.%s 게임 데이터는 업로드되지 않습니다. 컴파일은 게임 시작 또는 셰이더 등록 시 실행됩니다.
 Offline play	오프라인 플레이
 On	켜짐
-One unencrypted container with the base game, update and DLC. No prod.keys needed.	기본 게임, 업데이트, DLC가 들어 있는 암호화되지 않은 컨테이너 하나. prod.keys가 필요 없습니다.
 Online play	온라인 플레이
 Online play (Lumiose Online)	온라인 플레이 (Lumiose Online)
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	온라인에서 게임 안에 커서가 표시될 때(Lumiose 화면은 커서로 클릭해 조작합니다): 이 시간 동안 마우스를 움직이거나 클릭하지 않으면 숨겨지고, 조작하면 바로 다시 나타납니다(두 손가락 드래그는 해당되지 않습니다).

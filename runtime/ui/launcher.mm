@@ -2427,7 +2427,7 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
                         static SDL_DialogFileFilter nf[] = {{"Switch 2 Edition package", "nup"}, {"All files", "*"}};
                         nf[0].name = ui_tr("Switch 2 Edition package"); nf[1].name = ui_tr("All files");
                         if (busy) opt_disable_next();
-                        std::string detail = ui_tr("One unencrypted container with the base game, update and DLC. "
+                        std::string detail = ui_tr("A .nup container packed from your own dump: base game, update and DLC, already decrypted. "
                                                    "No prod.keys needed.");
                         if (!base.empty()) detail += std::string("\n\n") + ui_tr("Chosen: ") + display_path(base);
                         bool chosen = opt_action("Switch 2 Edition .nup", base.empty() ? "Choose..." : "Selected",
