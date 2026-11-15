@@ -15,6 +15,7 @@
 #include "saves.h"
 #include "hle.h"
 #include "kernel.h"
+#include "game_profile.h"
 
 const char *g_romfs_dir;
 
@@ -223,7 +224,7 @@ int main(int argc, char **argv) {
         const char *want = getenv("LARECOMP_PLAY_SAVE");  // (the start screen restarting the game for online play: the save chosen there)
         if (want && *want) saves_select(want);
     }
-    {   // Pokémon Legends Z-A (exefs/main build 7222e13ecf6adb32: 1.0.0, 8a1c86c437394b69: 2.0.0, b1f12fd919eae86a: 2.0.2): the start screen would ask for
+    {   // Known game builds: the start screen would ask for
         // game files it doesn't use - straight into the game, as with --play. Started without a log redirect (a
         // double click): the log goes to logs/play.log (the previous one: logs/play-anterior.log).
         static const uint8_t za_build[][8] = {{0x72, 0x22, 0xe1, 0x3e, 0xcf, 0x6a, 0xdb, 0x32},
@@ -234,7 +235,11 @@ int main(int argc, char **argv) {
         snprintf(mp, sizeof mp, "%s/exefs/main", root);
         FILE *f = fopen(mp, "rb");
         if (f) { fseek(f, 0x40, SEEK_SET); if (fread(id, 1, 8, f) != 8) memset(id, 0, 8); fclose(f); }
-        if (!memcmp(id, za_build[0], 8) || !memcmp(id, za_build[1], 8) || !memcmp(id, za_build[2], 8)) {
+        char npdm[1100];
+        snprintf(npdm, sizeof npdm, "%s/exefs/main.npdm", root);
+        uint64_t program_id = game_program_id_from_npdm(npdm);
+        if (game_program_id_supported(program_id) ||
+            !memcmp(id, za_build[0], 8) || !memcmp(id, za_build[1], 8) || !memcmp(id, za_build[2], 8)) {
             skip_launcher = true;
             g_saves_first = !explicit_skip;  // (the start screen opens, with its CONTINUE: runtime/ui/saves_ui.mm)
 #ifdef _WIN32

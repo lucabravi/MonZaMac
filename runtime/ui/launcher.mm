@@ -48,6 +48,7 @@ extern "C" {
 #endif
 #include "gameimport.h"
 #include "gamelib.h"
+#include "game_profile.h"
 extern "C" void input_mouse_release(SDL_Window *w);  // runtime/hle/input.c
 #include "romfs_build.h"
 #include "settings.h"
@@ -96,7 +97,9 @@ static void save_png(id<MTLTexture> tex, const char *path) {
 }
 #endif
 
-static const uint8_t BUILD_ID[8] = {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a};  // Pokémon Legends: Z-A v2.0.2 main
+// A build ID is intentionally not pinned here: Sword and Shield have multiple updates. The NPDM
+// program ID selects the supported title family; ZA-specific patches still check their own build IDs.
+static const uint8_t BUILD_ID[8] = {0};
 // The release tag this build is (also names the release files; Makefile / tools/bundle_macos.sh / make_dmg.sh read
 // it): v<major>.<minor>.<patch>, 0.x until 1.0.
 #define LARECOMP_VERSION "v0.3.1"
@@ -185,6 +188,7 @@ static bool file_exists(const std::string &p) {
     struct stat st;
     return stat(p.c_str(), &st) == 0;
 }
+static bool is_dir(const std::string &p);
 
 // The copied game files alone ("" = there), without the game code built from them
 static std::string check_copied_files(const std::string &root) {
@@ -194,10 +198,11 @@ static std::string check_copied_files(const std::string &root) {
     fseek(f, 0x40, SEEK_SET);
     size_t n = fread(id, 1, 8, f);
     fclose(f);
-    if (n != 8 || memcmp(id, BUILD_ID, 8)) return "Wrong game version (needs v2.0.2)";
+    uint64_t program_id = game_program_id_from_npdm((root + "/exefs/main.npdm").c_str());
+    if (n != 8 || !game_program_id_supported(program_id)) return "Unsupported Pokémon game";
     for (const char *name : {"main.npdm", "rtld", "sdk"})
         if (!file_exists(root + "/exefs/" + name)) return "Game code files missing";
-    if (!file_exists(root + "/romfs/arc/data.trpfd") || !file_exists(root + "/romfs.bin")) return "Game data missing";
+    if (!is_dir(root + "/romfs") || !file_exists(root + "/romfs.bin")) return "Game data missing";
     return "";
 }
 
@@ -529,7 +534,7 @@ static void set_failure(int k) {
         "Choose the folder that holds the game files.",
         "Choose the folder that holds the game files.",
         "Make sure there's about 12 GB free and try again.",
-        "MonZaMac needs version 2.0.2 of Pokémon Legends: Z-A.",
+        "MonZaMac needs a supported Pokémon Legends: Z-A, Sword or Shield game.",
         "Some files are missing. Choose the folder again; if it happens again, copy your extracted game files again.",
         "Make sure there's about 2 GB free and try again. If it keeps happening, report it on GitHub."};
     if (k >= 1 && k <= 6) set_job(head[k], true, hint[k]);
@@ -545,12 +550,19 @@ static bool is_dir(const std::string &p) {
     return stat(p.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
 }
 
-// exefs: the folder with main and main.npdm; romfs: the folder with arc/data.trpfd (Z-A's pack index). Found
+// exefs: the folder with main and main.npdm; romfs: the extracted RomFS root. Found
 // in the picked folder or a few levels below it (some folder layouts nest them).
 static void find_game(const std::string &dir, int depth, std::string &exefs, std::string &romfs, bool &unusable) {
     if (depth > 4 || (!exefs.empty() && !romfs.empty())) return;
     if (exefs.empty() && file_exists(dir + "/main") && file_exists(dir + "/main.npdm")) exefs = dir;
-    if (romfs.empty() && file_exists(dir + "/arc/data.trpfd")) romfs = dir;
+    if (romfs.empty() && (dir.size() >= 5 && dir.substr(dir.size() - 5) == "/romfs")) {
+        DIR *r = opendir(dir.c_str());
+        if (r) {
+            while (struct dirent *e = readdir(r))
+                if (e->d_name[0] != '.') { romfs = dir; break; }
+            closedir(r);
+        }
+    }
     DIR *d = opendir(dir.c_str());
     if (!d) return;
     std::vector<std::string> sub;
@@ -568,13 +580,10 @@ static void find_game(const std::string &dir, int depth, std::string &exefs, std
 }
 
 static bool build_id_ok(const std::string &main_path) {
-    FILE *f = fopen(main_path.c_str(), "rb");
-    if (!f) return false;
-    uint8_t id[8] = {0};
-    fseek(f, 0x40, SEEK_SET);
-    size_t n = fread(id, 1, 8, f);
-    fclose(f);
-    return n == 8 && !memcmp(id, BUILD_ID, 8);
+    size_t slash = main_path.rfind('/');
+    std::string exefs = slash == std::string::npos ? "" : main_path.substr(0, slash);
+    uint64_t id = game_program_id_from_npdm((exefs + "/main.npdm").c_str());
+    return game_program_id_supported(id);
 }
 
 // progress (the overlay's bar): the romfs copy, then the image build - each about the size of romfs/
@@ -2125,13 +2134,23 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
                 {   // the columns, centered between the header and the bar: offline, and with LUMIOSE_ONLINE Lumiose Online beside it
                     float pad = 24 * s, ch = g_bar_y - g_hdr_h - 2 * pad, top = g_hdr_h + pad;
 #ifdef LUMIOSE_ONLINE
-                    float gap = 28 * s, cw = ds.x - 2 * pad - 20 * s, lw = (cw - gap) * 0.6f, x0 = (ds.x - cw) * 0.5f;
-                    int col = saves_home_draw(g_font_small, ready, !ready || busy, !g_play_focused, false, x0, top, lw, ch);
-                    if (col) act = col;
-                    OnlineView ov;
-                    online_view(status, busy, &ov);
-                    if (saves_online_draw(g_font_small, BANNER_TEXID, g_banner_h ? 1400.0f / g_banner_h : 0, ov, x0 + lw + gap, top, cw - lw - gap, ch)) online_click();
-                    online_consent_popup(s);
+                    GameKind kind = game_kind_from_program_id(
+                        game_program_id_from_npdm((g_root + "/exefs/main.npdm").c_str()));
+                    if (kind == GAME_ZA) {
+                        float gap = 28 * s, cw = ds.x - 2 * pad - 20 * s, lw = (cw - gap) * 0.6f, x0 = (ds.x - cw) * 0.5f;
+                        int col = saves_home_draw(g_font_small, ready, !ready || busy, !g_play_focused, false, x0, top, lw, ch);
+                        if (col) act = col;
+                        OnlineView ov;
+                        online_view(status, busy, &ov);
+                        if (saves_online_draw(g_font_small, BANNER_TEXID, g_banner_h ? 1400.0f / g_banner_h : 0, ov,
+                                              x0 + lw + gap, top, cw - lw - gap, ch)) online_click();
+                        online_consent_popup(s);
+                    } else {
+                        float cw = fminf(ds.x - 2 * pad, 835 * s);
+                        int col = saves_home_draw(g_font_small, ready, !ready || busy, !g_play_focused, true,
+                                                  (ds.x - cw) * 0.5f, top, cw, ch);
+                        if (col) act = col;
+                    }
 #else
                     float cw = fminf(ds.x - 2 * pad, 835 * s);
                     int col = saves_home_draw(g_font_small, ready, !ready || busy, !g_play_focused, true, (ds.x - cw) * 0.5f, top, cw, ch);
@@ -2336,8 +2355,8 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
                     ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
                     ImGui::GetWindowDrawList()->AddRect(a, b, IM_COL32(255, 82, 72, 255), 9 * sc, 0, 2.5f * sc);
                 };
-                std::string src_d = ui_tr("The folder with your own game folders (exefs/romfs) of Pokémon Legends: Z-A "
-                                    "for Nintendo Switch, version 2.0.2. The game isn't included with MonZaMac.");
+                std::string src_d = ui_tr("The folder with your own Nintendo Switch game folders (exefs/romfs) for "
+                                    "Pokémon Legends: Z-A, Sword or Shield. The game isn't included with MonZaMac.");
                 if (!src.empty()) src_d += std::string("\n\n") + ui_tr("Chosen: ") + display_path(src);
                 // the step that's running / its result, under the rows and in the Set up row's explanation
                 const std::string &job_line = job;
@@ -2375,7 +2394,7 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
                         uf[0].name = ui_tr("Update package"); uf[1].name = ui_tr("All files");
                         static SDL_DialogFileFilter kf[] = {{"Switch keys", "keys"}};
                         kf[0].name = ui_tr("Switch keys");
-                        const char *labels[] = {"Base game", "Update (2.0.2)", "prod.keys", "DLC (optional)"};
+                        const char *labels[] = {"Base game", "Matching update", "prod.keys", "DLC (optional)"};
                         std::string values[] = {base, update, keys, dlc};
                         for (int i = 0; i < 4; i++) {
                             const char *field = i == 0 ? "base" : i == 1 ? "update" : i == 2 ? "keys" : "dlc";
@@ -2434,7 +2453,7 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
                     }
                     ImGui::Dummy(ImVec2(0, 16 * sc));
                     ImGui::BeginDisabled(busy);
-                    ImGui::Checkbox(ui_tr("I own an original copy of Pokémon Legends: Z-A"), &g_ownership);
+                    ImGui::Checkbox(ui_tr("I own an original copy of the selected Pokémon game"), &g_ownership);
                     ImGui::TextWrapped("%s", ui_tr("By continuing, I confirm that I have permission to use the selected game files and keys."));
                     ImGui::EndDisabled();
                     ImGui::Dummy(ImVec2(0, 10 * sc));

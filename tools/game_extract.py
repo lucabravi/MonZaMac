@@ -8,7 +8,15 @@ import subprocess
 import sys
 import tempfile
 
-APP_ID = 0x0100F43008C44000
+GAME_IDS = {
+    0x0100F43008C44000: "Pokémon Legends: Z-A",
+    0x0100ABF008968000: "Pokémon Sword",
+    0x01008BB008C9C000: "Pokémon Shield",
+}
+
+# Updates use the base title ID plus 0x800. Keep the low 12 bits out of comparisons.
+def title_base(title):
+    return title & ~0xFFF
 
 
 class ImportFailure(Exception):
@@ -94,14 +102,14 @@ class Package:
 def program_content(data, patch):
     if len(data) < 32: raise ImportFailure('package')
     title, _, kind, extended, count = struct.unpack_from('<QIBxHH', data)
-    if title != APP_ID + (0x800 if patch else 0) or kind != (0x81 if patch else 0x80):
+    if title_base(title) not in GAME_IDS or title != title_base(title) + (0x800 if patch else 0) or kind != (0x81 if patch else 0x80):
         raise ImportFailure('game')
     off = 32 + extended
     if count > 4096 or off + count * 56 > len(data): raise ImportFailure('package')
     programs = [data[p + 32:p + 48].hex() + '.nca' for p in range(off, off + count * 56, 56)
                 if data[p + 54] == 1 and data[p + 55] == 0]
     if len(programs) != 1: raise ImportFailure('package')
-    if patch and extended >= 8 and struct.unpack_from('<Q', data, 32)[0] != APP_ID:
+    if patch and extended >= 8 and title_base(struct.unpack_from('<Q', data, 32)[0]) != title_base(title):
         raise ImportFailure('game')
     return programs[0]
 
@@ -120,10 +128,12 @@ def validate_extracted(output, build_id):
     output = Path(output)
     if any(not (output / 'exefs' / n).is_file() for n in ('main', 'main.npdm', 'rtld', 'sdk')):
         raise ImportFailure('files')
-    with (output / 'exefs/main').open('rb') as f:
-        f.seek(0x40)
-        if f.read(len(build_id)) != build_id: raise ImportFailure('version')
-    if not (output / 'romfs/arc/data.trpfd').is_file(): raise ImportFailure('files')
+    if any(build_id):
+        with (output / 'exefs/main').open('rb') as f:
+            f.seek(0x40)
+            if f.read(len(build_id)) != build_id: raise ImportFailure('version')
+    romfs = output / 'romfs'
+    if not romfs.is_dir() or not any(romfs.iterdir()): raise ImportFailure('files')
 
 
 def select_program(package, work, tool, keys, patch):
@@ -180,7 +190,7 @@ def extract_dlc(dlc, keys, output, tool):
             for cnmt in out.glob('*.cnmt'):
                 if cnmt.stat().st_size > 4 << 20: raise ImportFailure('package')
                 found = found or addon_content(cnmt.read_bytes())
-        if not found or found[0] >> 13 != APP_ID >> 13: raise ImportFailure('dlc', 'dlc')
+        if not found or title_base(found[0]) not in GAME_IDS: raise ImportFailure('dlc', 'dlc')
         title, nca = found
         path = work / nca; package.copy(nca, path)
         dest = output / 'aoc-tree' / ('%016x' % title)

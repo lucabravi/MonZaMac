@@ -41,8 +41,8 @@ static void import_error_text(const char *error, unsigned long long required, ch
     else if (!strcmp(error, "package")) snprintf(why, why_size, "This file isn't a valid NSP or XCI game package.");
     else if (!strcmp(error, "keys")) snprintf(why, why_size, "Choose a readable prod.keys file.");
     else if (!strcmp(error, "input")) snprintf(why, why_size, "Choose different files for the base game and update.");
-    else if (!strcmp(error, "game")) snprintf(why, why_size, "Choose the base game and matching update for Pokémon Legends: Z-A.");
-    else if (!strcmp(error, "version")) snprintf(why, why_size, "This update is not version 2.0.2 of Pokémon Legends: Z-A.");
+    else if (!strcmp(error, "game")) snprintf(why, why_size, "Choose a supported Pokémon Legends: Z-A, Sword or Shield base game and matching update.");
+    else if (!strcmp(error, "version")) snprintf(why, why_size, "The extracted game version is not supported by this build.");
     else if (!strcmp(error, "files")) snprintf(why, why_size, "The extracted game is incomplete. Check the base game and update dumps.");
     else if (!strcmp(error, "decrypt")) snprintf(why, why_size, "Couldn't read the encrypted game files. Check your prod.keys and game dumps.");
     else if (!strcmp(error, "io")) snprintf(why, why_size, "Couldn't read this file. Check that it still exists and is accessible.");
@@ -202,8 +202,8 @@ bool gameimport_run(const char *base, const char *update, const char *keys, cons
     else if (!strcmp(error, "archive-7z-nsp")) snprintf(why, why_size, "This file has a 7z archive header despite its .nsp name. Extract it, then choose the NSP inside.");
     else if (!strcmp(error, "archive-7z")) snprintf(why, why_size, "This is a 7z archive, not a game package. Extract it and choose the NSP or XCI inside.");
     else if (!strcmp(error, "archive")) snprintf(why, why_size, "This is a compressed archive, not a game package. Extract it and choose the NSP or XCI inside.");
-    else if (!strcmp(error, "game")) snprintf(why, why_size, "Choose the base game and matching update for Pokémon Legends: Z-A.");
-    else if (!strcmp(error, "version")) snprintf(why, why_size, "This update is not version 2.0.2 of Pokémon Legends: Z-A.");
+    else if (!strcmp(error, "game")) snprintf(why, why_size, "Choose a supported Pokémon Legends: Z-A, Sword or Shield base game and matching update.");
+    else if (!strcmp(error, "version")) snprintf(why, why_size, "The extracted game version is not supported by this build.");
     else if (!strcmp(error, "files")) snprintf(why, why_size, "The extracted game is incomplete. Check the base game and update dumps.");
     else if (!strcmp(error, "decrypt") || !strcmp(error, "keys")) snprintf(why, why_size, "Couldn't read the encrypted game files. Check your prod.keys and game dumps.");
     else snprintf(why, why_size, "Couldn't prepare these files. Use complete NSP or XCI dumps and an update NSP; compressed dumps aren't supported.");

@@ -5,7 +5,7 @@
 <h1 align="center">MonZaMac</h1>
 
 <p align="center">
-  <strong>Pokémon Legends: Z-A, natively on your Mac</strong><br>
+  <strong>Pokémon Legends: Z-A, Sword and Shield, natively on your Mac</strong><br>
   Apple Silicon &middot; Metal &middot; no emulator &middot; optional online play with Lumiose Online
 </p>
 
@@ -33,8 +33,8 @@
   <sub>The start screen of the online edition. The standard edition has only the <b>Play offline</b> column.</sub>
 </p>
 
-Play **Pokémon Legends: Z-A on Apple Silicon**, with Metal graphics, higher internal resolutions, keyboard or
-controller input, and a guided setup that prepares your own game files on your Mac. And, if you want, **play it
+Play **Pokémon Legends: Z-A, Pokémon Sword or Pokémon Shield on Apple Silicon**, with Metal graphics, higher internal
+resolutions, keyboard or controller input, and a guided setup that prepares your own game files on your Mac. And, if you want, **play it
 online** with other trainers through [Lumiose Online](#play-online-with-lumiose-online), a multiplayer mod made by a
 separate team.
 
@@ -69,7 +69,8 @@ Macs, fix bugs or make the documentation better. You do not have to be a develop
 
 MonZaMac uses **static recompilation**: the game's ARM64 code is translated ahead of time into C and compiled for
 macOS. Its runtime reimplements the Switch operating system services and NVN GPU interface on Metal. No emulator
-runs at play time. The supported game version is **v2.0.2**. The Mega Dimension DLC is optional: the start screen shows whether it was found. Add it from your own DLC `.nsp` in the guided setup (optional **DLC** row) or later with **Add DLC...** on the start screen, with no rebuild.
+runs at play time. Pokémon Legends: Z-A remains supported at **v2.0.2**. Pokémon Sword and Shield use their own matching base/update
+packages; the runtime accepts supported title IDs and leaves Z-A-only patches disabled for those games.
 
 > **Bring your own game.** You need an original copy and game files/keys you are entitled to use. No Nintendo game
 > files, code, assets, shaders, keys or fonts are distributed with this project. The open-source license covers

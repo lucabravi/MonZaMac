@@ -71,6 +71,11 @@ class ImportBoundaries(unittest.TestCase):
         for data, patch in ((cnmt(1), False), (cnmt(), True), (cnmt()[:-1], False)):
             with self.subTest(patch=patch), self.assertRaises(ImportFailure): program_content(data, patch)
 
+    def test_accepts_sword_and_shield_title_ids(self):
+        for title in (0x0100ABF008968000, 0x01008BB008C9C000):
+            self.assertEqual(program_content(cnmt(title), False), 'ab' * 16 + '.nca')
+            self.assertEqual(program_content(cnmt(title + 0x800, 0x81), True), 'ab' * 16 + '.nca')
+
     def test_tool_failure_never_prints_raw_output(self):
         tool = self.root / 'tool'
         tool.write_text('#!/bin/sh\necho SECRET_DO_NOT_LOG\necho SECRET_DO_NOT_LOG >&2\nexit 1\n')
@@ -88,10 +93,13 @@ class ImportBoundaries(unittest.TestCase):
         arc = self.root / 'romfs/arc'; arc.mkdir(parents=True)
         (arc / 'data.trpfd').write_bytes(b'test')
         validate_extracted(self.root, build_id)
-        with self.assertRaises(ImportFailure) as error: validate_extracted(self.root, bytes(8))
+        with self.assertRaises(ImportFailure) as error: validate_extracted(self.root, bytes.fromhex('0000000000000001'))
         self.assertEqual(error.exception.code, 'version')
         (arc / 'data.trpfd').unlink()
+        arc.rmdir()
         (self.root / 'romfs/region_common').mkdir()
+        validate_extracted(self.root, build_id)
+        (self.root / 'romfs/region_common').rmdir()
         with self.assertRaises(ImportFailure) as error: validate_extracted(self.root, build_id)
         self.assertEqual(error.exception.code, 'files')
 
