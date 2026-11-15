@@ -219,6 +219,36 @@ So the analysis is not repeated. Each line: what was tried, what it measured, wh
   replace the words equal in both with literals in its saved MSL, load it with `LARECOMP_FS_OVERRIDE_HASH`, time it
   with `gpupass`.
 
+## Station walk, 2026-11-15 (Apple M5, 1.5x, shadows 2x, uncapped)
+
+Where the frame goes now, by `gpupass 60` during the walk (about 13.6 ms a frame, 106 passes): #24 main geometry 3.8 ms
+(1.7 ms of it idle, a `gpupass` effect), #30 full-screen lighting 1.55 ms, #29 half-resolution shadows 1.28 ms, the two
+shadow maps #8 / #9 0.71 + 0.65 ms, #0 0.57 ms, then a tail under 0.5 ms each. The frame is GPU bound: a CPU sample of
+the same walk has the render thread busy 56% of the time and the game's threads 35-38%.
+
+Done: the smoothed shadow test reads its four texels with one gather instead of four reads (#29 1.49 -> 1.28 ms, #30
+1.73 -> 1.55 ms; the whole frame 13.32 -> 13.15 ms over six alternating runs). A program that already uses Metal's 16
+samplers keeps the reads.
+
+Tried and not pursued, so the analysis is not repeated:
+
+- **The programs still on the `pc` loop.** After the facing-flag programs moved to structured flow, 15 of the scene's 107
+  fragment programs remain: 10 small ones with no compiler constants and 5 large G-buffer materials with a real loop (a
+  backward BRA). Dropping every draw of those 5 takes the frame from 14.69 to 14.52 ms, so making them structured can
+  give less than 1% here.
+- **Opening a pass without the depth target** when its draws neither test nor write depth or stencil (reopened with it
+  for the first draw that does): 13.21 -> 13.19 ms, nothing, and it adds pipeline variants the prepared catalog does not
+  have. An upper-bound run that never stored depth showed -2 ms, but only because the broken depth made the scene draw
+  less: not a measure of the store.
+- **Not loading colour targets.** An upper-bound run with every colour load as "don't care" (a wrong picture) is 0.65 ms
+  faster (14.46 -> 13.81 ms). The game's own `DiscardColor` already becomes a clear. Skipping the load elsewhere needs
+  proof that the pass's first draw covers the whole target (full viewport and scissor, no blend, no discard, and the
+  geometry itself), which the renderer does not have when it opens the pass.
+- **What is left in #29.** By replacing parts of its saved MSL (`LARECOMP_FS_OVERRIDE_HASH`): the smoothed test costs
+  about 0.47 ms of the pass, 0.21 ms of it the receiver slope from screen derivatives (computed per tap, 16 times), and
+  the game's own sample of each tap, kept only to see its self-shadow guard, 0.11 ms. Sharing the slope between taps or
+  dropping that sample would not give the same picture bit for bit.
+
 ## Passes that draw nothing (station walk, 1.5x, 2026-11-07)
 
 In a walking-scene `gpupass` capture four of the 106 tracked passes record no draws: #11 and #12 at 2880x1620, #27 and #36
