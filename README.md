@@ -137,7 +137,7 @@ You need a Mac with Apple Silicon (macOS 15 or later, macOS 27 included) and **y
 4. On the start screen choose **Set up game files** and confirm that you own an original copy. Select your base game
    (**NSP or XCI**), the **v2.0.2 update (NSP)** and your **prod.keys**. If you packed your own dump of the Switch 2 Edition
    into a `.nup` container, choose **Switch 2 Edition (.nup)** instead and pick that file: it holds the base game,
-   update and DLC already decrypted, so it needs no keys. The app checks them, applies the update and builds the game on your Mac. Allow at least **27 GB of free
+   update and DLC, so it needs no keys. The app checks them, applies the update and builds the game on your Mac. Allow at least **27 GB of free
    space**; larger packages may need more, and setup checks the requirement before proceeding. The first build takes a
    while. No game files or keys are uploaded.
 5. When it is done, press **Continue** (your most recent save) or **New game**. Your saves and settings are kept in
