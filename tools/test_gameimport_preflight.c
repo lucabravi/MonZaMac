@@ -48,7 +48,20 @@ int main(void) {
     assert(!gameimport_preflight(base, update, "/missing/prod.keys", bad, sizeof bad, why, sizeof why));
     assert(!strcmp(bad, "keys"));
 
+    char nup[256];
+    snprintf(nup, sizeof nup, "%s/game.nup", dir);
+    unsigned char head[0x80] = {'N','U','P',1, 0x80,0, 1,0};
+    head[0x40] = 0x80;  // file size: the header alone
+    head[0x48] = 1;     // one package
+    bytes(nup, head, sizeof head);
+    assert(gameimport_preflight_nup(nup, bad, sizeof bad, why, sizeof why));
+    head[0] = 'X';
+    bytes(nup, head, sizeof head);
+    assert(!gameimport_preflight_nup(nup, bad, sizeof bad, why, sizeof why));
+    assert(!strcmp(bad, "base") && strstr(why, ".nup"));
+    unlink(nup);
+
     unlink(base); unlink(update); unlink(keys); rmdir(dir);
-    puts("PASS preflight detects mislabeled 7z before setup and identifies the bad field");
+    puts("PASS preflight detects mislabeled 7z and bad .nup headers before setup");
     return 0;
 }

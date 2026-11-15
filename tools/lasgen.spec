@@ -23,7 +23,7 @@ a = Analysis(
     pathex=[TOOLS, os.path.join(TOOLS, 'za'), os.path.join(TOOLS, 'lumiose')],  # (lumiose: `lasgen online`)  # (za/trinity.py: shader-catalog index reads the game's archives)
     binaries=collect_dynamic_libs('capstone') + collect_dynamic_libs('unicorn')
              + [(p, 'unicorn/lib') for p in _uc_versioned],
-    hiddenimports=collect_submodules('unicorn') + ['trinity', 'setup_online', 'prepare', 'prepare_game', 'activate', 'fetch'],  # (it imports its arch modules by name at run time)
+    hiddenimports=collect_submodules('unicorn') + collect_submodules('zstandard') + ['trinity', 'setup_online', 'prepare', 'prepare_game', 'activate', 'fetch'],  # (it imports its arch modules by name at run time)
     excludes=['tkinter', 'pydoc', 'doctest', 'unittest', 'pdb', 'IPython', 'numpy', 'setuptools', '_distutils_hack',
               'pkg_resources', 'ssl', '_ssl', '_hashlib', '_multibytecodec', '_codecs_cn', '_codecs_hk',
               '_codecs_iso2022', '_codecs_jp', '_codecs_kr', '_codecs_tw', '_decimal'],

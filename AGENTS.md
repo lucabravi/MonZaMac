@@ -20,7 +20,7 @@ are reimplemented in `runtime/`. Read `README.md` for status and `CONTRIBUTING.m
 ```sh
 brew install make python@3.12 sdl3 ffmpeg      # use `gmake`: macOS make is too old
 python3.12 -m venv tools/venv
-tools/venv/bin/pip install capstone==5.0.9 unicorn==2.1.4 lz4==4.4.5
+tools/venv/bin/pip install capstone==5.0.9 unicorn==2.1.4 lz4==4.4.5 zstandard==0.25.0
 tools/build_nstool.sh                          # clones + builds nstool into tools/nstool/ (git-ignored)
 ```
 

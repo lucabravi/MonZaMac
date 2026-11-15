@@ -17,6 +17,7 @@
 30 fps: as on the Switch.\n60 fps: smoother motion, with the world step adapting to the time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU.\n\nFrame generation selects its own source rate; turning it off restores your choice here.	30 fps: как на Switch.\n60 fps: более плавное движение; шаг мира подстраивается под время каждого кадра, сохраняя скорость игры стабильной вплоть до 30 fps. Нужен более быстрый процессор.\n\nГенерация кадров сама выбирает исходную частоту; при её отключении возвращается ваш выбор.
 60 fps	60 FPS
 A  type      B  delete      Start / +  OK      (%d / %d)	A ввод   B удалить   Start / + ОК   (%d / %d)
+A .nup container packed from your own dump: base game, update and DLC, already decrypted. No prod.keys needed.	Контейнер .nup, созданный из вашего собственного дампа: базовая игра, обновление и DLC, уже расшифрованы. prod.keys не нужен.
 A .zip exported from MonZaMac, or a folder with a Z-A save (a JKSV backup, a copy from a console). It becomes a new save: yours stay as they are.	Импортируйте .zip из MonZaMac или папку с сохранением Z-A (резервная копия JKSV либо копия с консоли). Будет создано новое сохранение, существующие не изменятся.
 A .zip of this save: keep it, or import it on another Mac.	ZIP-архив этого сохранения: храните его или импортируйте на другой Mac.
 A right stick (or mouse camera) pointed within this many degrees of up, down, left or right is held exactly on that direction. 0: off.	Правый стик (или камера мышью), направленный в пределах этого числа градусов от верха, низа, лева или права, фиксируется точно на этом направлении. 0: выключено.
@@ -78,6 +79,7 @@ Choose NEW GAME to begin.	Выберите «Новая игра», чтобы �
 Choose a save exported from MonZaMac (.zip), or a folder holding a Z-A save (a JKSV backup, a copy from a console).	Выберите сохранение, экспортированное из MonZaMac (.zip), или папку с сохранением Z-A (резервная копия JKSV или копия с консоли).
 Choose or drop the extracted game folder.	Выберите или перетащите распакованную папку игры.
 Choose the folder that holds the game files.	Выберите папку с файлами игры.
+Choose the game's .nup file before setup.	Перед настройкой выберите файл .nup игры.
 Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.	Выберите два файла. Они считываются только на этом Mac для добавления DLC; код игры не перекомпилируется.
 Choose your base game, update and prod.keys before setup.	Перед настройкой выберите основную игру, обновление и prod.keys.
 Choose...	Выбрать...
@@ -203,7 +205,7 @@ Game files ready.	Файлы игры готовы.
 Game font	Шрифт игры
 Game mode	Режим игры
 Game packages	Пакеты игры
-Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere.	Игровые пакеты: выберите базовый NSP/XCI, NSP обновления и prod.keys. Распакованная папка: используйте exefs/romfs, подготовленные в другом месте.
+Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.	Игровые пакеты: выберите базовый NSP/XCI, NSP обновления и prod.keys. Распакованная папка: используйте exefs/romfs, подготовленные в другом месте. Switch 2 Edition: один контейнер .nup с базовой игрой, обновлением и DLC; ключи не нужны.
 Game text language	Язык текста игры
 Game update	Обновление игры
 Game's	По умолчанию в игре
@@ -446,6 +448,9 @@ Starting...	Запуск...
 Stays where you are.	Останетесь на текущем экране.
 Stop recording	Остановить запись
 Switch	Switch
+Switch 2 Edition (.nup)	Switch 2 Edition (.nup)
+Switch 2 Edition .nup	Switch 2 Edition .nup
+Switch 2 Edition package	Пакет Switch 2 Edition
 Switch fonts	Шрифты Switch
 Switch keys	Ключи шифрования Switch
 Switch tabs	Переключить вкладки
@@ -488,6 +493,7 @@ This Mac's graphics chip is not the one it was done on.	Графический �
 This build has no online setup.	В этой сборке нет настройки онлайн-режима.
 This deletes MonZaMac's copy of the game files (%.1f GB).	Копия игровых файлов MonZaMac будет удалена (%.1f ГБ).
 This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.	Файл имеет расширение .nsp, но внутри архив 7z. Выберите несжатый NSP или XCI.
+This file isn't a valid Switch 2 Edition .nup package.	Этот файл не является корректным пакетом .nup Switch 2 Edition.
 This only needs to be done once and may take a while.	Это нужно сделать лишь один раз, и это может занять некоторое время.
 This version of MonZaMac precompiles more than the last one did.	Эта версия MonZaMac предкомпилирует больше, чем предыдущая.
 Those files can't be used	Эти файлы нельзя использовать

@@ -12,7 +12,7 @@ macOS `make` is too old), SDL3 and FFmpeg (Homebrew).
 
 1. Install the tools: `brew install make python@3.12 sdl3 ffmpeg` (GNU Make 4 runs as `gmake`).
 2. Set up the recompiler (Python 3.12):
-   `python3.12 -m venv tools/venv && tools/venv/bin/pip install capstone==5.0.9 unicorn==2.1.4 lz4==4.4.5`
+   `python3.12 -m venv tools/venv && tools/venv/bin/pip install capstone==5.0.9 unicorn==2.1.4 lz4==4.4.5 zstandard==0.25.0`
 3. Get your game files into `extracted/`: extract them from your own dumps with the bundled helper (see
    [Extracting your game files from a dump](#extracting-your-game-files-from-a-dump)), or place them yourself.
 4. Recompile the game code from your files: `gmake B=build/za202 GEN=generated-202 gen` (a minute or two).

@@ -17,6 +17,7 @@
 30 fps: as on the Switch.\n60 fps: smoother motion, with the world step adapting to the time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU.\n\nFrame generation selects its own source rate; turning it off restores your choice here.	30 fps：与 Switch 相同。\n60 fps：动作更流畅，游戏世界的步进会随每帧耗时调整，直到 30 fps 都能保持游戏速度稳定。需要更快的 CPU。\n\n帧生成会自行选择源帧率；关闭后将恢复你在此的选择。
 60 fps	60 FPS
 A  type      B  delete      Start / +  OK      (%d / %d)	A 输入   B 删除   Start / + 确认   (%d / %d)
+A .nup container packed from your own dump: base game, update and DLC, already decrypted. No prod.keys needed.	由你自己的转储制作的 .nup 容器：基础游戏、更新和 DLC，均已解密。无需 prod.keys。
 A .zip exported from MonZaMac, or a folder with a Z-A save (a JKSV backup, a copy from a console). It becomes a new save: yours stay as they are.	导入 MonZaMac 导出的 .zip，或包含 Z-A 存档的文件夹（JKSV 备份或主机副本）。将创建新存档，不会修改现有存档。
 A .zip of this save: keep it, or import it on another Mac.	此存档的 .zip 压缩包，可保存或导入另一台 Mac。
 A right stick (or mouse camera) pointed within this many degrees of up, down, left or right is held exactly on that direction. 0: off.	右摇杆（或鼠标镜头）指向上、下、左、右方向的偏差在此角度内时，会被精确锁定在该方向。0：关闭。
@@ -78,6 +79,7 @@ Choose NEW GAME to begin.	选择「新游戏」开始。
 Choose a save exported from MonZaMac (.zip), or a folder holding a Z-A save (a JKSV backup, a copy from a console).	选择从 MonZaMac 导出的存档（.zip），或包含 Z-A 存档的文件夹（JKSV 备份或主机副本）。
 Choose or drop the extracted game folder.	请选择或拖入已解压的游戏文件夹。
 Choose the folder that holds the game files.	请选择存放游戏文件的文件夹。
+Choose the game's .nup file before setup.	设置前请先选择游戏的 .nup 文件。
 Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.	请选择这两个文件。仅在此 Mac 上读取以添加 DLC，不会重新编译游戏代码。
 Choose your base game, update and prod.keys before setup.	设置前请选择基础游戏、更新文件和 prod.keys。
 Choose...	选择...
@@ -203,7 +205,7 @@ Game files ready.	游戏文件已就绪。
 Game font	游戏字体
 Game mode	游戏模式
 Game packages	游戏安装包
-Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere.	游戏包：选择基础 NSP/XCI、更新 NSP 和 prod.keys。已解压文件夹：使用在别处准备好的 exefs/romfs。
+Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.	游戏包：选择基础 NSP/XCI、更新 NSP 和 prod.keys。已解压文件夹：使用在别处准备好的 exefs/romfs。Switch 2 Edition：一个包含基础游戏、更新和 DLC 的 .nup 容器；无需密钥。
 Game text language	游戏文本语言
 Game update	游戏更新
 Game's	游戏默认
@@ -446,6 +448,9 @@ Starting...	正在启动...
 Stays where you are.	保留在当前界面。
 Stop recording	停止录制
 Switch	Switch
+Switch 2 Edition (.nup)	Switch 2 Edition (.nup)
+Switch 2 Edition .nup	Switch 2 Edition .nup
+Switch 2 Edition package	Switch 2 Edition 包
 Switch fonts	Switch 字体
 Switch keys	Switch 加密密钥
 Switch tabs	切换标签页
@@ -488,6 +493,7 @@ This Mac's graphics chip is not the one it was done on.	这台 Mac 的图形芯�
 This build has no online setup.	此版本不包含在线模式设置。
 This deletes MonZaMac's copy of the game files (%.1f GB).	将删除 MonZaMac 的游戏文件副本（%.1f GB）。
 This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.	尽管扩展名为 .nsp，该文件实际为 7z 压缩包。请选择未压缩的 NSP 或 XCI。
+This file isn't a valid Switch 2 Edition .nup package.	此文件不是有效的 Switch 2 Edition .nup 包。
 This only needs to be done once and may take a while.	只需执行一次，可能需要一些时间。
 This version of MonZaMac precompiles more than the last one did.	此版本的 MonZaMac 预编译的内容比上一版本更多。
 Those files can't be used	无法使用这些文件

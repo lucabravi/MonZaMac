@@ -215,7 +215,7 @@ static std::string check_game_files(const std::string &root) {
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static std::string g_src;           // the picked folder
 static std::string g_base, g_update, g_keys, g_dlc;  // (g_dlc: optional Mega Dimension NSP)
-static int g_import_mode;           // 0: packages, 1: extracted folder
+static int g_import_mode;           // 0: packages, 1: extracted folder, 2: Switch 2 Edition .nup
 static bool g_ownership;            // explicit confirmation for this setup; never persisted
 static std::string g_job;           // current setup step / result for the status line
 static std::string g_job_hint;      // a failure: what to do about it (shown under it)
@@ -618,17 +618,17 @@ static void romfs_remove_tree(const char *dir) { nftw(dir, rm_entry, 16, FTW_DEP
 
 static void *extract_thread(void *) {
     std::string src, base, update, keys, dlc, exefs, romfs, destination;
-    bool packages, confirmed, staged = false, unusable = false;
+    bool packages, nup, confirmed, staged = false, unusable = false;
     char stage[1100] = "", why[256] = "";
     pthread_mutex_lock(&g_lock);
     src = g_src; base = g_base; update = g_update; keys = g_keys; dlc = g_dlc;
-    packages = g_import_mode == 0; confirmed = g_ownership;
+    packages = g_import_mode == 0; nup = g_import_mode == 2; confirmed = g_ownership;
     g_bad_input.clear();
     pthread_mutex_unlock(&g_lock);
     g_done = 0; g_total = 0; g_phase_base = 0; g_build_frac = -1; g_copy_skipped = false;
-    g_import_frac = 0; g_from_packages = packages;
+    g_import_frac = 0; g_from_packages = packages || nup;
     if (!confirmed) { set_job("Confirm ownership and permission before setup.", true); goto done; }
-    if (!packages && src.empty() && check_copied_files(g_root).empty()) {
+    if (!packages && !nup && src.empty() && check_copied_files(g_root).empty()) {
         g_copy_skipped = true;
         if (!rt_game_setup_begin(g_root.c_str(), true, stage, sizeof stage, why, sizeof why)) {
             set_job("Couldn't start setup", true, why); goto done;
@@ -646,14 +646,20 @@ static void *extract_thread(void *) {
     if (packages && (base.empty() || update.empty() || keys.empty())) {
         set_job("Choose your base game, update and prod.keys before setup.", true); goto done;
     }
+    if (nup && base.empty()) {
+        set_job("Choose the game's .nup file before setup.", true); goto done;
+    }
     if (!rt_game_setup_begin(g_root.c_str(), false, stage, sizeof stage, why, sizeof why)) {
         set_job("Couldn't start setup", true, why); goto done;
     }
     staged = true; destination = stage;
-    if (packages) {
+    if (packages || nup) {
         char bad_field[16] = "";
-        if (!gameimport_run(base.c_str(), update.c_str(), keys.c_str(), dlc.c_str(), stage, BUILD_ID,
-                            import_progress, bad_field, sizeof bad_field, why, sizeof why)) {
+        bool ok = packages ? gameimport_run(base.c_str(), update.c_str(), keys.c_str(), dlc.c_str(), stage, BUILD_ID,
+                                            import_progress, bad_field, sizeof bad_field, why, sizeof why)
+                           : gameimport_run_nup(base.c_str(), stage, BUILD_ID, import_progress, bad_field,
+                                                sizeof bad_field, why, sizeof why);
+        if (!ok) {
             pthread_mutex_lock(&g_lock);
             g_bad_input = bad_field;
             pthread_mutex_unlock(&g_lock);
@@ -685,10 +691,10 @@ static void *extract_thread(void *) {
         unsigned long long rbytes = romfs_dir_bytes(romfs.c_str());
         struct statvfs fs;
         if (statvfs(stage, &fs) || (unsigned long long)fs.f_bavail * fs.f_frsize <
-            rbytes * (packages ? 1 : 2) + (3ull << 30)) {
+            rbytes * ((packages || nup) ? 1 : 2) + (3ull << 30)) {
             set_job("Not enough free space", true, "Free space for the game files, data image and compilation, then retry."); goto done;
         }
-        if (!packages) {
+        if (!packages && !nup) {
             g_total = 2 * rbytes;
             set_job("Copying the game files...");
             if (!romfs_copy_tree(exefs.c_str(), (destination + "/exefs").c_str(), NULL) ||
@@ -1910,6 +1916,13 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
                 check_game_files(g_root).empty() ? "READY" : "NOT READY");
         exit(g_job_failed ? 1 : 0);
     }
+    if (const char *nup = getenv("LARECOMP_LAUNCHER_IMPORT_NUP")) {  // (test) <file.nup>: set up, log, exit
+        g_base = nup; g_import_mode = 2; g_ownership = getenv("LARECOMP_LAUNCHER_OWNERSHIP") != NULL;
+        g_busy = true; extract_thread(NULL);
+        fprintf(stderr, "[launcher] import: %s (%s) -> %s\n", g_job.c_str(), g_job_hint.c_str(),
+                check_game_files(g_root).empty() ? "READY" : "NOT READY");
+        exit(g_job_failed ? 1 : 0);
+    }
     if (const char *t = getenv("LARECOMP_LAUNCHER_EXTRACT")) {  // (test) <folder>: set the game files up, log, exit
         g_src = t; g_import_mode = 1; g_ownership = getenv("LARECOMP_LAUNCHER_OWNERSHIP") != NULL;
         g_busy = true;
@@ -2357,12 +2370,15 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
                     opt_section("Your copy of the game");
                     ImGui::TextWrapped("%s", ui_tr("MonZaMac does not include or provide game files or keys. Use only files you "
                                            "have the right to use, in accordance with applicable law."));
-                    static const char *modes[] = {"Game packages", "Extracted folder"};
+                    static const char *modes[] = {"Game packages", "Extracted folder", "Switch 2 Edition (.nup)"};
                     if (busy) opt_disable_next();
-                    if (opt_choice("Import from", &g_import_mode, modes, 2, 0,
+                    int was_mode = g_import_mode;
+                    if (opt_choice("Import from", &g_import_mode, modes, 3, 0,
                                "Game packages: choose your base NSP/XCI, update NSP and prod.keys. "
-                               "Extracted folder: use exefs/romfs prepared elsewhere.")) {
+                               "Extracted folder: use exefs/romfs prepared elsewhere. "
+                               "Switch 2 Edition: one .nup container with base, update and DLC; no keys.")) {
                         pthread_mutex_lock(&g_lock);
+                        if (g_import_mode == 2 || was_mode == 2) g_base.clear();  // (.nup and base NSP share the field)
                         g_ownership = false;
                         g_bad_input.clear(); g_job.clear(); g_job_hint.clear(); g_job_failed = false;
                         pthread_mutex_unlock(&g_lock);
@@ -2407,6 +2423,31 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
                         }
                         if (!gameimport_available())
                             ImGui::TextWrapped("%s", ui_tr("Package import tools are missing. Install the complete app or use an extracted folder."));
+                    } else if (g_import_mode == 2) {
+                        static SDL_DialogFileFilter nf[] = {{"Switch 2 Edition package", "nup"}, {"All files", "*"}};
+                        nf[0].name = ui_tr("Switch 2 Edition package"); nf[1].name = ui_tr("All files");
+                        if (busy) opt_disable_next();
+                        std::string detail = ui_tr("A .nup container packed from your own dump: base game, update and DLC, already decrypted. "
+                                                   "No prod.keys needed.");
+                        if (!base.empty()) detail += std::string("\n\n") + ui_tr("Chosen: ") + display_path(base);
+                        bool chosen = opt_action("Switch 2 Edition .nup", base.empty() ? "Choose..." : "Selected",
+                                                 detail.c_str(), true);
+                        mark_input_error("base");
+                        bool dropped = !busy && take_drop_on_item(base);
+                        if (dropped) {
+                            pthread_mutex_lock(&g_lock);
+                            g_base = base;
+                            g_ownership = false;
+                            if (g_bad_input.empty() || g_bad_input == "base") {
+                                g_bad_input.clear(); g_job.clear(); g_job_hint.clear(); g_job_failed = false;
+                            }
+                            pthread_mutex_unlock(&g_lock);
+                        }
+                        if (chosen)
+                            SDL_ShowOpenFileDialog(picked_package, (void *)(intptr_t)0, win, nf, 2, NULL, false);
+                        first_row();
+                        if (!gameimport_nup_available())
+                            ImGui::TextWrapped("%s", ui_tr("Package import tools are missing. Install the complete app or use an extracted folder."));
                     } else {
                         if (busy) opt_disable_next();
                         bool chosen = opt_action("Game files folder", src_v.c_str(), src_d.c_str(), true);
@@ -2441,12 +2482,16 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
                     opt_section("Set up");
                     if (busy || !g_ownership || (g_import_mode == 0 ?
                         (base.empty() || update.empty() || keys.empty() || !gameimport_available()) :
+                        g_import_mode == 2 ? (base.empty() || !gameimport_nup_available()) :
                         (src.empty() && !check_copied_files(g_root).empty()))) opt_disable_next();
                     bool rebuild = g_import_mode == 1 && src.empty() && check_copied_files(g_root).empty();
                     if (opt_action(rebuild ? "Update game code" : "Set up game files", busy ? "Working..." : "", ex_d.c_str(), true)) {
                         char bad_field[16] = "", why[256] = "";
-                        bool valid = g_import_mode != 0 || gameimport_preflight(base.c_str(), update.c_str(), keys.c_str(),
-                                                                              bad_field, sizeof bad_field, why, sizeof why);
+                        bool valid = g_import_mode == 1 ||
+                            (g_import_mode == 0 ? gameimport_preflight(base.c_str(), update.c_str(), keys.c_str(),
+                                                                       bad_field, sizeof bad_field, why, sizeof why)
+                                                : gameimport_preflight_nup(base.c_str(), bad_field, sizeof bad_field,
+                                                                           why, sizeof why));
                         if (!valid) {
                             pthread_mutex_lock(&g_lock);
                             g_bad_input = bad_field;

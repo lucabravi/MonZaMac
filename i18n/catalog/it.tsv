@@ -17,6 +17,7 @@
 30 fps: as on the Switch.\n60 fps: smoother motion, with the world step adapting to the time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU.\n\nFrame generation selects its own source rate; turning it off restores your choice here.	30 fps: come su Switch.\n60 fps: movimento più fluido, con il passo del mondo che si adatta al tempo di ogni frame per mantenere costante la velocità del gioco fino a 30 fps. Richiede una CPU più veloce.\n\nLa generazione di frame sceglie da sé la frequenza di partenza; disattivandola torna la tua scelta.
 60 fps	60 FPS
 A  type      B  delete      Start / +  OK      (%d / %d)	A  digita      B  elimina      Start / +  conferma      (%d / %d)
+A .nup container packed from your own dump: base game, update and DLC, already decrypted. No prod.keys needed.	Un contenitore .nup creato dal tuo dump: gioco base, aggiornamento e DLC, già decifrati. Non serve prod.keys.
 A .zip exported from MonZaMac, or a folder with a Z-A save (a JKSV backup, a copy from a console). It becomes a new save: yours stay as they are.	Importa uno .zip esportato da MonZaMac o una cartella con un salvataggio Z-A (backup JKSV o copia dalla console). Verrà creato un nuovo salvataggio senza modificare quelli esistenti.
 A .zip of this save: keep it, or import it on another Mac.	Archivio .zip di questo salvataggio: conservalo oppure importalo su un altro Mac.
 A right stick (or mouse camera) pointed within this many degrees of up, down, left or right is held exactly on that direction. 0: off.	Una levetta destra (o la telecamera col mouse) orientata entro questi gradi da su, giù, sinistra o destra viene bloccata esattamente su quella direzione. 0: disattivato.
@@ -78,6 +79,7 @@ Choose NEW GAME to begin.	Seleziona NUOVA PARTITA per iniziare.
 Choose a save exported from MonZaMac (.zip), or a folder holding a Z-A save (a JKSV backup, a copy from a console).	Seleziona un salvataggio esportato da MonZaMac (.zip) oppure una cartella con un salvataggio Z-A (backup JKSV o copia dalla console).
 Choose or drop the extracted game folder.	Scegli o trascina qui la cartella del gioco estratta.
 Choose the folder that holds the game files.	Scegli la cartella che contiene i file di gioco.
+Choose the game's .nup file before setup.	Prima di iniziare, seleziona il file .nup del gioco.
 Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.	Seleziona questi due file. Vengono letti solo su questo Mac per aggiungere il DLC, senza ricompilare il codice del gioco.
 Choose your base game, update and prod.keys before setup.	Prima di iniziare, seleziona gioco base, aggiornamento e prod.keys.
 Choose...	Scegli...
@@ -203,7 +205,7 @@ Game files ready.	File di gioco pronti.
 Game font	Font del gioco
 Game mode	Modalità di gioco
 Game packages	Pacchetti del gioco
-Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere.	Pacchetti di gioco: scegli l'NSP/XCI base, l'NSP di aggiornamento e prod.keys. Cartella estratta: usa exefs/romfs preparati altrove.
+Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.	Pacchetti di gioco: scegli l'NSP/XCI base, l'NSP di aggiornamento e prod.keys. Cartella estratta: usa exefs/romfs preparati altrove. Switch 2 Edition: un solo contenitore .nup con gioco base, aggiornamento e DLC; senza chiavi.
 Game text language	Lingua dei testi del gioco
 Game update	Aggiornamento del gioco
 Game's	Del gioco
@@ -446,6 +448,9 @@ Starting...	Avvio...
 Stays where you are.	Rimani in questa schermata.
 Stop recording	Interrompi registrazione
 Switch	Switch
+Switch 2 Edition (.nup)	Switch 2 Edition (.nup)
+Switch 2 Edition .nup	Switch 2 Edition .nup
+Switch 2 Edition package	Pacchetto Switch 2 Edition
 Switch fonts	Font della Switch
 Switch keys	Chiavi di cifratura Switch
 Switch tabs	Cambia scheda
@@ -488,6 +493,7 @@ This Mac's graphics chip is not the one it was done on.	Il chip grafico di quest
 This build has no online setup.	Questa versione non include la configurazione online.
 This deletes MonZaMac's copy of the game files (%.1f GB).	Verrà eliminata la copia dei file di gioco di MonZaMac (%.1f GB).
 This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.	Il file è un archivio 7z nonostante l’estensione .nsp. Seleziona un pacchetto NSP o XCI non compresso.
+This file isn't a valid Switch 2 Edition .nup package.	Questo file non è un pacchetto .nup Switch 2 Edition valido.
 This only needs to be done once and may take a while.	Basta farlo una volta sola e potrebbe richiedere un po'.
 This version of MonZaMac precompiles more than the last one did.	Questa versione di MonZaMac precompila più elementi della precedente.
 Those files can't be used	Questi file non sono utilizzabili

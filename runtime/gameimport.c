@@ -11,19 +11,25 @@
 #include <unistd.h>
 
 typedef struct { char helper[1100], script[1100], nstool[1100]; } ImportTools;
-static bool find_tools(ImportTools *t) {
+static bool find_helper(ImportTools *t) {
     memset(t, 0, sizeof *t);
-    return (rt_resource("lasgen/lasgen" PLAT_EXE_SUFFIX, NULL, t->helper, sizeof t->helper) ||
-            (rt_resource(NULL, "tools/" PLAT_VENV_PYTHON, t->helper, sizeof t->helper) &&
-             rt_resource(NULL, "tools/game_extract.py", t->script, sizeof t->script))) &&
+    return rt_resource("lasgen/lasgen" PLAT_EXE_SUFFIX, NULL, t->helper, sizeof t->helper) ||
+           (rt_resource(NULL, "tools/" PLAT_VENV_PYTHON, t->helper, sizeof t->helper) &&
+            rt_resource(NULL, "tools/game_extract.py", t->script, sizeof t->script));
+}
+static bool find_tools(ImportTools *t) {
+    return find_helper(t) &&
            rt_resource("nstool/nstool" PLAT_EXE_SUFFIX, "tools/nstool/bin/nstool" PLAT_EXE_SUFFIX,
                        t->nstool, sizeof t->nstool);
 }
 bool gameimport_available(void) { ImportTools t; return find_tools(&t); }
+bool gameimport_nup_available(void) { ImportTools t; return find_helper(&t); }  // .nup needs no nstool
 
 static uint32_t le32(const unsigned char *p) {
     return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
 }
+
+static uint16_t le16(const unsigned char *p) { return (uint16_t)(p[0] | p[1] << 8); }
 
 static uint64_t le64(const unsigned char *p) {
     return (uint64_t)le32(p) | (uint64_t)le32(p + 4) << 32;
@@ -44,6 +50,7 @@ static void import_error_text(const char *error, unsigned long long required, ch
     else if (!strcmp(error, "game")) snprintf(why, why_size, "Choose the base game and matching update for Pokémon Legends: Z-A.");
     else if (!strcmp(error, "version")) snprintf(why, why_size, "This update is not version 2.0.2 of Pokémon Legends: Z-A.");
     else if (!strcmp(error, "files")) snprintf(why, why_size, "The extracted game is incomplete. Check the base game and update dumps.");
+    else if (!strcmp(error, "nup")) snprintf(why, why_size, "This file isn't a valid Switch 2 Edition .nup package.");
     else if (!strcmp(error, "decrypt")) snprintf(why, why_size, "Couldn't read the encrypted game files. Check your prod.keys and game dumps.");
     else if (!strcmp(error, "io")) snprintf(why, why_size, "Couldn't read this file. Check that it still exists and is accessible.");
     else snprintf(why, why_size, "Couldn't prepare these files. Use complete NSP or XCI dumps and an update NSP; compressed dumps aren't supported.");
@@ -121,6 +128,27 @@ bool gameimport_preflight(const char *base, const char *update, const char *keys
     return true;
 }
 
+bool gameimport_preflight_nup(const char *nup, char *bad_field, size_t bad_field_size, char *why, size_t why_size) {
+    if (bad_field && bad_field_size) bad_field[0] = 0;
+    if (!why || !why_size) return false;
+    why[0] = 0;
+    struct stat st;
+    if (!nup || stat(nup, &st) || !S_ISREG(st.st_mode)) {
+        if (bad_field && bad_field_size) snprintf(bad_field, bad_field_size, "base");
+        import_error_text("io", 0, why, why_size); return false;
+    }
+    FILE *f = fopen(nup, "rb");
+    unsigned char h[0x80];
+    bool ok = f && read_at(f, 0, h, sizeof h);
+    if (f) fclose(f);
+    if (!ok || memcmp(h, "NUP\001", 4) || le16(h + 4) < 0x80 || le16(h + 6) != 1 ||
+        le64(h + 0x40) != (uint64_t)st.st_size || le32(h + 0x48) < 1) {
+        if (bad_field && bad_field_size) snprintf(bad_field, bad_field_size, "base");
+        import_error_text("nup", 0, why, why_size); return false;
+    }
+    return true;
+}
+
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static PlatProc active;
 static bool quitting;
@@ -133,29 +161,13 @@ static void stop_import(void) {
 
 static void register_cleanup(void) { atexit(stop_import); }
 
-bool gameimport_run(const char *base, const char *update, const char *keys, const char *dlc, const char *stage,
-                    const unsigned char build_id[8], void (*progress)(double, const char *),
-                    char *bad_field, size_t bad_field_size, char *why, size_t why_size) {
-    if (bad_field && bad_field_size) bad_field[0] = 0;
-    ImportTools t;
-    if (!find_tools(&t)) { snprintf(why, why_size, "The import tools are missing. Reinstall the complete app."); return false; }
+// Spawn the extractor and follow its progress lines; shared by package and .nup imports.
+static bool run_import(const char *const *argv, const char *stage, void (*progress)(double, const char *),
+                       char *bad_field, size_t bad_field_size, char *why, size_t why_size) {
     static pthread_once_t once = PTHREAD_ONCE_INIT;
     pthread_once(&once, register_cleanup);
-    char id[17], log[1200];
-    for (int i = 0; i < 8; i++) snprintf(id + i * 2, 3, "%02x", build_id[i]);
+    char log[1200];
     snprintf(log, sizeof log, "%s/import.log", stage);
-    const char *argv[24]; int n = 0;
-    argv[n++] = t.helper;
-    if (t.script[0]) argv[n++] = t.script;
-    else argv[n++] = "extract";
-    argv[n++] = "--base"; argv[n++] = base;
-    argv[n++] = "--update"; argv[n++] = update;
-    argv[n++] = "--keys"; argv[n++] = keys;
-    argv[n++] = "--output"; argv[n++] = stage;
-    argv[n++] = "--nstool"; argv[n++] = t.nstool;
-    argv[n++] = "--build-id"; argv[n++] = id;
-    if (dlc && dlc[0]) { argv[n++] = "--dlc"; argv[n++] = dlc; }  // (optional: a bad one is skipped by the importer)
-    argv[n] = NULL;
     pthread_mutex_lock(&lock);
     active = quitting ? 0 : plat_spawn(argv, log, false);
     pthread_mutex_unlock(&lock);
@@ -205,9 +217,52 @@ bool gameimport_run(const char *base, const char *update, const char *keys, cons
     else if (!strcmp(error, "game")) snprintf(why, why_size, "Choose the base game and matching update for Pokémon Legends: Z-A.");
     else if (!strcmp(error, "version")) snprintf(why, why_size, "This update is not version 2.0.2 of Pokémon Legends: Z-A.");
     else if (!strcmp(error, "files")) snprintf(why, why_size, "The extracted game is incomplete. Check the base game and update dumps.");
+    else if (!strcmp(error, "nup")) snprintf(why, why_size, "This file isn't a valid Switch 2 Edition .nup package.");
     else if (!strcmp(error, "decrypt") || !strcmp(error, "keys")) snprintf(why, why_size, "Couldn't read the encrypted game files. Check your prod.keys and game dumps.");
     else snprintf(why, why_size, "Couldn't prepare these files. Use complete NSP or XCI dumps and an update NSP; compressed dumps aren't supported.");
     return false;
+}
+
+bool gameimport_run(const char *base, const char *update, const char *keys, const char *dlc, const char *stage,
+                    const unsigned char build_id[8], void (*progress)(double, const char *),
+                    char *bad_field, size_t bad_field_size, char *why, size_t why_size) {
+    if (bad_field && bad_field_size) bad_field[0] = 0;
+    ImportTools t;
+    if (!find_tools(&t)) { snprintf(why, why_size, "The import tools are missing. Reinstall the complete app."); return false; }
+    char id[17];
+    for (int i = 0; i < 8; i++) snprintf(id + i * 2, 3, "%02x", build_id[i]);
+    const char *argv[24]; int n = 0;
+    argv[n++] = t.helper;
+    if (t.script[0]) argv[n++] = t.script;
+    else argv[n++] = "extract";
+    argv[n++] = "--base"; argv[n++] = base;
+    argv[n++] = "--update"; argv[n++] = update;
+    argv[n++] = "--keys"; argv[n++] = keys;
+    argv[n++] = "--output"; argv[n++] = stage;
+    argv[n++] = "--nstool"; argv[n++] = t.nstool;
+    argv[n++] = "--build-id"; argv[n++] = id;
+    if (dlc && dlc[0]) { argv[n++] = "--dlc"; argv[n++] = dlc; }  // (optional: a bad one is skipped by the importer)
+    argv[n] = NULL;
+    return run_import(argv, stage, progress, bad_field, bad_field_size, why, why_size);
+}
+
+bool gameimport_run_nup(const char *nup, const char *stage, const unsigned char build_id[8],
+                        void (*progress)(double, const char *), char *bad_field, size_t bad_field_size,
+                        char *why, size_t why_size) {
+    if (bad_field && bad_field_size) bad_field[0] = 0;
+    ImportTools t;
+    if (!find_helper(&t)) { snprintf(why, why_size, "The import tools are missing. Reinstall the complete app."); return false; }
+    char id[17];
+    for (int i = 0; i < 8; i++) snprintf(id + i * 2, 3, "%02x", build_id[i]);
+    const char *argv[12]; int n = 0;
+    argv[n++] = t.helper;
+    if (t.script[0]) argv[n++] = t.script;
+    else argv[n++] = "extract";
+    argv[n++] = "--nup"; argv[n++] = nup;
+    argv[n++] = "--output"; argv[n++] = stage;
+    argv[n++] = "--build-id"; argv[n++] = id;
+    argv[n] = NULL;
+    return run_import(argv, stage, progress, bad_field, bad_field_size, why, why_size);
 }
 
 bool gameimport_dlc(const char *dlc, const char *keys, const char *work, char *why, size_t why_size) {

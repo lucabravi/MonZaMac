@@ -17,6 +17,7 @@
 30 fps: as on the Switch.\n60 fps: smoother motion, with the world step adapting to the time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU.\n\nFrame generation selects its own source rate; turning it off restores your choice here.	30 fps: Switch와 같습니다.\n60 fps: 더 부드러운 움직임으로, 프레임마다 걸리는 시간에 맞춰 게임 내 시간 단위를 조정해 30 fps까지 게임 속도를 일정하게 유지합니다. 더 빠른 CPU가 필요합니다.\n\n프레임 생성은 원본 프레임 속도를 스스로 정합니다. 끄면 여기서 고른 값으로 돌아갑니다.
 60 fps	60 FPS
 A  type      B  delete      Start / +  OK      (%d / %d)	A 입력   B 삭제   Start / + 확인   (%d / %d)
+A .nup container packed from your own dump: base game, update and DLC, already decrypted. No prod.keys needed.	직접 덤프한 파일로 만든 .nup 컨테이너: 기본 게임, 업데이트, DLC가 이미 복호화되어 있습니다. prod.keys가 필요 없습니다.
 A .zip exported from MonZaMac, or a folder with a Z-A save (a JKSV backup, a copy from a console). It becomes a new save: yours stay as they are.	MonZaMac에서 내보낸 .zip 또는 Z-A 저장 데이터가 있는 폴더(JKSV 백업이나 콘솔 복사본)를 가져옵니다. 기존 저장 데이터는 유지되고 새 저장 데이터가 추가됩니다.
 A .zip of this save: keep it, or import it on another Mac.	이 저장 데이터의 .zip 파일입니다. 보관하거나 다른 Mac으로 가져올 수 있습니다.
 A right stick (or mouse camera) pointed within this many degrees of up, down, left or right is held exactly on that direction. 0: off.	오른쪽 스틱(또는 마우스 카메라)이 위, 아래, 왼쪽, 오른쪽에서 이 각도 이내를 가리키면 정확히 그 방향으로 고정됩니다. 0: 끔.
@@ -78,6 +79,7 @@ Choose NEW GAME to begin.	시작하려면 새 게임을 선택하세요.
 Choose a save exported from MonZaMac (.zip), or a folder holding a Z-A save (a JKSV backup, a copy from a console).	MonZaMac에서 내보낸 저장 파일(.zip) 또는 Z-A 저장 데이터가 있는 폴더(JKSV 백업이나 콘솔 복사본)를 선택하세요.
 Choose or drop the extracted game folder.	압축 해제된 게임 폴더를 선택하거나 끌어다 놓으세요.
 Choose the folder that holds the game files.	게임 파일이 들어 있는 폴더를 선택하세요.
+Choose the game's .nup file before setup.	설정 전에 게임의 .nup 파일을 선택하세요.
 Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.	두 파일을 선택하세요. 이 Mac에서 DLC를 추가할 때만 읽으며 게임 코드는 다시 컴파일하지 않습니다.
 Choose your base game, update and prod.keys before setup.	설치 전에 기본 게임, 업데이트 및 prod.keys를 선택하세요.
 Choose...	선택...
@@ -203,7 +205,7 @@ Game files ready.	게임 파일 준비 완료.
 Game font	게임 글꼴
 Game mode	게임 모드
 Game packages	게임 패키지
-Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere.	게임 패키지: 기본 NSP/XCI, 업데이트 NSP, prod.keys를 선택하세요. 압축 해제된 폴더: 다른 곳에서 준비한 exefs/romfs를 사용하세요.
+Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.	게임 패키지: 기본 NSP/XCI, 업데이트 NSP, prod.keys를 선택하세요. 압축 해제된 폴더: 다른 곳에서 준비한 exefs/romfs를 사용하세요. Switch 2 Edition: 기본 게임, 업데이트, DLC가 들어 있는 .nup 컨테이너 하나; 키가 필요 없습니다.
 Game text language	게임 텍스트 언어
 Game update	게임 업데이트
 Game's	게임 기본값
@@ -446,6 +448,9 @@ Starting...	시작 중...
 Stays where you are.	현재 화면에 그대로 머뭅니다.
 Stop recording	기록 중지
 Switch	Switch
+Switch 2 Edition (.nup)	Switch 2 Edition (.nup)
+Switch 2 Edition .nup	Switch 2 Edition .nup
+Switch 2 Edition package	Switch 2 Edition 패키지
 Switch fonts	Switch 글꼴
 Switch keys	Switch 암호화 키
 Switch tabs	탭 전환
@@ -488,6 +493,7 @@ This Mac's graphics chip is not the one it was done on.	이 Mac의 그래픽 칩
 This build has no online setup.	이 빌드에는 온라인 설정 기능이 없습니다.
 This deletes MonZaMac's copy of the game files (%.1f GB).	MonZaMac의 게임 파일 복사본을 삭제합니다 (%.1f GB).
 This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.	확장자는 .nsp이지만 실제로는 7z 압축 파일입니다. 압축되지 않은 NSP 또는 XCI를 선택하세요.
+This file isn't a valid Switch 2 Edition .nup package.	이 파일은 올바른 Switch 2 Edition .nup 패키지가 아닙니다.
 This only needs to be done once and may take a while.	한 번만 하면 되며 시간이 다소 걸릴 수 있습니다.
 This version of MonZaMac precompiles more than the last one did.	이 버전의 MonZaMac은 이전 버전보다 더 많은 항목을 사전 컴파일합니다.
 Those files can't be used	이 파일은 사용할 수 없습니다
