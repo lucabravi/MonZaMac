@@ -139,7 +139,9 @@ You need a Mac with Apple Silicon (macOS 15 or later, macOS 27 included) and **y
    (**NSP or XCI**), the **v2.0.2 update (NSP)** and your **prod.keys**. The app checks them, applies the update and
    builds the game on your Mac. Allow at least **27 GB of free space**; larger packages may need more, and setup
    checks the requirement before proceeding. The first build takes a while. No game files or keys are uploaded.
-5. When it is done, press **Continue** (your most recent save) or **New game**. Your saves and settings are kept in
+5. To install another supported game without removing this one, open **Game Files** from the start screen and choose
+   **Add another game**. Select an installed game there whenever you want to switch between them.
+6. When it is done, press **Continue** (your most recent save) or **New game**. Your saves and settings are kept in
    `~/Library/Application Support/com.monzamac.app`, and stay there when you update the app.
 
 <details>

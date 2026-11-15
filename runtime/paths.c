@@ -127,12 +127,16 @@ bool rt_resource(const char *name, const char *dev_rel, char *out, size_t n) {
 static const char *const GAME_FILES[] = {"exefs", "romfs", "romfs.bin", "aoc", GAMELIB_NAME, GAMELIB_NAME ".id", ".gamebuild",
                                          ".extract", "extract.log", "xci_secure", "nso_raw", "update_pfs", ".DS_Store"};
 
-// game_dir must be <data root>/extracted, a real folder (a dev worktree's symlinked extracted/ is refused)
+// game_dir must be the legacy <data root>/extracted folder or an app-owned child of <data root>/games.
 static bool game_dir_ok(const char *game_dir) {
-    char want[1100], got[1100];
-    snprintf(want, sizeof want, "%s" SEP "extracted", g_root);
+    char legacy[1100], games[1100], got[1100];
+    snprintf(legacy, sizeof legacy, "%s" SEP "extracted", g_root);
+    snprintf(games, sizeof games, "%s" SEP "games" SEP, g_root);
     if (!g_root[0] || is_link(game_dir) || !resolve(game_dir, got, sizeof got)) return false;
-    return path_eq(want, got);
+    if (path_eq(legacy, got)) return true;
+    size_t n = strlen(games);
+    if (strncmp(games, got, n) || !got[n] || strchr(got + n, '/')) return false;
+    return true;
 }
 
 bool rt_remove_game_file(const char *game_dir, const char *name) {
@@ -213,13 +217,20 @@ static bool empty_dir(const char *path) {
 bool rt_game_setup_begin(const char *game_dir, bool rebuild_code, char *stage, size_t size, char *why, size_t why_size) {
     char marker[1200];
     if (g_setup_lock >= 0) { snprintf(why, why_size, "A setup is already running."); return false; }
-    snprintf(g_setup_target, sizeof g_setup_target, "%s/extracted", g_root);
+    snprintf(g_setup_target, sizeof g_setup_target, "%s", game_dir);
     if (!g_root[0] || is_link(game_dir) ||
         (strcmp(game_dir, "extracted") && strcmp(game_dir, g_setup_target) && !game_dir_ok(game_dir))) {
         snprintf(why, why_size, "Setup can only write to MonZaMac's game-data folder."); return false;
     }
     if (rebuild_code ? !game_dir_ok(game_dir) : !empty_dir(g_setup_target)) {
         snprintf(why, why_size, "Remove the existing game files below before importing a new copy."); return false;
+    }
+    if (!exists(g_setup_target)) {
+        char parent[1200];
+        snprintf(parent, sizeof parent, "%s", g_setup_target);
+        char *slash = strrchr(parent, '/');
+        if (slash) *slash = 0;
+        mkdirs(parent);
     }
     int fd = setup_lock();
     if (fd < 0) {

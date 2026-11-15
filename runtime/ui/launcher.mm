@@ -183,12 +183,62 @@ static void *update_thread(void *) {
 
 // ------------------------------------------------------------------ game files
 static std::string g_root;  // extracted game: <root>/exefs, <root>/romfs
+static std::vector<std::string> g_game_roots;
 
 static bool file_exists(const std::string &p) {
     struct stat st;
     return stat(p.c_str(), &st) == 0;
 }
 static bool is_dir(const std::string &p);
+
+static void game_library_refresh() {
+    g_game_roots.clear();
+    std::string data = rt_data_root();
+    std::string legacy = data + "/extracted";
+    if (is_dir(legacy)) g_game_roots.push_back(legacy);
+    std::string games = data + "/games";
+    if (DIR *d = opendir(games.c_str())) {
+        while (struct dirent *e = readdir(d)) {
+            if (e->d_name[0] == '.') continue;
+            std::string p = games + "/" + e->d_name;
+            if (is_dir(p)) g_game_roots.push_back(p);
+        }
+        closedir(d);
+    }
+    std::sort(g_game_roots.begin(), g_game_roots.end());
+}
+
+static std::string game_library_marker() { return std::string(rt_data_root()) + "/.active-game"; }
+static void game_library_save_active(const std::string &path) {
+    FILE *f = fopen(game_library_marker().c_str(), "w");
+    if (f) { fprintf(f, "%s\n", path.c_str()); fclose(f); }
+}
+static std::string game_library_active() {
+    char line[1200] = "";
+    FILE *f = fopen(game_library_marker().c_str(), "r");
+    if (f) { fgets(line, sizeof line, f); fclose(f); }
+    std::string p = line;
+    while (!p.empty() && (p.back() == '\n' || p.back() == '\r')) p.pop_back();
+    return p;
+}
+static std::string game_library_next() {
+    std::string dir = std::string(rt_data_root()) + "/games";
+    for (int i = 1; i < 10000; i++) {
+        std::string p = dir + "/game-" + std::to_string(i);
+        if (!is_dir(p) && !file_exists(p)) return p;
+    }
+    return dir + "/game-new";
+}
+static const char *game_library_name(const std::string &root) {
+    static char name[128];
+    GameKind kind = game_kind_from_program_id(game_program_id_from_npdm((root + "/exefs/main.npdm").c_str()));
+    snprintf(name, sizeof name, "%s", kind == GAME_UNKNOWN ? "Unrecognized game" : game_title(kind));
+    return name;
+}
+static void game_library_select(const std::string &root) {
+    g_root = root;
+    game_library_save_active(root);
+}
 
 // The copied game files alone ("" = there), without the game code built from them
 static std::string check_copied_files(const std::string &root) {
@@ -1798,6 +1848,12 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
     pthread_t boot_thread;
     std::pair<void (*)(const char *), const char *> boot_job(boot_fn, root);
     g_root = root;
+    game_library_refresh();
+    if (!g_game_roots.empty()) {
+        std::string active = game_library_active();
+        auto it = std::find(g_game_roots.begin(), g_game_roots.end(), active);
+        game_library_select(it != g_game_roots.end() ? *it : g_game_roots.front());
+    }
     g_ownership = false;
     g_start_screen = 1;
     static bool update_checked;  // (once per launch, not again after a "Title screen" reboot)
@@ -1975,6 +2031,7 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
         if (play && !play_at) { play_at = SDL_GetTicks(); g_launch_loading = 1; ui_loading_cover_show(win, 0); }  // (the cover over the window, fading in, until the game's first frame: runtime/nvn/metal.m)
         if (play && getenv("LARECOMP_LOADING_LOG")) { static int n; if (n++ % 15 == 0) fprintf(stderr, "[loading] %.0f ms, boot %s\n", loading_ms(), g_boot_done ? "done" : boot_started ? "running" : "not started"); }
         if (play && !boot_started && boot_fn && !getenv("LARECOMP_BOOT_ON_MAIN") && loading_ms() >= 350) {  // (after the fade: the game starts behind it)
+            boot_job.second = g_root.c_str();
             g_boot_done = false;
             boot_started = pthread_create(&boot_thread, NULL, launcher_boot_thread, &boot_job) == 0;
         }
@@ -2021,6 +2078,7 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
         if (was_busy && !busy) {
             io.ClearInputKeys();
             io.ClearInputMouse();
+            game_library_refresh();
             status = check_game_files(g_root);
             if (status.empty()) { load_background(dev); page = MAIN; }
 #ifdef LUMIOSE_ONLINE
@@ -2372,6 +2430,32 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
                     if (focus_first > 0 && focus_first--) ImGui::SetFocusID(ImGui::GetItemID(), ImGui::GetCurrentWindow());
                 };
                 opt_begin("##files", sc);
+                if (!busy && !g_game_roots.empty()) {
+                    opt_section("Installed games");
+                    for (const std::string &game : g_game_roots) {
+                        bool selected = game == g_root;
+                        std::string detail = selected ? "Currently selected." : "Select this game for PLAY.";
+                        std::string label = game_library_name(game);
+                        std::string value = selected ? "Selected" : "Choose";
+                        if (opt_action(label.c_str(), value.c_str(), detail.c_str(), true) && !selected) {
+                            game_library_select(game);
+                            status = check_game_files(g_root);
+                            g_import_mode = check_copied_files(g_root).empty() ? 1 : 0;
+                            g_src.clear(); g_base.clear(); g_update.clear(); g_keys.clear(); g_dlc.clear();
+                            g_ownership = false;
+                            if (status.empty()) load_background(dev);
+                        }
+                    }
+                    if (opt_action("Add another game", "", "Keep this game installed and add another Pokémon game.", true)) {
+                        game_library_select(game_library_next());
+                        g_game_roots.push_back(g_root);
+                        status = "No game files";
+                        g_import_mode = 0;
+                        g_src.clear(); g_base.clear(); g_update.clear(); g_keys.clear(); g_dlc.clear();
+                        g_ownership = false;
+                    }
+                    ImGui::Dummy(ImVec2(0, 12 * sc));
+                }
                 if (!ready) {
                     opt_section("Your copy of the game");
                     ImGui::TextWrapped("%s", ui_tr("MonZaMac does not include or provide game files or keys. Use only files you "
