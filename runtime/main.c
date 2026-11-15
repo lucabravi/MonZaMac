@@ -253,6 +253,8 @@ int main(int argc, char **argv) {
         discord_presence_start();  // (from the start screen on: its settings turn it on; it stops when the window is done)
         if (title) {  // start screen (runtime/ui/launcher.mm): game files setup, seed choice, settings
             extern bool launcher_run(const char *root, void (*boot_fn)(const char *));
+            extern void ui_loading_cover_hide(void);  // runtime/nvn/metal.m
+            ui_loading_cover_hide();
             booted = launcher_run(root, boot);  // (PLAY boots the game on a worker thread behind the loading screen)
         }
         if (!booted && getenv("LARECOMP_LOADING_COVER")) {  // (restarted by the start screen: the window and the loading cover go up before the game starts)
