@@ -1598,6 +1598,13 @@ void ui_loading_cover_show(SDL_Window *w, int instant) {  // instant: opaque at 
     if (!instant) [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) { ctx.duration = 0.35; g_cover.animator.alphaValue = 1; }];
 }
 
+// Take the cover off at once. The start screen calls it when it takes the window back: a game that returns to it before
+// showing a frame ("Prepare all shaders" from the start screen) would leave the cover over it for good.
+void ui_loading_cover_hide(void) {
+    [g_cover removeFromSuperview];
+    g_cover = nil;
+}
+
 @interface PreparationPage : NSView {
 @public
     NSTextField *brand, *title, *detail, *count;
