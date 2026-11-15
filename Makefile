@@ -176,7 +176,10 @@ gen-helper: build/helper-venv/.ok build/shader-decode/release/monzamac-shader-de
 	    --workpath build/pyinstaller tools/lasgen.spec
 	cp build/shader-decode/release/monzamac-shader-decode build/helper/lasgen/
 	build/helper-venv/bin/python tools/shader_decoder_notices.py --deps build/shader-decode/release/deps \
-	    --lock tools/shader_decode/Cargo.lock --manifest tools/shader_decode/Cargo.toml --output build/helper/lasgen/shader-decoder-licenses
+	    --lock tools/shader_decode/Cargo.lock --manifest tools/shader_decode/Cargo.toml \
+	    --rust-docs "$(or $(RUST_DOCS),$(shell sysroot=$$(rustc --print sysroot 2>/dev/null); \
+	        if test -d "$$sysroot/share/doc/rust"; then echo "$$sysroot/share/doc/rust"; \
+	        else echo "$$sysroot/share/doc/rustc"; fi))" --output build/helper/lasgen/shader-decoder-licenses
 	@du -sh build/helper/lasgen
 
 build/helper-venv/.ok:
