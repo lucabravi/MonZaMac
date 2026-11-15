@@ -78,6 +78,7 @@ Choose NEW GAME to begin.	Выберите «Новая игра», чтобы �
 Choose a save exported from MonZaMac (.zip), or a folder holding a Z-A save (a JKSV backup, a copy from a console).	Выберите сохранение, экспортированное из MonZaMac (.zip), или папку с сохранением Z-A (резервная копия JKSV или копия с консоли).
 Choose or drop the extracted game folder.	Выберите или перетащите распакованную папку игры.
 Choose the folder that holds the game files.	Выберите папку с файлами игры.
+Choose the game's .nup file before setup.	Перед настройкой выберите файл .nup игры.
 Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.	Выберите два файла. Они считываются только на этом Mac для добавления DLC; код игры не перекомпилируется.
 Choose your base game, update and prod.keys before setup.	Перед настройкой выберите основную игру, обновление и prod.keys.
 Choose...	Выбрать...
@@ -203,7 +204,7 @@ Game files ready.	Файлы игры готовы.
 Game font	Шрифт игры
 Game mode	Режим игры
 Game packages	Пакеты игры
-Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere.	Игровые пакеты: выберите базовый NSP/XCI, NSP обновления и prod.keys. Распакованная папка: используйте exefs/romfs, подготовленные в другом месте.
+Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.	Игровые пакеты: выберите базовый NSP/XCI, NSP обновления и prod.keys. Распакованная папка: используйте exefs/romfs, подготовленные в другом месте. Switch 2 Edition: один контейнер .nup с базовой игрой, обновлением и DLC; ключи не нужны.
 Game text language	Язык текста игры
 Game update	Обновление игры
 Game's	По умолчанию в игре
@@ -330,6 +331,7 @@ Off	Выкл.
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	Официальный каталог рецептов шейдеров: %s.%s Игровые данные не загружаются. Компиляция выполняется при запуске игры или регистрации шейдеров.
 Offline play	Игра без сети
 On	Вкл.
+One unencrypted container with the base game, update and DLC. No prod.keys needed.	Один незашифрованный контейнер с базовой игрой, обновлением и DLC. prod.keys не нужен.
 Online play	Игра онлайн
 Online play (Lumiose Online)	Онлайн-игра (Lumiose Online)
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	Онлайн, где в игре виден курсор (интерфейс Lumiose управляется щелчками): он скрывается, если мышь не двигалась и не нажималась столько времени, и сразу возвращается при действии (перетаскивание двумя пальцами не считается).
@@ -446,6 +448,9 @@ Starting...	Запуск...
 Stays where you are.	Останетесь на текущем экране.
 Stop recording	Остановить запись
 Switch	Switch
+Switch 2 Edition (.nup)	Switch 2 Edition (.nup)
+Switch 2 Edition .nup	Switch 2 Edition .nup
+Switch 2 Edition package	Пакет Switch 2 Edition
 Switch fonts	Шрифты Switch
 Switch keys	Ключи шифрования Switch
 Switch tabs	Переключить вкладки
@@ -488,6 +493,7 @@ This Mac's graphics chip is not the one it was done on.	Графический �
 This build has no online setup.	В этой сборке нет настройки онлайн-режима.
 This deletes MonZaMac's copy of the game files (%.1f GB).	Копия игровых файлов MonZaMac будет удалена (%.1f ГБ).
 This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.	Файл имеет расширение .nsp, но внутри архив 7z. Выберите несжатый NSP или XCI.
+This file isn't a valid Switch 2 Edition .nup package.	Этот файл не является корректным пакетом .nup Switch 2 Edition.
 This only needs to be done once and may take a while.	Это нужно сделать лишь один раз, и это может занять некоторое время.
 This version of MonZaMac precompiles more than the last one did.	Эта версия MonZaMac предкомпилирует больше, чем предыдущая.
 Those files can't be used	Эти файлы нельзя использовать

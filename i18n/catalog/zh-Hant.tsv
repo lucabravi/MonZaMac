@@ -78,6 +78,7 @@ Choose NEW GAME to begin.	選擇「新遊戲」開始。
 Choose a save exported from MonZaMac (.zip), or a folder holding a Z-A save (a JKSV backup, a copy from a console).	選擇從 MonZaMac 匯出的存檔（.zip），或包含 Z-A 存檔的資料夾（JKSV 備份或主機複本）。
 Choose or drop the extracted game folder.	請選擇或拖入已解壓縮的遊戲資料夾。
 Choose the folder that holds the game files.	請選擇存放遊戲檔案的資料夾。
+Choose the game's .nup file before setup.	設定前請先選擇遊戲的 .nup 檔案。
 Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.	請選取這兩個檔案。僅在此 Mac 上讀取以新增 DLC，不會重新編譯遊戲程式碼。
 Choose your base game, update and prod.keys before setup.	設定前請選擇遊戲本體、更新檔和 prod.keys。
 Choose...	選擇...
@@ -203,7 +204,7 @@ Game files ready.	遊戲檔案已就緒。
 Game font	遊戲字型
 Game mode	遊戲模式
 Game packages	遊戲套件
-Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere.	遊戲包：選擇基礎 NSP/XCI、更新 NSP 和 prod.keys。已解壓縮資料夾：使用在別處準備好的 exefs/romfs。
+Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.	遊戲包：選擇基礎 NSP/XCI、更新 NSP 和 prod.keys。已解壓縮資料夾：使用在別處準備好的 exefs/romfs。Switch 2 Edition：一個包含基礎遊戲、更新和 DLC 的 .nup 容器；不需要金鑰。
 Game text language	遊戲文字語言
 Game update	遊戲更新
 Game's	遊戲預設
@@ -330,6 +331,7 @@ Off	關
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	官方著色器配方目錄：%s.%s 不會上傳遊戲資料。著色器會於啟動或註冊時編譯。
 Offline play	離線遊玩
 On	開
+One unencrypted container with the base game, update and DLC. No prod.keys needed.	一個包含基礎遊戲、更新和 DLC 的未加密容器。不需要 prod.keys。
 Online play	線上遊玩
 Online play (Lumiose Online)	線上遊玩（Lumiose Online）
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	線上時，遊戲內會顯示游標（Lumiose 介面需用它點擊）：滑鼠在此時間內未移動或點擊時會隱藏，一有操作便立即重新顯示（雙指拖曳不計入）。
@@ -446,6 +448,9 @@ Starting...	正在啟動...
 Stays where you are.	留在目前畫面。
 Stop recording	停止錄製
 Switch	Switch
+Switch 2 Edition (.nup)	Switch 2 Edition (.nup)
+Switch 2 Edition .nup	Switch 2 Edition .nup
+Switch 2 Edition package	Switch 2 Edition 套件
 Switch fonts	Switch 字型
 Switch keys	Switch 加密金鑰
 Switch tabs	切換分頁
@@ -488,6 +493,7 @@ This Mac's graphics chip is not the one it was done on.	這台 Mac 的圖形晶�
 This build has no online setup.	此版本不包含線上模式設定。
 This deletes MonZaMac's copy of the game files (%.1f GB).	將刪除 MonZaMac 的遊戲檔案複本（%.1f GB）。
 This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.	雖然副檔名為 .nsp，此檔案實際上是 7z 壓縮檔。請選擇未壓縮的 NSP 或 XCI。
+This file isn't a valid Switch 2 Edition .nup package.	此檔案不是有效的 Switch 2 Edition .nup 套件。
 This only needs to be done once and may take a while.	只需執行一次，可能需要一些時間。
 This version of MonZaMac precompiles more than the last one did.	此版本的 MonZaMac 預先編譯的內容比上一版本更多。
 Those files can't be used	無法使用這些檔案

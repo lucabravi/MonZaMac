@@ -135,9 +135,11 @@ You need a Mac with Apple Silicon (macOS 15 or later, macOS 27 included) and **y
 3. Open MonZaMac. The app is not notarized by Apple. If macOS blocks it, use **System Settings > Privacy & Security >
    Open Anyway** after attempting to open it, then confirm the prompt.
 4. On the start screen choose **Set up game files** and confirm that you own an original copy. Select your base game
-   (**NSP or XCI**), the **v2.0.2 update (NSP)** and your **prod.keys**. The app checks them, applies the update and
-   builds the game on your Mac. Allow at least **27 GB of free space**; larger packages may need more, and setup
-   checks the requirement before proceeding. The first build takes a while. No game files or keys are uploaded.
+   (**NSP or XCI**), the **v2.0.2 update (NSP)** and your **prod.keys**. If you have the Switch 2 Edition, choose
+   **Switch 2 Edition (.nup)** instead and pick the `.nup` file: it holds the base game, update and DLC, and needs no
+   keys. The app checks them, applies the update and builds the game on your Mac. Allow at least **27 GB of free
+   space**; larger packages may need more, and setup checks the requirement before proceeding. The first build takes a
+   while. No game files or keys are uploaded.
 5. When it is done, press **Continue** (your most recent save) or **New game**. Your saves and settings are kept in
    `~/Library/Application Support/com.monzamac.app`, and stay there when you update the app.
 

@@ -8,6 +8,8 @@ import subprocess
 import sys
 import tempfile
 
+from nup import Nup, NupError, KIND_BASE, KIND_UPDATE, KIND_ADDON, NO_DIR
+
 APP_ID = 0x0100F43008C44000
 
 
@@ -223,10 +225,59 @@ def extract(base, update, keys, output, tool, build_id):
         raise
 
 
+def extract_nup(nup_path, output, build_id):
+    """Switch 2 Edition .nup: base, update and add-ons in one unencrypted container (no keys, no nstool)."""
+    output = Path(output).resolve(strict=True)
+    if not output.is_dir() or any((output / n).exists() for n in ('exefs', 'romfs')):
+        raise ImportFailure('output')
+    emit('checking')
+    try:
+        container = Nup(nup_path)
+    except NupError:
+        raise ImportFailure('nup', 'base') from None
+    except OSError:
+        raise ImportFailure('io', 'base') from None
+    with container:
+        base = next((p for p in container.packages if p.kind == KIND_BASE), None)
+        if not base or base.title_id != APP_ID or base.exefs_dir == NO_DIR or base.romfs_dir == NO_DIR:
+            raise ImportFailure('game')
+        update = max((p for p in container.packages if p.kind == KIND_UPDATE and p.title_id == APP_ID),
+                     key=lambda p: p.version, default=None)
+        addons = [p for p in container.packages if p.kind == KIND_ADDON and p.romfs_dir != NO_DIR]
+        # The unpacked tree and the data image are each about the container's size (the game's own packs are
+        # already compressed), plus room for the game code build.
+        size = Path(nup_path).stat().st_size
+        need = max(25 << 30, 2 * size + (3 << 30))
+        if shutil.disk_usage(output).free < need:
+            print('import: space ' + str(need), flush=True)
+            raise ImportFailure('space')
+        try:
+            emit('base')
+            container.extract(base.exefs_dir, output / 'exefs')
+            container.extract(base.romfs_dir, output / 'romfs')
+            if update:
+                emit('update')
+                if update.exefs_dir != NO_DIR: container.extract(update.exefs_dir, output / 'exefs')
+                if update.romfs_dir != NO_DIR: container.extract(update.romfs_dir, output / 'romfs')
+            emit('extracting')
+            validate_extracted(output, build_id)
+            for p in addons:
+                container.extract(p.romfs_dir, output / 'aoc-tree' / ('%016x' % p.title_id))
+            emit('ready')
+        except BaseException as e:
+            for name in ('exefs', 'romfs', 'aoc-tree'):
+                p = output / name
+                if p.is_dir() and not p.is_symlink(): shutil.rmtree(p)
+            if isinstance(e, NupError):
+                raise ImportFailure('nup', 'base') from None
+            raise
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Prepare your own game packages locally.')
     for name in ('base', 'update', 'keys', 'output', 'nstool', 'build-id'):
         parser.add_argument('--' + name)
+    parser.add_argument('--nup')  # Switch 2 Edition container: base, update and add-ons, no keys
     parser.add_argument('--dlc')  # optional add-on NSP; a bad one never fails the base import
     parser.add_argument('--dlc-only', action='store_true')  # add the DLC to an installed game: no base, update or build id
     args = parser.parse_args(argv)
@@ -235,6 +286,12 @@ def main(argv=None):
             if not (args.dlc and args.keys and args.output and args.nstool): raise ImportFailure('input')
             extract_dlc(args.dlc, args.keys, args.output, args.nstool)
             emit('dlc ready')
+            return 0
+        if args.nup:
+            if not (args.output and args.build_id): raise ImportFailure('input')
+            build_id = bytes.fromhex(args.build_id)
+            if len(build_id) != 8: raise ImportFailure('input')
+            extract_nup(args.nup, args.output, build_id)
             return 0
         if not all((args.base, args.update, args.keys, args.output, args.nstool, args.build_id)): raise ImportFailure('input')
         build_id = bytes.fromhex(args.build_id)

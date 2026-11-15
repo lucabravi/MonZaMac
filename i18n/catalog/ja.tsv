@@ -78,6 +78,7 @@ Choose NEW GAME to begin.	「はじめから」を選んでください。
 Choose a save exported from MonZaMac (.zip), or a folder holding a Z-A save (a JKSV backup, a copy from a console).	MonZaMacからエクスポートしたセーブ（.zip）、またはZ-Aのセーブが入ったフォルダー（JKSVバックアップや本体からのコピー）を選んでください。
 Choose or drop the extracted game folder.	展開済みのゲームフォルダを選ぶか、ドロップしてください。
 Choose the folder that holds the game files.	ゲームファイルが入っているフォルダを選んでください。
+Choose the game's .nup file before setup.	セットアップの前に、ゲームの.nupファイルを選んでください。
 Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.	この2つのファイルを選択してください。DLCの追加時にこのMac上でのみ読み込まれ、ゲームコードの再コンパイルは行いません。
 Choose your base game, update and prod.keys before setup.	セットアップ前に、本編、アップデート、prod.keysを選んでください。
 Choose...	選択...
@@ -203,7 +204,7 @@ Game files ready.	ゲームファイルの準備完了。
 Game font	ゲーム用フォント
 Game mode	ゲームモード
 Game packages	ゲームパッケージ
-Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere.	ゲームパッケージ：ベースのNSP/XCI、アップデートのNSP、prod.keysを選びます。展開済みフォルダ：別の場所で用意したexefs/romfsを使います。
+Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.	ゲームパッケージ：ベースのNSP/XCI、アップデートのNSP、prod.keysを選びます。展開済みフォルダ：別の場所で用意したexefs/romfsを使います。Switch 2 Edition：ベース、アップデート、DLCを含む1つの.nupコンテナ。キーは不要です。
 Game text language	ゲーム内テキストの言語
 Game update	ゲームの更新データ
 Game's	ゲーム標準
@@ -330,6 +331,7 @@ Off	オフ
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	公式シェーダーレシピカタログ：%s.%s ゲームデータはアップロードされません。コンパイルは起動時またはシェーダー登録時に実行されます。
 Offline play	オフラインプレイ
 On	オン
+One unencrypted container with the base game, update and DLC. No prod.keys needed.	ベース、アップデート、DLCを含む暗号化されていない1つのコンテナ。prod.keysは不要です。
 Online play	オンラインプレイ
 Online play (Lumiose Online)	オンラインプレイ（Lumiose Online）
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	オンラインでゲーム内にカーソルが表示されるとき（Lumioseの画面はカーソルでクリックして操作します）：マウスの移動やクリックがこの時間ない場合は非表示になり、操作するとすぐに再表示されます（2本指のドラッグは含まれません）。
@@ -446,6 +448,9 @@ Starting...	起動中...
 Stays where you are.	現在の画面に留まります。
 Stop recording	記録を停止
 Switch	Switch
+Switch 2 Edition (.nup)	Switch 2 Edition (.nup)
+Switch 2 Edition .nup	Switch 2 Edition .nup
+Switch 2 Edition package	Switch 2 Editionパッケージ
 Switch fonts	Switchのフォント
 Switch keys	Switchの暗号鍵
 Switch tabs	タブを切り替え
@@ -488,6 +493,7 @@ This Mac's graphics chip is not the one it was done on.	このMacのグラフィ
 This build has no online setup.	このビルドにはオンライン設定がありません。
 This deletes MonZaMac's copy of the game files (%.1f GB).	MonZaMac内のゲームファイルのコピーを削除します（%.1f GB）。
 This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.	拡張子は.nspですが、このファイルは7zアーカイブです。圧縮されていないNSPまたはXCIを選んでください。
+This file isn't a valid Switch 2 Edition .nup package.	このファイルは有効なSwitch 2 Editionの.nupパッケージではありません。
 This only needs to be done once and may take a while.	この作業は一度だけで済みますが、しばらく時間がかかることがあります。
 This version of MonZaMac precompiles more than the last one did.	このバージョンのMonZaMacは、前回より多くをプリコンパイルします。
 Those files can't be used	これらのファイルは使用できません

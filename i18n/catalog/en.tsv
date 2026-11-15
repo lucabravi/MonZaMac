@@ -78,6 +78,7 @@ Choose NEW GAME to begin.	Choose NEW GAME to begin.
 Choose a save exported from MonZaMac (.zip), or a folder holding a Z-A save (a JKSV backup, a copy from a console).	Choose a save exported from MonZaMac (.zip), or a folder holding a Z-A save (a JKSV backup, a copy from a console).
 Choose or drop the extracted game folder.	Choose or drop the extracted game folder.
 Choose the folder that holds the game files.	Choose the folder that holds the game files.
+Choose the game's .nup file before setup.	Choose the game's .nup file before setup.
 Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.	Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.
 Choose your base game, update and prod.keys before setup.	Choose your base game, update and prod.keys before setup.
 Choose...	Choose...
@@ -203,7 +204,7 @@ Game files ready.	Game files ready.
 Game font	Game font
 Game mode	Game mode
 Game packages	Game packages
-Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere.	Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere.
+Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.	Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.
 Game text language	Game text language
 Game update	Game update
 Game's	Game's
@@ -330,6 +331,7 @@ Off	Off
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.
 Offline play	Offline play
 On	On
+One unencrypted container with the base game, update and DLC. No prod.keys needed.	One unencrypted container with the base game, update and DLC. No prod.keys needed.
 Online play	Online play
 Online play (Lumiose Online)	Online play (Lumiose Online)
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).
@@ -446,6 +448,9 @@ Starting...	Starting...
 Stays where you are.	Stays where you are.
 Stop recording	Stop recording
 Switch	Switch
+Switch 2 Edition (.nup)	Switch 2 Edition (.nup)
+Switch 2 Edition .nup	Switch 2 Edition .nup
+Switch 2 Edition package	Switch 2 Edition package
 Switch fonts	Switch fonts
 Switch keys	Switch keys
 Switch tabs	Switch tabs
@@ -488,6 +493,7 @@ This Mac's graphics chip is not the one it was done on.	This Mac's graphics chip
 This build has no online setup.	This build has no online setup.
 This deletes MonZaMac's copy of the game files (%.1f GB).	This deletes MonZaMac's copy of the game files (%.1f GB).
 This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.	This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.
+This file isn't a valid Switch 2 Edition .nup package.	This file isn't a valid Switch 2 Edition .nup package.
 This only needs to be done once and may take a while.	This only needs to be done once and may take a while.
 This version of MonZaMac precompiles more than the last one did.	This version of MonZaMac precompiles more than the last one did.
 Those files can't be used	Those files can't be used

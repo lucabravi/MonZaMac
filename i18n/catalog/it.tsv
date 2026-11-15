@@ -78,6 +78,7 @@ Choose NEW GAME to begin.	Seleziona NUOVA PARTITA per iniziare.
 Choose a save exported from MonZaMac (.zip), or a folder holding a Z-A save (a JKSV backup, a copy from a console).	Seleziona un salvataggio esportato da MonZaMac (.zip) oppure una cartella con un salvataggio Z-A (backup JKSV o copia dalla console).
 Choose or drop the extracted game folder.	Scegli o trascina qui la cartella del gioco estratta.
 Choose the folder that holds the game files.	Scegli la cartella che contiene i file di gioco.
+Choose the game's .nup file before setup.	Prima di iniziare, seleziona il file .nup del gioco.
 Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.	Seleziona questi due file. Vengono letti solo su questo Mac per aggiungere il DLC, senza ricompilare il codice del gioco.
 Choose your base game, update and prod.keys before setup.	Prima di iniziare, seleziona gioco base, aggiornamento e prod.keys.
 Choose...	Scegli...
@@ -203,7 +204,7 @@ Game files ready.	File di gioco pronti.
 Game font	Font del gioco
 Game mode	Modalità di gioco
 Game packages	Pacchetti del gioco
-Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere.	Pacchetti di gioco: scegli l'NSP/XCI base, l'NSP di aggiornamento e prod.keys. Cartella estratta: usa exefs/romfs preparati altrove.
+Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.	Pacchetti di gioco: scegli l'NSP/XCI base, l'NSP di aggiornamento e prod.keys. Cartella estratta: usa exefs/romfs preparati altrove. Switch 2 Edition: un solo contenitore .nup con gioco base, aggiornamento e DLC; senza chiavi.
 Game text language	Lingua dei testi del gioco
 Game update	Aggiornamento del gioco
 Game's	Del gioco
@@ -330,6 +331,7 @@ Off	Disattivo
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	Catalogo ufficiale delle ricette shader: %s.%s Nessun dato di gioco viene caricato online. La compilazione avviene all’avvio o quando gli shader vengono registrati.
 Offline play	Gioco offline
 On	Attivo
+One unencrypted container with the base game, update and DLC. No prod.keys needed.	Un solo contenitore non cifrato con gioco base, aggiornamento e DLC. Non serve prod.keys.
 Online play	Gioco online
 Online play (Lumiose Online)	Gioco online (Lumiose Online)
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	Online, dove il cursore è visibile in gioco (l’interfaccia di Lumiose si usa con il cursore): si nasconde quando il mouse non si muove né clicca per questo tempo, e ricompare appena lo fai (il trascinamento a due dita non conta).
@@ -446,6 +448,9 @@ Starting...	Avvio...
 Stays where you are.	Rimani in questa schermata.
 Stop recording	Interrompi registrazione
 Switch	Switch
+Switch 2 Edition (.nup)	Switch 2 Edition (.nup)
+Switch 2 Edition .nup	Switch 2 Edition .nup
+Switch 2 Edition package	Pacchetto Switch 2 Edition
 Switch fonts	Font della Switch
 Switch keys	Chiavi di cifratura Switch
 Switch tabs	Cambia scheda
@@ -488,6 +493,7 @@ This Mac's graphics chip is not the one it was done on.	Il chip grafico di quest
 This build has no online setup.	Questa versione non include la configurazione online.
 This deletes MonZaMac's copy of the game files (%.1f GB).	Verrà eliminata la copia dei file di gioco di MonZaMac (%.1f GB).
 This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.	Il file è un archivio 7z nonostante l’estensione .nsp. Seleziona un pacchetto NSP o XCI non compresso.
+This file isn't a valid Switch 2 Edition .nup package.	Questo file non è un pacchetto .nup Switch 2 Edition valido.
 This only needs to be done once and may take a while.	Basta farlo una volta sola e potrebbe richiedere un po'.
 This version of MonZaMac precompiles more than the last one did.	Questa versione di MonZaMac precompila più elementi della precedente.
 Those files can't be used	Questi file non sono utilizzabili
