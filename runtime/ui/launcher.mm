@@ -2622,12 +2622,9 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
                 ImGui::TextColored(ImVec4(0.45f, 0.95f, 0.55f, 1), ui_tr("Game files ready."));
                 ImGui::SetCursorPosX(x0);
                 {
-                    // The Mega Dimension add-on is one aoc/<id>.bin RomFS image (tools/game_extract.py --dlc)
-                    bool dlc = false;
-                    if (DIR *d = opendir((g_root + "/aoc").c_str())) {
-                        while (struct dirent *e = readdir(d)) dlc |= strstr(e->d_name, ".bin") != NULL;
-                        closedir(d);
-                    }
+                    // The Mega Dimension add-on is one aoc/<id>.bin RomFS image (tools/game_extract.py --dlc). Not just any
+                    // .bin: a Switch 2 Edition .nup also installs the upgrade add-on (...5001), which is not the DLC.
+                    bool dlc = file_exists(g_root + "/aoc/0100f43008c45002.bin");
                     ImGui::TextColored(ImVec4(0.66f, 0.76f, 0.98f, 1), ui_tr("Nintendo Switch  \xc2\xb7  v2.0.2  \xc2\xb7  %s"),
                                        ui_tr(dlc ? "DLC found" : "DLC not found"));
                     if (!dlc && !busy) {

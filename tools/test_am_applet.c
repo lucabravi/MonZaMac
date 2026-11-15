@@ -134,16 +134,24 @@ static void check_protocol(void) {
     assert(command(a.object, 104).result == AM_NO_DATA);
     assert(command(a.object, 999).result);
     assert(command(a.object, 103).result);  // Interactive input is unsupported.
-    const uint32_t unsupported[] = {0x0a, 0x0f, 0x10, 0x11, 0x13, 0xff};
-    for (unsigned i = 0; i < sizeof unsupported / sizeof *unsupported; i++) {
-        args[0] = unsupported[i];
-        Reply bad = call(c, 0, 0, args, sizeof args, 0, false);
-        assert(bad.result && !bad.nobjects);
+    // Every applet launches headless and reports AppletExitReason_Canceled: the game's DLC purchase opens the shop
+    // applet (0x14) that way, and the SDK aborts the whole process when CreateLibraryApplet itself fails.
+    const uint32_t headless[] = {0x0a, 0x11, 0x13, 0x14, 0xff};
+    for (unsigned i = 0; i < sizeof headless / sizeof *headless; i++) {
+        args[0] = headless[i];
+        Reply other = call(c, 0, 0, args, sizeof args, 0, false);
+        assert(!other.result && other.nobjects == 1);
+        assert(command(other.object, 30).result);  // GetResult still needs Start.
+        assert(!command(other.object, 10).result);
+        assert(command(other.object, 30).result == AM_APPLET_CANCELED);
+        close_session(other.object);
     }
     assert(command(c, 999).result);
     assert(command(c, 11).result && command(c, 12).result);
-    args[0] = 0x0e; args[1] = 1;
-    assert(call(c, 0, 0, args, sizeof args, 0, false).result);
+    args[0] = 0x0e; args[1] = 1;  // The applet mode is accepted and not used.
+    Reply mode = call(c, 0, 0, args, sizeof args, 0, false);
+    assert(!mode.result && mode.nobjects == 1);
+    close_session(mode.object);
     puts("PASS error-applet protocol");
 }
 
