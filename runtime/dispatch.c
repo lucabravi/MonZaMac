@@ -232,7 +232,7 @@ GuestFn dispatch_lookup(uint64_t addr) {
 }
 
 // Small direct-mapped cache in front of the binary search
-#define DCACHE 4096
+#define DCACHE 32768
 static __thread struct { uint64_t addr; GuestFn fn; } dcache[DCACHE];
 
 // Guest setjmp sites of this thread (cpu.h RtJmp): one per guest jmp_buf, the oldest replaced when full
