@@ -3280,11 +3280,21 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
         "    float2 g = abs(det) > 1e-20f ? float2(uy.y * zx - ux.y * zy, ux.x * zy - uy.x * zx) / det : float2(0);\n"
         "    if (!all(isfinite(g))) g = float2(0);\n"
         "    float2 p = c.xy * size - 0.5f, f = fract(p);\n"
-        "    int2 i = int2(floor(p)), hi = int2(size) - 1;\n"
+        "    int2 i = int2(floor(p));\n");
+        // One gather for the four texels instead of four reads, aimed at their shared corner so the footprint is exact
+        // (its order is (0,1) (1,1) (1,0) (0,0)). Its sampler takes one of Metal's 16 slots: a program that uses them
+        // all keeps the reads.
+        sp(&s, info->ntex < MSL_MAX_SAMPLERS ?
+        "    constexpr sampler gs(coord::normalized, address::clamp_to_edge, filter::linear);\n"
+        "    float4 z = t.gather(gs, (float2(i) + 1.0f) / size, uint(c.z)).wzxy;\n" :
+        "    int2 hi = int2(size) - 1;\n"
+        "    float4 z = float4(t.read(uint2(clamp(i, int2(0), hi)), uint(c.z)).x, t.read(uint2(clamp(i + int2(1, 0), int2(0), hi)), uint(c.z)).x,\n"
+        "                      t.read(uint2(clamp(i + int2(0, 1), int2(0), hi)), uint(c.z)).x, t.read(uint2(clamp(i + int2(1, 1), int2(0), hi)), uint(c.z)).x);\n");
+        sp(&s,
         "    float r[4];\n"
         "    for (int k = 0; k < 4; k++) {\n"
         "        int2 q = i + int2(k & 1, k >> 1);\n"
-        "        r[k] = ref + dot(g, (float2(q) + 0.5f) / size - c.xy) >= t.read(uint2(clamp(q, int2(0), hi)), uint(c.z)).x ? 1.0f : 0.0f;\n"
+        "        r[k] = ref + dot(g, (float2(q) + 0.5f) / size - c.xy) >= z[k] ? 1.0f : 0.0f;\n"
         "    }\n"
         "    return mix(mix(r[0], r[1], f.x), mix(r[2], r[3], f.x), f.y);\n"
         "}\n");
