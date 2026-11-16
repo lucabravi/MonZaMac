@@ -1391,7 +1391,7 @@ static void clear(int index, int kind, const void *color, uint32_t mask, bool de
         else if (renderer_format_is_sint(f)) kind = 1;
         else kind = 0;
     }
-    // A float clear of an integer target converts the value, as the hardware does (Ryujinx too): Pokémon Z-A clears
+    // A float clear of an integer target converts the value, as the hardware does: Pokémon Z-A clears
     // its R8_UINT shadow caster-class map with ClearColor(1.0) and expects 1. Its raw bits saturated to 255, every
     // empty texel then named a caster class, and the shadow mask self-shadowed the characters (faceted streaks).
     uint32_t conv[4];

@@ -496,7 +496,7 @@ static bool emit_half(Ctx *c, uint64_t w) {
             merge = 0; sat = bits(w, 52, 1); swa = (int)bits(w, 53, 2); nega = kind == 0 ? bits(w, 56, 1) : false;
             sprintf(ib, "0x%08xu", (uint32_t)bits(w, 20, 32)); bv = ib;
         } else {
-            // field layout per Ryujinx's InstDecoders (InstHadd2*/InstHmul2*)
+            // field layout per the reference decoders (HADD2 / HMUL2)
             merge = (int)bits(w, 49, 2); swa = (int)bits(w, 47, 2); nega = bits(w, 43, 1); absa = bits(w, 44, 1);
             if (form == 0) {
                 sat = bits(w, 32, 1); absb = bits(w, 30, 1); swb = (int)bits(w, 28, 2);
@@ -528,7 +528,7 @@ static bool emit_half(Ctx *c, uint64_t w) {
         bool sat, negb, negc;
         const char *bv, *cv;
         char cb2[256];
-        switch (form) {  // field layout per Ryujinx's InstDecoders (InstHfma2*); NegA is applied to B (same product)
+        switch (form) {  // field layout per the reference decoders (HFMA2); NegA is applied to B (same product)
         case 0:
             merge = (int)bits(w, 49, 2); sat = bits(w, 32, 1); negb = bits(w, 31, 1); negc = bits(w, 30, 1);
             swb = (int)bits(w, 28, 2); swc = (int)bits(w, 35, 2);
@@ -549,7 +549,7 @@ static bool emit_half(Ctx *c, uint64_t w) {
             swb = 0; swc = (int)bits(w, 53, 2);
             sprintf(ib, "0x%08xu", himm(w)); bv = ib; cv = R((int)bits(w, 39, 8));
             break;
-        default:  // 32I: c = d. The immediate fills bits 20-51, so the fields sit above it, as yuzu's HFMA2_32I (Ryujinx
+        default:  // 32I: c = d. The immediate fills bits 20-51, so the fields sit above it, as in reference B's HFMA2_32I (reference A
                   // reads NegC 51 and ASwizzle 47-48 inside the immediate)
             merge = 0; sat = false; negb = false; negc = bits(w, 52, 1);
             swa = (int)bits(w, 53, 2); swb = 0; swc = 0;
@@ -791,7 +791,7 @@ static bool glsl_texs(Ctx *c, uint64_t w, bool fetch, int *slot_out, char *call,
     sprintf(fb, "as_type<float>(%s)", Bv); sprintf(fb1, "as_type<float>(%s)", B1);
     if (!fetch) {
         switch (info) {
-        case 0: slot = tex_slot(c, index, TEXTYPE_1D, false, false); co[0] = fa;  // (1D.LZ: level 0, per Ryujinx)
+        case 0: slot = tex_slot(c, index, TEXTYPE_1D, false, false); co[0] = fa;  // (1D.LZ: level 0, per the reference decoders)
             glsl_sample(c, call, slot, co, NULL, NULL, 1, "0.0f", NULL); break;
         case 1: slot = tex_slot(c, index, TEXTYPE_2D, false, false); co[0] = fa; co[1] = fb;
             glsl_sample(c, call, slot, co, NULL, NULL, 0, NULL, NULL); break;
@@ -836,7 +836,7 @@ static bool glsl_texs(Ctx *c, uint64_t w, bool fetch, int *slot_out, char *call,
         case 7: slot = tex_slot(c, index, TEXTYPE_3D, false, false);
             sprintf(call, "texelFetch(t%d, ivec3(%s, %s, %s), 0)", slot, A, A1, Bv); break;
         case 8: slot = tex_slot(c, index, TEXTYPE_2D_ARRAY, false, true);
-            // (TLDS 2D array: x = Rb, y = Rb + 1, layer = Ra - unlike TEXS, whose array layout is layer, Ra + 1, Rb; per Ryujinx)
+            // (TLDS 2D array: x = Rb, y = Rb + 1, layer = Ra - unlike TEXS, whose array layout is layer, Ra + 1, Rb; per the reference decoders)
             sprintf(call, "texelFetch(t%d, ivec3(ivec2(%s), int(%s)), 0)", slot, RSC2(c, slot, b, b + 1, "uint2(%s, %s)", Bv, B1), A); break;
         case 12: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
             sprintf(call, "texelFetch(t%d, ivec2(%s), int(%s))", slot, RSC2(c, slot, a, a + 1, "uint2(int2(%s, %s) + int2(int(%s << 28) >> 28, int(%s << 24) >> 28))", A, A1, B1, B1), Bv); break;
@@ -918,7 +918,7 @@ static void emit_texs(Ctx *c, uint64_t w, bool fetch) {
         case 7: slot = tex_slot(c, index, TEXTYPE_3D, false, false);
             sprintf(call, "t%d.read(uint3(%s, %s, %s))", slot, A, A1, Bv); break;
         case 8: slot = tex_slot(c, index, TEXTYPE_2D_ARRAY, false, true);
-            // (TLDS 2D array: x = Rb, y = Rb + 1, layer = Ra - unlike TEXS, whose array layout is layer, Ra + 1, Rb; per Ryujinx)
+            // (TLDS 2D array: x = Rb, y = Rb + 1, layer = Ra - unlike TEXS, whose array layout is layer, Ra + 1, Rb; per the reference decoders)
             sprintf(call, "t%d.read(%s, uint(%s))", slot, RSC2(c, slot, b, b + 1, "uint2(%s, %s)", Bv, B1), A); break;
         case 12: slot = tex_slot(c, index, TEXTYPE_2D, false, false);
             sprintf(call, "t%d.read(%s, uint(%s))", slot, RSC2(c, slot, a, a + 1, "uint2(int2(%s, %s) + int2(int(%s << 28) >> 28, int(%s << 24) >> 28))", A, A1, B1, B1), Bv); break;
@@ -928,7 +928,7 @@ static void emit_texs(Ctx *c, uint64_t w, bool fetch) {
     write_tex_result(c, slot, call, mask, d0, d1, true, !bits(w, 59, 1));  // 0xd0/0xd2: .F16 results
 }
 
-// ATOM (global memory atomic, 32-bit; per Ryujinx's InstAtom): address Ra (+ Ra+1 with .E) + a signed 20-bit offset,
+// ATOM (global memory atomic, 32-bit; per the reference decoders): address Ra (+ Ra+1 with .E) + a signed 20-bit offset,
 // operand Rb, the old value to Rd. Same addressing as LDG / STG (compute: the dispatch's device-local copy first).
 // RED is ATOM without the result: value in Rb at bits 0-7, size at 20, op at 23.
 static void emit_atom(Ctx *c, uint64_t w, bool red) {
@@ -994,7 +994,7 @@ static void emit_atom(Ctx *c, uint64_t w, bool red) {
     sp(&c->body, "    }\n");
 }
 
-// TLD4S (2D gather, one component or a depth compare; per Ryujinx's EmitTexs Tld4s): x in Ra, y in Rb - or y in Ra+1
+// TLD4S (2D gather, one component or a depth compare; per the reference decoders): x in Ra, y in Rb - or y in Ra+1
 // when Rb holds the offset (.AOFFI: 6-bit signed x, y at bits 0 / 8) and / or the depth reference (.DC, after the
 // offset). Results as TEXS: two components (Rd, Rd+1), four with Rd2 (Rd2, Rd2+1); .F16 (0xdf8) packs them.
 static void emit_tld4s(Ctx *c, uint64_t w) {
@@ -1044,7 +1044,7 @@ static void emit_tld4s(Ctx *c, uint64_t w) {
     write_tex_result(c, slot, call, d1 == RZ ? 3u : 15u, d0, d1, true, f16);
 }
 
-// TLD4 (gather; per Ryujinx's EmitTld4): Ra = [array index], coordinates; Rb = [offsets: one (.AOFFI) or two
+// TLD4 (gather; per the reference decoders): Ra = [array index], coordinates; Rb = [offsets: one (.AOFFI) or two
 // (.PTP: four texels, 6-bit signed x / y at bits 0 / 8, 16 / 24)], [depth reference]. The WMask components go to
 // consecutive registers from Rd. GLSL gather offsets must be constant: the coordinates move instead, and .PTP takes
 // one gather per texel: component i is texel i0j0 (gather .w) of the footprint at offset i, as textureGatherOffsets.
@@ -1137,7 +1137,7 @@ static void emit_tld4(Ctx *c, uint64_t w) {
     write_tex_result(c, slot, call, mask, d, RZ, false, false);
 }
 
-// TMML (LOD query; per Ryujinx's EmitTmml): coordinates from Ra (the array index first), results in 8.8 fixed point,
+// TMML (LOD query; per the reference decoders): coordinates from Ra (the array index first), results in 8.8 fixed point,
 // x = the LOD the hardware would use, y = the mip level; z / w read 0.
 static void emit_tmml(Ctx *c, uint64_t w) {
     int d = (int)bits(w, 0, 8), a = (int)bits(w, 8, 8);
@@ -1184,7 +1184,7 @@ static void emit_tmml(Ctx *c, uint64_t w) {
 }
 
 // VMNMX (video min / max of byte / half / word selections, then an accumulate / min / max / merge with Rc; per
-// Ryujinx's Vmnmx). Selection: 0-3 u8 bytes, 4-5 u16 halves, 6 u32, | 8 signed.
+// the reference decoders). Selection: 0-3 u8 bytes, 4-5 u16 halves, 6 u32, | 8 signed.
 static const char *vsel(char *o, const char *r, int sel, bool glsl) {
     static const int sh[16] = {0, 8, 16, 24, 0, 16, 0, 0, 0, 8, 16, 24, 0, 16, 0, 0};
     int width = (sel & 7) < 4 ? 8 : (sel & 7) < 6 ? 16 : 32;
@@ -1240,7 +1240,7 @@ static void emit_vmnmx(Ctx *c, uint64_t w) {
 }
 
 // TEX (full form): coordinates from consecutive registers at gpr8, extra parameters at gpr20.
-// SUST.B / SURED.B (bindless image store / reduction, per Ryujinx's InstEmitMemory): the image handle is a constant buffer word
+// SUST.B / SURED.B (bindless image store / reduction, per the reference decoders): the image handle is a constant buffer word
 // (the driver's image table at IMAGE_HANDLE_BASE), found through reg_cbsrc. Anything else is dropped, loudly.
 static void drop_surface(Ctx *c, uint64_t w, const char *why) {
     if (!c->warned_surface) {
@@ -1272,7 +1272,7 @@ static void emit_surface(Ctx *c, uint64_t w) {
     t->is_image = true;
     t->scalar_kind = c->key && ((c->key->img_uint >> ik) & 1) ? 2 : c->key && ((c->key->img_sint >> ik) & 1) ? 1 : 0;
     char xy[64], layer[32] = "";
-    // (.BA: x in bytes, shifted by the 4-byte element size, per Ryujinx's EmitSured)
+    // (.BA: x in bytes, shifted by the 4-byte element size, per the reference decoders)
     snprintf(xy, sizeof xy, ba ? "uint2(uint(int(%s) >> 2), %s)" : "uint2(%s, %s)", R(crd), R(crd + 1));
     if (array) snprintf(layer, sizeof layer, ", %s", R(crd + 2));
     if (red) {
@@ -1556,7 +1556,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         for (int i = 0; i < n; i++) attr_store(c, d + i, addr + 4 * i);
     } else if (OPM(0xef90000000000000ull, 0xfff8000000000000ull)) {  // LD c[idx][reg + imm]
         int idx = (int)bits(w, 36, 5);
-        int64_t off = (int64_t)bits(w, 20, 16);  // unsigned (Ryujinx InstLdc.CbufOffset)
+        int64_t off = (int64_t)bits(w, 20, 16);  // unsigned (per the reference decoders)
         int sz = (int)bits(w, 48, 3);
         int n = sz == 5 ? 2 : 1;
         char rb[16];
@@ -1584,7 +1584,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         emit_tex(c, w, true);
     } else if (OPM(0xdf00000000000000ull, 0xffc0000000000000ull) || OPM(0xdf80000000000000ull, 0xffc0000000000000ull)) {
         emit_tld4s(c, w);  // TLD4S (.F16: 0xdf8)
-    } else if (OPM(0xc800000000000000ull, 0xfc00000000000000ull)) {  // TLD4 (110010: per Ryujinx's InstTable)
+    } else if (OPM(0xc800000000000000ull, 0xfc00000000000000ull)) {  // TLD4 (110010: per the reference decoders)
         emit_tld4(c, w);
     } else if (OPM(0xdf58000000000000ull, 0xfff8000000000000ull)) {  // TMML
         emit_tmml(c, w);
@@ -1593,14 +1593,14 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
     } else if (OPM(0xeb20000000000000ull, 0xfff8000000000000ull) || OPM(0xeb50000000000000ull, 0xfff8000000000000ull)) {
         emit_surface(c, w);
     } else if (OPM(0x5bd0000000000000ull, 0xfff8000000000000ull) || OPM(0x4bd0000000000000ull, 0xfff8000000000000ull) ||
-               OPM(0x36d0000000000000ull, 0xfef8000000000000ull)) {  // LEA: (±Ra << sh) + B (per Ryujinx's EmitLea)
+               OPM(0x36d0000000000000ull, 0xfef8000000000000ull)) {  // LEA: (±Ra << sh) + B (per the reference decoders)
         if (bits(w, 46, 1) || bits(w, 47, 1)) { fail(c, "lea .x / .cc"); return; }
         int sh = (int)bits(w, 39, 5);
         if (bits(w, 45, 1)) sprintf(t, "((0u - (%s << %du)) + %s)", R(a), sh, B(false));
         else sprintf(t, "((%s << %du) + %s)", R(a), sh, B(false));
         set_reg(c, d, t);
     } else if (OPM(0x5bd8000000000000ull, 0xfff8000000000000ull) || OPM(0x1800000000000000ull, 0xfc00000000000000ull)) {
-        // LEA.HI: the high word of (±(Rc:Ra) << sh), + B (per Ryujinx's EmitLeaHi)
+        // LEA.HI: the high word of (±(Rc:Ra) << sh), + B (per the reference decoders)
         bool cb = (w >> 58) == 0x6;
         int sh = (int)(cb ? bits(w, 51, 5) : bits(w, 28, 5)), rc = (int)bits(w, 39, 8);
         bool neg = cb ? bits(w, 56, 1) : bits(w, 37, 1), x = cb ? bits(w, 57, 1) : bits(w, 38, 1);
@@ -1617,7 +1617,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         emit_atom(c, w, false);
     } else if (OPM(0xebf8000000000000ull, 0xfff8000000000000ull)) {  // RED (global)
         emit_atom(c, w, true);
-    } else if (OPM(0x50d8000000000000ull, 0xfff8000000000000ull)) {  // VOTE (per Ryujinx's Vote; warps of 32 = NVIDIA subgroups)
+    } else if (OPM(0x50d8000000000000ull, 0xfff8000000000000ull)) {  // VOTE (per the reference decoders; warps of 32 = NVIDIA subgroups)
         int vp = (int)bits(w, 45, 3), mode = (int)bits(w, 48, 2);
         const char *src = P((int)bits(w, 39, 3), bits(w, 42, 1));
         static const char *const fn[] = {"subgroupAll", "subgroupAny", "subgroupAllEqual"};
@@ -1652,7 +1652,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             for (int i = 0; i < 4; i++)
                 if (mask & (1u << i)) { c->reg_used[d + n] = 1; sp(&c->body, "      r%d = q[%d];\n", d + n, i); rsc_clear(c, d + n); n++; }
             sp(&c->body, "    }\n");
-        } else if (qt == 1) {  // dimension (z: depth or layers, as Ryujinx's TextureQuerySize; 1 for 1D / 2D / cube)
+        } else if (qt == 1) {  // dimension (z: depth or layers, as the reference decoders do; 1 for 1D / 2D / cube)
             if (slot < 32) c->txq_z |= 1u << slot;
             if (c->stage != STAGE_VERTEX) {  // report the guest size of scaled allocations
                 c->uses_rscale = true;
@@ -1843,7 +1843,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         else if (sfmt == 1) sprintf(srcv, "float(as_type<half2>(%s)[%d])", B(false), (int)bits(w, 41, 1));
         else strcpy(srcv, F(B(true)));
         const char *x = NA(srcv, bits(w, 45, 1), bits(w, 49, 1));
-        // integer rounding only without a format change; otherwise bits 39-40 are the conversion's rounding (per Ryujinx's EmitF2F)
+        // integer rounding only without a format change; otherwise bits 39-40 are the conversion's rounding (per the reference decoders)
         int mode = dfmt == sfmt ? (int)((bits(w, 39, 2)) | (bits(w, 42, 1) << 2)) : 0;
         switch (mode) {
         case 4: sprintf(t, "rint(%s)", x); break;
@@ -1888,8 +1888,8 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
                OPM(0x38c0000000000000ull, 0xfef0000000000000ull)) {  // IADD3
         bool wcc3 = bits(w, 47, 1), x3 = bits(w, 48, 1);
         // register form: each source may be one 16-bit half (bits 35 / 33 / 31: 1 low, 2 high), and A + B may be shifted
-        // by 16 before C is added (bits 37-38: 1 right, with the carry out of the sum as its bit 16; 2 left). Per Ryujinx's
-        // EmitIadd3 and yuzu's IADD3.
+        // by 16 before C is added (bits 37-38: 1 right, with the carry out of the sum as its bit 16; 2 left). Per the
+        // reference decoders.
         bool r3 = (w >> 52) == 0x5cc;
         int lrs = r3 ? (int)bits(w, 37, 2) : 0, part[3] = {r3 ? (int)bits(w, 35, 2) : 0, r3 ? (int)bits(w, 33, 2) : 0,
                                                             r3 ? (int)bits(w, 31, 2) : 0};
@@ -1963,7 +1963,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         set_reg(c, d, t);
     } else if (OPM(0x5c28000000000000ull, 0xfff8000000000000ull) || OPM(0x4c28000000000000ull, 0xfff8000000000000ull) ||
                OPM(0x3828000000000000ull, 0xfef8000000000000ull)) {  // SHR
-        // .W (bit 39) wraps the amount, else it clamps; .BREV (bit 40) reverses A's bits first (per Ryujinx's EmitShr)
+        // .W (bit 39) wraps the amount, else it clamps; .BREV (bit 40) reverses A's bits first (per the reference decoders)
         const char *bv = B(false);
         bool sgn = bits(w, 48, 1), wrap = bits(w, 39, 1);
         char av[64];
@@ -2052,7 +2052,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         set_reg(c, d, t);
     } else if (OPM(0x5b00000000000000ull, 0xffc0000000000000ull) || OPM(0x4e00000000000000ull, 0xfe00000000000000ull) ||
                OPM(0x3600000000000000ull, 0xfec0000000000000ull) || OPM(0x5100000000000000ull, 0xff80000000000000ull)) {  // XMAD
-        // per Ryujinx's InstXmad* decoders and EmitXmad
+        // per the reference decoders
         const char *bv, *cv;
         char cb[256], bb[256];
         bool hb, psl, mrg, ext, ha = bits(w, 53, 1);
@@ -2115,7 +2115,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         case 0x25: set_reg(c, d, "ctaid.x"); break;
         case 0x26: set_reg(c, d, "ctaid.y"); break;
         case 0x27: set_reg(c, d, "ctaid.z"); break;
-        // SR_LANEID and the lane masks (eq, lt, le, gt, ge: per Ryujinx's register numbering) - warp-aggregated atomics
+        // SR_LANEID and the lane masks (eq, lt, le, gt, ge: per the reference decoders' register numbering) - warp-aggregated atomics
         // (ballot, a leader lane adds the popcount: Pokémon Z-A's culling counts instances so). (MSL vertex functions
         // have no SIMD-group index: lane 0 there.)
         case 0x00: case 0x38: case 0x39: case 0x3a: case 0x3b: case 0x3c: {
@@ -2139,7 +2139,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
     } else if (OPM(0x5c30000000000000ull, 0xfff8000000000000ull) || OPM(0x4c30000000000000ull, 0xfff8000000000000ull) ||
                OPM(0x3830000000000000ull, 0xfef8000000000000ull)) {  // FLO
         // NegB (bit 40) inverts the source; .SH (bit 41) returns the bit's distance from the top (31 - index), not found
-        // stays 0xFFFFFFFF (per Ryujinx's EmitFlo and yuzu's FLO)
+        // stays 0xFFFFFFFF (per the reference decoders)
         char bb[300], f[700];
         const char *bv = B(false);
         if (bits(w, 40, 1)) { sprintf(bb, "(~%s)", bv); bv = bb; }
@@ -2203,7 +2203,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         set_reg(c, d, t);
     } else if (OPM(0x5cf8000000000000ull, 0xfff8000000000000ull) || OPM(0x38f8000000000000ull, 0xfef8000000000000ull) ||
                OPM(0x5bf8000000000000ull, 0xfff8000000000000ull) || OPM(0x36f8000000000000ull, 0xfef8000000000000ull)) {  // SHF
-        // (Rc:Ra) shifted as 64 bits (per Ryujinx's EmitShf / yuzu's SHF). Max shift (bits 37-38): 32, or 64 for .U64 / .S64
+        // (Rc:Ra) shifted as 64 bits (per the reference decoders). Max shift (bits 37-38): 32, or 64 for .U64 / .S64
         // (64-bit shifts: an amount past 31 moves Rc into the low word); .W (bit 50) wraps the amount, else it clamps.
         // The immediate form's amount is 6 bits: the max shift field sits inside the generic 20-bit immediate.
         // Limit/wrap behavior follows Mesa NAK's hardware-tested OpShf folding (d3e917ea), including sign fill at 64.
@@ -2391,7 +2391,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
             goto shfl_done;
         } else {
             // PTX shfl.sync: c = clamp | segment mask << 8, b uses only its low five bits. UP tests maxLane as
-            // its lower bound (NVIDIA / yuzu; older Ryujinx used minLane). An invalid source keeps the local value.
+            // its lower bound (NVIDIA / reference B; an older reference A used minLane). An invalid source keeps the local value.
             char cb[48];
             const char *cx = bits(w, 29, 1) ? (sprintf(cb, "%uu", (unsigned)bits(w, 34, 13)), cb) : R((int)bits(w, 39, 8));
             static const char *const srcx[] = {"(bb & ~sg & 31u) | mn", "lane - bb", "lane + bb", "lane ^ bb"};
@@ -3157,7 +3157,7 @@ ShaderInfo *maxwell_translate_with_constants(const uint8_t *blob, size_t max_siz
     sp(&s, "static inline uint bfe_s(uint v, uint ctl) { uint pos = ctl & 0xFFu, len = (ctl >> 8) & 0xFFu; if (len == 0u) return 0u; if (pos >= 32u) return (int(v) < 0) ? 0xFFFFFFFFu : 0u; return uint(extract_bits(int(v), pos, min(len, 32u - pos))); }\n");
     sp(&s, "static inline uint bfi(uint ins, uint ctl, uint base) { uint pos = ctl & 0xFFu, len = (ctl >> 8) & 0xFFu; if (len == 0u || pos >= 32u) return base; return insert_bits(base, ins, pos, min(len, 32u - pos)); }\n");
     sp(&s, "static inline float fswzadd(float a, float b, uint swz, uint lane) { uint m = (swz >> ((lane & 3u) * 2u)) & 3u; float ma = m == 1u ? -1.0f : (m == 3u ? 0.0f : 1.0f); float mb = m == 2u ? -1.0f : 1.0f; return a * ma + b * mb; }\n");
-    // FMUL / FFMA .FMZ (D3D9 rule: 0 * anything, Inf and NaN too, is 0; as yuzu). .FMZ also flushes denormals, so a zero
+    // FMUL / FFMA .FMZ (D3D9 rule: 0 * anything, Inf and NaN too, is 0; as the reference decoders). .FMZ also flushes denormals, so a zero
     // exponent counts as 0. The test is on the bits: with fast math a float compare against 0 lets the compiler fold the
     // select into the plain product
     sp(&s, "static inline float fmz_mul(float a, float b) { return (as_type<uint>(a) & 0x7F800000u) == 0u || (as_type<uint>(b) & 0x7F800000u) == 0u ? 0.0f : a * b; }\n");

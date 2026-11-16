@@ -1,4 +1,4 @@
-# Extracts the Switch system fonts (.bfttf) from a firmware dump (a folder of NCAs, e.g. Ryujinx's firmware) using
+# Extracts the Switch system fonts (.bfttf) from a firmware dump (a folder of NCAs) using
 # the user's own prod.keys. Needs pycryptodome. usage: python nca_font.py <firmware dir> <prod.keys> <out dir>
 # Writes nintendo_ext_003.bfttf, nintendo_udsg-r_std_003.bfttf, ... (what runtime/hle/pl.c looks for in fonts/).
 import os, struct, sys

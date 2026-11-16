@@ -79,7 +79,7 @@ runs at play time. The supported game version is **v2.0.2**. The Mega Dimension 
 
 **[Lumiose Online](https://lumioseonline.site)** is an unofficial, fan-made multiplayer mod for Pokémon Legends: Z-A,
 built and run by its own team: players share Lumiose City, chat, trade and talk (voice chat), on one server for
-everyone, on a Switch, in the Eden emulator or on PC, and now on a Mac. **MonZaMac makes it possible to run that
+everyone, on a Switch or on PC, and now on a Mac. **MonZaMac makes it possible to run that
 mod natively on a Mac. The mod, the server and the online features are the Lumiose Online team's work; MonZaMac only
 runs the mod, and does not operate, control or vouch for the service.** A great thank you to them for making it work
 with the Mac port: see [Credits](#credits-and-license).
