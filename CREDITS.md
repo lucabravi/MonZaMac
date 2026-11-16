@@ -101,6 +101,7 @@ code only - it grants nothing for Nintendo's game, which you must supply yoursel
 | FFmpeg (LGPL configuration) | 9.0.2 | LGPL 2.1+ | https://ffmpeg.org/releases/ |
 | SDL 3 | 3.4.18 | zlib | https://github.com/libsdl-org/SDL/releases/tag/release-3.4.18 |
 | Baloo 2 font (SemiBold) | 1.640 | SIL OFL 1.1 | https://github.com/EkType/Baloo2 |
+| Audio reverb (`runtime/services/audio.c`, built in: ported code) | n/a | MIT | notice in `third_party/audio-reverb/LICENSE.txt` |
 | SMAA (shader and lookup textures, built in) | 2013 (repository master) | MIT | https://github.com/iryoku/smaa |
 | PKHeX (save format only: the file pad, block layout and Pokémon record shuffle that `runtime/save_info.c` reads; no code) | n/a | format reference only (its license: see the project) | https://github.com/kwsch/PKHeX |
 

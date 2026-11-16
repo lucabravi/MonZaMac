@@ -237,6 +237,7 @@ static int voice_prepare(Renderer *r, Voice *v) {
 static Mix *find_mix(Renderer *r, int32_t id) { return id >= 0 && (uint32_t)id < r->nmix && r->mix[id].used ? &r->mix[id] : NULL; }
 
 // ------------------------------------------------------------------ reverb (the AudioRenderer's reverb state and command)
+// Ported code under the MIT license: its notice is third_party/audio-reverb/LICENSE.txt (shipped in the app).
 typedef struct { float *buf; uint32_t sr, cur, last, count, max; } DelayLine;
 
 static void dl_set(DelayLine *d, float ms) {
