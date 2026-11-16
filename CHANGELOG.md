@@ -18,6 +18,7 @@ Cleaner skin and hair in some close-ups, a little more speed, a new way to insta
 
 ### Game
 - **The in-game DLC purchase no longer closes the game.** The game's shop screen opens as an applet the Mac cannot show; it now ends at once as "the user backed out" and the game returns to its own menu.
+- **A little less CPU work:** the game's indirect calls (virtual functions and function pointers) are answered from a bigger cache, so fewer of them search the function table. About 2% more frames per second in the station at 1x on an Apple M5 (113.5 -> 116.0, six alternating runs); it costs about 20 MB of memory. No shader preparation is needed.
 
 ### Start screen
 - The team on the offline card has more room: bigger balls, further apart, with the buttons lower. The Saves page follows.
