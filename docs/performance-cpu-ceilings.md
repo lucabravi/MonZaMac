@@ -66,3 +66,20 @@ larger cache, and single runs spread by about 3 FPS), CPU 7.73 -> 7.69 ms, GPU 8
 Left in the same profile, not tried: the texture lookup in `renderer_texture` with its key and compare (about 7% of
 the busy samples), the render thread's command loop (`exec_list`, 6%), the thread-local access in `rt_dispatch` (1.3%),
 and the OS calls that skip the cache (the cost of `rt_unwind_point` there is not measured).
+
+### The game code at -O2 (2026-11-16)
+
+The game code (47% of the busy samples) is compiled at `-O1`. To see whether the level matters, the whole library was built
+from a fresh `gen` three times: the installed one, one built here at `-O1` with the same flags (7 min 54 s on 10 cores),
+and one at `-O2` (15 min 41 s), then loaded with `LARECOMP_GAME_LIB` into the same executable. Station walk at 1x,
+uncapped, six alternating runs of each:
+
+| Library | Throughput FPS | CPU ms | GPU ms |
+| --- | ---: | ---: | ---: |
+| installed (`-O1`) | 113.3 | 7.69 | 8.25 |
+| built here, `-O1` | 111.2 | 7.74 | 8.26 |
+| built here, `-O2` | 112.5 | 7.73 | 8.25 |
+
+Medians; single runs of one variant spread by about 4 FPS. `-O2` for the whole library gains nothing measurable, so a
+list of hot files at `-O2` cannot either (the whole library is its upper bound), and it takes twice as long to build on
+the player's Mac. Not pursued.
