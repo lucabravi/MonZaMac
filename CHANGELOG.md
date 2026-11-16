@@ -3,6 +3,30 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
+## Unreleased
+
+Cleaner skin and hair in some close-ups, a little more speed, a new way to install the game from a Switch 2 Edition `.nup` file, and fixes. **After updating, run Prepare all shaders again** (the **All shaders** badge turns yellow): the shader translation changed.
+
+### Graphics
+- **Close-ups of characters no longer show moving blotchy noise** on skin and hair (seen in a story cutscene with two characters and red dotted lights on the wall). The screen-space contact shadow ignored one of its conditions, so every step of its ray counted as a hit. Now it matches the Switch.
+- **Faster:** in the station walk, characters' materials and shadows use less GPU time (about 5% and 1% of the frame, 62 -> 65 and 75 -> 76 fps on an Apple M5 with the same settings). The shaders that read whether a surface faces the camera no longer run in the slow generic mode, and the smoothed shadow test reads four texels with one fetch instead of four.
+- Vertex shaders are translated with the same compiler constants as the fragment shaders, so the precompiled ones match what the game asks for. This does not change the speed.
+
+### Setup
+- **Import from a `.nup` file:** a third **Import from** choice takes one Switch 2 Edition `.nup` container made from your own dump, with the base game, the update and the add-ons already decrypted. It needs no `prod.keys` and no `nstool`. The ownership confirmation is still required. Every file is checked against its hash as it is written, and a damaged or unsafe container is refused.
+- The Switch 2 Edition upgrade add-on from a `.nup` no longer makes the start screen say **DLC found**: it now looks for the Mega Dimension DLC itself, so **Add DLC...** stays available until it is installed.
+
+### Game
+- **The in-game DLC purchase no longer closes the game.** The game's shop screen opens as an applet the Mac cannot show; it now ends at once as "the user backed out" and the game returns to its own menu.
+
+### Start screen
+- The team on the offline card has more room: bigger balls, further apart, with the buttons lower. The Saves page follows.
+- **Prepare all shaders** no longer leaves the black loading screen over the start screen when the game returns before its first frame.
+
+### Developer tools
+- With `LARECOMP_DEVTOOLS=1`, the **0** key takes one complete frame dump (F9 is awkward on a Mac) and debug frames log more: sampler state, raw depth and the scene constants.
+- `docs/frame-generation.md` explains the blocky patches that can appear between a character's arms and torso while the camera turns at 30 -> 60: they come from MetalFX's interpolator, not from the data MonZaMac gives it. `docs/performance-gpu.md` records the station walk's GPU profile and what was tried and dropped.
+
 ## 0.3.1
 
 Discord status for online players, and a set of fixes.
