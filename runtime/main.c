@@ -39,6 +39,10 @@ static void module_init(Cpu *c, Module *m) {
 static void rtld_init_sdk(Cpu *c) { module_init(c, &g_modules[1]); }
 static void rtld_init_main(Cpu *c) {
     module_init(c, &g_modules[0]);
+    if (getenv("LARECOMP_TEST_NULL_GETTER")) {  // (test: the listed getter called with no object, once)
+        extern void rt_null_getter_test(Cpu *c);
+        rt_null_getter_test(c);
+    }
     if (g_nmodules > 2) {  // the Lumiose module (loader.c), after main
         extern int lumiose_test_initializing;
         extern void lumiose_test_snapshot(void);
