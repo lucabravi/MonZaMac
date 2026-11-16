@@ -178,7 +178,7 @@ static void region_remove(uint64_t addr) {
 // (svcMapPhysicalMemory) and ~64 MB for the code, stacks and kernel objects. As on hardware, a physical mapping
 // beyond it fails with LimitReached - Pokémon Z-A maps all the free memory as one pool, then keeps asking for 4 MB
 // pieces until refused. Off by default (LARECOMP_PHYS_LIMIT=1): with the limit the game keeps fewer characters / props
-// loaded than on Ryujinx with its own (smaller) baseline - the 64 MB estimate is not what the hardware counts.
+// loaded than on another implementation with its own (smaller) baseline - the 64 MB estimate is not what the hardware counts.
 #define APP_MEMORY 0xCD500000ull
 static uint64_t phys_mapped;
 static int phys_limit = -1;  // LARECOMP_PHYS_LIMIT=1: count physical memory as used and refuse mappings past APP_MEMORY

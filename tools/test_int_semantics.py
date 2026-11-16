@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integer ops of runtime/nvn/maxwell/translate.c against reference formulas (Ryujinx's / yuzu's semantics): each
+"""Integer ops of runtime/nvn/maxwell/translate.c against reference formulas (the reference decoders' semantics): each
 instruction is translated alone (compute, MSL), the expression assigned to its destination is compiled as C++ (uint /
 ulong / long as in MSL) and compared with the reference over random and edge-case register values.
 Covers SHF, IADD3 (half select, .LS / .RS), FLO, SHR, IMUL / IMUL32I .HI. Needs cc + c++.
@@ -85,7 +85,7 @@ def cases():
                     A, B, C = part("r1", pa), part("r2", pb), part("r3", 1)
                     A, B, C = [f"(0u - {x})" if negs >> (2 - i) & 1 else x for i, x in enumerate((A, B, C))]
                     s = f"({A} + {B})"
-                    if lrs == 1:  # 33-bit sum (yuzu: the carry becomes bit 16)
+                    if lrs == 1:  # 33-bit sum (reference B: the carry becomes bit 16)
                         s = f"(uint)(((uint64_t)(uint){A} + (uint64_t)(uint){B}) >> 16)"
                     elif lrs == 2:
                         s = f"({s} << 16)"

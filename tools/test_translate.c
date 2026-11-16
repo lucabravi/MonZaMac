@@ -205,7 +205,7 @@ static void dump(const char *dir, const char *tag, long n, const char *src, cons
     fclose(f);
 }
 
-// Hand-written instructions whose operand layout was checked against Ryujinx / yuzu (docs/translator-audit.md): the
+// Hand-written instructions whose operand layout was checked against the reference decoders (docs/translator-audit.md): the
 // translation of each (one or two instructions, then EXIT) must contain `want`, and must not contain `bad`.
 #define PT_ 0x70000ull  // predicate guard PT
 static int run_cases(void) {
@@ -215,7 +215,7 @@ static int run_cases(void) {
          "t0.read(rsc(uint2(r2, r3), rscale[1]), uint(r1))", NULL},
         {"tlds 2d array glsl", STAGE_FRAGMENT, true, 0, 0xdaull << 56 | 8ull << 53 | 255ull << 28 | 2 << 20 | PT_ | 1 << 8, 0,
          "texelFetch(t0, ivec3(ivec2(rsc(uvec2(r2, r3), rscale[1])), int(r1)), 0)", NULL},
-        // TEXS 2D.LL.DC (info 5): lod = Rb, dref = Rb+1 (yuzu; Ryujinx's EmitTexs reads them the other way round)
+        // TEXS 2D.LL.DC (info 5): lod = Rb, dref = Rb+1 (reference B; reference A reads them the other way round)
         {"texs 2d ll dc", STAGE_FRAGMENT, false, 0, 0xd8ull << 56 | 5ull << 53 | 255ull << 28 | 4 << 20 | PT_ | 2 << 8, 0,
          "sample_compare(s0, float2(as_type<float>(r2), as_type<float>(r3)), as_type<float>(r5), level(as_type<float>(r4)))", NULL},
         // TEXS ARRAY_2D.LZ.DC (info 9): the layer is clamped like the other array lookups
