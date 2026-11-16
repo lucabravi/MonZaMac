@@ -9,7 +9,7 @@ Cleaner skin and hair in some close-ups, a little more speed, a new way to insta
 
 ### Graphics
 - **Close-ups of characters no longer show moving blotchy noise** on skin and hair (seen in a story cutscene with two characters and red dotted lights on the wall). The screen-space contact shadow ignored one of its conditions, so every step of its ray counted as a hit. Now it matches the Switch.
-- More shaders follow the same kind of condition the contact shadow ignored: about 330 that branch after an integer compare, and about 40 fragment shaders whose early exit has such a condition (until now they always exited early). Which scenes this changes has not been seen yet.
+- More shaders follow the same kind of condition the contact shadow ignored: about 340 that branch after an integer compare, and about 60 fragment shaders whose early exit has such a condition (until now they always exited early). Which scenes this changes has not been seen yet.
 - **Faster:** in the station walk, characters' materials and shadows use less GPU time (about 5% and 1% of the frame, 62 -> 65 and 75 -> 76 fps on an Apple M5 with the same settings). The shaders that read whether a surface faces the camera no longer run in the slow generic mode, and the smoothed shadow test reads four texels with one fetch instead of four.
 - Vertex shaders are translated with the same compiler constants as the fragment shaders, so the precompiled ones match what the game asks for. This does not change the speed.
 
