@@ -12,6 +12,8 @@ MonZaMac and are not listed.
   [36e14c5](https://github.com/Hexveil404/PokeZ-ARecomp/commit/36e14c5))
 - The Royale profile photo (texture read-back into guest memory) and skipping indirect draws with impossible
   parameters, both after their fixes
+- The first Mega Dimension mission's battle crash (a game getter reading an object that is gone gets zeros), after their
+  diagnosis and fix
 
 **Lumiose Online** - the multiplayer mod behind the online edition, its server and its community are the work of the
 [Lumiose Online](https://lumioseonline.site) team; their PC integration is
