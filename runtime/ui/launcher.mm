@@ -1784,7 +1784,7 @@ static void prelaunch_tab(float sc) {
 static std::atomic<int> g_pack_state;  // 0 = not started, 1 = checking, 2 = done
 static std::atomic<bool> g_pack_redo;  // the files changed while it ran: check again
 static GameCheck g_pack;               // (valid when done)
-static bool g_pack_fresh, g_pack_shown;  // (this check has just run: the notice is for that, not for every start)
+static bool g_pack_fresh, g_pack_shown, g_pack_delete_failed;  // (this check has just run: the notice is for that, not for every start)
 static void *pack_check_thread(void *) {
     GameCheck r;
     bool fresh = false;
@@ -1802,7 +1802,7 @@ static void *pack_check_thread(void *) {
 static void pack_check_kick() {  // (every frame while the game is ready: only the first does anything)
     int none = 0;
     if (!g_pack_state.compare_exchange_strong(none, 1)) return;
-    g_pack_shown = false;
+    g_pack_shown = g_pack_delete_failed = false;
     pthread_t t;
     if (pthread_create(&t, NULL, pack_check_thread, NULL) == 0) pthread_detach(t);
     else g_pack_state = 2;
@@ -1843,6 +1843,10 @@ static void pack_damaged_popup(float s) {
     ImGui::Dummy(ImVec2(0, 10 * s));
     for (unsigned i = 0; i < g_pack.damaged && i < GAMECHECK_IDS; i++)
         ImGui::TextDisabled("%016llx", (unsigned long long)g_pack.ids[i]);  // (what a bug report can name; the game's log has them too)
+    if (g_pack_delete_failed) {
+        ImGui::Dummy(ImVec2(0, 10 * s));
+        ImGui::TextColored(ImVec4(1, 0.5f, 0.4f, 1), "%s", ui_tr("Could not delete the game files (not in MonZaMac's data folder?)."));
+    }
     ImGui::PopTextWrapPos();
     ImGui::EndChild();
     ImGui::Dummy(ImVec2(0, 10 * s));
@@ -1850,10 +1854,12 @@ static void pack_damaged_popup(float s) {
     ImGui::SetCursorPosX((ImGui::GetWindowWidth() - 2 * bw - gap) * 0.5f);
     if (ui_button(ui_tr("Delete game files"), ImVec2(bw, 42 * s))) {
         bool ok = rt_remove_game_files(g_root.c_str());  // (runtime/paths.c: only what the extraction made)
-        set_job(ok ? "Game files deleted." : "Could not delete the game files (not in MonZaMac's data folder?).", !ok);
-        g_files_deleted = true;
-        pack_check_reset();
-        ImGui::CloseCurrentPopup();
+        if (ok) {
+            set_job("Game files deleted.");
+            g_files_deleted = true;
+            pack_check_reset();
+            ImGui::CloseCurrentPopup();
+        } else g_pack_delete_failed = true;  // (still there: the window stays, with why)
     }
     ImGui::SameLine(0, gap);
     ImGui::SetItemDefaultFocus();
