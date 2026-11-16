@@ -336,9 +336,9 @@ static const char *cc_test(int test) {
     }
 }
 
-// A BRA's condition-code test as an extra condition; NULL when it always holds (15) or tests carry / overflow, which
-// aren't tracked (taken whenever the predicate holds, as before).
-static const char *bra_cc(uint64_t w) {
+// A flow instruction's condition-code test (BRA, EXIT, BRK, SYNC, CONT: bits 0-4) as an extra condition; NULL when it
+// always holds (15) or tests carry / overflow, which aren't tracked (taken whenever the predicate holds, as before).
+static const char *flow_cc(uint64_t w) {
     int test = (int)bits(w, 0, 5);
     return test == 15 ? NULL : cc_test(test);
 }
@@ -1494,6 +1494,14 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
     if (guarded) sp(&c->body, "  if (%s) {\n", P(pr, prn));
 
 #define OPM(val, mask) ((w & (uint64_t)(mask)) == (uint64_t)(val))
+    // EXIT, BRK, SYNC and CONT carry the same condition-code test as BRA: an `@P0 EXIT.NE` after `FSET.CC` (an early
+    // out in some fragment shaders) leaves only when the flags say so too.
+    const char *fcc = flow_cc(w);
+    if (fcc && (OPM(0xe300000000000000ull, 0xfff0000000000000ull) || OPM(0xe340000000000000ull, 0xfff0000000000000ull) ||
+                OPM(0xf0f8000000000000ull, 0xfff8000000000000ull) || OPM(0xe350000000000000ull, 0xfff0000000000000ull))) {
+        c->uses_cc = true;
+        sp(&c->body, "    if (%s) {\n", fcc);
+    } else fcc = NULL;
     if (OPM(0xe300000000000000ull, 0xfff0000000000000ull)) {  // EXIT
         sp(&c->body, c->branchy ? "    exit_now = true; break;\n" : "    break;\n");
     } else if (OPM(0xe330000000000000ull, 0xfff0000000000000ull)) {  // KIL
@@ -1505,7 +1513,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
     } else if (OPM(0xe240000000000000ull, 0xfff0000000000020ull)) {  // BRA
         uint32_t target = norm_target((int64_t)pc + 8 + sbits(w, 20, 24));
         c->uses_branches = true;
-        const char *cond = bra_cc(w);  // the condition-code test: taken only when it holds
+        const char *cond = flow_cc(w);  // the condition-code test: taken only when it holds
         if (cond) { c->uses_cc = true; sp(&c->body, "    if (%s) { pc = %uu; continue; }\n", cond, target); }
         else sp(&c->body, "    pc = %uu; continue;\n", target);
     } else if (OPM(0xe290000000000000ull, 0xfff0000000000020ull)) {  // SSY
@@ -1947,6 +1955,10 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         icmp_expr(cmp, (int)bits(w, 49, 3), R(a), B(false), bits(w, 48, 1));
         sprintf(t, "((%s) %s %s)", cmp, bool_op((int)bits(w, 45, 2)), P((int)bits(w, 39, 3), bits(w, 42, 1)));
         sprintf(u, bits(w, 44, 1) ? "(%s ? 0x3f800000u : 0u)" : "(%s ? 0xFFFFFFFFu : 0u)", t);
+        if (bits(w, 47, 1)) {  // .CC: the flags of the result, as FSET.CC (an ISET.CC RZ before a BRA.NE)
+            c->uses_cc = true;
+            sp(&c->body, "    { uint ccv = %s; ccz = ccv == 0u; ccs = int(ccv) < 0; }\n", u);
+        }
         set_reg(c, d, u);
     } else if (OPM(0x5c20000000000000ull, 0xfff8000000000000ull) || OPM(0x4c20000000000000ull, 0xfff8000000000000ull) ||
                OPM(0x3820000000000000ull, 0xfef8000000000000ull)) {  // IMNMX
@@ -2465,6 +2477,7 @@ static void emit_insn(Ctx *c, uint64_t w, uint32_t pc) {
         fail(c, "unknown instruction %016llx at %#x", (unsigned long long)w, pc);
     }
     (void)op13;
+    if (fcc) sp(&c->body, "    }\n");
     if (guarded) sp(&c->body, "  }\n");
 }
 
@@ -2584,7 +2597,7 @@ static bool emit_forward_flow(Ctx *c, const uint64_t *code, size_t end,
             for (unsigned j = 0; j < f[i].njumps; j++)
                 if (!forward_edge(f, end, i, f[i].jumps[j], ssy, pbk)) goto done;
         }
-        if (f[i].kind < FLOW_SYNC || bits(code[i], 16, 4) != PT || (f[i].kind == FLOW_BRA && bra_cc(code[i]))) {
+        if (f[i].kind < FLOW_SYNC || bits(code[i], 16, 4) != PT || (f[i].kind != FLOW_BRX && flow_cc(code[i]))) {
             if (f[i].kind >= FLOW_SYNC) { ssy = f[i].ssy; pbk = f[i].pbk; }
             if (!forward_edge(f, end, i, norm_target(i * 8 + 8) / 8, ssy, pbk)) goto done;
         }
@@ -2605,7 +2618,7 @@ static bool emit_forward_flow(Ctx *c, const uint64_t *code, size_t end,
         if (annotate) sp(&c->body, "    // pc %x: %016llx\n", pc, (unsigned long long)w);
         if (f[i].kind == FLOW_LINEAR) emit_insn(c, w, pc);
         else if (f[i].kind >= FLOW_SYNC) {
-            const char *cc = f[i].kind == FLOW_BRA ? bra_cc(w) : NULL;  // (the flags are function locals: live across blocks)
+            const char *cc = f[i].kind != FLOW_BRX ? flow_cc(w) : NULL;  // (the flags are function locals: live across blocks)
             bool predicated = bits(w, 16, 4) != PT || cc;
             if (cc) c->uses_cc = true;
             if (predicated && !cc) sp(&c->body, "    if (%s) {\n", P((int)bits(w, 16, 3), bits(w, 19, 1)));
