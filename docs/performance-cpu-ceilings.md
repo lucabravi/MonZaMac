@@ -44,3 +44,25 @@ change detection (means 101.2 and 103.0).
 
 Repeat the comparison only for a scene or a machine where the frame is CPU-bound, or after a change that alters how
 much work these paths do.
+
+## Where the CPU goes, 2026-11-16 (station walk, 1x, uncapped)
+
+A `sample` of the process for 3 s during the walk (about 4000 busy thread-samples; the render thread and the game's
+threads together keep a little over two cores busy): recompiled game code 47%, the runtime 24%, the Metal driver 14%.
+The game code is flat (thousands of functions, none above 1.3% of the busy samples), so there is no single hot guest
+function to fix.
+
+The largest identified part of the runtime is the indirect-call dispatch: `rt_dispatch` and `dispatch_lookup` plus the
+stub in the game library and the thread-local access came to about 11% of the busy samples. The per-thread cache in
+front of the binary search had 4096 direct-mapped entries. Counted over a run of 200 M indirect calls: 2.9% went to
+the slow path, and 1.1% of all calls ended in a binary search over the function table (the other 1.8% are calls to
+the Switch OS replacement, which are never cached). With 32768 entries the binary searches fall to 0.07% of the calls
+(2.26 M -> 0.14 M); the OS calls are unchanged.
+
+Result at 1x, six alternating runs of each: throughput 113.5 -> 116.0 FPS (+2.2%; four of the six pairs favour the
+larger cache, and single runs spread by about 3 FPS), CPU 7.73 -> 7.69 ms, GPU 8.16 -> 8.11 ms. Memory: 16 B x 32768 =
+512 KB of thread-local storage for each thread that runs guest code.
+
+Left in the same profile, not tried: the texture lookup in `renderer_texture` with its key and compare (about 7% of
+the busy samples), the render thread's command loop (`exec_list`, 6%), the thread-local access in `rt_dispatch` (1.3%),
+and the OS calls that skip the cache (the cost of `rt_unwind_point` there is not measured).
