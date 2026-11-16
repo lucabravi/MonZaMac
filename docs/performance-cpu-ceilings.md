@@ -66,3 +66,43 @@ larger cache, and single runs spread by about 3 FPS), CPU 7.73 -> 7.69 ms, GPU 8
 Left in the same profile, not tried: the texture lookup in `renderer_texture` with its key and compare (about 7% of
 the busy samples), the render thread's command loop (`exec_list`, 6%), the thread-local access in `rt_dispatch` (1.3%),
 and the OS calls that skip the cache (the cost of `rt_unwind_point` there is not measured).
+
+### The game code at -O2 (2026-11-16)
+
+The game code (47% of the busy samples) is compiled at `-O1`. To see whether the level matters, the whole library was built
+from a fresh `gen` three times: the installed one, one built here at `-O1` with the same flags (7 min 54 s on 10 cores),
+and one at `-O2` (15 min 41 s), then loaded with `LARECOMP_GAME_LIB` into the same executable. Station walk at 1x,
+uncapped, six alternating runs of each:
+
+| Library | Throughput FPS | CPU ms | GPU ms |
+| --- | ---: | ---: | ---: |
+| installed (`-O1`) | 113.3 | 7.69 | 8.25 |
+| built here, `-O1` | 111.2 | 7.74 | 8.26 |
+| built here, `-O2` | 112.5 | 7.73 | 8.25 |
+
+Medians; single runs of one variant spread by about 4 FPS. `-O2` for the whole library gains nothing measurable, so a
+list of hot files at `-O2` cannot either (the whole library is its upper bound), and it takes twice as long to build on
+the player's Mac. Not pursued.
+
+### The render thread, 2026-11-16 (station walk, 1x, same sample)
+
+The render thread was busy in 1713 of the 1993 samples (86%). Inside it: `draw` 1311, `begin_pass` 366 (123 of them
+`[queue commandBuffer]`), `bind_textures` 323, `bind_cbufs` 171, `texture_key` 60, `pipeline_state_hash` 38. The rest of
+`draw` is the Metal driver encoding the draw.
+
+- **Texture change detection** (`renderer_texture`, 151 samples, 8.8% of the render thread; the hashes of
+  `upload_texture` are inlined in it). The measured ceiling above still applies: removing all of it is +1.5% FPS at 1x and
+  nothing at 1.5x. A safe replacement captures part of that, and a mistake leaves guest-written textures (glyph caches,
+  video) stale. Not pursued. The `_platform_memcmp` that follows it in a sample list is not this: it belongs to the
+  uniform snapshot cache.
+- **Uniform snapshot compare** (`ring_snapshot`, 147 samples, 101 of them `memcmp`; 5.9%). A reused snapshot is compared
+  in full, which is what makes reuse safe. Skipping the compare needs to know the guest memory was not written, and
+  nothing tracks that; `LARECOMP_CBUF_INPLACE` (documented in the uniform snapshot page) is the existing way out and stays
+  off.
+- **Why sample counts overstate the gain.** At 1x the GPU takes 8.25 ms and the CPU 7.7 ms of an 8.8 ms frame, so they are
+  close to balanced: taking 5-9% off the render thread moves the frame rate by about 1.5% at most (the measured ceiling),
+  not by the share. A Mac with a slower CPU or a stronger GPU would gain more; that was not measured.
+- **Command buffers.** `[queue commandBuffer]` is about 6% of the render thread (a new buffer every 8 passes). Unretained
+  references would be cheaper, but then the renderer must keep every resource alive until the GPU is done with it; not
+  tried.
+
