@@ -9,6 +9,7 @@
 %s is now %s.	%s is now %s.
 %s is now %s; %s moved to %s (swapped).	%s is now %s; %s moved to %s (swapped).
 %s%s%s%s\nPlay time %s  ·  %s coins\nTeam: %s	%s%s%s%s\nPlay time %s  ·  %s coins\nTeam: %s
+%u of %u parts of the game data differ from the original files of version 2.0.2.	%u of %u parts of the game data differ from the original files of version 2.0.2.
 %u recipes	%u recipes
 + New save	+ New save
 1. DLC package (.nsp)	1. DLC package (.nsp)
@@ -350,6 +351,7 @@ PLAY  %s	PLAY  %s
 Package import tools are missing. Install the complete app or use an extracted folder.	Package import tools are missing. Install the complete app or use an extracted folder.
 Performance	Performance
 Play "%s"? The game restarts with it: progress in "%s" since its last save is lost.	Play "%s"? The game restarts with it: progress in "%s" since its last save is lost.
+Play anyway	Play anyway
 Play it (the game restarts with it), copy, export, rename or delete it.	Play it (the game restarts with it), copy, export, rename or delete it.
 Play offline	Play offline
 Play online	Play online
@@ -494,6 +496,7 @@ This build has no online setup.	This build has no online setup.
 This deletes MonZaMac's copy of the game files (%.1f GB).	This deletes MonZaMac's copy of the game files (%.1f GB).
 This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.	This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.
 This file isn't a valid Switch 2 Edition .nup package.	This file isn't a valid Switch 2 Edition .nup package.
+This is usually a damaged download of the update, and the game crashes when it loads the damaged part. Get the update again, from your own Switch or another download, then delete the game files and set them up again. Saves, mods and settings are kept.	This is usually a damaged download of the update, and the game crashes when it loads the damaged part. Get the update again, from your own Switch or another download, then delete the game files and set them up again. Saves, mods and settings are kept.
 This only needs to be done once and may take a while.	This only needs to be done once and may take a while.
 This version of MonZaMac precompiles more than the last one did.	This version of MonZaMac precompiles more than the last one did.
 Those files can't be used	Those files can't be used
@@ -554,6 +557,7 @@ You can change this any time in Settings.	You can change this any time in Settin
 You're on the start screen.	You're on the start screen.
 Your copy of the game	Your copy of the game
 Your game files are another version.	Your game files are another version.
+Your game files look damaged	Your game files look damaged
 Your game, your responsibility	Your game, your responsibility
 abc	abc
 connected	connected

@@ -9,6 +9,7 @@
 %s is now %s.	%s agora é %s.
 %s is now %s; %s moved to %s (swapped).	%s agora é %s; %s passou para %s (troca).
 %s%s%s%s\nPlay time %s  ·  %s coins\nTeam: %s	%s%s%s%s\nTempo de jogo %s  ·  %s moedas\nEquipe: %s
+%u of %u parts of the game data differ from the original files of version 2.0.2.	%u de %u partes dos dados do jogo diferem dos arquivos originais da versão 2.0.2.
 %u recipes	%u receitas
 + New save	+ Novo salvamento
 1. DLC package (.nsp)	1. Pacote DLC (.nsp)
@@ -350,6 +351,7 @@ PLAY  %s	TEMPO DE JOGO  %s
 Package import tools are missing. Install the complete app or use an extracted folder.	Faltam as ferramentas de importação. Instale o aplicativo completo ou use uma pasta extraída.
 Performance	Desempenho
 Play "%s"? The game restarts with it: progress in "%s" since its last save is lost.	Jogar com "%s"? O jogo reiniciará; o progresso em "%s" desde o último salvamento será perdido.
+Play anyway	Jogar mesmo assim
 Play it (the game restarts with it), copy, export, rename or delete it.	Jogue com este salvamento (o jogo reinicia) ou copie, exporte, renomeie ou exclua-o.
 Play offline	Jogar offline
 Play online	Jogar online
@@ -494,6 +496,7 @@ This build has no online setup.	Esta versão não inclui a configuração online
 This deletes MonZaMac's copy of the game files (%.1f GB).	A cópia dos arquivos do jogo no MonZaMac será excluída (%.1f GB).
 This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.	Este arquivo é um 7z, apesar da extensão .nsp. Escolha um pacote de jogo NSP ou XCI não compactado.
 This file isn't a valid Switch 2 Edition .nup package.	Este arquivo não é um pacote .nup Switch 2 Edition válido.
+This is usually a damaged download of the update, and the game crashes when it loads the damaged part. Get the update again, from your own Switch or another download, then delete the game files and set them up again. Saves, mods and settings are kept.	Geralmente é um download danificado da atualização, e o jogo fecha ao carregar a parte danificada. Obtenha a atualização de novo, do seu próprio Switch ou de outro download, depois exclua os arquivos do jogo e configure-os novamente. Saves, mods e configurações são mantidos.
 This only needs to be done once and may take a while.	Isso só precisa ser feito uma vez e pode demorar um pouco.
 This version of MonZaMac precompiles more than the last one did.	Esta versão do MonZaMac pré-compila mais do que a anterior.
 Those files can't be used	Esses arquivos não podem ser usados
@@ -554,6 +557,7 @@ You can change this any time in Settings.	Você pode mudar isso a qualquer momen
 You're on the start screen.	Você já está na tela inicial.
 Your copy of the game	Sua cópia do jogo
 Your game files are another version.	Os arquivos do jogo são de outra versão.
+Your game files look damaged	Os arquivos do jogo parecem danificados
 Your game, your responsibility	Seu jogo, sua responsabilidade
 abc	abc
 connected	conectado

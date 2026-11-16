@@ -9,6 +9,7 @@
 %s is now %s.	%s は %s に変更されました。
 %s is now %s; %s moved to %s (swapped).	%s を %s に変更し、%s を %s に移動しました（入れ替え）。
 %s%s%s%s\nPlay time %s  ·  %s coins\nTeam: %s	%s%s%s%s\nプレイ時間 %s  ·  %s コイン\n手持ち：%s
+%u of %u parts of the game data differ from the original files of version 2.0.2.	ゲームデータの %u / %u 個の部分が、バージョン 2.0.2 の元のファイルと異なります。
 %u recipes	レシピ %u 件
 + New save	+ 新しいセーブ
 1. DLC package (.nsp)	1. DLCパッケージ (.nsp)
@@ -350,6 +351,7 @@ PLAY  %s	プレイ時間  %s
 Package import tools are missing. Install the complete app or use an extracted folder.	パッケージ読み込みツールがありません。完全版アプリをインストールするか、展開済みフォルダーを使ってください。
 Performance	パフォーマンス
 Play "%s"? The game restarts with it: progress in "%s" since its last save is lost.	「%s」でプレイしますか？ゲームが再起動し、「%s」の最後のセーブ以降の進行は失われます。
+Play anyway	そのまま遊ぶ
 Play it (the game restarts with it), copy, export, rename or delete it.	このセーブでプレイします（ゲームが再起動します）。コピー、エクスポート、名前変更、削除もできます。
 Play offline	オフラインでプレイ
 Play online	オンラインでプレイ
@@ -494,6 +496,7 @@ This build has no online setup.	このビルドにはオンライン設定があ
 This deletes MonZaMac's copy of the game files (%.1f GB).	MonZaMac内のゲームファイルのコピーを削除します（%.1f GB）。
 This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.	拡張子は.nspですが、このファイルは7zアーカイブです。圧縮されていないNSPまたはXCIを選んでください。
 This file isn't a valid Switch 2 Edition .nup package.	このファイルは有効なSwitch 2 Editionの.nupパッケージではありません。
+This is usually a damaged download of the update, and the game crashes when it loads the damaged part. Get the update again, from your own Switch or another download, then delete the game files and set them up again. Saves, mods and settings are kept.	多くの場合、アップデートのダウンロードが破損しており、破損した部分を読み込むとゲームが終了します。ご自分のSwitchまたは別のダウンロードからアップデートを取得し直し、ゲームファイルを削除してから、もう一度セットアップしてください。セーブデータ、MOD、設定は残ります。
 This only needs to be done once and may take a while.	この作業は一度だけで済みますが、しばらく時間がかかることがあります。
 This version of MonZaMac precompiles more than the last one did.	このバージョンのMonZaMacは、前回より多くをプリコンパイルします。
 Those files can't be used	これらのファイルは使用できません
@@ -554,6 +557,7 @@ You can change this any time in Settings.	設定からいつでも変更でき�
 You're on the start screen.	すでにスタート画面です。
 Your copy of the game	ご自身のゲーム
 Your game files are another version.	ゲームファイルのバージョンが異なります。
+Your game files look damaged	ゲームファイルが破損している可能性があります
 Your game, your responsibility	ゲームの利用は自己責任で
 abc	abc
 connected	接続済み

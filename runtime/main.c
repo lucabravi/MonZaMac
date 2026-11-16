@@ -15,6 +15,7 @@
 #include "saves.h"
 #include "hle.h"
 #include "kernel.h"
+#include "gamecheck.h"
 
 const char *g_romfs_dir;
 
@@ -149,6 +150,7 @@ static void boot(const char *root) {
     snprintf(romfs, sizeof romfs, "%s/romfs", root);
     snprintf(npdm_path, sizeof npdm_path, "%s/main.npdm", exefs);
     if (!g_romfs_dir) g_romfs_dir = strdup(romfs);
+    gamecheck_load_and_log(root);  // (what the start screen found about the game files, for a crash report)
 
     char why[512];
     if (!gamelib_load(root, why, sizeof why)) FATAL("%s\n", why);

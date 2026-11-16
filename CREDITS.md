@@ -14,6 +14,7 @@ MonZaMac and are not listed.
   parameters, both after their fixes
 - The first Mega Dimension mission's battle crash (a game getter reading an object that is gone gets zeros), after their
   diagnosis and fix
+- Checking the game files part by part against a clean copy, for a damaged download of the 2.0.2 update, after their check
 
 **Lumiose Online** - the multiplayer mod behind the online edition, its server and its community are the work of the
 [Lumiose Online](https://lumioseonline.site) team; their PC integration is

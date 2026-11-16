@@ -9,6 +9,7 @@
 %s is now %s.	%s 已變更為 %s。
 %s is now %s; %s moved to %s (swapped).	%s 已設為 %s；%s 改為 %s（交換）。
 %s%s%s%s\nPlay time %s  ·  %s coins\nTeam: %s	%s%s%s%s\n遊玩時間 %s  ·  %s 金幣\n隊伍：%s
+%u of %u parts of the game data differ from the original files of version 2.0.2.	遊戲資料中有 %u / %u 個部分與 2.0.2 版本的原始檔案不同。
 %u recipes	%u 筆配方
 + New save	+ 新增存檔
 1. DLC package (.nsp)	1. DLC 套件 (.nsp)
@@ -350,6 +351,7 @@ PLAY  %s	遊戲時長  %s
 Package import tools are missing. Install the complete app or use an extracted folder.	缺少遊戲封裝匯入工具。請安裝完整 App 或使用已解壓的資料夾。
 Performance	效能
 Play "%s"? The game restarts with it: progress in "%s" since its last save is lost.	使用「%s」遊玩嗎？遊戲將重新啟動，「%s」上次存檔後的進度會遺失。
+Play anyway	仍然開始遊戲
 Play it (the game restarts with it), copy, export, rename or delete it.	使用此存檔遊玩（遊戲會重新啟動），或複製、匯出、重新命名或刪除存檔。
 Play offline	離線遊玩
 Play online	線上遊玩
@@ -494,6 +496,7 @@ This build has no online setup.	此版本不包含線上模式設定。
 This deletes MonZaMac's copy of the game files (%.1f GB).	將刪除 MonZaMac 的遊戲檔案複本（%.1f GB）。
 This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.	雖然副檔名為 .nsp，此檔案實際上是 7z 壓縮檔。請選擇未壓縮的 NSP 或 XCI。
 This file isn't a valid Switch 2 Edition .nup package.	此檔案不是有效的 Switch 2 Edition .nup 套件。
+This is usually a damaged download of the update, and the game crashes when it loads the damaged part. Get the update again, from your own Switch or another download, then delete the game files and set them up again. Saves, mods and settings are kept.	這通常是更新下載損毀所致，遊戲在載入損毀部分時會當機。請重新取得更新（來自你自己的 Switch 或其他下載），然後刪除遊戲檔案並重新設定。存檔、模組和設定都會保留。
 This only needs to be done once and may take a while.	只需執行一次，可能需要一些時間。
 This version of MonZaMac precompiles more than the last one did.	此版本的 MonZaMac 預先編譯的內容比上一版本更多。
 Those files can't be used	無法使用這些檔案
@@ -554,6 +557,7 @@ You can change this any time in Settings.	可隨時在設定中變更。
 You're on the start screen.	你已在開始畫面。
 Your copy of the game	您的遊戲副本
 Your game files are another version.	遊戲檔案版本不同。
+Your game files look damaged	遊戲檔案似乎已損毀
 Your game, your responsibility	合法使用遊戲由您負責
 abc	abc
 connected	已連接

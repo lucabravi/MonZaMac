@@ -9,6 +9,7 @@
 %s is now %s.	%s 已改为 %s。
 %s is now %s; %s moved to %s (swapped).	%s 已设为 %s；%s 改为 %s（交换）。
 %s%s%s%s\nPlay time %s  ·  %s coins\nTeam: %s	%s%s%s%s\n游玩时间 %s  ·  %s 金币\n队伍：%s
+%u of %u parts of the game data differ from the original files of version 2.0.2.	游戏数据中有 %u / %u 个部分与 2.0.2 版本的原始文件不同。
 %u recipes	%u 条配方
 + New save	+ 新建存档
 1. DLC package (.nsp)	1. DLC 文件包 (.nsp)
@@ -350,6 +351,7 @@ PLAY  %s	游戏时长  %s
 Package import tools are missing. Install the complete app or use an extracted folder.	缺少游戏包导入工具。请安装完整应用或使用已解压的文件夹。
 Performance	性能
 Play "%s"? The game restarts with it: progress in "%s" since its last save is lost.	使用“%s”游玩吗？游戏将重新启动，“%s”自上次存档后的进度会丢失。
+Play anyway	仍然开始游戏
 Play it (the game restarts with it), copy, export, rename or delete it.	使用此存档游玩（游戏会重启），或复制、导出、重命名或删除存档。
 Play offline	离线游玩
 Play online	在线游玩
@@ -494,6 +496,7 @@ This build has no online setup.	此版本不包含在线模式设置。
 This deletes MonZaMac's copy of the game files (%.1f GB).	将删除 MonZaMac 的游戏文件副本（%.1f GB）。
 This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.	尽管扩展名为 .nsp，该文件实际为 7z 压缩包。请选择未压缩的 NSP 或 XCI。
 This file isn't a valid Switch 2 Edition .nup package.	此文件不是有效的 Switch 2 Edition .nup 包。
+This is usually a damaged download of the update, and the game crashes when it loads the damaged part. Get the update again, from your own Switch or another download, then delete the game files and set them up again. Saves, mods and settings are kept.	这通常是更新下载损坏所致，游戏在加载损坏部分时会崩溃。请重新获取更新（来自你自己的 Switch 或其他下载），然后删除游戏文件并重新设置。存档、模组和设置会保留。
 This only needs to be done once and may take a while.	只需执行一次，可能需要一些时间。
 This version of MonZaMac precompiles more than the last one did.	此版本的 MonZaMac 预编译的内容比上一版本更多。
 Those files can't be used	无法使用这些文件
@@ -554,6 +557,7 @@ You can change this any time in Settings.	可随时在设置中更改。
 You're on the start screen.	你已在开始界面。
 Your copy of the game	您的游戏副本
 Your game files are another version.	游戏文件的版本不同。
+Your game files look damaged	游戏文件似乎已损坏
 Your game, your responsibility	合法使用游戏由您负责
 abc	abc
 connected	已连接
