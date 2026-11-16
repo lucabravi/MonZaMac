@@ -243,6 +243,11 @@ static int run_cases(void) {
         // BRA.NE (condition-code test 13): taken only when the flags say so (it was a plain jump: a contact-shadow ray
         // counted every step as a hit). A test that needs carry / overflow stays a plain jump.
         {"bra cc ne", STAGE_FRAGMENT, false, 0, 0xe240ull << 48 | 13 | PT_, 0, "if (!ccz) { pc = ", NULL},
+        // EXIT.NE: leaves only when the flags say so too (it ignored the test: an early out after FSET.CC always left).
+        {"exit cc ne", STAGE_FRAGMENT, false, 0, 0xe300ull << 48 | 13 | PT_, 0, "    if (!ccz) {\n    break;\n    }\n", NULL},
+        // ISET.NE.CC RZ, R1, R2: writes the flags for a following BRA.NE (it wrote none, so the branch always went).
+        {"iset cc", STAGE_FRAGMENT, false, 0, 0x5b50ull << 48 | 5ull << 49 | 1ull << 47 | 7ull << 39 | 2 << 20 | PT_ | 1 << 8 | 255,
+         0xe240ull << 48 | 13 | PT_ | (0x8ull << 20), "ccz = ccv == 0u", NULL},
         {"base instance glsl", STAGE_VERTEX, true, 0, 0xefd8ull << 48 | 0x2f8ull << 20 | 255 << 8 | PT_ | 1,
          0x4c10ull << 48 | (0x644ull / 4) << 20 | PT_ | 1 << 8, "(r1 + uint(gl_BaseInstance))", "cb0[100]"},
     };
