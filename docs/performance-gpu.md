@@ -248,6 +248,22 @@ Tried and not pursued, so the analysis is not repeated:
   about 0.47 ms of the pass, 0.21 ms of it the receiver slope from screen derivatives (computed per tap, 16 times), and
   the game's own sample of each tap, kept only to see its self-shadow guard, 0.11 ms. Sharing the slope between taps or
   dropping that sample would not give the same picture bit for bit.
+- **The shadow passes #8 / #9 (2048x2048, 222 draws each, 0.72 + 0.59 ms).** Their attachments are small: one R8_UINT
+  caster-class map (the fragment program's only output, which the game does not clear between the two passes) and a
+  Depth32Float. Neither load nor store is a large part of the cost, so it is not the bandwidth; what is left is vertex
+  work and the discard test, which the game's constants keep. Nothing to take out without changing the picture.
+- **Leaving unchanged attachments out of a clear-only pass.** A pass that only carries out deferred clears
+  (`flush_load_clears`) loads and stores every attachment of the bound set, including those it does not clear (a depth
+  buffer, a second colour). Leaving them out is bit for bit the same by construction, and it was built with a guard
+  (only when the remaining attachments give the same pass size and layer count). Station walk, uncapped, six alternating
+  runs: GPU 12.97 -> 12.93 ms, five of six pairs in its favour but inside the run-to-run spread (about 0.1 ms).
+  Dropped: about 0.3% for code in the pass setup that could not be shown to give the same picture (the frames of two
+  runs of the same build already differ).
+- **The one draw-less pass that can be folded (#11 -> #37).** #11 (0.36 ms) clears a 2880x1620 RG11B10 colour and its
+  Depth32Float_Stencil8; #37 binds the same pair with a Load and draws 19 times into it. Carrying that clear over as
+  #37's load action would save the clear's store and the load, up to about 0.4 ms (3%), but needs a pending clear kept
+  per texture across the 25 passes in between and flushed on any other access (sampling, copy, another view): the
+  texture-ownership change described under "Passes that draw nothing" below. Not built.
 
 ## Passes that draw nothing (station walk, 1.5x, 2026-11-07)
 
