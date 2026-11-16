@@ -14,6 +14,7 @@ Cleaner skin and hair in some close-ups, a little more speed, a new way to insta
 - Vertex shaders are translated with the same compiler constants as the fragment shaders, so the precompiled ones match what the game asks for. This does not change the speed.
 
 ### Setup
+- **The start screen checks that the game files are intact.** A damaged download of the 2.0.2 update has a broken part that crashes the game when it loads, for example, a character's model. The first time (a few seconds, once for each set of game files), each part of the game's data is compared with the original version 2.0.2. If some differ, a window says how many and offers **Delete game files**, so you can set them up again with a fresh update; **Play anyway** goes on. A crash that follows is now named in the crash window, and the log lists the parts.
 - **Import from a `.nup` file:** a third **Import from** choice takes one Switch 2 Edition `.nup` container made from your own dump, with the base game, the update and the add-ons already decrypted. It needs no `prod.keys` and no `nstool`. The ownership confirmation is still required. Every file is checked against its hash as it is written, and a damaged or unsafe container is refused.
 - The Switch 2 Edition upgrade add-on from a `.nup` no longer makes the start screen say **DLC found**: it now looks for the Mega Dimension DLC itself, so **Add DLC...** stays available until it is installed.
 

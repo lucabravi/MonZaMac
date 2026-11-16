@@ -52,10 +52,12 @@ static bool in_gpu_driver(uint64_t pc) {
     return false;
 }
 
+unsigned gamecheck_damaged(void);  // runtime/gamecheck.c: the packs of data.trpfs that differ from a clean copy
+
 void rt_crash_explain(char *out, size_t n, const char *log_path) {
     static const char *const report = "Please report it as a GitHub issue and attach the log file below. "
                                       "Your progress up to your last save or autosave is safe.";
-    char head[160], what[400];
+    char head[160], what[600];
     if (has("get_terminate") || has("uncaught C++ exception")) {  // (the game threw: recompiled code can't unwind)
         snprintf(head, sizeof head, "The game ran into an error it couldn't recover from");
         snprintf(what, sizeof what, "This is a bug in MonZaMac, not a problem with your game files or Mac. %s", report);
@@ -74,6 +76,12 @@ void rt_crash_explain(char *out, size_t n, const char *log_path) {
     } else if (has("out of memory") || has("cannot allocate") || has("alloc failed")) {
         snprintf(head, sizeof head, "Out of memory");
         snprintf(what, sizeof what, "Close other apps and try again.");
+    } else if (g_pc && rt_host_fn_name(g_pc, NULL) && gamecheck_damaged()) {  // (the start screen's check found damaged packs)
+        snprintf(head, sizeof head, "Your game files are damaged");
+        snprintf(what, sizeof what, "%u parts of the game data differ from the original version 2.0.2 files, usually from "
+                 "a damaged download of the update, and the game crashes when it loads one. Get the update again, then "
+                 "delete the game files in Settings and set them up again: saves, mods and settings are kept. %s",
+                 gamecheck_damaged(), report);
     } else if (g_pc && rt_host_fn_name(g_pc, NULL)) {
         snprintf(head, sizeof head, "The game crashed");
         snprintf(what, sizeof what, "This is a bug in MonZaMac, not a problem with your game files or Mac. %s", report);

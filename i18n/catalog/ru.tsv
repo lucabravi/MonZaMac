@@ -9,6 +9,7 @@
 %s is now %s.	%s теперь %s.
 %s is now %s; %s moved to %s (swapped).	%s теперь %s; %s заменён на %s (обмен).
 %s%s%s%s\nPlay time %s  ·  %s coins\nTeam: %s	%s%s%s%s\nВремя игры %s  ·  %s монет\nКоманда: %s
+%u of %u parts of the game data differ from the original files of version 2.0.2.	%u из %u частей данных игры отличаются от оригинальных файлов версии 2.0.2.
 %u recipes	Рецептов: %u
 + New save	+ Новое сохранение
 1. DLC package (.nsp)	1. Пакет DLC (.nsp)
@@ -350,6 +351,7 @@ PLAY  %s	ВРЕМЯ ИГРЫ  %s
 Package import tools are missing. Install the complete app or use an extracted folder.	Отсутствуют инструменты импорта пакетов. Установите полную версию приложения или используйте распакованную папку.
 Performance	Производительность
 Play "%s"? The game restarts with it: progress in "%s" since its last save is lost.	Играть с «%s»? Игра перезапустится; прогресс в «%s» после последнего сохранения будет потерян.
+Play anyway	Всё равно играть
 Play it (the game restarts with it), copy, export, rename or delete it.	Играть с этим сохранением (игра перезапустится), скопировать, экспортировать, переименовать или удалить его.
 Play offline	Играть офлайн
 Play online	Играть онлайн
@@ -494,6 +496,7 @@ This build has no online setup.	В этой сборке нет настройк
 This deletes MonZaMac's copy of the game files (%.1f GB).	Копия игровых файлов MonZaMac будет удалена (%.1f ГБ).
 This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.	Файл имеет расширение .nsp, но внутри архив 7z. Выберите несжатый NSP или XCI.
 This file isn't a valid Switch 2 Edition .nup package.	Этот файл не является корректным пакетом .nup Switch 2 Edition.
+This is usually a damaged download of the update, and the game crashes when it loads the damaged part. Get the update again, from your own Switch or another download, then delete the game files and set them up again. Saves, mods and settings are kept.	Обычно это повреждённая загрузка обновления: игра закрывается, когда загружает повреждённую часть. Получите обновление заново, со своей Switch или другой загрузкой, затем удалите файлы игры и настройте их снова. Сохранения, моды и настройки сохраняются.
 This only needs to be done once and may take a while.	Это нужно сделать лишь один раз, и это может занять некоторое время.
 This version of MonZaMac precompiles more than the last one did.	Эта версия MonZaMac предкомпилирует больше, чем предыдущая.
 Those files can't be used	Эти файлы нельзя использовать
@@ -554,6 +557,7 @@ You can change this any time in Settings.	Это можно изменить в 
 You're on the start screen.	Вы уже на начальном экране.
 Your copy of the game	Ваша копия игры
 Your game files are another version.	У ваших файлов игры другая версия.
+Your game files look damaged	Файлы игры, похоже, повреждены
 Your game, your responsibility	Использование игры — ваша ответственность
 abc	abc
 connected	подключён

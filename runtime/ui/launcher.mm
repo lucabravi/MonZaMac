@@ -42,6 +42,7 @@ extern "C" {
 #include "platform.h"
 #include "paths.h"
 #include "gamebuild.h"
+#include "gamecheck.h"
 #ifdef LUMIOSE_ONLINE
 #include "online_prep.h"
 #include "online_view.h"
@@ -1779,6 +1780,89 @@ static void prelaunch_tab(float sc) {
     else if (!g_font_msg.empty()) ImGui::Text("%s", ui_tr(g_font_msg.c_str()));
 }
 
+// ---- the game files checked pack by pack (runtime/gamecheck.c): once per data.trpfs, in the background, a few seconds
+static std::atomic<int> g_pack_state;  // 0 = not started, 1 = checking, 2 = done
+static std::atomic<bool> g_pack_redo;  // the files changed while it ran: check again
+static GameCheck g_pack;               // (valid when done)
+static bool g_pack_fresh, g_pack_shown;  // (this check has just run: the notice is for that, not for every start)
+static void *pack_check_thread(void *) {
+    GameCheck r;
+    bool fresh = false;
+    const char *test = getenv("LARECOMP_TEST_PACKCHECK");  // (test: "damaged" shows the notice without a damaged file)
+    if (test && !strcmp(test, "damaged")) {
+        memset(&r, 0, sizeof r);
+        r.known = fresh = true, r.packs = 13181, r.damaged = 3;
+        r.ids[0] = 0x0123456789abcdefull, r.ids[1] = 0xfedcba9876543210ull, r.ids[2] = 0x1ca32f998c45c23ull;
+    } else if (!gamecheck_ensure(g_root.c_str(), &r, &fresh)) memset(&r, 0, sizeof r);
+    g_pack = r;
+    g_pack_fresh = fresh;
+    g_pack_state = g_pack_redo.exchange(false) ? 0 : 2;
+    return NULL;
+}
+static void pack_check_kick() {  // (every frame while the game is ready: only the first does anything)
+    int none = 0;
+    if (!g_pack_state.compare_exchange_strong(none, 1)) return;
+    g_pack_shown = false;
+    pthread_t t;
+    if (pthread_create(&t, NULL, pack_check_thread, NULL) == 0) pthread_detach(t);
+    else g_pack_state = 2;
+}
+static void pack_check_reset() {  // (other game files: setup finished, or they were deleted)
+    int done = 2;
+    if (g_pack_state == 1) g_pack_redo = true;
+    else g_pack_state.compare_exchange_strong(done, 0);
+}
+
+// A check that has just found damaged packs: a window like the legal notice, with the way out
+static void pack_damaged_popup(float s) {
+    if (g_pack_state == 2 && g_pack_fresh && g_pack.known && g_pack.damaged && !g_pack_shown) {
+        ImGui::OpenPopup("##pack_damaged");
+        g_pack_shown = true;
+    }
+    ImVec2 ds = ImGui::GetIO().DisplaySize;
+    ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(fminf(ds.x * 0.92f, 760 * s), fminf(ds.y * 0.9f, 430 * s)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(28 * s, 24 * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 16 * s);
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.04f, 0.07f, 0.14f, 1));
+    bool open = ImGui::BeginPopupModal("##pack_damaged", NULL, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+    if (!open) return;
+    ImGui::PushFont(g_font_small);
+    ImGui::SetWindowFontScale(0.82f);
+    ImGui::TextColored(ImVec4(1, 0.72f, 0.4f, 1), "%s", ui_tr("Your game files look damaged"));
+    ImGui::Dummy(ImVec2(0, 12 * s));
+    ImGui::BeginChild("##pack_text", ImVec2(0, -68 * s), false);
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextWrapped(ui_tr("%u of %u parts of the game data differ from the original files of version 2.0.2."), g_pack.damaged, g_pack.packs);
+    ImGui::Dummy(ImVec2(0, 10 * s));
+    ImGui::TextWrapped("%s", ui_tr("This is usually a damaged download of the update, and the game crashes when it loads the damaged part. "
+                       "Get the update again, from your own Switch or another download, then delete the game files and set them up again. "
+                       "Saves, mods and settings are kept."));
+    ImGui::Dummy(ImVec2(0, 10 * s));
+    for (unsigned i = 0; i < g_pack.damaged && i < GAMECHECK_IDS; i++)
+        ImGui::TextDisabled("%016llx", (unsigned long long)g_pack.ids[i]);  // (what a bug report can name; the game's log has them too)
+    ImGui::PopTextWrapPos();
+    ImGui::EndChild();
+    ImGui::Dummy(ImVec2(0, 10 * s));
+    float bw = 280 * s, gap = 16 * s;
+    ImGui::SetCursorPosX((ImGui::GetWindowWidth() - 2 * bw - gap) * 0.5f);
+    if (ui_button(ui_tr("Delete game files"), ImVec2(bw, 42 * s))) {
+        bool ok = rt_remove_game_files(g_root.c_str());  // (runtime/paths.c: only what the extraction made)
+        set_job(ok ? "Game files deleted." : "Could not delete the game files (not in MonZaMac's data folder?).", !ok);
+        g_files_deleted = true;
+        pack_check_reset();
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine(0, gap);
+    ImGui::SetItemDefaultFocus();
+    if (ui_button(ui_tr("Play anyway"), ImVec2(bw, 42 * s)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) ImGui::CloseCurrentPopup();
+    ImGui::PopFont();
+    ImGui::EndPopup();
+}
+
 // boot_fn: what starts the game (runtime/main.c). On PLAY it runs on a worker thread while this loop goes on drawing the loading
 // screen, so the spinning ball keeps spinning; true is returned when it did (LARECOMP_BOOT_ON_MAIN=1: not, main boots as before).
 extern "C" int g_launch_loading;  // runtime/nvn/metal.m: the cover over the window until the game's first frame
@@ -1983,8 +2067,10 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
             boot_started = pthread_create(&boot_thread, NULL, launcher_boot_thread, &boot_job) == 0;
         }
         menu_apply_window_requests(win);  // (the Video tab's Fullscreen)
+        if (status.empty() && !play) pack_check_kick();
         if (g_files_deleted) {  // (Settings > Prelaunch deleted them)
             g_files_deleted = false;
+            pack_check_reset();
             status = check_game_files(g_root);
             if (!status.empty()) { g_bg = 0; bind_capture_cancel(); settings_save(); page = SETUP; }
         }
@@ -2025,6 +2111,7 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
         if (was_busy && !busy) {
             io.ClearInputKeys();
             io.ClearInputMouse();
+            pack_check_reset();  // (new game files: checked again)
             status = check_game_files(g_root);
             if (status.empty()) { load_background(dev); page = MAIN; }
 #ifdef LUMIOSE_ONLINE
@@ -2135,6 +2222,7 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
             if (page == MAIN) {
                 bool ready = status.empty();
                 int act = home_chrome(s, ds);  // (the header's Settings and Quit)
+                pack_damaged_popup(s);
                 {   // the columns, centered between the header and the bar: offline, and with LUMIOSE_ONLINE Lumiose Online beside it
                     float pad = 24 * s, ch = g_bar_y - g_hdr_h - 2 * pad, top = g_hdr_h + pad;
 #ifdef LUMIOSE_ONLINE
