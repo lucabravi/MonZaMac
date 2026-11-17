@@ -89,6 +89,8 @@ while the start screen's check of the game data (`runtime/gamecheck.c`) finds pa
 cannot tell. That check runs on the player's own Mac too (its result is kept in `.packcheck`), so it stops mistakes and casual
 changes, not someone who sets out to avoid it; the relay is where that belongs.
 
+The first **Play online** with a save asks for a confirmation (the save is then for online play only, and getting around that block can mean a ban) and marks the save when the game starts online: an `online` file in the save's folder (`runtime/saves.c`), next to the game's own `save_0`. A copy of the save keeps the marker. Nothing yet stops an offline start with a marked save: that block is the next step.
+
 ## What is verified, and what is not
 
 - Native and ASan/UBSan tests for the kernel sessions, the HLE hooks, the UDP service and the texture uploads

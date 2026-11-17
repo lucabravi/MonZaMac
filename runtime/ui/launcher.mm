@@ -351,6 +351,7 @@ static bool online_setup() {
 // Said once, before the first online start (online_consent_popup, drawn with the legal notice): what goes where. The answer
 // is kept in a marker file of the data folder.
 static bool g_ou_consent_open;  // the question is to be shown
+static bool g_ou_save_warn_open;  // the warning that a save used online is online only is to be shown
 static std::string online_marker() { return std::string(rt_data_root()) + "/lumiose-online-consent"; }
 static bool online_consent_given() { return access(online_marker().c_str(), F_OK) == 0; }
 
@@ -392,6 +393,7 @@ static void online_launch() {
     saves_use_latest();  // the chosen save, else the most recent (as CONTINUE)
     settings_save();
     setenv("LARECOMP_PLAY_SAVE", g_settings.save_slot, 1);  // (--play would take the most recent one)
+    saves_mark_current_online();  // (this save has now been played online: the warning is not asked again)
     // A loaded game library cannot be swapped: the same process only when none is loaded yet or the verified version is the
     // one already running (a different one needs a new process).
     if ((!g_game_booted || same) && !getenv("LARECOMP_ONLINE_RESTART")) {
@@ -554,6 +556,13 @@ static void online_proceed() {
     if (g_ou == OU_ERROR) g_ou_note = "Could not start the online setup.";
 }
 
+// After the consent: a save that has not been played online yet is told what that means before anything is prepared
+static void online_continue() {
+    saves_use_latest();  // (the chosen save, else the most recent: the one online will use)
+    if (saves_current_online_used()) online_proceed();
+    else g_ou_save_warn_open = true;
+}
+
 static void online_click() {
     if (getenv("LARECOMP_ONLINE_STATE_TEST")) return;
     if (g_ou != OU_READY && g_ou != OU_NEEDS && g_ou != OU_ERROR) return;
@@ -561,7 +570,7 @@ static void online_click() {
     if (online_outdated(NULL, &pending) || pending) return;  // (the column says why)
     if (pack_gate(&pending) || pending) return;
     g_ou_note.clear();
-    if (online_consent_given()) online_proceed();
+    if (online_consent_given()) online_continue();
     else g_ou_consent_open = true;
 }
 #endif
@@ -1448,8 +1457,46 @@ static void online_consent_popup(float s) {
     ImGui::EndPopup();
     if (go) {
         if (FILE *f = fopen(online_marker().c_str(), "w")) { fputs("accepted\n", f); fclose(f); }
-        online_proceed();
+        online_continue();
     }
+}
+
+// A save that has not been played online yet: from then on it is for online play only (the first Play online with it)
+static void online_save_popup(float s) {
+    ImVec2 ds = ImGui::GetIO().DisplaySize;
+    if (g_ou_save_warn_open) { ImGui::OpenPopup("##online_save"); g_ou_save_warn_open = false; }
+    ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(fminf(ds.x * 0.92f, 600 * s), fminf(ds.y * 0.9f, 320 * s)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(28 * s, 24 * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 16 * s);
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.04f, 0.07f, 0.14f, 1));
+    bool open = ImGui::BeginPopupModal("##online_save", NULL, ImGuiWindowFlags_NoTitleBar |
+                                       ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+    if (!open) return;
+    ImGui::PushFont(g_font_small);
+    ImGui::SetWindowFontScale(0.82f);
+    ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.25f, 1), "%s", ui_tr("Use this save online?"));
+    ImGui::Dummy(ImVec2(0, 12 * s));
+    ImGui::BeginChild("##online_save_text", ImVec2(0, -60 * s), false);
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextWrapped("%s", ui_tr("WARNING: once this save is used online, it can no longer be played offline!"));
+    ImGui::Dummy(ImVec2(0, 12 * s));
+    ImGui::TextWrapped("%s", ui_tr("Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!"));
+    ImGui::PopTextWrapPos();
+    ImGui::EndChild();
+    ImGui::Dummy(ImVec2(0, 10 * s));
+    float bw = 170 * s, gap = 16 * s;
+    ImGui::SetCursorPosX((ImGui::GetWindowWidth() - 2 * bw - gap) * 0.5f);
+    bool back = ui_button(ui_tr("Cancel"), ImVec2(bw, 38 * s)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+                ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false);
+    ImGui::SameLine(0, gap);
+    bool go = ui_button(ui_tr("Play online"), ImVec2(bw, 38 * s));  // (not focused first: the safe answer is Cancel)
+    ImGui::PopFont();
+    if (back || go) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    if (go) online_proceed();
 }
 #endif
 
@@ -2325,6 +2372,7 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
                     online_view(status, busy, &ov);
                     if (saves_online_draw(g_font_small, BANNER_TEXID, g_banner_h ? 1400.0f / g_banner_h : 0, ov, x0 + lw + gap, top, cw - lw - gap, ch)) online_click();
                     online_consent_popup(s);
+                    online_save_popup(s);
 #else
                     float cw = fminf(ds.x - 2 * pad, 835 * s);
                     int col = saves_home_draw(g_font_small, ready, !ready || busy, !g_play_focused, true, (ds.x - cw) * 0.5f, top, cw, ch);

@@ -257,6 +257,20 @@ const char *saves_route_replay_dir(const char *name) {
 // The slot the game reads and writes (g_save_dir): its path as in SaveSlot.path
 const char *saves_current_path(void) { return g_save_dir ? g_save_dir : DEFAULT_DIR; }
 
+#define ONLINE_MARK "online"  // in the slot's folder, next to save_0 (the game's own files stay as they are)
+bool saves_current_online_used(void) {
+    char p[160];
+    snprintf(p, sizeof p, "%s/" ONLINE_MARK, saves_current_path());
+    return exists(p);
+}
+void saves_mark_current_online(void) {
+    char p[160];
+    mkdir(saves_current_path(), 0755);  // (the original save/ may not exist yet: a new game online)
+    snprintf(p, sizeof p, "%s/" ONLINE_MARK, saves_current_path());
+    FILE *f = fopen(p, "w");
+    if (f) { fputs("online\n", f); fclose(f); }
+}
+
 void saves_select(const char *id) {
     if (!valid_id(id)) id = "";
     static char dir[128];

@@ -38,6 +38,7 @@ Always (cursor held in the window)	항상 (커서를 창 안에 고정)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	원하는 이름으로 빈 저장 데이터를 만듭니다. 이 데이터로 새 게임을 시작하기 위해 재시작하기 전에 확인을 요청합니다.
 Anisotropic filtering	비등방성 필터링
 Anti-aliasing	안티앨리어싱
+Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	제한을 우회하여 오프라인에서 게임을 진행하는 행위는 Lumiose Online에서 이용 정지 사유가 될 수 있습니다!
 Any button	아무 버튼
 Application language	앱 언어
 Are you sure?	정말 진행하시겠습니까?
@@ -532,12 +533,14 @@ Updating...	업데이트 중...
 Upscaler	업스케일러
 Upscaling and AA	업스케일링 및 AA
 Use substitute font	대체 글꼴 사용
+Use this save online?	이 세이브를 온라인에서 사용할까요?
 Uses the save selected offline	오프라인에서 선택한 저장 데이터를 사용
 Version %s is out. Update to play online.	버전 %s이(가) 출시되었습니다. 온라인으로 플레이하려면 업데이트하세요.
 Video	비디오
 View + Menu	뷰 + 메뉴
 Voice chat	음성 채팅
 Volume	볼륨
+WARNING: once this save is used online, it can no longer be played offline!	주의: 이 세이브를 온라인에서 한 번 사용하면 더 이상 오프라인으로 플레이할 수 없습니다!
 Wait for shaders	셰이더 컴파일 대기
 Warning	경고
 While holding a button	버튼을 누르는 동안

@@ -38,6 +38,7 @@ Always (cursor held in the window)	Sempre (cursore bloccato nella finestra)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	Crea uno slot di salvataggio vuoto con il nome che scegli. Prima di avviare una nuova partita al suo interno ti verrà chiesta conferma.
 Anisotropic filtering	Filtro anisotropico
 Anti-aliasing	Antialiasing
+Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	Ogni azione utilizzata per aggirare il blocco e fare progressi in gioco in modalità offline potrebbe far incappare in un ban in Lumiose Online!
 Any button	Qualsiasi pulsante
 Application language	Lingua dell'app
 Are you sure?	Sei sicuro?
@@ -532,12 +533,14 @@ Updating...	Aggiornamento in corso...
 Upscaler	Upscaler
 Upscaling and AA	Upscaling e antialiasing
 Use substitute font	Usa font sostitutivo
+Use this save online?	Usare questo salvataggio online?
 Uses the save selected offline	Usa il salvataggio selezionato offline
 Version %s is out. Update to play online.	È uscita la versione %s. Aggiorna per giocare online.
 Video	Video
 View + Menu	Visualizza + Menu
 Voice chat	Chat vocale
 Volume	Volume
+WARNING: once this save is used online, it can no longer be played offline!	ATTENZIONE: una volta utilizzato online, non sarà più possibile giocare offline con questo salvataggio!
 Wait for shaders	Attendi gli shader
 Warning	Attenzione
 While holding a button	Tenendo premuto un pulsante

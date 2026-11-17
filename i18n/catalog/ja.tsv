@@ -38,6 +38,7 @@ Always (cursor held in the window)	常時 (カーソルをウィンドウ内に�
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	名前を付けた空のセーブを作成します。このセーブで新しくプレイするためにゲームを再起動する前に、確認画面が表示されます。
 Anisotropic filtering	異方性フィルタリング
 Anti-aliasing	アンチエイリアス
+Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	ロックを回避してオフラインでゲームを進める行為は、Lumiose Onlineからの利用停止につながる可能性があります！
 Any button	どのボタンでも
 Application language	アプリの言語
 Are you sure?	よろしいですか？
@@ -532,12 +533,14 @@ Updating...	更新中...
 Upscaler	アップスケーラー
 Upscaling and AA	アップスケーリングとAA
 Use substitute font	代替フォントを使用
+Use this save online?	このセーブデータをオンラインで使用しますか？
 Uses the save selected offline	オフラインで選択したセーブデータを使用
 Version %s is out. Update to play online.	バージョン%sが公開されています。オンラインでプレイするには更新してください。
 Video	映像
 View + Menu	ビュー＋メニュー
 Voice chat	ボイスチャット
 Volume	音量
+WARNING: once this save is used online, it can no longer be played offline!	注意：一度オンラインで使用したセーブデータは、今後オフラインでプレイできなくなります！
 Wait for shaders	シェーダーの完了を待つ
 Warning	警告
 While holding a button	ボタンを押している間

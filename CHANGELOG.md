@@ -33,6 +33,7 @@ Cleaner skin and hair in some close-ups, a little more speed, a new way to insta
 
 ### Lumiose Online (online edition)
 - **Play online only starts a module that matches the one Lumiose Online publishes.** A module placed in the save's `sdcard` folder (for example a cheat or debug menu installed like on a Switch) or in the downloads folder is no longer used. The check runs on every press, so online play needs the team's site to be reachable; without it, it asks you to try again. Back at the start screen, **Play online** restarts the game only when the version changed.
+- **A warning before a save is used online for the first time.** **Play online** with a save that has not been played online yet asks first: once used online, a save can no longer be played offline, and getting around that block to make progress offline can get you banned from Lumiose Online. A save played online is marked (an `online` file in its folder; a copy keeps it). The block itself comes with a later update.
 
 ### Developer tools
 - `docs/environment.md` lists the ten `LARECOMP_*` environment variables that are supported (where the files are, switching off one fix to find a problem, logs and benchmarks); the rest stay debug hooks described in the code. A test fails when a name in the docs is no longer read by the code.

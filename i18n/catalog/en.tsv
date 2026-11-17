@@ -38,6 +38,7 @@ Always (cursor held in the window)	Always (cursor held in the window)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	An empty save with a name of your own, ready to play: you're asked before the game restarts with it.
 Anisotropic filtering	Anisotropic filtering
 Anti-aliasing	Anti-aliasing
+Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!
 Any button	Any button
 Application language	Application language
 Are you sure?	Are you sure?
@@ -532,12 +533,14 @@ Updating...	Updating...
 Upscaler	Upscaler
 Upscaling and AA	Upscaling and AA
 Use substitute font	Use substitute font
+Use this save online?	Use this save online?
 Uses the save selected offline	Uses the save selected offline
 Version %s is out. Update to play online.	Version %s is out. Update to play online.
 Video	Video
 View + Menu	View + Menu
 Voice chat	Voice chat
 Volume	Volume
+WARNING: once this save is used online, it can no longer be played offline!	WARNING: once this save is used online, it can no longer be played offline!
 Wait for shaders	Wait for shaders
 Warning	Warning
 While holding a button	While holding a button

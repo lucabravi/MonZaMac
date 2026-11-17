@@ -38,6 +38,7 @@ Always (cursor held in the window)	Всегда (курсор внутри ок�
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	Создайте пустое сохранение с выбранным именем. Перед перезапуском игры с ним потребуется подтверждение.
 Anisotropic filtering	Анизотропная фильтрация
 Anti-aliasing	Сглаживание
+Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	Любые действия для обхода блокировки и прогресса в игре офлайн могут привести к бану в Lumiose Online!
 Any button	Любая кнопка
 Application language	Язык приложения
 Are you sure?	Вы уверены?
@@ -532,12 +533,14 @@ Updating...	Обновление...
 Upscaler	Метод масштабирования
 Upscaling and AA	Масштабирование и сглаживание
 Use substitute font	Использовать запасной шрифт
+Use this save online?	Использовать это сохранение онлайн?
 Uses the save selected offline	Использует сохранение, выбранное офлайн
 Version %s is out. Update to play online.	Вышла версия %s. Обновите игру, чтобы играть онлайн.
 Video	Видео
 View + Menu	Вид + Меню
 Voice chat	Голосовой чат
 Volume	Громкость
+WARNING: once this save is used online, it can no longer be played offline!	ВНИМАНИЕ: после использования онлайн это сохранение больше нельзя будет запускать офлайн!
 Wait for shaders	Ожидать шейдеры
 Warning	Предупреждение
 While holding a button	При удержании кнопки

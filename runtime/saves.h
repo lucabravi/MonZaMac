@@ -43,6 +43,9 @@ bool saves_route_begin(const char *name, char *route_out, size_t n);  // false: 
 bool saves_route_names(const char *name);
 const char *saves_route_replay_dir(const char *name);  // LARECOMP_ROUTE=<name>: a fresh copy of the start to play on
 const char *saves_current_path(void);  // the slot the game uses (as SaveSlot.path)
+// Online play (the Lumiose module): a save the game was started on online carries a marker file in its folder. Copies keep it.
+bool saves_current_online_used(void);  // the slot the game uses has been played online
+void saves_mark_current_online(void);
 // The game uses this slot's data from now on (g_save_dir). Unknown id: the original.
 void saves_select(const char *id);
 // The save with the most recent write (as the start screen's CONTINUE); none has progress: the original `save/`.

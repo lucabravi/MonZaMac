@@ -38,6 +38,7 @@ Always (cursor held in the window)	Immer (Mauszeiger im Fenster)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	Erstelle einen leeren Spielstand mit einem eigenen Namen. Vor dem Neustart des Spiels mit diesem Spielstand wird eine Bestätigung verlangt.
 Anisotropic filtering	Anisotrope Filterung
 Anti-aliasing	Kantenglättung
+Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	Jede Handlung, um die Sperre zu umgehen und offline im Spiel voranzukommen, kann zu einem Bann bei Lumiose Online führen!
 Any button	Beliebige Taste
 Application language	App-Sprache
 Are you sure?	Bist du sicher?
@@ -532,12 +533,14 @@ Updating...	Aktualisierung läuft...
 Upscaler	Upscaler
 Upscaling and AA	Upscaling und Kantenglättung
 Use substitute font	Ersatzschrift verwenden
+Use this save online?	Diesen Spielstand online verwenden?
 Uses the save selected offline	Nutzt den offline gewählten Spielstand
 Version %s is out. Update to play online.	Version %s ist erschienen. Zum Online-Spielen bitte aktualisieren.
 Video	Video
 View + Menu	Ansicht + Menü
 Voice chat	Sprachchat
 Volume	Lautstärke
+WARNING: once this save is used online, it can no longer be played offline!	ACHTUNG: Sobald dieser Spielstand online verwendet wurde, kann er nicht mehr offline gespielt werden!
 Wait for shaders	Auf Shader warten
 Warning	Warnung
 While holding a button	Taste gedrückt halten

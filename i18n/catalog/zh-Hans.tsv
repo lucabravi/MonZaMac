@@ -38,6 +38,7 @@ Always (cursor held in the window)	始终（光标限制在窗口内）
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	创建自定义名称的空存档。重新启动游戏并使用该存档开始新游戏前，会要求你确认。
 Anisotropic filtering	各向异性过滤
 Anti-aliasing	抗锯齿
+Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	任何绕过限制并在离线模式下推进游戏进度的行为，都可能导致在 Lumiose Online 中被封禁！
 Any button	任意按键
 Application language	应用语言
 Are you sure?	确定吗？
@@ -532,12 +533,14 @@ Updating...	正在更新...
 Upscaler	图像放大算法
 Upscaling and AA	画面放大与抗锯齿
 Use substitute font	使用替代字体
+Use this save online?	要在线使用此存档吗？
 Uses the save selected offline	使用离线模式所选的存档
 Version %s is out. Update to play online.	版本 %s 已发布。请更新后再在线游玩。
 Video	视频
 View + Menu	视图 + 菜单
 Voice chat	语音聊天
 Volume	音量
+WARNING: once this save is used online, it can no longer be played offline!	注意：此存档一旦在线使用，之后将无法再离线游玩！
 Wait for shaders	等待着色器编译
 Warning	警告
 While holding a button	按住按键时

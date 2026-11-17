@@ -140,6 +140,17 @@ int main(void) {
     put("junk.zip", "not a zip");
     assert(!saves_import_stage("junk.zip", err, sizeof err) && strstr(err, "couldn't be opened"));
 
+    // played online: the marker sits in the slot's folder, next to the game's save_0, and a copy keeps it
+    saves_select("Trainer");
+    assert(!saves_current_online_used());
+    saves_mark_current_online();
+    assert(saves_current_online_used() && there("saves/Trainer/online") && same("saves/Trainer/save_0/main", "ZA save one"));
+    assert(saves_copy("Trainer", "Trainer online copy"));
+    saves_select("Trainer online copy");
+    assert(saves_current_online_used());
+    saves_select("Trainer 2");
+    assert(!saves_current_online_used());
+
     char rm[600];
     snprintf(rm, sizeof rm, "rm -rf '%s'", tmp);
     system(rm);
