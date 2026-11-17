@@ -12,6 +12,8 @@ bool plat_module_name(uint64_t pc, char *out, size_t n) {
     return true;
 }
 void rt_fatal_trace(void) { abort(); }
+static unsigned g_damaged;  // (what the start screen's file check found: runtime/gamecheck.c)
+unsigned gamecheck_damaged(void) { return g_damaged; }
 
 // One cause per process: the explainer keeps only the first fatal line (argv[1] picks it, argv[2] the expected headline)
 int main(int argc, char **argv) {
@@ -22,6 +24,8 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[1], "font")) rt_fatal_msg("no usable system font substitute\n");
     else if (!strcmp(argv[1], "gpu")) rt_crash_fault("signal 11", 0x10, 0x9999);
     else if (!strcmp(argv[1], "game")) rt_crash_fault("signal 11", 0x10, 0x1234);
+    else if (!strcmp(argv[1], "damaged")) g_damaged = 3, rt_crash_fault("signal 11", 0x10, 0x1234);  // (a crash in the game's code, damaged packs found)
+    else if (!strcmp(argv[1], "damaged-gpu")) g_damaged = 3, rt_crash_fault("signal 11", 0x10, 0x9999);  // (not the game's code: not blamed on the files)
     else assert(!strcmp(argv[1], "other"));
     rt_crash_explain(out, sizeof out, "/x/play.log");
     assert(strstr(out, argv[2]) == out && strstr(out, "Log file:\n/x/play.log"));

@@ -222,6 +222,10 @@ test-shader-catalog:
 	$(or $(PY),python3) tools/test_shader_inputs.py
 	$(or $(PY),python3) tools/test_shader_decoder.py build/shader-decode/release/monzamac-shader-decode
 
+.PHONY: test-tools
+test-tools:  # every asset-free tools/test_*.py, with the venv's Python
+	tools/run_tests.sh
+
 .PHONY: test-shader-trace
 test-shader-trace:
 	python3 tools/test_shader_trace.py

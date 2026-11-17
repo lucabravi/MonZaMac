@@ -21,6 +21,10 @@ bool temporal_supported(void) { return temporal_available; }
 extern bool settings_temporal_upscale(void);
 bool bind_settings_load(const char *key, const char *val) { return false; }
 void bind_settings_save(FILE *f) {}
+#include "runtime/ui/i18n.h"  // (settings.c names the interface language: the start screen's tables, stubbed)
+int g_nmodules;
+int ui_auto_language(void) { return UI_LANG_EN; }
+const char *const ui_language_codes[UI_LANGUAGE_COUNT] = {"auto", "en", "it", "fr", "es", "de", "pt-BR", "ja", "zh-Hans", "zh-Hant", "ko", "ru"};
 int main(int argc, char **argv) {
 #ifdef __APPLE__
     temporal_available = atoi(argv[1]);
