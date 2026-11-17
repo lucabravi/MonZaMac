@@ -1043,7 +1043,7 @@ static Service *open_host_fs(const char *sub) {
     HostFs *fs = calloc(1, sizeof *fs);
     if (getenv("LARECOMP_SAVE_DIR")) g_save_dir = getenv("LARECOMP_SAVE_DIR");  // test runs use a scratch copy
     else if (!saves_current_matches(getenv("LUMIOSE_TEST_MODULE") != NULL))  // (the start screen never gets here: the last stop)
-        rt_fatal_msg("this save is of the other kind (online saves are played only online, the others only offline)\n");
+        FATAL("this save is of the other kind (online saves are played only online, the others only offline)\n");
     const char *route = getenv("LARECOMP_ROUTE");
     if (route) {  // one fresh copy per game session; mounting sdcard must not reset an already running replay
         extern const char *saves_route_replay_dir(const char *);

@@ -396,11 +396,20 @@ static void application_functions(Service *s, IpcReq *req, IpcResp *resp) {
         resp_size(resp, 8);
         break;
     }
-    case 23:  // GetDisplayVersion: the version of the game the files are (runtime/ui/launcher.mm accepts only 2.0.2); Lumiose Online reads it
+    case 23: {  // GetDisplayVersion: the version of the game the files are (the start screen accepts only 2.0.2; --play any of the three); Lumiose Online reads it
+        extern uint8_t g_game_build[8];  // (runtime/main.c: the exefs/main build ID)
+        static const struct { uint8_t id[8]; const char *version; } builds[] = {
+            {{0x72, 0x22, 0xe1, 0x3e, 0xcf, 0x6a, 0xdb, 0x32}, "1.0.0"},
+            {{0x8a, 0x1c, 0x86, 0xc4, 0x37, 0x39, 0x4b, 0x69}, "2.0.0"},
+        };
+        const char *version = "2.0.2";  // (also when the files are unreadable, as in the tests without game files)
+        for (size_t i = 0; i < sizeof builds / sizeof *builds; i++)
+            if (!memcmp(g_game_build, builds[i].id, 8)) version = builds[i].version;
         memset(resp->data, 0, 0x10);
-        memcpy(resp->data, "2.0.2", 6);
+        memcpy(resp->data, version, strlen(version) + 1);
         resp_size(resp, 0x10);
         break;
+    }
     case 40: OUT(uint8_t, 0) = 0; resp_size(resp, 1); break;  // NotifyRunning
     case 130: case 140: resp->copy_handles[resp->ncopy++] = new_event(); break;
     default: UNHANDLED("IApplicationFunctions");

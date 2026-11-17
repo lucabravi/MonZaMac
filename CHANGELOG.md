@@ -3,6 +3,15 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
+## Unreleased
+
+### Game
+- **A save of the wrong kind now stops the game** instead of only writing a line to the log: online saves start only online, the others only offline. The start screen already kept them apart; this is the last stop behind it.
+- The game version that Lumiose Online reads follows the game files (1.0.0, 2.0.0 or 2.0.2) instead of always saying 2.0.2. Nothing changes for the start screen, which accepts only 2.0.2.
+
+### Graphics
+- On Macs where a GPU program is built to fit the threads per group the game asks for (seen as a possible gap on M1 and M2), the saved copy of it is now found at the next start, so it is not compiled twice every time.
+
 ## 0.4.0
 
 Cleaner skin and hair in some close-ups, a little more speed, a new way to install the game from a Switch 2 Edition `.nup` file, a new look for the start screen, stricter rules for Lumiose Online (one online save, original game files, the official module, the current version), and fixes. **After updating, run Prepare all shaders again** (the **All shaders** badge turns yellow): the shader translation changed. **If you play online, the first Play online asks which save is your online save.**
