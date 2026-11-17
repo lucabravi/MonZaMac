@@ -2,9 +2,9 @@
 from pathlib import Path
 import hashlib
 import io
+import json
 import math
-import os
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import importlib.util
 import sys
 import tempfile
@@ -15,55 +15,121 @@ sys.path.insert(0, str(ROOT / 'tools/lumiose'))
 spec = importlib.util.spec_from_file_location('setup_online', ROOT / 'tools/lumiose/setup_online.py')
 so = importlib.util.module_from_spec(spec); spec.loader.exec_module(so)
 sys.path.insert(0, str(ROOT / 'tools'))
+from activate import online_status, write_state  # noqa: E402
 from test_nso import fixture  # noqa: E402
-LATEST = hashlib.sha256(b'x').hexdigest()
+
+OFFICIAL = fixture(compressed=True, hashes=True)
+REPLACEMENT = OFFICIAL[:-1] + bytes([OFFICIAL[-1] ^ 1])  # same NSO header and build ID, different contents
+LATEST = hashlib.sha256(OFFICIAL).hexdigest()
 
 
 class UpdateTests(unittest.TestCase):
-    def run_main(self, latest, active, downloads=(), mod_file=None, prepared=None, skipped=''):
-        stages, reports = [], []
-        with tempfile.TemporaryDirectory() as tmp:
-            mods = Path(tmp) / 'modules'; mods.mkdir()
-            for name in downloads: (mods / name).write_bytes(b'x')
-            def lookup():
-                if latest is None: raise OSError('offline')
-                return latest
-            (Path(tmp) / 'skipped-modules').write_text(skipped)
-            sys.argv = ['setup_online.py', '--runtime', 'rt', '--game', 'g', '--root', tmp, '--modules', str(mods)]
-            if mod_file:
-                sys.argv += ['--downloaded', str(mod_file)]
-            # This helper tests the update decision, not the game build identity on fake /v/1.
-            with patch.multiple(so, latest_sha256=lookup, active_module=lambda root: active,
-                                fetch_latest=lambda out: (_ for _ in ()).throw(OSError('no download in a test')),
-                                run_stage=lambda argv, *a: (stages.append(argv),
-                                                             (bool(prepared), str(prepared or ''), 'stop'))[1],
-                                report=lambda f, step, state='running', **kw: reports.append((state, step, kw))), \
-                    patch.object(so, 'built_for_this_game', return_value=True), \
-                    patch.object(so, 'status_info', return_value={}):
-                code = so.main()
-            self.skipped_after = (Path(tmp) / 'skipped-modules').read_text()
-            return code, stages, reports, mods
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name).resolve()
+        self.root = self.tmp / 'versions'; self.root.mkdir()
+        self.game = self.tmp / 'game'; self.game.mkdir()
+        self.mods = self.tmp / 'modules'; self.mods.mkdir()
+        self.cache = self.mods / ('subsdk9-' + LATEST[:16])
+        self.game_id = b'current-game-id\n'
+        (self.game / 'lasgame.dylib.id').write_bytes(self.game_id)
+        (self.root / 'server.txt').write_text('127.0.0.1:27777')
 
-    def test_current_version_starts_at_once(self):
-        code, stages, reports, _ = self.run_main(LATEST, (Path('/v/1'), LATEST))
-        self.assertEqual((code, stages), (0, []))
-        self.assertEqual(reports[-1][0], 'ready')
+    def prepare_folder(self, version, module, active=False):
+        identity = hashlib.sha256(version.encode()).hexdigest()
+        folder = self.root / (version + '-' + identity[:16])
+        folder.mkdir()
+        outputs = {'subsdk9': module, 'lasgame.dylib.id': self.game_id,
+                   'lumiose.dylib': b'fake library', 'lasgame.dylib': b'fake game library'}
+        for name, data in outputs.items():
+            (folder / name).write_bytes(data)
+        (folder / 'ready.json').write_text(json.dumps({'identity': identity, 'version': version,
+            'inputs': {'module': LATEST},  # claiming the correct source digest must not authenticate a replacement
+            'outputs': {name: hashlib.sha256(data).hexdigest() for name, data in outputs.items()}}))
+        if active:
+            write_state(self.root, {'active': folder.name, 'previous': None})
+        return folder
 
-    def test_offline_keeps_the_active_version(self):
-        code, stages, _, _ = self.run_main(None, (Path('/v/1'), 'cd' * 32))
-        self.assertEqual((code, stages), (0, []))
+    def run_main(self, prepare=None, lookup=None, download=None, extra=()):
+        self.prepare = Mock(side_effect=prepare, return_value=(False, '', 'stop'))
+        self.download = Mock(side_effect=download or OSError('download failed'))
+        self.reports = Mock()
+        argv = ['setup_online.py', '--runtime', 'rt', '--game', str(self.game), '--root', str(self.root),
+                '--modules', str(self.mods), *extra]
+        with patch.multiple(so, latest_sha256=lookup or (lambda: LATEST), status_info=online_status,
+                            fetch=self.download, run_stage=self.prepare, report=self.reports), \
+                patch.object(sys, 'argv', argv):
+            return so.main()
 
-    def test_a_newer_module_is_prepared_from_the_download_with_its_hash(self):
-        code, stages, _, mods = self.run_main(LATEST, (Path('/v/1'), 'cd' * 32), ['subsdk9-' + LATEST[:16], 'subsdk9-old'])
-        self.assertEqual(code, 1)  # (the stubbed preparation stops)
-        argv = stages[0]
-        self.assertEqual(Path(argv[argv.index('--module') + 1]).name, 'subsdk9-' + LATEST[:16])
+    def assert_ready(self, folder, version):
+        self.reports.assert_called_with(1.0, 'Ready', 'ready', dir=str(folder), version=version,
+                                        endpoint='127.0.0.1:27777')
 
-    def test_a_newer_module_not_here_is_downloaded(self):
-        code, stages, reports, _ = self.run_main(LATEST, None)
-        self.assertEqual((code, stages), (1, []))
-        self.assertEqual(reports[-1][0], 'error')
-        self.assertIn('download', reports[-1][2]['message'])
+    def test_reuses_only_the_published_version(self):
+        folder = self.prepare_folder('1.0.0', OFFICIAL, active=True)
+        self.assertEqual(self.run_main(), 0)
+        self.prepare.assert_not_called()
+        self.download.assert_not_called()
+        self.assert_ready(folder, '1.0.0')
+
+    def test_unavailable_checksum_does_not_fall_back_to_local_files(self):
+        def unavailable():
+            raise OSError('offline')
+        self.prepare_folder('1.0.0', OFFICIAL, active=True)
+        self.cache.write_bytes(OFFICIAL)
+        self.assertEqual(self.run_main(lookup=unavailable), 1)
+        self.prepare.assert_not_called()
+        self.download.assert_not_called()
+        self.assertEqual(self.reports.call_args.args[2], 'error')
+
+    def test_rejects_replaced_active_and_cached_modules_even_with_matching_names_and_manifest(self):
+        self.prepare_folder('1.0.0', REPLACEMENT, active=True)
+        self.assertEqual(online_status(self.root)['state'], 'ready')  # manifest is internally consistent
+        self.cache.write_bytes(REPLACEMENT)
+        self.assertEqual(self.run_main(), 1)
+        self.download.assert_called_once_with(so.DEFAULT_URL, self.mods, sha256=LATEST)
+        self.prepare.assert_not_called()
+
+    def test_replaces_unapproved_active_version_with_verified_download(self):
+        old = self.prepare_folder('1.0.0', REPLACEMENT, active=True)
+        new = self.prepare_folder('2.0.0', OFFICIAL)
+
+        def download(url, out, *, sha256):
+            self.assertEqual(sha256, LATEST)
+            self.cache.write_bytes(OFFICIAL)
+            return self.cache, LATEST, '2.0.0'
+
+        def stage(argv, *args):
+            if '--module' in argv:
+                snapshot = Path(argv[argv.index('--module') + 1])
+                self.cache.write_bytes(REPLACEMENT)
+                self.assertEqual(snapshot.read_bytes(), OFFICIAL)
+                return True, str(new), ''
+            self.assertIn(new.name, argv)
+            write_state(self.root, {'active': new.name, 'previous': old.name})
+            return True, '', ''
+
+        self.assertEqual(self.run_main(prepare=stage, download=download), 0)
+        self.assertEqual(self.prepare.call_count, 2)
+        self.assert_ready(new, '2.0.0')
+
+    def test_unapproved_preparation_is_not_smoke_tested(self):
+        self.cache.write_bytes(OFFICIAL)
+        folder = self.prepare_folder('2.0.0', REPLACEMENT)
+        self.assertEqual(self.run_main(prepare=lambda *a: (True, str(folder), '')), 1)
+        self.download.assert_not_called()
+        self.assertEqual(self.prepare.call_count, 1)
+        self.assertEqual(self.reports.call_args.args[2], 'error')
+
+    def test_manual_module_and_save_sd_card_options_are_refused(self):
+        for option in ('--module', '--downloaded'):
+            with self.subTest(option=option), patch('sys.stderr', new_callable=io.StringIO):
+                with self.assertRaises(SystemExit) as result:
+                    self.run_main(extra=(option, 'subsdk9'))
+                self.assertEqual(result.exception.code, 2)
+                self.prepare.assert_not_called()
+                self.download.assert_not_called()
 
     def test_a_version_prepared_for_another_game_code_is_prepared_again(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -77,39 +143,11 @@ class UpdateTests(unittest.TestCase):
             (game / 'lasgame.dylib.id').unlink()
             self.assertFalse(so.built_for_this_game(old, game))
 
-    def test_cached_download_must_match_full_sha256(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / ('subsdk9-' + LATEST[:16])
-            path.write_bytes(b'x')
-            self.assertEqual(so.cached_module(tmp, LATEST), path)
-            path.write_bytes(b'y')
-            self.assertIsNone(so.cached_module(tmp, LATEST))
-
-    def test_partial_download_is_not_selected(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / 'module'
-            path.write_bytes(fixture(compressed=True, hashes=True))
-            partial = Path(tmp) / 'newer.part'
-            partial.write_bytes(fixture(compressed=True, hashes=True))
-            readme = Path(tmp) / 'README.txt'
-            readme.write_bytes(b'instructions' * 100)
-            newest = path.stat().st_mtime + 100
-            os.utime(partial, (newest, newest))
-            os.utime(readme, (newest + 10, newest + 10))
-            self.assertEqual(so.find_module(tmp), path)
-
-    def test_skipping_after_failed_preparation_creates_parent(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            folder = Path(tmp) / 'missing' / 'versions'
-            so.skip(folder, 'deadbeef')
-            self.assertEqual((folder / 'skipped-modules').read_text(), 'deadbeef\n')
-
     def test_malformed_helper_status_fails_closed(self):
         from subprocess import CompletedProcess
         with patch.object(so, 'tool', return_value=['dummy']), patch.object(so.subprocess, 'run',
                    return_value=CompletedProcess(['dummy'], 0, 'STATUS not json\nSTATUS []\n', '')):
             self.assertEqual(so.status_info('/tmp/nonexistent'), {})
-            self.assertIsNone(so.active_module('/tmp/nonexistent'))
 
     def test_malformed_progress_does_not_propagate_nan_or_crash(self):
         class FakeProcess:
@@ -135,59 +173,6 @@ class UpdateTests(unittest.TestCase):
             self.assertEqual(so.run_stage(['dummy'], 0, 1, 'Activating', False)[0], True)
         with patch.object(so.subprocess, 'Popen', return_value=FakeProcess()):
             self.assertEqual(so.run_stage(['dummy'], 0, 1, 'Preparing')[0], False)
-
-    def module_file(self, tmp):
-        path = Path(tmp) / 'subsdk9'
-        path.write_bytes(fixture(compressed=True, hashes=True))
-        return path, so.sha256_of(path)
-
-    def version_folder(self, tmp, name, line):
-        folder = Path(tmp) / name; folder.mkdir()
-        (folder / 'capture.log').write_text(line)
-        return folder
-
-    def test_the_mods_own_download_comes_before_the_site(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path, sha = self.module_file(tmp)
-            code, stages, _, _ = self.run_main(LATEST, (Path('/v/1'), 'cd' * 32), mod_file=path)
-        self.assertEqual(code, 1)
-        argv = stages[0]
-        self.assertEqual(Path(argv[argv.index('--module') + 1]).name, 'subsdk9-' + sha[:16])
-        self.assertIn(sha, self.skipped_after)  # (it failed: the next press goes on without it)
-
-    def test_the_active_module_and_a_skipped_one_are_not_prepared_again(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path, sha = self.module_file(tmp)
-            for active, skip in (((Path('/v/1'), sha), ''), ((Path('/v/1'), 'cd' * 32), sha + '\n')):
-                code, stages, _, _ = self.run_main(None, active, mod_file=path, skipped=skip)
-                self.assertEqual((code, stages), (0, []))
-
-    def test_something_that_is_no_module_is_ignored(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / 'subsdk9'; path.write_bytes(b'not a module')
-            code, stages, _, _ = self.run_main(None, (Path('/v/1'), 'cd' * 32), mod_file=path)
-        self.assertEqual((code, stages), (0, []))
-
-    def test_a_module_not_newer_keeps_the_active_version(self):
-        line = '[guest] [update] this build is %s build 1 (platform 2, channel 0)\n'
-        with tempfile.TemporaryDirectory() as tmp:
-            path, sha = self.module_file(tmp)
-            active = self.version_folder(tmp, 'active', line % '1.6.0')
-            new = self.version_folder(tmp, 'new', line % '1.5.0')
-            code, stages, reports, _ = self.run_main(LATEST, (active, 'cd' * 32), mod_file=path, prepared=new)
-        self.assertEqual((code, len(stages)), (0, 1))  # (prepared, never given to activate)
-        self.assertEqual(reports[-1][2]['dir'], str(active))
-        self.assertIn(sha, self.skipped_after)
-
-    def test_a_newer_module_goes_on_to_the_check(self):
-        line = '[guest] [update] this build is %s build 1 (platform 2, channel 0)\n'
-        with tempfile.TemporaryDirectory() as tmp:
-            path, _ = self.module_file(tmp)
-            active = self.version_folder(tmp, 'active', line % '1.5.0')
-            new = self.version_folder(tmp, 'new', line % '1.10.0')
-            _, stages, _, _ = self.run_main(LATEST, (active, 'cd' * 32), mod_file=path, prepared=new)
-        self.assertEqual(len(stages), 2)
-        self.assertIn('activate', stages[1])
 
 
 if __name__ == '__main__':

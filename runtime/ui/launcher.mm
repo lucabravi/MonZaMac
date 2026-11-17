@@ -271,9 +271,8 @@ bool saves_use_latest(void);  // ui/saves_ui.mm (declared again below)
 // tools/venv); LUMIOSE_SOURCE names the checkout that owns the game's object cache when it is not the one holding the tools.
 enum OnlineStage { OU_START, OU_QUERY, OU_READY, OU_NEEDS, OU_SETUP, OU_ERROR, OU_OFF };
 static OnlineStage g_ou = OU_START;
-static OnlinePrepStatus g_ou_status;  // the last STATUS (ready: dir, version, endpoint)
+static OnlinePrepStatus g_ou_status;  // the last result (ready: dir, version, endpoint)
 static std::string g_ou_note;         // why the last attempt stopped
-static bool g_ou_launch_after;        // the setup was started by a click: start the game when it is ready
 static std::string g_ou_tools, g_ou_python;
 
 // Where the online tools are: a source checkout's scripts with its Python (LUMIOSE_TOOLS, or a few folders up from the
@@ -346,10 +345,6 @@ static bool online_setup() {
         const char *src = getenv("LUMIOSE_SOURCE");
         keep.insert(keep.end(), {"--source", src ? src : g_ou_tools});
     }
-    saves_use_latest();  // (the save the game is about to use: the mod puts its own update in that save's SD card folder)
-    char slot[4096];
-    if (realpath(saves_current_path(), slot))
-        keep.insert(keep.end(), {"--downloaded", std::string(slot) + "/sdcard/atmosphere/contents/0100F43008C44000/exefs/subsdk9"});
     return online_prep_start(online_tool("setup_online", keep).data());
 }
 
@@ -387,6 +382,8 @@ static void online_launch() {
     char exe[4096];
     if (!plat_exe_path(exe, sizeof exe)) { g_ou_note = "Could not find the program to restart."; return; }
     std::string dir = g_ou_status.dir;
+    const char *running = getenv("LUMIOSE_TEST_MODULE");  // (the version this process already runs, when it runs one)
+    bool same = g_game_booted == 2 && running && (dir + "/subsdk9") == running;
     setenv("LUMIOSE_TEST_MODULE", (dir + "/subsdk9").c_str(), 1);
     setenv("LUMIOSE_TEST_LIBRARY", (dir + "/lumiose.dylib").c_str(), 1);
     setenv("LARECOMP_GAME_LIB", (dir + "/lasgame.dylib").c_str(), 1);
@@ -395,7 +392,9 @@ static void online_launch() {
     saves_use_latest();  // the chosen save, else the most recent (as CONTINUE)
     settings_save();
     setenv("LARECOMP_PLAY_SAVE", g_settings.save_slot, 1);  // (--play would take the most recent one)
-    if (g_game_booted != 1 && !getenv("LARECOMP_ONLINE_RESTART")) {  // (none loaded yet, or the online one already: same process)  // first game of this process: the game library and the module load now, no restart needed (after a game it is the old way)
+    // A loaded game library cannot be swapped: the same process only when none is loaded yet or the verified version is the
+    // one already running (a different one needs a new process).
+    if ((!g_game_booted || same) && !getenv("LARECOMP_ONLINE_RESTART")) {
         rt_online_env_sanitize();  // (the game starts in this process: the debug variables are off online)
         g_play_request = true;
         return;
@@ -468,11 +467,17 @@ static void online_view(const std::string &files, bool busy, OnlineView *v) {
         bool ok = !strcmp(st.state, "ready");
         g_ou_status = st;
         g_ou = ok ? OU_READY : OU_NEEDS;
-        if (ok && g_ou_launch_after) { g_ou_launch_after = false; online_launch(); }  // (the consent came with the click)
     }
     if (g_ou == OU_SETUP && !st.running) {
-        if (!strcmp(st.state, "ready")) { g_ou = OU_START; g_ou_launch_after = true; g_ou_note.clear(); }  // (read the status again)
-        else { g_ou = OU_ERROR; g_ou_note = st.message[0] ? st.message : "The online version could not be prepared."; g_ou_launch_after = false; }
+        if (!strcmp(st.state, "ready") && st.dir[0]) {
+            g_ou_status = st;
+            g_ou = OU_READY;
+            g_ou_note.clear();
+            online_launch();
+        } else {
+            g_ou = OU_ERROR;
+            g_ou_note = st.message[0] ? st.message : "The online version could not be prepared.";
+        }
     }
     if (getenv("LARECOMP_ONLINE_AUTOPLAY") && (g_ou == OU_READY || g_ou == OU_NEEDS)) {  // (test: Play online pressed, once)
         static bool pressed;
@@ -542,13 +547,11 @@ static bool online_cache_ok() {
     return !kept.empty() && kept == first_line(g_root + "/" GAMELIB_NAME ".id");
 }
 
-// After the consent: always through setup_online.py, which starts at once when the active version is of the newest
-// module and otherwise downloads and prepares it; then the game starts online
+// After consent, setup_online.py verifies the module against the published SHA-256 before every online launch.
 static void online_proceed() {
     if (!online_cache_ok()) { g_ou_rebuild_request = g_ou_after_rebuild = true; return; }
-    g_ou_launch_after = true;
     g_ou = online_setup() ? OU_SETUP : OU_ERROR;
-    if (g_ou == OU_ERROR) { g_ou_note = "Could not start the online setup."; g_ou_launch_after = false; }
+    if (g_ou == OU_ERROR) g_ou_note = "Could not start the online setup.";
 }
 
 static void online_click() {

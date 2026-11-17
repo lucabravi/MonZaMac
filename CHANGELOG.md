@@ -31,6 +31,9 @@ Cleaner skin and hair in some close-ups, a little more speed, a new way to insta
 - **Online play waits for the update.** When a newer MonZaMac release is out, the Lumiose Online column says **Update MonZaMac first** and **Play online** stays off until you update. Without an answer from GitHub (no connection, or `LARECOMP_NO_UPDATE_CHECK`), nothing is held. A release marked as a pre-release is no longer offered as an update.
 - **Online play is the same game for everyone.** While the Lumiose module is loaded, the debug and test `LARECOMP_*` variables (scripted input, route replay, warps...) are ignored; only the supported ones stay, and they come back for an offline game. **Play online** also stays off while the game data check finds files that differ from the original 2.0.2 (**Game files changed**).
 
+### Lumiose Online (online edition)
+- **Play online only starts a module that matches the one Lumiose Online publishes.** A module placed in the save's `sdcard` folder (for example a cheat or debug menu installed like on a Switch) or in the downloads folder is no longer used. The check runs on every press, so online play needs the team's site to be reachable; without it, it asks you to try again. Back at the start screen, **Play online** restarts the game only when the version changed.
+
 ### Developer tools
 - `docs/environment.md` lists the ten `LARECOMP_*` environment variables that are supported (where the files are, switching off one fix to find a problem, logs and benchmarks); the rest stay debug hooks described in the code. A test fails when a name in the docs is no longer read by the code.
 - The interface text goes to the drawing library as an argument, never as its format (20 places in the start screen and the menus): a translation with a stray `%` can no longer read memory. The compiler's format warnings in the renderer's logs are fixed, and git ignores `.game-setup/`.
