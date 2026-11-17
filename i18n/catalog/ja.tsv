@@ -198,6 +198,7 @@ Game data missing	ゲームデータがありません
 Game dynamic resolution	ゲーム内の動的解像度
 Game effects	ゲーム内エフェクト
 Game files	ゲームファイル
+Game files changed	ゲームファイルが変更されています
 Game files deleted.	ゲームファイルを削除しました。
 Game files folder	ゲームファイルのフォルダー
 Game files incomplete	ゲームファイルが不完全です
@@ -474,6 +475,7 @@ The first time, the online version is prepared on this Mac (it can take a few mi
 The folder with your own game folders (exefs/romfs) of Pokémon Legends: Z-A for Nintendo Switch, version 2.0.2. The game isn't included with MonZaMac.	Nintendo Switch版『Pokémon Legends: Z-A』v2.0.2の自分のゲームファイル（exefs/romfs）があるフォルダーです。ゲーム本体はMonZaMacに含まれません。
 The game code build for online play could not be kept.	オンラインプレイ用のゲームコードのビルドを保持できませんでした。
 The game code didn't build	ゲームコードのビルドに失敗しました
+The game data is not the original of version 2.0.2.	ゲームデータがバージョン2.0.2のオリジナルではありません。
 The game files changed.	ゲームファイルが変更されました。
 The game restarts to switch its text to %s. Progress since your last save is lost.	テキストを%sに切り替えるためゲームを再起動します。最後にセーブしてからの進行状況は失われます。
 The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.	カメラの焦点から離れた部分をぼかします。オフにすると画面全体が鮮明になります。
@@ -518,6 +520,7 @@ Up to date.	最新です。
 Up to match display	ディスプレイ解像度まで
 Up to match display (%dp)	ディスプレイ解像度まで（%dp）
 Update (2.0.2)	更新データ (2.0.2)
+Update MonZaMac first	先にMonZaMacを更新してください
 Update available	アップデートがあります
 Update available!\s\s	更新があります！\s\s
 Update failed	更新に失敗
@@ -530,6 +533,7 @@ Upscaler	アップスケーラー
 Upscaling and AA	アップスケーリングとAA
 Use substitute font	代替フォントを使用
 Uses the save selected offline	オフラインで選択したセーブデータを使用
+Version %s is out. Update to play online.	バージョン%sが公開されています。オンラインでプレイするには更新してください。
 Video	映像
 View + Menu	ビュー＋メニュー
 Voice chat	ボイスチャット

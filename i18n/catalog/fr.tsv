@@ -198,6 +198,7 @@ Game data missing	Données du jeu manquantes
 Game dynamic resolution	Résolution dynamique du jeu
 Game effects	Effets du jeu
 Game files	Fichiers du jeu
+Game files changed	Fichiers du jeu modifiés
 Game files deleted.	Fichiers du jeu supprimés.
 Game files folder	Dossier des fichiers du jeu
 Game files incomplete	Fichiers du jeu incomplets
@@ -474,6 +475,7 @@ The first time, the online version is prepared on this Mac (it can take a few mi
 The folder with your own game folders (exefs/romfs) of Pokémon Legends: Z-A for Nintendo Switch, version 2.0.2. The game isn't included with MonZaMac.	Dossier contenant vos propres fichiers de jeu (exefs/romfs) de Pokémon Legends: Z-A pour Nintendo Switch, version 2.0.2. Le jeu n’est pas inclus dans MonZaMac.
 The game code build for online play could not be kept.	La compilation du code du jeu pour le jeu en ligne n'a pas pu être conservée.
 The game code didn't build	Le code du jeu n'a pas pu être compilé
+The game data is not the original of version 2.0.2.	Les données du jeu ne sont pas celles d'origine de la version 2.0.2.
 The game files changed.	Les fichiers du jeu ont changé.
 The game restarts to switch its text to %s. Progress since your last save is lost.	Le jeu redémarre pour passer les textes en %s. La progression depuis votre dernière sauvegarde sera perdue.
 The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.	Flou des éléments éloignés du point de mise au point. Désactivé : toute l’image reste nette.
@@ -518,6 +520,7 @@ Up to date.	À jour.
 Up to match display	Jusqu’à la résolution de l’écran
 Up to match display (%dp)	Jusqu’à la résolution de l’écran (%dp)
 Update (2.0.2)	Mise à jour (2.0.2)
+Update MonZaMac first	Mettez d'abord MonZaMac à jour
 Update available	Mise à jour disponible
 Update available!\s\s	Mise à jour disponible !\s\s
 Update failed	Échec de la mise à jour
@@ -530,6 +533,7 @@ Upscaler	Mise à l'échelle
 Upscaling and AA	Mise à l'échelle et anticrénelage
 Use substitute font	Utiliser une police de remplacement
 Uses the save selected offline	Utilise la sauvegarde choisie hors ligne
+Version %s is out. Update to play online.	La version %s est disponible. Mettez à jour pour jouer en ligne.
 Video	Vidéo
 View + Menu	Vue + Menu
 Voice chat	Chat vocal

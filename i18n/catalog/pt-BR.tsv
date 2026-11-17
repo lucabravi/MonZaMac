@@ -198,6 +198,7 @@ Game data missing	Dados do jogo ausentes
 Game dynamic resolution	Resolução dinâmica do jogo
 Game effects	Efeitos do jogo
 Game files	Arquivos do jogo
+Game files changed	Arquivos do jogo alterados
 Game files deleted.	Arquivos do jogo excluídos.
 Game files folder	Pasta dos arquivos do jogo
 Game files incomplete	Arquivos do jogo incompletos
@@ -474,6 +475,7 @@ The first time, the online version is prepared on this Mac (it can take a few mi
 The folder with your own game folders (exefs/romfs) of Pokémon Legends: Z-A for Nintendo Switch, version 2.0.2. The game isn't included with MonZaMac.	Pasta com seus arquivos do jogo (exefs/romfs) de Pokémon Legends: Z-A para Nintendo Switch, versão 2.0.2. O jogo não acompanha o MonZaMac.
 The game code build for online play could not be kept.	Não foi possível manter a compilação do código do jogo para o modo online.
 The game code didn't build	Não foi possível compilar o código do jogo
+The game data is not the original of version 2.0.2.	Os dados do jogo não são os originais da versão 2.0.2.
 The game files changed.	Os arquivos do jogo mudaram.
 The game restarts to switch its text to %s. Progress since your last save is lost.	O jogo reinicia para mudar os textos para %s. O progresso desde o último salvamento será perdido.
 The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.	Desfoque dos elementos fora do foco da câmera. Desativado: toda a imagem permanece nítida.
@@ -518,6 +520,7 @@ Up to date.	Atualizado.
 Up to match display	Até a resolução da tela
 Up to match display (%dp)	Até a resolução da tela (%dp)
 Update (2.0.2)	Atualização (2.0.2)
+Update MonZaMac first	Atualize o MonZaMac primeiro
 Update available	Atualização disponível
 Update available!\s\s	Atualização disponível!\s\s
 Update failed	Falha na atualização
@@ -530,6 +533,7 @@ Upscaler	Upscaler
 Upscaling and AA	Upscaling e antisserrilhamento
 Use substitute font	Usar fonte substituta
 Uses the save selected offline	Usa o salvamento selecionado offline
+Version %s is out. Update to play online.	A versão %s foi lançada. Atualize para jogar online.
 Video	Vídeo
 View + Menu	Exibir + Menu
 Voice chat	Chat de voz

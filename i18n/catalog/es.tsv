@@ -198,6 +198,7 @@ Game data missing	Faltan datos del juego
 Game dynamic resolution	Resolución dinámica del juego
 Game effects	Efectos del juego
 Game files	Archivos del juego
+Game files changed	Archivos del juego modificados
 Game files deleted.	Archivos del juego eliminados.
 Game files folder	Carpeta de archivos del juego
 Game files incomplete	Archivos del juego incompletos
@@ -474,6 +475,7 @@ The first time, the online version is prepared on this Mac (it can take a few mi
 The folder with your own game folders (exefs/romfs) of Pokémon Legends: Z-A for Nintendo Switch, version 2.0.2. The game isn't included with MonZaMac.	Carpeta con tus archivos del juego (exefs/romfs) de Pokémon Legends: Z-A para Nintendo Switch, versión 2.0.2. El juego no se incluye en MonZaMac.
 The game code build for online play could not be kept.	No se pudo conservar la compilación del código del juego para el modo en línea.
 The game code didn't build	No se pudo compilar el código del juego
+The game data is not the original of version 2.0.2.	Los datos del juego no son los originales de la versión 2.0.2.
 The game files changed.	Los archivos del juego han cambiado.
 The game restarts to switch its text to %s. Progress since your last save is lost.	El juego se reinicia para cambiar los textos a %s. Se perderá el progreso desde tu última partida guardada.
 The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.	Desenfoque de los elementos alejados del punto de enfoque. Desactivado: toda la imagen permanece nítida.
@@ -518,6 +520,7 @@ Up to date.	Actualizado.
 Up to match display	Hasta la resolución de pantalla
 Up to match display (%dp)	Hasta la resolución de pantalla (%dp)
 Update (2.0.2)	Actualización (2.0.2)
+Update MonZaMac first	Actualiza MonZaMac primero
 Update available	Actualización disponible
 Update available!\s\s	¡Actualización disponible!\s\s
 Update failed	Error al actualizar
@@ -530,6 +533,7 @@ Upscaler	Escalado
 Upscaling and AA	Escalado y antialiasing
 Use substitute font	Usar fuente alternativa
 Uses the save selected offline	Usa la partida seleccionada sin conexión
+Version %s is out. Update to play online.	Ya está disponible la versión %s. Actualiza para jugar en línea.
 Video	Vídeo
 View + Menu	Ver + Menú
 Voice chat	Chat de voz
