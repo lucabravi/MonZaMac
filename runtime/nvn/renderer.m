@@ -2143,9 +2143,15 @@ static bool cs_compile(CsProg *cp, uint64_t trace_addr) {
         cd.label = [NSString stringWithFormat:@"cs %016llx", (unsigned long long)fnv64(cp->si->msl)];
         trace_start = now_ms();
         pipeline_archive();
+        NSUInteger want = (NSUInteger)cp->local[0] * cp->local[1] * cp->local[2];
         if (g_archive_read) {
             cd.binaryArchives = @[g_archive_read];
             cp->pipe = [dev newComputePipelineStateWithDescriptor:cd options:MTLPipelineOptionFailOnBinaryArchiveMiss reflection:nil error:nil];
+            if (!cp->pipe) {  // (a kernel rebuilt to fit is archived with its limit below: the plain descriptor never finds it)
+                cd.maxTotalThreadsPerThreadgroup = want;
+                cp->pipe = [dev newComputePipelineStateWithDescriptor:cd options:MTLPipelineOptionFailOnBinaryArchiveMiss reflection:nil error:nil];
+                if (!cp->pipe) cd.maxTotalThreadsPerThreadgroup = 0;  // (0: the compiler's own choice)
+            }
             cd.binaryArchives = nil;
             if (cp->pipe) __atomic_fetch_add(&g_archive_hits, 1, __ATOMIC_RELAXED);
         }
@@ -2154,7 +2160,6 @@ static bool cs_compile(CsProg *cp, uint64_t trace_addr) {
         // the game declares); when it falls short Metal skips the dispatch without a word. Asking the compiler for the declared
         // size makes it fit the kernel (or fail visibly). Only when the plain build falls short: every other pipeline, and the
         // pipeline archive entry it has, stays as it was.
-        NSUInteger want = (NSUInteger)cp->local[0] * cp->local[1] * cp->local[2];
         if (cp->pipe && cp->pipe.maxTotalThreadsPerThreadgroup < want) {
             NSUInteger had = cp->pipe.maxTotalThreadsPerThreadgroup;
             cd.maxTotalThreadsPerThreadgroup = want;
