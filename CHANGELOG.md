@@ -23,6 +23,7 @@ Cleaner skin and hair in some close-ups, a little more speed, a new way to insta
 - **A crash in the first Mega Dimension mission's battle is avoided.** A game function that reads a few values from an object could be called when the object was already gone (the game's threads run in another order than on the Switch), and the game closed with a memory error. It now reads zeros instead and goes on; the log says `[guard]` when this happens. `LARECOMP_NULL_GETTER=0` turns it off. Not tried in that battle yet: a test call with no object, made at the start of the game, came back with zeros and the game went on.
 - **The in-game DLC purchase no longer closes the game.** The game's shop screen opens as an applet the Mac cannot show; it now ends at once as "the user backed out" and the game returns to its own menu.
 - **A little less CPU work:** the game's indirect calls (virtual functions and function pointers) are answered from a bigger cache, so fewer of them search the function table. About 2% more frames per second in the station at 1x on an Apple M5 (113.5 -> 116.0, six alternating runs); it costs about 20 MB of memory. No shader preparation is needed.
+- **The game now reports its real version (2.0.2) to itself and to mods.** It used to answer 1.0.0, so Lumiose Online told players their game was no longer supported even with the right files.
 
 ### Start screen
 - The team on the offline card has more room: bigger balls, further apart, with the buttons lower. The Saves page follows.
