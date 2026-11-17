@@ -16,6 +16,7 @@ bool g_za_frame_hook = false;
 void osk_cancel(void) {}
 extern "C" {
 int g_start_screen = 1;
+int g_nmodules;
 static bool temporal_available = true;
 bool fg_supported(void) { return true; }
 bool temporal_supported(void) { return temporal_available; }
@@ -144,7 +145,7 @@ with tempfile.TemporaryDirectory(prefix='temporal-upscale-menu-') as name:
     subprocess.run(['clang++', '-std=c++17', '-O1', '-fobjc-arc', '-DIMGUI_ENABLE_TEST_ENGINE',
                     '-I', str(ROOT), '-I', str(imgui), '-I', str(imgui / 'backends'),
                     '-I/opt/homebrew/opt/sdl3/include', str(source), str(tmp / 'settings.o'),
-                    str(ROOT / 'runtime/ui/option_rows.mm'),
+                    str(ROOT / 'runtime/ui/option_rows.mm'), str(ROOT / 'runtime/ui/i18n.mm'),  # (the flags and the upper case that option_rows draws)
                     *(str(imgui / f'{part}.cpp') for part in ('imgui', 'imgui_draw', 'imgui_tables', 'imgui_widgets')),
                     '-L/opt/homebrew/opt/sdl3/lib', '-lSDL3', '-Wl,-dead_strip',
                     '-framework', 'AppKit', '-framework', 'Metal', '-framework', 'UniformTypeIdentifiers',

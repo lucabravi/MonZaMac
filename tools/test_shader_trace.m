@@ -3,6 +3,7 @@
 #include <assert.h>
 
 uint32_t kernel_current_thread_handle(void) { return 7; }
+uint64_t g_alias_base, g_alias_size;  // (rt.h: the guest address windows, unused here)
 const char *loader_symbol_at(uint64_t a, uint64_t *off) { (void)a; *off = 0; return NULL; }
 
 int main(int argc, char **argv) { @autoreleasepool {
