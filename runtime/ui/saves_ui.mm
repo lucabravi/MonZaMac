@@ -1125,9 +1125,8 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
         const SaveInfo *si = v.save_path && v.save_path[0] ? save_info(v.save_path) : NULL;
         float ctop = ry + u * 6.4f, cwid = w, chgt = u * 7.9f;
         float cbot = ctop + chgt;
-        {   // a light glass panel: the picture shows through, the texts stay readable (LARECOMP_ONLINE_PANEL=<0..255>: try other values)
-            static int alpha = getenv("LARECOMP_ONLINE_PANEL") ? atoi(getenv("LARECOMP_ONLINE_PANEL")) : 135;
-            dl->AddRectFilled(ImVec2(x, ctop), ImVec2(x + w, cbot), IM_COL32(6, 12, 34, alpha), u * 0.5f);
+        {   // a light glass panel: the picture shows through, the texts stay readable
+            dl->AddRectFilled(ImVec2(x, ctop), ImVec2(x + w, cbot), IM_COL32(6, 12, 34, 135), u * 0.5f);
             dl->AddRect(ImVec2(x, ctop), ImVec2(x + w, cbot), IM_COL32(170, 140, 255, 80), u * 0.5f, 0, 1.0f);
         }
         float tx = x + u * 0.9f, tx2 = x + cwid * 0.42f, rr = x + w - u * 0.9f;  // (the offline card's columns)
