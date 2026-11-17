@@ -373,11 +373,11 @@ static bool online_outdated(std::string *newer, bool *pending) {
     return !tag.empty();
 }
 
-static bool pack_gate(bool *pending, unsigned *damaged, unsigned *packs);  // (the file check, below)
+static bool pack_gate(bool *pending);  // (the file check, below)
 
 static void online_launch() {
     {   bool pending;
-        if (pack_gate(&pending, NULL, NULL) || pending) { g_ou_note = "The game files are not the original ones: online play stays off."; return; }
+        if (pack_gate(&pending) || pending) { g_ou_note = "The game files are not the original ones: online play stays off."; return; }
     }
     if (online_outdated(NULL, NULL)) { g_ou_note = "A newer version of MonZaMac is out: update it to play online."; return; }
     if (g_ou_status.endpoint[0] == 0) {
@@ -447,11 +447,9 @@ static void online_view(const std::string &files, bool busy, OnlineView *v) {
     }
     {   // the game data must be the original 2.0.2 (the start screen's pack check): changed or damaged packs keep it off
         bool pending;
-        unsigned damaged, packs;
-        if (pack_gate(&pending, &damaged, &packs)) {
+        if (pack_gate(&pending)) {  // (the count of damaged packs is in the notice the start screen shows for them)
             snprintf(headline, sizeof headline, "Game files changed");
-            if (damaged) snprintf(line, sizeof line, ui_tr("%u of %u parts of the game data differ from the original files of version 2.0.2."), damaged, packs);
-            else snprintf(line, sizeof line, "%s", ui_tr("The game data is not the original of version 2.0.2."));
+            snprintf(line, sizeof line, "The game data is not the original of version 2.0.2.");
             v->bad = true;
             return;
         }
@@ -558,7 +556,7 @@ static void online_click() {
     if (g_ou != OU_READY && g_ou != OU_NEEDS && g_ou != OU_ERROR) return;
     bool pending;
     if (online_outdated(NULL, &pending) || pending) return;  // (the column says why)
-    if (pack_gate(&pending, NULL, NULL) || pending) return;
+    if (pack_gate(&pending) || pending) return;
     g_ou_note.clear();
     if (online_consent_given()) online_proceed();
     else g_ou_consent_open = true;
@@ -1877,14 +1875,12 @@ static void pack_check_kick() {  // (every frame while the game is ready: only t
     else g_pack_state = 2;
 }
 #ifdef LUMIOSE_ONLINE
-// Online play needs the game data checked and the original: true when it is not (damaged is how many packs differ, 0 when the
-// file is not a known version at all); `pending`: the check has not finished.
-static bool pack_gate(bool *pending, unsigned *damaged, unsigned *packs) {
+// Online play needs the game data checked and the original: true when it is not (packs differ, or the file is not a known
+// version at all); `pending`: the check has not finished.
+static bool pack_gate(bool *pending) {
     int state = g_pack_state;
     *pending = state != 2;
     if (state != 2) return false;
-    if (damaged) *damaged = g_pack.known ? g_pack.damaged : 0;
-    if (packs) *packs = g_pack.packs;
     return !g_pack.known || g_pack.damaged != 0;
 }
 #endif
