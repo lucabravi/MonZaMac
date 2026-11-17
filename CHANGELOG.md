@@ -27,6 +27,7 @@ Cleaner skin and hair in some close-ups, a little more speed, a new way to insta
 ### Start screen
 - The team on the offline card has more room: bigger balls, further apart, with the buttons lower. The Saves page follows.
 - **Prepare all shaders** no longer leaves the black loading screen over the start screen when the game returns before its first frame.
+- **Online play waits for the update.** When a newer MonZaMac release is out, the Lumiose Online column says **Update MonZaMac first** and **Play online** stays off until you update. Without an answer from GitHub (no connection, or `LARECOMP_NO_UPDATE_CHECK`), nothing is held. A release marked as a pre-release is no longer offered as an update.
 
 ### Developer tools
 - `docs/environment.md` lists the ten `LARECOMP_*` environment variables that are supported (where the files are, switching off one fix to find a problem, logs and benchmarks); the rest stay debug hooks described in the code. A test fails when a name in the docs is no longer read by the code.

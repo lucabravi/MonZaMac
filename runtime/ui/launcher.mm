@@ -132,6 +132,7 @@ extern "C" const char *rt_version_label(void) {
 }
 
 static std::string g_update_tag;  // a newer release's tag (g_update_lock)
+static bool g_update_started, g_update_done;  // the check was started this launch / has an answer, even "none" (g_update_lock)
 static pthread_mutex_t g_update_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void *update_thread(void *) {
@@ -154,7 +155,13 @@ static void *update_thread(void *) {
         const char *av[] = {curl.c_str(), "-fsSL", "--max-time", "15", "-H", "Accept: application/vnd.github+json",
                             "-A", "MonZaMac/" LARECOMP_VERSION, RELEASES_URL, NULL};
         PlatProc p = plat_spawn(av, out.c_str(), false);
-        if (!p || plat_proc_wait(p, true) != 0) { remove(out.c_str()); return NULL; }
+        if (!p || plat_proc_wait(p, true) != 0) {  // (no answer: no newer release is known)
+            remove(out.c_str());
+            pthread_mutex_lock(&g_update_lock);
+            g_update_done = true;
+            pthread_mutex_unlock(&g_update_lock);
+            return NULL;
+        }
         if (FILE *f = fopen(out.c_str(), "rb")) {
             char buf[8192];
             size_t n;
@@ -169,12 +176,21 @@ static void *update_thread(void *) {
         size_t q1 = body.find('"', body.find(':', at) + 1), q2 = q1 == std::string::npos ? q1 : body.find('"', q1 + 1);
         if (q2 == std::string::npos) break;
         std::string tag = body.substr(q1 + 1, q2 - q1 - 1);
-        if (tag_rank(tag) > best_rank) best_rank = tag_rank(tag), best = tag;
+        size_t next = body.find("\"tag_name\"", q2);  // (a release marked as a pre-release is not offered: its flag follows its tag)
+        size_t pre = body.find("\"prerelease\"", q2);
+        bool prerelease = false;
+        if (pre != std::string::npos && (next == std::string::npos || pre < next)) {
+            size_t v = body.find(':', pre);
+            while (v != std::string::npos && ++v < body.size() && body[v] == ' ') {}
+            prerelease = v < body.size() && body.compare(v, 4, "true") == 0;
+        }
+        if (!prerelease && tag_rank(tag) > best_rank) best_rank = tag_rank(tag), best = tag;
         at = q2;
     }
     if (!best.empty()) fprintf(stderr, "[launcher] update available: %s (this build %s)\n", best.c_str(), LARECOMP_VERSION);
     pthread_mutex_lock(&g_update_lock);
     g_update_tag = best;
+    g_update_done = true;
     pthread_mutex_unlock(&g_update_lock);
     return NULL;
 }
@@ -343,7 +359,21 @@ static std::string online_marker() { return std::string(rt_data_root()) + "/lumi
 static bool online_consent_given() { return access(online_marker().c_str(), F_OK) == 0; }
 
 // Start the game again with the active online version (this process only returns if that fails)
+// Online play needs the current MonZaMac: while a newer release is known (the start screen's update check), it waits for
+// the update. With no answer (offline, GitHub unreachable, the check turned off) nothing is known and online play is not held.
+// `pending`: the check was started and has not answered yet.
+static bool online_outdated(std::string *newer, bool *pending) {
+    pthread_mutex_lock(&g_update_lock);
+    std::string tag = g_update_tag;
+    bool wait = g_update_started && !g_update_done;
+    pthread_mutex_unlock(&g_update_lock);
+    if (newer) *newer = tag;
+    if (pending) *pending = wait;
+    return !tag.empty();
+}
+
 static void online_launch() {
+    if (online_outdated(NULL, NULL)) { g_ou_note = "A newer version of MonZaMac is out: update it to play online."; return; }
     if (g_ou_status.endpoint[0] == 0) {
         g_ou_note = "Could not find the Lumiose Online server. Check your connection.";
         return;
@@ -393,6 +423,20 @@ static void online_view(const std::string &files, bool busy, OnlineView *v) {
         snprintf(line, sizeof line, version ? "Your game files are another version." : "Set up the game files first.");
         v->bad = version;
         return;
+    }
+    {   // a newer MonZaMac is out (or the check has not answered yet): nothing starts until it is updated
+        std::string newer;
+        bool pending;
+        if (online_outdated(&newer, &pending)) {
+            snprintf(headline, sizeof headline, "Update MonZaMac first");
+            snprintf(line, sizeof line, ui_tr("Version %s is out. Update to play online."), tag_label(newer, false).c_str());
+            v->bad = true;
+            return;
+        }
+        if (pending) {
+            snprintf(headline, sizeof headline, "Checking...");
+            return;
+        }
     }
     if (g_ou == OU_START) {
         if (!online_find_tools()) g_ou = OU_OFF;
@@ -490,6 +534,8 @@ static void online_proceed() {
 static void online_click() {
     if (getenv("LARECOMP_ONLINE_STATE_TEST")) return;
     if (g_ou != OU_READY && g_ou != OU_NEEDS && g_ou != OU_ERROR) return;
+    bool pending;
+    if (online_outdated(NULL, &pending) || pending) return;  // (the column says why)
     g_ou_note.clear();
     if (online_consent_given()) online_proceed();
     else g_ou_consent_open = true;
@@ -1891,7 +1937,12 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
     if (!update_checked && !getenv("LARECOMP_NO_UPDATE_CHECK")) {
         update_checked = true;
         pthread_t t;
-        if (pthread_create(&t, NULL, update_thread, NULL) == 0) pthread_detach(t);
+        if (pthread_create(&t, NULL, update_thread, NULL) == 0) {
+            pthread_mutex_lock(&g_update_lock);
+            g_update_started = true;
+            pthread_mutex_unlock(&g_update_lock);
+            pthread_detach(t);
+        }
     }
     ui_window_init();
     SDL_Window *win = ui_window();
