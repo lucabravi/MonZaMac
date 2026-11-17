@@ -1,5 +1,6 @@
 // The start screen's save picker (runtime/saves.h): one card per save slot, a new / copy / rename / delete / import /
 // export bar under them. Drawn inside the launcher's window (runtime/ui/launcher.mm).
+#include <algorithm>
 #include <float.h>
 #include <initializer_list>
 #include <string>
@@ -44,15 +45,22 @@ extern "C" bool route_recording(void);
 static char g_route_name[SAVE_NAME_MAX + 1];  // the route being recorded (its save slot has the same name)
 
 static SaveSlot g_none;  // (stands in for the selected slot when there is none)
-static void reload(void) { g_n = saves_list(g_slots, SAVE_SLOTS_MAX); if (g_sel >= g_n) g_sel = g_n - 1; if (g_sel < 0) g_sel = 0; }
+static void reload(void) {
+    g_n = saves_list(g_slots, SAVE_SLOTS_MAX);
+    std::stable_partition(g_slots, g_slots + g_n, [](const SaveSlot &s) { return s.online; });  // (the online save on top, greyed)
+    if (g_sel >= g_n) g_sel = g_n - 1;
+    if (g_sel < 0) g_sel = 0;
+}
 static SaveSlot &sel_slot(void) { return g_n ? g_slots[g_sel] : g_none; }
 
 // Called when the page opens: the slot played last is the one selected.
 void saves_screen_open(void) {
     reload();
     g_sel = 0;
+    for (int i = 0; i < g_n; i++)  // (no save chosen yet: the first offline one, not the online save on top)
+        if (!g_slots[i].online) { g_sel = i; break; }
     for (int i = 0; i < g_n; i++)
-        if (!strcmp(g_slots[i].id, g_settings.save_slot)) g_sel = i;
+        if (!g_slots[i].online && !strcmp(g_slots[i].id, g_settings.save_slot)) g_sel = i;
     g_focus = g_sel;
     g_ask = NONE;
 }
@@ -718,7 +726,9 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
         // the slot's name (the player's own) as the title, cut short before the team; the trainer beside the date
         float title_room = q.x - pad - tx - (si ? u * 0.95f * (SAVE_PARTY_MAX - 1) + u * 0.6f + u : 0);
         char tcut[64];
-        cl->AddText(body, nh, ImVec2(tx, ty), pal::text, fit(body, nh, s.name, title_room, tcut, sizeof tcut));
+        const char *shown_name = fit(body, nh, s.name, title_room, tcut, sizeof tcut);
+        float title_w = body->CalcTextSizeA(nh, FLT_MAX, 0, shown_name).x;
+        cl->AddText(body, nh, ImVec2(tx, ty), pal::text, shown_name);
         if (si) {  // (the team on the title's right; the games show their sprites, the launcher ships none)
             if (si->party_n) {
                 float rr = u * 0.30f, st = u * 0.95f, tw = st * (SAVE_PARTY_MAX - 1) + rr * 2;
@@ -767,14 +777,16 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
             }
         }
         float badge_right = q.x - pad;
-        if (s.online) {  // (the ONLINE badge, on the right: this save is only played online)
+        if (s.online) {  // (the online save: greyed, with its ONLINE tag after the name)
+            cl->AddRectFilled(p, qf, IM_COL32(16, 22, 36, 150), r);
             const char *on = ui_tr("ONLINE");
-            ImVec2 zs = small_->CalcTextSizeA(small_->FontSize, FLT_MAX, 0, on);
-            ImVec2 a(badge_right - zs.x - 24 * sc, bc.y - zs.y * 0.5f - 8 * sc), b(badge_right, bc.y + zs.y * 0.5f + 8 * sc);
-            cl->AddRectFilled(a, b, IM_COL32(255, 184, 64, 34), (b.y - a.y) * 0.5f);
-            cl->AddRect(a, b, IM_COL32(255, 184, 64, 255), (b.y - a.y) * 0.5f, 0, 1.5f * sc);
-            cl->AddText(small_, small_->FontSize, ImVec2(a.x + 12 * sc, bc.y - zs.y * 0.5f), IM_COL32(255, 184, 64, 255), on);
-            badge_right = a.x - 12 * sc;
+            float fs = small_->FontSize * 0.8f;
+            ImVec2 zs = small_->CalcTextSizeA(fs, FLT_MAX, 0, on);
+            float ph2 = zs.y + 12 * sc;
+            ImVec2 a(tx + title_w + u * 0.9f, ty + (nh - ph2) * 0.5f), b(a.x + zs.x + 26 * sc, a.y + ph2);
+            cl->AddRectFilled(a, b, IM_COL32(60, 44, 10, 235), ph2 * 0.5f);
+            cl->AddRect(a, b, IM_COL32(255, 184, 64, 255), ph2 * 0.5f, 0, 1.5f * sc);
+            cl->AddText(small_, fs, ImVec2(a.x + 13 * sc, a.y + (ph2 - zs.y) * 0.5f), IM_COL32(255, 184, 64, 255), on);
         }
         if (!s.played) {  // (a slot with no progress: the NEW GAME badge, on the right)
             const char *nw = ui_tr("NEW GAME");
@@ -1094,6 +1106,11 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
         const SaveInfo *si = v.save_path && v.save_path[0] ? save_info(v.save_path) : NULL;
         float ctop = ry + u * 6.4f, cwid = w, chgt = u * 7.9f;
         float cbot = ctop + chgt;
+        {   // a light glass panel: the picture shows through, the texts stay readable (LARECOMP_ONLINE_PANEL=<0..255>: try other values)
+            static int alpha = getenv("LARECOMP_ONLINE_PANEL") ? atoi(getenv("LARECOMP_ONLINE_PANEL")) : 135;
+            dl->AddRectFilled(ImVec2(x, ctop), ImVec2(x + w, cbot), IM_COL32(6, 12, 34, alpha), u * 0.5f);
+            dl->AddRect(ImVec2(x, ctop), ImVec2(x + w, cbot), IM_COL32(170, 140, 255, 80), u * 0.5f, 0, 1.0f);
+        }
         float tx = x + u * 0.9f, tx2 = x + cwid * 0.42f, rr = x + w - u * 0.9f;  // (the offline card's columns)
         const ImU32 faint = IM_COL32(190, 208, 236, 240);
         auto shade = [&](ImFont *f, float size, ImVec2 at, ImU32 col, const char *t) {  // (a text with a dark soft shadow)
