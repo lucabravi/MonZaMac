@@ -12,7 +12,7 @@
 #include "../ipc.h"
 
 // ------------------------------------------------------------------ audren: a CPU mixer modelled on
-// Ryujinx's AudioRenderer (VoiceState / DataSourceHelper / StateUpdater, copies in notes/ryujinx_audio).
+// the Switch AudioRenderer's voice state, data source and state update model.
 // Voices decode PCM16 / ADPCM wave buffers, resample to 48 kHz, and mix into their destination mix's
 // buffers; sub mixes route into their destination; the final mix feeds the device sink, which we
 // downmix to stereo and push to an SDL audio stream. Effects and splitters are not implemented.
@@ -236,7 +236,8 @@ static int voice_prepare(Renderer *r, Voice *v) {
 
 static Mix *find_mix(Renderer *r, int32_t id) { return id >= 0 && (uint32_t)id < r->nmix && r->mix[id].used ? &r->mix[id] : NULL; }
 
-// ------------------------------------------------------------------ reverb (port of Ryujinx ReverbState/Command)
+// ------------------------------------------------------------------ reverb (the AudioRenderer's reverb state and command)
+// Ported code under the MIT license: its notice is third_party/audio-reverb/LICENSE.txt (shipped in the app).
 typedef struct { float *buf; uint32_t sr, cur, last, count, max; } DelayLine;
 
 static void dl_set(DelayLine *d, float ms) {

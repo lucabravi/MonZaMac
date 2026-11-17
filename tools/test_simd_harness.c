@@ -9,6 +9,7 @@
 #endif
 
 #include "cpu.h"
+#include "simd.h"  // (u128: cpu.h includes it off AArch64 only)
 
 extern GuestFn tests[];
 extern int ntests;

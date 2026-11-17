@@ -12,7 +12,7 @@ macOS `make` is too old), SDL3 and FFmpeg (Homebrew).
 
 1. Install the tools: `brew install make python@3.12 sdl3 ffmpeg` (GNU Make 4 runs as `gmake`).
 2. Set up the recompiler (Python 3.12):
-   `python3.12 -m venv tools/venv && tools/venv/bin/pip install capstone==5.0.9 unicorn==2.1.4 lz4==4.4.5`
+   `python3.12 -m venv tools/venv && tools/venv/bin/pip install capstone==5.0.9 unicorn==2.1.4 lz4==4.4.5 zstandard==0.25.0`
 3. Get your game files into `extracted/`: extract them from your own dumps with the bundled helper (see
    [Extracting your game files from a dump](#extracting-your-game-files-from-a-dump)), or place them yourself.
 4. Recompile the game code from your files: `gmake B=build/za202 GEN=generated-202 gen` (a minute or two).
@@ -60,7 +60,7 @@ Z-A v2.0.2 uses larger NPC appearance budgets (64 active / 64 selection candidat
 while walking through crowded areas. Launch with `LARECOMP_NPC_CAPACITY_FIX=0` to retain the original 20/25 budgets.
 The change keeps the game's distance and priority rules; higher population budgets can increase CPU/GPU and memory use.
 
-Debug aids: `LARECOMP_*` environment variables (see `runtime/nvn/renderer.m`); `touch build/dumpframe` captures a frame.
+Debug aids: `LARECOMP_*` environment variables (the supported ones are in [environment.md](environment.md); the rest are described where the code reads them, `grep 'getenv("LARECOMP_'`); `touch build/dumpframe` captures a frame.
 
 Developer → Experimental → **Uncapped FPS (benchmark)** removes presentation pacing and Metal display sync.
 It is off by default and overrides the normal frame-rate selection while enabled. The FPS overlay marks benchmark
@@ -155,8 +155,10 @@ reason in `~/Library/Logs/DiagnosticReports/MTLCompilerService-*.ips` (the JSON 
 `cannot select: ...`; the frames show the compiler pass). To find the construct that triggers it, take the program's MSL
 (`LARECOMP_SAVE_MSL=1`) and compile edited copies with `LARECOMP_FS_OVERRIDE_HASH=<fnv64 of the saved MSL>:<file>`
 (the hash is of the annotated text, so keep `LARECOMP_SAVE_MSL=1` set when overriding): remove one construct per copy
-until the failure goes away. Known case: the facing flag converted to float inside the structured flow of a program
-without BRX (the translator keeps the dispatcher for those).
+until the failure goes away. Whether it fails depends on the pipeline, not only on the source: try the program with the
+render target formats of the failing pipeline. Known case: a structured program that reads the facing flag and writes a
+value the compiler has folded to a choice between constants to an RG11B10 target. The translator XORs the outputs of
+those programs with a zero the compiler cannot fold (`fz_`), which keeps the values and avoids the fold.
 
 ## First-run setup in the packaged app
 

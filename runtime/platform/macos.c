@@ -120,6 +120,22 @@ void plat_print_backtrace(void) {
     for (int i = 0; i < n; i++) fprintf(stderr, "  %s\n", syms[i]);
 }
 
+// The faulting load reads zeros instead: its destination vector register(s) are cleared in the saved context and
+// execution resumes at the next instruction. Only the two forms the getters use (LDR Q, LDP Q); anything else is not
+// recovered. (runtime/dispatch.c rt_null_getter)
+static bool zero_load(ucontext_t *uc) {
+    uint32_t w = *(uint32_t *)(uintptr_t)uc->uc_mcontext->__ss.__pc;
+    unsigned rt = w & 31, rt2 = (w >> 10) & 31;
+    if ((w & 0xFFC00000) == 0x3DC00000) {  // LDR Qt, [Xn, #imm]
+        uc->uc_mcontext->__ns.__v[rt] = 0;
+    } else if ((w & 0xFFC00000) == 0xAD400000) {  // LDP Qt, Qt2, [Xn, #imm]
+        uc->uc_mcontext->__ns.__v[rt] = 0;
+        uc->uc_mcontext->__ns.__v[rt2] = 0;
+    } else return false;
+    uc->uc_mcontext->__ss.__pc += 4;
+    return true;
+}
+
 static void crash_handler(int sig, siginfo_t *si, void *ctx) {
     ucontext_t *uc = ctx;
     static volatile int depth;
@@ -127,6 +143,9 @@ static void crash_handler(int sig, siginfo_t *si, void *ctx) {
                                                                                // itself aborting looped, 5.7 GB log)
     uint64_t fa = (uint64_t)si->si_addr;
     uint64_t pc = uc->uc_mcontext->__ss.__pc, lr = uc->uc_mcontext->__ss.__lr;
+    if (sig == SIGSEGV || sig == SIGBUS) {
+        if (rt_null_getter(fa, pc) && zero_load(uc)) return;
+    }
     if (rt_fault_watch(fa, pc)) return;
     char what[32];
     snprintf(what, sizeof what, "signal %d", sig);

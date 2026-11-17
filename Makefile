@@ -181,7 +181,7 @@ gen-helper: build/helper-venv/.ok build/shader-decode/release/monzamac-shader-de
 
 build/helper-venv/.ok:
 	$(or $(firstword $(wildcard build/deps/python/bin/python3.12)),python3.12) -m venv build/helper-venv
-	build/helper-venv/bin/python -m pip install -q pyinstaller==6.22.3 capstone==5.0.9 unicorn==2.1.4 lz4==4.4.5
+	build/helper-venv/bin/python -m pip install -q pyinstaller==6.22.3 capstone==5.0.9 unicorn==2.1.4 lz4==4.4.5 zstandard==0.25.0
 	touch $@
 
 .PHONY: dmg all gen gen-helper gen-objs runtime-objs deps app
@@ -221,6 +221,10 @@ test-shader-catalog:
 	$(or $(PY),python3) tools/test_shader_catalog_update.py
 	$(or $(PY),python3) tools/test_shader_inputs.py
 	$(or $(PY),python3) tools/test_shader_decoder.py build/shader-decode/release/monzamac-shader-decode
+
+.PHONY: test-tools
+test-tools:  # every asset-free tools/test_*.py, with the venv's Python
+	tools/run_tests.sh
 
 .PHONY: test-shader-trace
 test-shader-trace:

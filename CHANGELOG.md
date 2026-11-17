@@ -3,6 +3,47 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
+## 0.4.0
+
+Cleaner skin and hair in some close-ups, a little more speed, a new way to install the game from a Switch 2 Edition `.nup` file, a new look for the start screen, stricter rules for Lumiose Online (one online save, original game files, the official module, the current version), and fixes. **After updating, run Prepare all shaders again** (the **All shaders** badge turns yellow): the shader translation changed. **If you play online, the first Play online asks which save is your online save.**
+
+### Graphics
+- **Close-ups of characters no longer show moving blotchy noise** on skin and hair (seen in a story cutscene with two characters and red dotted lights on the wall). The screen-space contact shadow ignored one of its conditions, so every step of its ray counted as a hit. Now it matches the Switch.
+- More shaders follow the same kind of condition the contact shadow ignored: about 340 that branch after an integer compare, and about 60 fragment shaders whose early exit has such a condition (until now they always exited early). Which scenes this changes has not been seen yet.
+- **Faster:** in the station walk, characters' materials and shadows use less GPU time (about 5% and 1% of the frame, 62 -> 65 and 75 -> 76 fps on an Apple M5 with the same settings). The shaders that read whether a surface faces the camera no longer run in the slow generic mode, and the smoothed shadow test reads four texels with one fetch instead of four.
+- Vertex shaders are translated with the same compiler constants as the fragment shaders, so the precompiled ones match what the game asks for. This does not change the speed.
+- On Macs where a GPU program cannot run as many threads per group as the game asks for (seen as a possible gap on M1 and M2), that program is now built to fit instead of being skipped without a word. Nothing changes where it already fit. A line in the log says when it happens.
+
+### Setup
+- **The start screen checks that the game files are intact.** A damaged download of the 2.0.2 update has a broken part that crashes the game when it loads, for example, a character's model. The first time (a few seconds, once for each set of game files), each part of the game's data is compared with the original version 2.0.2. If some differ, a window says how many and offers **Delete game files**, so you can set them up again with a fresh update; **Play anyway** goes on. A crash that follows is now named in the crash window, and the log lists the parts.
+- **Import from a `.nup` file:** a third **Import from** choice takes one Switch 2 Edition `.nup` container made from your own dump, with the base game, the update and the add-ons already decrypted. It needs no `prod.keys` and no `nstool`. The ownership confirmation is still required. Every file is checked against its hash as it is written, and a damaged or unsafe container is refused.
+- The Switch 2 Edition upgrade add-on from a `.nup` no longer makes the start screen say **DLC found**: it now looks for the Mega Dimension DLC itself, so **Add DLC...** stays available until it is installed.
+
+### Game
+- **A crash in the first Mega Dimension mission's battle is avoided.** A game function that reads a few values from an object could be called when the object was already gone (the game's threads run in another order than on the Switch), and the game closed with a memory error. It now reads zeros instead and goes on; the log says `[guard]` when this happens. `LARECOMP_NULL_GETTER=0` turns it off. Not tried in that battle yet: a test call with no object, made at the start of the game, came back with zeros and the game went on.
+- **The in-game DLC purchase no longer closes the game.** The game's shop screen opens as an applet the Mac cannot show; it now ends at once as "the user backed out" and the game returns to its own menu.
+- **A little less CPU work:** the game's indirect calls (virtual functions and function pointers) are answered from a bigger cache, so fewer of them search the function table. About 2% more frames per second in the station at 1x on an Apple M5 (113.5 -> 116.0, six alternating runs); it costs about 20 MB of memory. No shader preparation is needed.
+- **The game now reports its real version (2.0.2) to itself and to mods.** It used to answer 1.0.0, so Lumiose Online told players their game was no longer supported even with the right files.
+
+### Start screen
+- The team on the offline card has more room: bigger balls, further apart, with the buttons lower. The Saves page follows.
+- **Prepare all shaders** no longer leaves the black loading screen over the start screen when the game returns before its first frame.
+- **A new look for the two columns** (online edition): Play offline and Lumiose Online are the same width, and the online column shows your online save's trainer card (trainer, ID, play time, money and team) over the picture. On the offline card the save's name is the title and the trainer's name has its own row. The Saves page lists the online save first, greyed, with an **ONLINE** tag, and the page's messages are no longer cut off at the bottom.
+
+### Lumiose Online (online edition)
+- **Play online only starts a module that matches the one Lumiose Online publishes.** A module placed in the save's `sdcard` folder (for example a cheat or debug menu installed like on a Switch) or in the downloads folder is no longer used. The check runs on every press, so online play needs the team's site to be reachable; without it, it asks you to try again. Back at the start screen, **Play online** restarts the game only when the version changed. Thanks to **DarthMDev** for this one.
+- **Online saves are separate from offline ones.** Lumiose Online checks a save for anything done to it outside online play, so the first **Play online** asks which save is the online one: a **new online game** (recommended), or one of your saves, which then becomes online only (the window warns that getting around that block can get you banned). An online save is never started offline, an offline save is never started online, an online save can't be copied, and the Saves page marks it **ONLINE**. The saves you do not choose are not touched. Exporting and importing an online save is not handled yet: an import comes back as an offline save.
+- **The in-game menu has no Saves tab while you play online,** and the Saves tab of an offline game no longer lists your online save: it is played only from **Play online**. An online save is named after its character and can't be renamed, copied or deleted from the app.
+- **Online play waits for the update.** When a newer MonZaMac release is out, the Lumiose Online column says **Update MonZaMac first** and **Play online** stays off until you update. Without an answer from GitHub (no connection, or `LARECOMP_NO_UPDATE_CHECK`), nothing is held. A release marked as a pre-release is no longer offered as an update.
+- **Online play is the same game for everyone.** While the Lumiose module is loaded, the debug and test `LARECOMP_*` variables (scripted input, route replay, warps...) are ignored; only the supported ones stay, and they come back for an offline game. **Play online** also stays off while the game data check finds files that differ from the original 2.0.2 (**Game files changed**).
+
+### Developer tools
+- `docs/environment.md` lists the ten `LARECOMP_*` environment variables that are supported (where the files are, switching off one fix to find a problem, logs and benchmarks); the rest stay debug hooks described in the code. A test fails when a name in the docs is no longer read by the code.
+- The interface text goes to the drawing library as an argument, never as its format (20 places in the start screen and the menus): a translation with a stray `%` can no longer read memory. The compiler's format warnings in the renderer's logs are fixed, and git ignores `.game-setup/`.
+- `gmake test-tools` runs every test in `tools/test_*.py` that needs no game files, with the project's Python. Eight of them (the settings, menu, crash window, shader trace and SIMD tests) no longer built after changes in the code they test, and the offscreen Metal renderer test ended a ring before its command buffer was submitted: all pass again.
+- With `LARECOMP_DEVTOOLS=1`, the **0** key takes one complete frame dump (F9 is awkward on a Mac) and debug frames log more: sampler state, raw depth and the scene constants.
+- `docs/frame-generation.md` explains the blocky patches that can appear between a character's arms and torso while the camera turns at 30 -> 60: they come from MetalFX's interpolator, not from the data MonZaMac gives it. `docs/performance-gpu.md` records the station walk's GPU profile and what was tried and dropped.
+
 ## 0.3.1
 
 Discord status for online players, and a set of fixes.

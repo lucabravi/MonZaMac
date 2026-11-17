@@ -184,7 +184,7 @@ typedef struct {
     bool presented;      // has been shown by backend_present (a swapchain image)
     uint64_t touched_frame;  // last frame it was written (cleared at the first write of a frame when reshaped)
     uint32_t level_gen;      // g_level_gen when last used as a render target
-    uint64_t frame_cleared;  // LARECOMP_FRAME_CLEAR: frame it was last cleared at first use
+    uint64_t frame_cleared;  // frame it was last cleared at first use
     float sx, sy;        // allocation scale relative to the guest's size
     float shadow_k;      // a shadow map drawn at shadow_k times the game's size (tex_shadow_scale): 0 / 1 = as is
     bool shadow_cand;    // one of the shadow maps (tex_shadow_candidate): remade when the scale changes
@@ -1596,6 +1596,13 @@ void ui_loading_cover_show(SDL_Window *w, int instant) {  // instant: opaque at 
     g_cover.alphaValue = instant ? 1 : 0;
     [nw.contentView addSubview:g_cover positioned:NSWindowAbove relativeTo:nil];
     if (!instant) [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) { ctx.duration = 0.35; g_cover.animator.alphaValue = 1; }];
+}
+
+// Take the cover off at once. The start screen calls it when it takes the window back: a game that returns to it before
+// showing a frame ("Prepare all shaders" from the start screen) would leave the cover over it for good.
+void ui_loading_cover_hide(void) {
+    [g_cover removeFromSuperview];
+    g_cover = nil;
 }
 
 @interface PreparationPage : NSView {

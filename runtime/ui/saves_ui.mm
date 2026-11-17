@@ -1,5 +1,6 @@
 // The start screen's save picker (runtime/saves.h): one card per save slot, a new / copy / rename / delete / import /
 // export bar under them. Drawn inside the launcher's window (runtime/ui/launcher.mm).
+#include <algorithm>
 #include <float.h>
 #include <initializer_list>
 #include <string>
@@ -38,21 +39,29 @@ static char g_name[SAVE_NAME_MAX * 4 + 1], g_err[96], g_created[SAVE_NAME_MAX + 
 static bool g_made;  // NEW just made the slot g_created (the home screen's NEW GAME goes on with it)
 static char g_msg[1024];  // under the bar: what the last import / export did
 static bool g_msg_bad;
+static bool g_msg_hint;  // the message is the online save's hint, shown while it is selected
 extern "C" bool route_record_start(const char *file);  // runtime/hle/input.c
 extern "C" void route_record_stop(void);
 extern "C" bool route_recording(void);
 static char g_route_name[SAVE_NAME_MAX + 1];  // the route being recorded (its save slot has the same name)
 
 static SaveSlot g_none;  // (stands in for the selected slot when there is none)
-static void reload(void) { g_n = saves_list(g_slots, SAVE_SLOTS_MAX); if (g_sel >= g_n) g_sel = g_n - 1; if (g_sel < 0) g_sel = 0; }
+static void reload(void) {
+    g_n = saves_list(g_slots, SAVE_SLOTS_MAX);
+    std::stable_partition(g_slots, g_slots + g_n, [](const SaveSlot &s) { return s.online; });  // (the online save on top, greyed)
+    if (g_sel >= g_n) g_sel = g_n - 1;
+    if (g_sel < 0) g_sel = 0;
+}
 static SaveSlot &sel_slot(void) { return g_n ? g_slots[g_sel] : g_none; }
 
 // Called when the page opens: the slot played last is the one selected.
 void saves_screen_open(void) {
     reload();
     g_sel = 0;
+    for (int i = 0; i < g_n; i++)  // (no save chosen yet: the first offline one, not the online save on top)
+        if (!g_slots[i].online) { g_sel = i; break; }
     for (int i = 0; i < g_n; i++)
-        if (!strcmp(g_slots[i].id, g_settings.save_slot)) g_sel = i;
+        if (!g_slots[i].online && !strcmp(g_slots[i].id, g_settings.save_slot)) g_sel = i;
     g_focus = g_sel;
     g_ask = NONE;
 }
@@ -60,22 +69,37 @@ void saves_screen_open(void) {
 // The save last played (most recent write), or NULL when none has progress
 static const SaveSlot *latest(void) {
     const SaveSlot *l = NULL;
-    for (int i = 0; i < g_n; i++)
-        if (g_slots[i].played && (!l || g_slots[i].played > l->played)) l = &g_slots[i];
+    for (int i = 0; i < g_n; i++)  // (online saves are not CONTINUE's: they are played from Play online)
+        if (!g_slots[i].online && g_slots[i].played && (!l || g_slots[i].played > l->played)) l = &g_slots[i];
     return l;
 }
 
 // The save the home page shows and CONTINUE plays: the one chosen on the Saves page (when it has progress), else the latest.
 static const SaveSlot *chosen(void) {
     for (int i = 0; i < g_n; i++)
-        if (!strcmp(g_slots[i].id, g_settings.save_slot)) return &g_slots[i];  // (a save with no progress yet too: the one just made and picked)
+        if (!g_slots[i].online && !strcmp(g_slots[i].id, g_settings.save_slot)) return &g_slots[i];  // (a save with no progress yet too: the one just made and picked)
     return latest();
+}
+
+// Copy the selected save (an online one can't be copied: a copy would be a second save of the same player)
+static void ask_copy(const SaveSlot &s) {
+    if (s.online) {
+        snprintf(g_msg, sizeof g_msg, "%s", ui_tr("An online save can't be copied."));
+        g_msg_bad = true;
+        return;
+    }
+    g_ask = COPY, g_err[0] = 0;
 }
 
 // Delete the selected save: a save with no progress holds nothing to lose, so it goes at once; one with progress asks first.
 static void ask_delete(void) {
     const SaveSlot &s = sel_slot();
     g_err[0] = 0;
+    if (g_n && s.online) {  // (the online save stays: one per player)
+        snprintf(g_msg, sizeof g_msg, "%s", ui_tr("An online save can't be deleted."));
+        g_msg_bad = true, g_msg_hint = false;
+        return;
+    }
     if (g_n && !s.played && saves_delete(s.id)) {
         if (!strcmp(g_settings.save_slot, s.id)) g_settings.save_slot[0] = 0;
         settings_save();
@@ -154,7 +178,7 @@ static void team_row(ImDrawList *dl, ImFont *small_, ImVec2 at, float u, const S
         dl->AddText(small_, u * 0.8f, ImVec2(at.x, at.y - u * 0.4f), pal::sub, ui_tr("No Pokémon yet"));
         return;
     }
-    float r = u * 0.40f, step = u * 1.9f;
+    float r = u * 0.52f, step = u * 2.5f;
     for (int i = 0; i < SAVE_PARTY_MAX; i++) {
         bool on = i < si->party_n;
         ImVec2 c(at.x + r + step * i, at.y);
@@ -162,8 +186,8 @@ static void team_row(ImDrawList *dl, ImFont *small_, ImVec2 at, float u, const S
         if (!on) continue;
         char lv[8];
         snprintf(lv, sizeof lv, "%u", si->party[i].level);
-        float w = small_->CalcTextSizeA(u * 0.55f, FLT_MAX, 0, lv).x;
-        dl->AddText(small_, u * 0.55f, ImVec2(c.x - w * 0.5f, c.y + r + u * 0.10f), pal::sub, lv);
+        float w = small_->CalcTextSizeA(u * 0.62f, FLT_MAX, 0, lv).x;
+        dl->AddText(small_, u * 0.62f, ImVec2(c.x - w * 0.5f, c.y + r + u * 0.10f), pal::sub, lv);
     }
 }
 
@@ -350,7 +374,7 @@ static void import_preview(float sc, ImFont *small_) {
     money_row(dl, small_, ImVec2(rx, p.y + u * 0.35f), u, si->money, true);
     team_row(dl, small_, ImVec2(x, p.y + u * 2.75f), u * 0.8f, si);
     ImGui::Dummy(ImVec2(w, h + 10 * sc));
-    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(pal::sub), ui_tr("It becomes a new save: your saves stay as they are."));
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(pal::sub), "%s", ui_tr("It becomes a new save: your saves stay as they are."));
 }
 
 // The new slot's name (saves_import_name), in the name field
@@ -653,7 +677,13 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
         bool hot = hovered || (ImGui::IsItemFocused() && !s_hover_prev);
         hover_now |= hovered;
         bool play = clicked && (was_sel || nav);  // (a double click: the first click selects, the second plays)
-        if (clicked || nav) g_sel = i;
+        if (clicked || nav) {
+            g_sel = i;
+            if (s.online) {  // (said as soon as the online save is selected, not only when it is played)
+                snprintf(g_msg, sizeof g_msg, "%s", ui_tr("This save is for Lumiose Online only: start it with Play online."));
+                g_msg_bad = false, g_msg_hint = true;
+            } else if (g_msg_hint) g_msg[0] = 0, g_msg_hint = false;
+        }
         if (nav) ImGui::SetScrollHereY(0.5f);
         bool more_hot = false;
         if (has_team) {  // the expand button: the card's right column, reached with Right from the card
@@ -708,7 +738,9 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
         // the slot's name (the player's own) as the title, cut short before the team; the trainer beside the date
         float title_room = q.x - pad - tx - (si ? u * 0.95f * (SAVE_PARTY_MAX - 1) + u * 0.6f + u : 0);
         char tcut[64];
-        cl->AddText(body, nh, ImVec2(tx, ty), pal::text, fit(body, nh, s.name, title_room, tcut, sizeof tcut));
+        const char *shown_name = fit(body, nh, s.name, title_room, tcut, sizeof tcut);
+        float title_w = body->CalcTextSizeA(nh, FLT_MAX, 0, shown_name).x;
+        cl->AddText(body, nh, ImVec2(tx, ty), pal::text, shown_name);
         if (si) {  // (the team on the title's right; the games show their sprites, the launcher ships none)
             if (si->party_n) {
                 float rr = u * 0.30f, st = u * 0.95f, tw = st * (SAVE_PARTY_MAX - 1) + rr * 2;
@@ -756,13 +788,30 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
                 cl->AddText(small_, u * 0.8f, ImVec2(cr - lw, cy - u * 0.4f), pal::sub, lv);
             }
         }
+        float badge_right = q.x - pad;
+        if (s.online) {  // (the online save: greyed, with its ONLINE tag after the name)
+            cl->AddRectFilled(p, qf, IM_COL32(16, 22, 36, 150), r);
+            const char *on = ui_tr("ONLINE");
+            float fs = small_->FontSize * 0.8f;
+            ImVec2 zs = small_->CalcTextSizeA(fs, FLT_MAX, 0, on);
+            float ph2 = zs.y + 12 * sc;
+            ImVec2 a(tx + title_w + u * 0.9f, ty + (nh - ph2) * 0.5f), b(a.x + zs.x + 26 * sc, a.y + ph2);
+            cl->AddRectFilled(a, b, IM_COL32(60, 44, 10, 235), ph2 * 0.5f);
+            cl->AddRect(a, b, IM_COL32(255, 184, 64, 255), ph2 * 0.5f, 0, 1.5f * sc);
+            cl->AddText(small_, fs, ImVec2(a.x + 13 * sc, a.y + (ph2 - zs.y) * 0.5f), IM_COL32(255, 184, 64, 255), on);
+        }
         if (!s.played) {  // (a slot with no progress: the NEW GAME badge, on the right)
             const char *nw = ui_tr("NEW GAME");
             ImVec2 zs = small_->CalcTextSizeA(small_->FontSize, FLT_MAX, 0, nw);
-            ImVec2 a(q.x - pad - zs.x - 24 * sc, bc.y - zs.y * 0.5f - 8 * sc), b(q.x - pad, bc.y + zs.y * 0.5f + 8 * sc);
+            ImVec2 a(badge_right - zs.x - 24 * sc, bc.y - zs.y * 0.5f - 8 * sc), b(badge_right, bc.y + zs.y * 0.5f + 8 * sc);
             cl->AddRectFilled(a, b, IM_COL32(120, 255, 200, 30), (b.y - a.y) * 0.5f);
             cl->AddRect(a, b, pal::accent2, (b.y - a.y) * 0.5f, 0, 1.5f * sc);
             cl->AddText(small_, small_->FontSize, ImVec2(a.x + 12 * sc, bc.y - zs.y * 0.5f), pal::accent2, ui_tr(nw));
+        }
+        if (play && s.online) {  // (an online save is only started online)
+            snprintf(g_msg, sizeof g_msg, "%s", ui_tr("This save is for Lumiose Online only: start it with Play online."));
+            g_msg_bad = false;
+            play = false;
         }
         if (play) {
             saves_select(s.id);
@@ -778,7 +827,9 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
     // under the list: the actions on the selected save, then the "ask every time" switch
     float by = framed ? ds.y - 150 * sc : ds.y - foot + u * 0.4f;  // (framed: the toolbar, 110 high, ends 40 above the window's bottom)
     ImGui::SetCursorScreenPos(ImVec2(x0, wp.y + by));
+    float msg_y = 0;  // (framed: the message goes on the toolbar's heading row, on the right: below the toolbar there is no room)
     if (framed) {  // a toolbar in one container, for the selected save: Copy, Export, Rename, and Delete apart on the right
+        msg_y = wp.y + by;
         float fs = 36 * sc, bh = 56 * sc, pad = 10 * sc, cy0 = wp.y + by + 34 * sc, ch2 = bh + 2 * pad;
         char nm[96], cut[96];
         std::string head = ui_uppercase(ui_tr("Selected save"));
@@ -791,15 +842,17 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
         float bx = x0 + pad, by2 = cy0 + pad;
         bool one = g_n < SAVE_SLOTS_MAX;
         ImGui::BeginDisabled(!one || !sel_slot().played);
-        if (tool_button("cp", "Copy", IC_COPY, ImVec2(bx, by2), wid("Copy"), bh, small_, fs, 0)) g_ask = COPY, g_err[0] = 0;
+        if (tool_button("cp", "Copy", IC_COPY, ImVec2(bx, by2), wid("Copy"), bh, small_, fs, 0)) ask_copy(sel_slot());
         ImGui::EndDisabled();
         bx += wid("Copy") + 6 * sc;
         ImGui::BeginDisabled(!g_n || !sel_slot().played);
         if (tool_button("ex", "Export", IC_EXPORT, ImVec2(bx, by2), wid("Export"), bh, small_, fs, 0)) export_pick(sel_slot());
         ImGui::EndDisabled();
         bx += wid("Export") + 6 * sc;
-        ImGui::BeginDisabled(!g_n);
+        ImGui::BeginDisabled(!g_n || sel_slot().online);  // (an online save keeps its character's name)
         if (tool_button("rn", "Rename", IC_RENAME, ImVec2(bx, by2), wid("Rename"), bh, small_, fs, 0)) g_ask = RENAME, g_err[0] = 0;
+        ImGui::EndDisabled();
+        ImGui::BeginDisabled(!g_n || sel_slot().online);
         if (tool_button("del", "Delete", IC_DELETE, ImVec2(x0 + w - pad - wid("Delete"), by2), wid("Delete"), bh, small_, fs, 2)) ask_delete();
         ImGui::EndDisabled();
         by += 34 * sc + ch2 - bar_h;  // (the message line below the container)
@@ -819,18 +872,18 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
     ImGui::EndDisabled();
     ImGui::SameLine(0, bgap * 2.5f);
     ImGui::BeginDisabled(!one || !sel_slot().played);
-    if (bar_button("Copy", bwid("Copy"), bar_h, small_)) g_ask = COPY, g_err[0] = 0;
+    if (bar_button("Copy", bwid("Copy"), bar_h, small_)) ask_copy(sel_slot());
     ImGui::EndDisabled();
     ImGui::SameLine(0, bgap);
     ImGui::BeginDisabled(!g_n || !sel_slot().played);
     if (bar_button("Export", bwid("Export"), bar_h, small_)) export_pick(sel_slot());
     ImGui::EndDisabled();
     ImGui::SameLine(0, bgap);
-    ImGui::BeginDisabled(!g_n);
+    ImGui::BeginDisabled(!g_n || sel_slot().online);  // (an online save keeps its character's name)
     if (bar_button("Rename", bwid("Rename"), bar_h, small_)) g_ask = RENAME, g_err[0] = 0;
     ImGui::EndDisabled();
     ImGui::SameLine(0, bgap);
-    ImGui::BeginDisabled(!g_n);
+    ImGui::BeginDisabled(!g_n || sel_slot().online);
     if (bar_button("Delete", bwid("Delete"), bar_h, small_, true)) ask_delete();
     ImGui::EndDisabled();
     ImGui::SameLine(0, 0);
@@ -841,8 +894,11 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
         ImGui::PushFont(small_);
         ImU32 col = g_msg_bad ? pal::warn : pal::accent2;
         char clipped[1024];
-        const char *shown = fit(small_, u * 0.8f, ui_tr(g_msg), w, clipped, sizeof clipped);
-        dl->AddText(small_, u * 0.8f, ImVec2(x0, wp.y + by + bar_h + u * 0.45f), col, shown);
+        const char *shown = fit(small_, u * 0.8f, ui_tr(g_msg), framed ? w * 0.55f : w, clipped, sizeof clipped);
+        if (framed)  // (on the heading's row, right-aligned)
+            dl->AddText(small_, u * 0.8f, ImVec2(x0 + w - small_->CalcTextSizeA(u * 0.8f, FLT_MAX, 0, shown).x, msg_y + 13 * sc - u * 0.4f), col, shown);
+        else
+            dl->AddText(small_, u * 0.8f, ImVec2(x0, wp.y + by + bar_h + u * 0.45f), col, shown);
         ImGui::PopFont();
     }
 
@@ -914,9 +970,9 @@ int saves_home_draw(ImFont *small_, bool ready, bool show_setup, bool focus_firs
     ImDrawList *dl = ImGui::GetWindowDrawList();
     // one unit u: the small font's size, shrunk until the column's content fits its rectangle
     int n = show_setup ? 4 : 3;
-    const float card_u = 8.6f;  // the save card's height (room for the trainer's data)
+    const float card_u = 9.4f;  // the save card's height (room for the trainer's data)
     float u = small_->FontSize, rows = 2.9f + card_u + 0.55f + (n - 1) * 1.6f + 0.2f;
-    u *= fminf(1.0f, fminf(rh / ((rows + 2.0f) * u), rw / (19.0f * u)));
+    u *= fminf(1.0f, fminf(rh / ((rows + 1.6f) * u), rw / (19.0f * u)));
     g_home_u = u;
     float x = rx + u, w = rw - 2 * u, y = ry + u;
 
@@ -953,7 +1009,7 @@ int saves_home_draw(ImFont *small_, bool ready, bool show_setup, bool focus_firs
     float ch = u * card_u;
     // the buttons sit at the column's bottom like PLAY ONLINE; the card is centred in the space between the title and them
     float bh = u * 1.3f, step = u * 1.6f, gap = u * 0.4f, hw = (w - gap) * 0.5f;
-    float by = ry + rh - u - ((n - 2) * step + bh);
+    float by = ry + rh - u * 0.6f - ((n - 2) * step + bh);
     float cty = ty + fmaxf(0.0f, (by - u * 0.55f - ty - ch) * 0.5f);
     ImVec2 cp(x, cty), cq(x + w, cty + ch);
     dl->AddRectFilled(cp, cq, IM_COL32(20, 36, 68, 150), u * 0.5f);  // (a light card: no outline)
@@ -969,12 +1025,12 @@ int saves_home_draw(ImFont *small_, bool ready, bool show_setup, bool focus_firs
             float iw = small_->CalcTextSizeA(u * 0.72f, FLT_MAX, 0, idb).x;
             label(rx - iw, cty + u * 0.55f, idb);
         }
-        const char *who = si && si->trainer[0] ? si->trainer : cur->name;
-        dl->AddText(small_, u * 1.45f, ImVec2(tx, cty + u * 1.2f), pal::text, fit(small_, u * 1.45f, who, rx - tx, cut, sizeof cut));
-        dl->AddLine(ImVec2(tx, cty + u * 3.0f), ImVec2(rx, cty + u * 3.0f), IM_COL32(76, 100, 137, 120), 1.0f);
-        float r1 = cty + u * 3.4f, r2 = cty + u * 5.4f, vfs = u * 1.0f;  // (the two rows of label + value)
-        label(tx, r1, "Save name");
-        dl->AddText(small_, vfs, ImVec2(tx, r1 + u * 0.85f), pal::text, fit(small_, vfs, cur->name, tx2 - tx - u * 0.5f, cut, sizeof cut));
+        dl->AddText(small_, u * 1.45f, ImVec2(tx, cty + u * 1.2f), pal::text, fit(small_, u * 1.45f, cur->name, rx - tx, cut, sizeof cut));  // (the save's own name)
+        dl->AddLine(ImVec2(tx, cty + u * 2.8f), ImVec2(rx, cty + u * 2.8f), IM_COL32(76, 100, 137, 120), 1.0f);
+        float r1 = cty + u * 3.05f, r2 = cty + u * 4.95f, vfs = u * 1.0f;  // (the two rows of label + value)
+        label(tx, r1, "Trainer name");
+        dl->AddText(small_, vfs, ImVec2(tx, r1 + u * 0.85f), pal::text,
+                    fit(small_, vfs, si && si->trainer[0] ? si->trainer : "-", tx2 - tx - u * 0.5f, cut, sizeof cut));
         label(tx2, r1, "Play time");
         char pl[16];
         fmt_played(si ? si->played : 0, pl, sizeof pl);
@@ -991,7 +1047,7 @@ int saves_home_draw(ImFont *small_, bool ready, bool show_setup, bool focus_firs
         char line[96], lcut[96];
         when(*cur, line, sizeof line, false);
         dl->AddText(small_, u * 0.85f, ImVec2(tx2, r2 + u * 0.88f), pal::text, fit(small_, u * 0.85f, line, rx - tx2, lcut, sizeof lcut));
-        if (si) team_row(dl, small_, ImVec2(tx, cty + u * 7.7f), u, si);
+        if (si) team_row(dl, small_, ImVec2(tx + u * 0.1f, cty + u * 7.7f), u, si);
     } else {
         dl->AddText(small_, u * 1.0f, ImVec2(x + u * 0.7f, cty + u * 0.45f), pal::text, ui_tr("No saves yet"));
         dl->AddText(small_, u * 0.8f, ImVec2(x + u * 0.7f, cty + u * 1.55f), pal::sub, ui_tr("Choose NEW GAME to begin."));
@@ -1022,15 +1078,15 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
     const ImU32 purple = IM_COL32(150, 110, 255, 170);
     dl->AddRectFilled(ImVec2(rx, ry), ImVec2(rx + rw, ry + ph), IM_COL32(8, 12, 36, 255), r);
     if (bg && bg_aspect > 0) {  // the picture across the top, as wide as the column; cropped from above to the banner's height
-        float bh = ph - u * 7.3f, full = rw / bg_aspect, vis = fminf(1.0f, bh / full), v0 = 0.0f, v1 = vis;  // (down to where the state begins, fading out)
+        float bh = ph - u * 5.3f, full = rw / bg_aspect, vis = fminf(1.0f, bh / full), v0 = 0.0f, v1 = vis;  // (down to where the state begins, fading out)
         float u0 = 0, u1 = 1;
         if (vis >= 1.0f) {  // (a banner taller than the picture: crop its sides instead)
             float wv = rw / (bh * bg_aspect);
             u0 = fmaxf(0.0f, fminf(1 - wv, 0.84f - wv * 0.5f)), u1 = u0 + wv, v0 = 0, v1 = 1;
         }
         dl->AddImageRounded(bg, ImVec2(rx, ry), ImVec2(rx + rw, ry + bh), ImVec2(u0, v0), ImVec2(u1, v1), IM_COL32_WHITE, r, ImDrawFlags_RoundCornersTop);
-        dl->AddRectFilledMultiColor(ImVec2(rx + 1, ry + bh - u * 5.0f), ImVec2(rx + rw - 1, ry + bh), IM_COL32(8, 12, 36, 0), IM_COL32(8, 12, 36, 0),
-                                    IM_COL32(8, 12, 36, 255), IM_COL32(8, 12, 36, 255));
+        dl->AddRectFilledMultiColor(ImVec2(rx + 1, ry + bh - u * 8.5f), ImVec2(rx + rw - 1, ry + bh), IM_COL32(8, 12, 36, 0), IM_COL32(8, 12, 36, 0),
+                                    IM_COL32(8, 12, 36, 255), IM_COL32(8, 12, 36, 255));  // (the card's text sits on its darker half: no panel behind it)
     }
     dl->AddRect(ImVec2(rx, ry), ImVec2(rx + rw, ry + ph), purple, r, 0, 1.5f);
     // the mark: an arc over a bar with a ring in the middle (a ball, opened), and the name
@@ -1064,21 +1120,65 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
         dl->AddText(tf, u * 1.75f, tp, sp ? IM_COL32(250, 198, 84, 255) : IM_COL32(255, 255, 255, 255), name, sp);
         if (sp) dl->AddText(tf, u * 1.75f, ImVec2(tp.x + tw, tp.y), IM_COL32(255, 255, 255, 255), sp);
     }
-    // the state
-    float ch = u * 3.4f, cy = ry + ph - u - u * 2.05f - u * 0.9f - ch;  // (the state sits right above the button, at the column's bottom)
-    ImVec2 ic(x + u * 1.0f, cy + u * 1.35f);
+    {   // the online save's trainer card, like the offline one (who, play time, money, team; not the save's own name). No panel:
+        // the picture fades darker under it and each text has a soft shadow, so the art stays visible.
+        const SaveInfo *si = v.save_path && v.save_path[0] ? save_info(v.save_path) : NULL;
+        float ctop = ry + u * 6.4f, cwid = w, chgt = u * 7.9f;
+        float cbot = ctop + chgt;
+        {   // a light glass panel: the picture shows through, the texts stay readable
+            dl->AddRectFilled(ImVec2(x, ctop), ImVec2(x + w, cbot), IM_COL32(6, 12, 34, 135), u * 0.5f);
+            dl->AddRect(ImVec2(x, ctop), ImVec2(x + w, cbot), IM_COL32(170, 140, 255, 80), u * 0.5f, 0, 1.0f);
+        }
+        float tx = x + u * 0.9f, tx2 = x + cwid * 0.42f, rr = x + w - u * 0.9f;  // (the offline card's columns)
+        const ImU32 faint = IM_COL32(190, 208, 236, 240);
+        auto shade = [&](ImFont *f, float size, ImVec2 at, ImU32 col, const char *t) {  // (a text with a dark soft shadow)
+            dl->AddText(f, size, ImVec2(at.x + u * 0.07f, at.y + u * 0.09f), IM_COL32(0, 0, 8, 200), t);
+            dl->AddText(f, size, ImVec2(at.x, at.y + u * 0.16f), IM_COL32(0, 0, 8, 90), t);
+            dl->AddText(f, size, at, col, t);
+        };
+        auto label = [&](float xx, float yy, const char *t) { shade(small_, u * 0.72f, ImVec2(xx, yy), faint, ui_tr(t)); };
+        char cut[96];
+        if (si) {
+            char idb[16];
+            snprintf(idb, sizeof idb, "ID %06u", si->id);
+            float iw = small_->CalcTextSizeA(u * 0.72f, FLT_MAX, 0, idb).x;
+            label(rr - iw, ctop + u * 0.55f, idb);
+            shade(small_, u * 1.45f, ImVec2(tx, ctop + u * 1.2f), pal::text,
+                  fit(small_, u * 1.45f, si->trainer[0] ? si->trainer : ui_tr("Trainer"), rr - tx, cut, sizeof cut));
+            dl->AddLine(ImVec2(tx, ctop + u * 2.8f), ImVec2(rr, ctop + u * 2.8f), IM_COL32(120, 150, 200, 130), 1.0f);
+            float r1 = ctop + u * 3.05f, vfs = u * 1.0f;
+            label(tx, r1, "Play time");
+            char pl[16];
+            fmt_played(si->played, pl, sizeof pl);
+            ImVec2 cc(tx + u * 0.34f, r1 + u * 0.85f + vfs * 0.5f - u * 0.04f);  // (a small clock, centred on the time's line)
+            dl->AddCircle(cc, u * 0.34f, faint, 20, u * 0.1f);
+            dl->AddLine(cc, ImVec2(cc.x, cc.y - u * 0.22f), faint, u * 0.1f);
+            dl->AddLine(cc, ImVec2(cc.x + u * 0.17f, cc.y + u * 0.07f), faint, u * 0.1f);
+            shade(small_, vfs, ImVec2(tx + u * 0.95f, r1 + u * 0.85f), pal::text, pl);
+            label(tx2, r1, "Money");
+            money_row(dl, small_, ImVec2(tx2, r1 + u * 0.85f), u, si->money);
+            team_row(dl, small_, ImVec2(tx + u * 0.1f, cbot - u * 1.7f), u, si);  // (on the card's bottom edge, as the offline one)
+        } else if (v.save_path && v.save_path[0]) {  // (an online game made, not played yet)
+            shade(small_, u * 1.0f, ImVec2(tx, ctop + u * 1.6f), pal::text, ui_tr("No progress yet"));
+        } else {
+            // (none chosen: the first Play online asks)
+            dl->AddText(small_, u * 0.85f, ImVec2(tx, ctop + u * 1.6f), faint, ui_tr("Chosen the first time you press Play online."), NULL, rr - tx);
+        }
+    }
+    // the state: small, a dot, the headline and one line, right above the button
+    float ch = u * 1.9f, cy = ry + ph - u * 0.6f - u * 2.05f - u * 0.9f - ch;
+    ImVec2 ic(x + u * 0.7f, cy + u * 0.95f);
     const ImU32 dot = v.good ? IM_COL32(70, 214, 110, 255) : v.bad ? IM_COL32(255, 170, 90, 255) : IM_COL32(150, 172, 210, 255);
     const ImU32 dark = IM_COL32(8, 18, 35, 255);
-    dl->AddCircleFilled(ic, u * 0.95f, dot, 24);
+    dl->AddCircleFilled(ic, u * 0.6f, dot, 24);
     if (v.good) {
-        ui_check(dl, ic, u * 0.95f, dark);
+        ui_check(dl, ic, u * 0.6f, dark);
     } else {  // "!" for a problem, "i" otherwise
-        dl->AddText(small_, u * 1.1f, ImVec2(ic.x - u * (v.bad ? 0.1f : 0.12f), ic.y - u * 0.62f), dark, v.bad ? "!" : "i");
+        dl->AddText(small_, u * 0.8f, ImVec2(ic.x - u * (v.bad ? 0.07f : 0.09f), ic.y - u * 0.45f), dark, v.bad ? "!" : "i");
     }
     char fit_line[96];
-    dl->AddText(small_, u * 1.15f, ImVec2(x + u * 2.5f, cy + u * 0.05f), v.good ? pal::accent2 : v.bad ? pal::warn : pal::text, ui_tr(v.headline));
-    dl->AddText(small_, u * 0.85f, ImVec2(x + u * 2.5f, cy + u * 1.45f), pal::sub, fit(small_, u * 0.85f, ui_tr(v.line), w - u * 2.5f, fit_line, sizeof fit_line));
-    dl->AddText(small_, u * 0.85f, ImVec2(x + u * 2.5f, cy + u * 2.45f), pal::sub, ui_tr("Uses the save selected offline"));
+    dl->AddText(small_, u * 0.95f, ImVec2(x + u * 1.8f, cy + u * 0.0f), v.good ? pal::accent2 : v.bad ? pal::warn : pal::text, ui_tr(v.headline));
+    dl->AddText(small_, u * 0.72f, ImVec2(x + u * 1.8f, cy + u * 1.15f), pal::sub, fit(small_, u * 0.72f, ui_tr(v.line), w - u * 1.8f, fit_line, sizeof fit_line));
     // PLAY ONLINE
     ImVec2 p(x, cy + ch + u * 0.9f), q(x + w, p.y + u * 2.05f);
     ImGui::SetCursorScreenPos(p);
@@ -1212,9 +1312,11 @@ static bool action_window(float sc, int cur, ImFont *body, ImFont *small_) {
         if (bar_button("Cancel", hw, bh, small_) || back) g_act_confirm = false;
     } else {
         if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+        ImGui::BeginDisabled(s.online != (getenv("LUMIOSE_TEST_MODULE") != NULL));  // (online saves are played online only, the others offline)
         if (bar_button(now ? "Reload this save" : "Play this save", bw, bh, small_)) g_act_confirm = true;
+        ImGui::EndDisabled();
         bool one = g_n < SAVE_SLOTS_MAX;
-        ImGui::BeginDisabled(!one || !s.played);
+        ImGui::BeginDisabled(!one || !s.played || s.online);
         if (bar_button("Copy", bw, bh, small_)) g_sel = g_act, g_ask = COPY, g_err[0] = 0, close();
         ImGui::EndDisabled();
         ImGui::BeginDisabled(!s.played);
@@ -1263,7 +1365,7 @@ bool saves_ingame_tab(float scale, ImFont *body, ImFont *small_) {
     opt_section("Other saves");
     int others = 0;
     for (int i = 0; i < g_n; i++) {
-        if (i == cur) continue;
+        if (i == cur || g_slots[i].online) continue;  // (an offline game does not list the online saves: they are played from Play online)
         others++;
         save_value(g_slots[i], v, sizeof v);
         save_desc(g_slots[i], d, sizeof d);

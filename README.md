@@ -79,7 +79,7 @@ runs at play time. The supported game version is **v2.0.2**. The Mega Dimension 
 
 **[Lumiose Online](https://lumioseonline.site)** is an unofficial, fan-made multiplayer mod for Pokémon Legends: Z-A,
 built and run by its own team: players share Lumiose City, chat, trade and talk (voice chat), on one server for
-everyone, on a Switch, in the Eden emulator or on PC, and now on a Mac. **MonZaMac makes it possible to run that
+everyone, on a Switch or on PC, and now on a Mac. **MonZaMac makes it possible to run that
 mod natively on a Mac. The mod, the server and the online features are the Lumiose Online team's work; MonZaMac only
 runs the mod, and does not operate, control or vouch for the service.** A great thank you to them for making it work
 with the Mac port: see [Credits](#credits-and-license).
@@ -95,11 +95,18 @@ with the Mac port: see [Credits](#credits-and-license).
 
 1. Install the online edition and set up your game files as usual. Online play needs the game at **version 2.0.2**
    (the one MonZaMac supports) and about **1.3 GB** more disk space, which the app keeps to prepare the mod quickly.
-2. Press **Play online**. The first time it tells you what is shared, asks for your consent, then prepares the mod
-   **on your Mac**, from your own game files (a few minutes, with a progress bar), and starts the game with it.
-3. Every later press checks for a newer version of the mod, downloaded from Lumiose Online's site and checked against
-   the hash they publish, and prepares it before starting. Without a connection it starts the version you have.
-4. **Quit to start screen** (in the in-game menu, F1) comes back to the start screen without the mod: **Continue** there
+2. Press **Play online**. The first time it tells you what is shared, asks for your consent, asks **which save is your
+   online save**, then prepares the mod **on your Mac**, from your own game files (a few minutes, with a progress bar),
+   and starts the game with it.
+3. **Your online save stays online.** Choose **New online game** (recommended) or make one of your saves the online one.
+   From then on that save is only played online: it can't be started offline, copied, renamed or deleted from the app, and
+   your other saves are never used online. Lumiose Online checks a save for anything done to it outside online play, and
+   tampering can get you banned.
+4. Every press of **Play online** checks that the module matches the SHA-256 published by Lumiose Online, that your game
+   files are the original 2.0.2 ones and that no newer MonZaMac is out. If a check can't be made or fails, online play
+   does not start and the column says why. Local modules, RomFS mods and the debug environment variables are ignored for
+   online play.
+5. **Quit to start screen** (in the in-game menu, F1) comes back to the start screen without the mod: **Continue** there
    plays offline.
 
 **Your data, your choice.**
@@ -135,9 +142,11 @@ You need a Mac with Apple Silicon (macOS 15 or later, macOS 27 included) and **y
 3. Open MonZaMac. The app is not notarized by Apple. If macOS blocks it, use **System Settings > Privacy & Security >
    Open Anyway** after attempting to open it, then confirm the prompt.
 4. On the start screen choose **Set up game files** and confirm that you own an original copy. Select your base game
-   (**NSP or XCI**), the **v2.0.2 update (NSP)** and your **prod.keys**. The app checks them, applies the update and
-   builds the game on your Mac. Allow at least **27 GB of free space**; larger packages may need more, and setup
-   checks the requirement before proceeding. The first build takes a while. No game files or keys are uploaded.
+   (**NSP or XCI**), the **v2.0.2 update (NSP)** and your **prod.keys**. If you packed your own dump of the Switch 2 Edition
+   into a `.nup` container, choose **Switch 2 Edition (.nup)** instead and pick that file: it holds the base game,
+   update and DLC, so it needs no keys. The app checks them, applies the update and builds the game on your Mac. Allow at least **27 GB of free
+   space**; larger packages may need more, and setup checks the requirement before proceeding. The first build takes a
+   while. No game files or keys are uploaded.
 5. When it is done, press **Continue** (your most recent save) or **New game**. Your saves and settings are kept in
    `~/Library/Application Support/com.monzamac.app`, and stay there when you update the app.
 

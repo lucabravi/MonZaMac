@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Count the Maxwell encodings whose translation is known to differ from Ryujinx / yuzu (or that the references
+"""Count the Maxwell encodings whose translation is known to differ from the reference decoders A / B (or that the references
 disagree on) in dumped game shaders, so the open cases can be ranked by how often the game really uses them.
 
 usage: tools/maxwell_audit.py [build/shaders/*_code.bin build/cs_*.bin ...]
@@ -51,7 +51,7 @@ CHECKS = [
     # open
     ("open: SHF .CC / .HI / .X", lambda w: is_(w, (0x5cf8, 0xfff8), (0x5bf8, 0xfff8),
                                                         (0x38f8, 0xfef8), (0x36f8, 0xfef8)) and bits(w, 47, 3) != 0),
-    ("open: TEXS 2D.LL.DC (Ryujinx: dref Rb, lod Rb+1; yuzu and the port: the reverse)",
+    ("open: TEXS 2D.LL.DC (reference A: dref Rb, lod Rb+1; reference B and the port: the reverse)",
      lambda w: op(w, 0xd000 << 48, 0xf600 << 48) and bits(w, 53, 4) == 5),
     ("open: ISETP / ISET .X (64-bit compare, the port compares the high word only)",
      lambda w: is_(w, (0x5b60, 0xfff0), (0x4b60, 0xfff0), (0x3660, 0xfef0), (0x5b50, 0xfff0), (0x4b50, 0xfff0),
@@ -62,7 +62,7 @@ CHECKS = [
     ("open: IADD32I negated immediate / .PO (bit 55, ignored)", lambda w: is_(w, (0x1c00, 0xfe00)) and bits(w, 55, 1)),
     ("open: IADD / IADD32I .SAT (ignored)", lambda w: (is_(w, (0x5c10, 0xfff8), (0x4c10, 0xfff8), (0x3810, 0xfef8)) and bits(w, 50, 1))
      or (is_(w, (0x1c00, 0xfe00)) and bits(w, 54, 1))),
-    ("open: XMAD .X (C dropped, as Ryujinx; yuzu: unimplemented)",
+    ("open: XMAD .X (C dropped, as reference A; reference B: unimplemented)",
      lambda w: (is_(w, (0x5b00, 0xffc0), (0x3600, 0xfec0)) and bits(w, 38, 1))
      or (is_(w, (0x4e00, 0xfe00), (0x5100, 0xff80)) and bits(w, 54, 1))),
     ("open: LDC sub-word size or address mode (read as a whole word)",

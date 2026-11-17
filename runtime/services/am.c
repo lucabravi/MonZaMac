@@ -12,6 +12,7 @@
 #define AM_INVALID_ARGUMENT MAKE_RESULT(128, 500)
 #define AM_INVALID_STATE MAKE_RESULT(128, 512)
 #define AM_UNSUPPORTED MAKE_RESULT(10, 221)  // CMIF: invalid/unsupported command
+#define AM_APPLET_CANCELED MAKE_RESULT(128, 22)  // JoinLibraryApplet reads this as AppletExitReason_Canceled
 #define AM_MAX_STORAGE_SIZE (1024u * 1024u)  // bounded storage for this headless error-applet implementation
 
 static void am_objects_reset(void);
@@ -192,7 +193,9 @@ static Service *new_am_storage(const void *data, uint64_t size) {
 }
 
 // ------------------------------------------------------------------ ILibraryAppletCreator / ILibraryAppletAccessor
-// Only the error applet is acknowledged without UI. Other applets require real user interaction/results.
+// Every library applet is headless: it starts and ends at once. The error applet is acknowledged; the rest report
+// AppletExitReason_Canceled, which is what the game gets on a console when the user backs out (the DLC purchase
+// opens the shop applet this way). Failing CreateLibraryApplet instead makes the SDK's ec code abort the process.
 typedef struct AmAppletEvent {
     KEvent *event;
     struct AmAppletEvent *next;
@@ -205,6 +208,7 @@ typedef struct AmApplet {
     AmAppletEvent *state_event, *output_event, *interactive_event;
     AmStorage *inputs[16];
     unsigned ninputs;
+    uint32_t id;
     bool completed;
     struct AmApplet *next;
 } AmApplet;
@@ -295,15 +299,19 @@ static void applet_accessor(Service *s, IpcReq *req, IpcResp *resp) {
     case 1: OUT(uint8_t, 0) = a->completed; resp_size(resp, 1); break;
     case 10:  // Start: headless acknowledgement, with no native dialog.
         if (a->completed) { resp->result = AM_INVALID_STATE; break; }
-        applet_log_error(a);
+        if (a->id == 0x0e) applet_log_error(a);
         applet_release_inputs(a);
         pthread_mutex_lock(&g_klock);
         a->completed = true;
         kernel_signal(a->state_event->event);
         pthread_mutex_unlock(&g_klock);
-        LOG("[am] error applet: acknowledged without UI\n");
+        if (a->id == 0x0e) LOG("[am] error applet: acknowledged without UI\n");
+        else LOG("[am] applet 0x%x: closed without UI\n", a->id);
         break;
-    case 30: if (!a->completed) resp->result = AM_INVALID_STATE; break;
+    case 30:  // GetResult: the exit reason (JoinLibraryApplet turns AM_APPLET_CANCELED into AppletExitReason_Canceled)
+        if (!a->completed) { resp->result = AM_INVALID_STATE; break; }
+        if (a->id != 0x0e) resp->result = AM_APPLET_CANCELED;
+        break;
     case 100: {  // PushInData: bind the actual moved session or domain input object.
         if (a->completed || a->ninputs == 16) { resp->result = AM_INVALID_STATE; break; }
         Service *input = ipc_input_object(req, 0);
@@ -324,7 +332,7 @@ static void applet_accessor(Service *s, IpcReq *req, IpcResp *resp) {
         resp->copy_handles[resp->ncopy++] = kernel_new_handle((*e)->event);
         break;
     }
-    default: resp->result = AM_UNSUPPORTED;
+    default: UNHANDLED("ILibraryAppletAccessor"); resp->result = AM_UNSUPPORTED;
     }
 }
 
@@ -332,12 +340,12 @@ static void library_applet_creator(Service *s, IpcReq *req, IpcResp *resp) {
     (void)s;
     if (req->nmove || req->ncopy || req->ndomain_in) { resp->result = AM_INVALID_ARGUMENT; return; }
     switch (req->cmd) {
-    case 0: {  // CreateLibraryApplet(id, mode): error applet, AllForeground only.
+    case 0: {  // CreateLibraryApplet(id, mode): headless, so no applet can fail to launch (the SDK aborts on that).
         uint32_t args[2];
         if (!req->data || req->data_size < sizeof args) { resp->result = AM_INVALID_ARGUMENT; break; }
         memcpy(args, req->data, sizeof args);
-        if (args[0] != 0x0e || args[1] != 0) { resp->result = AM_UNSUPPORTED; break; }
         AmApplet *a = calloc(1, sizeof *a);
+        a->id = args[0];
         a->state_event = applet_event();
         a->owner = service_new("ILibraryAppletAccessor", applet_accessor, a);
         a->owner->on_close = applet_close;
@@ -388,7 +396,11 @@ static void application_functions(Service *s, IpcReq *req, IpcResp *resp) {
         resp_size(resp, 8);
         break;
     }
-    case 23: memcpy(resp->data, "1.0.0", 6); resp_size(resp, 0x10); break;
+    case 23:  // GetDisplayVersion: the version of the game the files are (runtime/ui/launcher.mm accepts only 2.0.2); Lumiose Online reads it
+        memset(resp->data, 0, 0x10);
+        memcpy(resp->data, "2.0.2", 6);
+        resp_size(resp, 0x10);
+        break;
     case 40: OUT(uint8_t, 0) = 0; resp_size(resp, 1); break;  // NotifyRunning
     case 130: case 140: resp->copy_handles[resp->ncopy++] = new_event(); break;
     default: UNHANDLED("IApplicationFunctions");

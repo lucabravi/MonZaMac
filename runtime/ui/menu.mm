@@ -925,7 +925,7 @@ static void tab_audio(void) {
         if (testing) {
             float level = audio_input_test_level();
             ImGui::ProgressBar(level > 1 ? 1 : level, ImVec2(-FLT_MIN, ImGui::GetFontSize() * 0.9f), "");
-            ImGui::TextDisabled(ui_tr("If nothing moves, check the permission in macOS: System Settings > Privacy & Security > Microphone."));
+            ImGui::TextDisabled("%s", ui_tr("If nothing moves, check the permission in macOS: System Settings > Privacy & Security > Microphone."));
         }
     }
     opt_end();
@@ -1120,7 +1120,7 @@ static void keyboard_draw(ImGuiIO &io, float scale) {
     ImGui::Begin("##kbd", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                                     ImGuiWindowFlags_AlwaysAutoResize);
     ImGui::PushFont(g_font_big);
-    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), ui_tr("Enter your name"));
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "%s", ui_tr("Enter your name"));
     ImGui::PopFont();
     static bool was_open, was_pad;
     bool pad = g_last_pad.load(), appearing = !was_open || pad != was_pad;  // (switching device: focus the new one)
@@ -1194,8 +1194,12 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
     if (prelaunch) tabs[ntabs++] = {"Prelaunch", -1, true};
     static const char *names[] = {"Video", "Audio", "", "", "", "", "", "", "Controls", "Quit", "Developer", "Saves", "Shaders"};
     static const int order[] = {8, 0, 12, 1, 11, 9};  // Controls, Video, Shaders, Audio, Saves, Quit (ids stay: test hooks)
+    // Online (the Lumiose module is loaded) there is no Saves tab: the game never switches save, and a copy, an export or a
+    // reload of the online save would take it out of online play (runtime/saves.h).
+    const bool online_game = getenv("LUMIOSE_TEST_MODULE") != NULL;
+    if (online_game && g_tab == 11) g_tab = 8, g_tab_request = -2;
     for (int i : order)  // (Saves and Quit: in game only - the start screen has its own SAVES and QUIT)
-        if ((i != 9 && i != 11) || !prelaunch) tabs[ntabs++] = {names[i], i, true};
+        if (((i != 9 && i != 11) || !prelaunch) && !(online_game && i == 11)) tabs[ntabs++] = {names[i], i, true};
     if (g_settings.developer || getenv("LARECOMP_DEVELOPER")) tabs[ntabs++] = {names[10], 10, true};
     int cur = 0;  // g_tab / g_tab_request hold ids
     for (int i = 0; i < ntabs; i++) if (tabs[i].id == g_tab) cur = i;
@@ -1426,7 +1430,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         // screen" - rt_request_reboot(RT_REBOOT_TITLE) - is to find a new home; user 2026-10-11.)
         ImVec2 title_at = ImGui::GetCursorScreenPos();
         ImGui::PushFont(g_font_big);
-        ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), ui_tr("Settings"));
+        ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "%s", ui_tr("Settings"));
         float title_h = ImGui::GetTextLineHeight();
         ImGui::PopFont();
         {   // the build's version (bug reports name it): small, right side of the header, before the close X

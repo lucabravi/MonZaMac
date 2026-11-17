@@ -9,6 +9,7 @@
 %s is now %s.	%s is now %s.
 %s is now %s; %s moved to %s (swapped).	%s is now %s; %s moved to %s (swapped).
 %s%s%s%s\nPlay time %s  ·  %s coins\nTeam: %s	%s%s%s%s\nPlay time %s  ·  %s coins\nTeam: %s
+%u of %u parts of the game data differ from the original files of version 2.0.2.	%u of %u parts of the game data differ from the original files of version 2.0.2.
 %u recipes	%u recipes
 + New save	+ New save
 1. DLC package (.nsp)	1. DLC package (.nsp)
@@ -17,6 +18,7 @@
 30 fps: as on the Switch.\n60 fps: smoother motion, with the world step adapting to the time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU.\n\nFrame generation selects its own source rate; turning it off restores your choice here.	30 fps: as on the Switch.\n60 fps: smoother motion, with the world step adapting to the time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU.\n\nFrame generation selects its own source rate; turning it off restores your choice here.
 60 fps	60 fps
 A  type      B  delete      Start / +  OK      (%d / %d)	A  type      B  delete      Start / +  OK      (%d / %d)
+A .nup container packed from your own dump: base game, update and DLC, already decrypted. No prod.keys needed.	A .nup container packed from your own dump: base game, update and DLC, already decrypted. No prod.keys needed.
 A .zip exported from MonZaMac, or a folder with a Z-A save (a JKSV backup, a copy from a console). It becomes a new save: yours stay as they are.	A .zip exported from MonZaMac, or a folder with a Z-A save (a JKSV backup, a copy from a console). It becomes a new save: yours stay as they are.
 A .zip of this save: keep it, or import it on another Mac.	A .zip of this save: keep it, or import it on another Mac.
 A right stick (or mouse camera) pointed within this many degrees of up, down, left or right is held exactly on that direction. 0: off.	A right stick (or mouse camera) pointed within this many degrees of up, down, left or right is held exactly on that direction. 0: off.
@@ -34,8 +36,11 @@ All files	All files
 All shaders	All shaders
 Always (cursor held in the window)	Always (cursor held in the window)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	An empty save with a name of your own, ready to play: you're asked before the game restarts with it.
+An online save can't be copied.	An online save can't be copied.
+An online save can't be deleted.	An online save can't be deleted.
 Anisotropic filtering	Anisotropic filtering
 Anti-aliasing	Anti-aliasing
+Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!
 Any button	Any button
 Application language	Application language
 Are you sure?	Are you sure?
@@ -78,9 +83,12 @@ Choose NEW GAME to begin.	Choose NEW GAME to begin.
 Choose a save exported from MonZaMac (.zip), or a folder holding a Z-A save (a JKSV backup, a copy from a console).	Choose a save exported from MonZaMac (.zip), or a folder holding a Z-A save (a JKSV backup, a copy from a console).
 Choose or drop the extracted game folder.	Choose or drop the extracted game folder.
 Choose the folder that holds the game files.	Choose the folder that holds the game files.
+Choose the game's .nup file before setup.	Choose the game's .nup file before setup.
 Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.	Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.
 Choose your base game, update and prod.keys before setup.	Choose your base game, update and prod.keys before setup.
+Choose your online save	Choose your online save
 Choose...	Choose...
+Chosen the first time you press Play online.	Chosen the first time you press Play online.
 Chosen:\s	Chosen:\s
 Close	Close
 Closes MonZaMac.	Closes MonZaMac.
@@ -195,6 +203,7 @@ Game data missing	Game data missing
 Game dynamic resolution	Game dynamic resolution
 Game effects	Game effects
 Game files	Game files
+Game files changed	Game files changed
 Game files deleted.	Game files deleted.
 Game files folder	Game files folder
 Game files incomplete	Game files incomplete
@@ -203,7 +212,7 @@ Game files ready.	Game files ready.
 Game font	Game font
 Game mode	Game mode
 Game packages	Game packages
-Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere.	Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere.
+Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.	Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.
 Game text language	Game text language
 Game update	Game update
 Game's	Game's
@@ -300,6 +309,7 @@ Neither MonZaMac nor this application is affiliated with, endorsed by, sponsored
 Never	Never
 New game	New game
 New game in a new save	New game in a new save
+New online game (recommended)	New online game (recommended)
 New save	New save
 Nintendo font (imported)	Nintendo font (imported)
 No Pokémon yet	No Pokémon yet
@@ -326,6 +336,7 @@ Not published yet	Not published yet
 Nothing is uploaded. It starts the game, which does this, then comes back here. Redo it when MonZaMac, macOS, your GPU or the game files change: the badge turns yellow then.	Nothing is uploaded. It starts the game, which does this, then comes back here. Redo it when MonZaMac, macOS, your GPU or the game files change: the badge turns yellow then.
 Nothing pressed: %s unchanged.	Nothing pressed: %s unchanged.
 OK	OK
+ONLINE	ONLINE
 Off	Off
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.
 Offline play	Offline play
@@ -348,6 +359,7 @@ PLAY  %s	PLAY  %s
 Package import tools are missing. Install the complete app or use an extracted folder.	Package import tools are missing. Install the complete app or use an extracted folder.
 Performance	Performance
 Play "%s"? The game restarts with it: progress in "%s" since its last save is lost.	Play "%s"? The game restarts with it: progress in "%s" since its last save is lost.
+Play anyway	Play anyway
 Play it (the game restarts with it), copy, export, rename or delete it.	Play it (the game restarts with it), copy, export, rename or delete it.
 Play offline	Play offline
 Play online	Play online
@@ -402,7 +414,6 @@ SET UP GAME FILES	SET UP GAME FILES
 Same as offline	Same as offline
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.
 Save in the game first: then it can be copied and exported here.	Save in the game first: then it can be copied and exported here.
-Save name	Save name
 Saves	Saves
 Saves, seeds and settings are kept. Your own game files aren't touched.	Saves, seeds and settings are kept. Your own game files aren't touched.
 Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button that's already in use swaps with the old one.	Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button that's already in use swaps with the old one.
@@ -446,11 +457,15 @@ Starting...	Starting...
 Stays where you are.	Stays where you are.
 Stop recording	Stop recording
 Switch	Switch
+Switch 2 Edition (.nup)	Switch 2 Edition (.nup)
+Switch 2 Edition .nup	Switch 2 Edition .nup
+Switch 2 Edition package	Switch 2 Edition package
 Switch fonts	Switch fonts
 Switch keys	Switch keys
 Switch tabs	Switch tabs
 Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)
 System default	System default
+Team	Team
 Tests	Tests
 Text: %s    Button icons: %s	Text: %s    Button icons: %s
 Text: imported	Text: imported
@@ -467,6 +482,7 @@ The first time, the online version is prepared on this Mac (it can take a few mi
 The folder with your own game folders (exefs/romfs) of Pokémon Legends: Z-A for Nintendo Switch, version 2.0.2. The game isn't included with MonZaMac.	The folder with your own game folders (exefs/romfs) of Pokémon Legends: Z-A for Nintendo Switch, version 2.0.2. The game isn't included with MonZaMac.
 The game code build for online play could not be kept.	The game code build for online play could not be kept.
 The game code didn't build	The game code didn't build
+The game data is not the original of version 2.0.2.	The game data is not the original of version 2.0.2.
 The game files changed.	The game files changed.
 The game restarts to switch its text to %s. Progress since your last save is lost.	The game restarts to switch its text to %s. Progress since your last save is lost.
 The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.	The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.
@@ -480,6 +496,7 @@ The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter e
 The online version could not be prepared.	The online version could not be prepared.
 The save couldn't be copied.	The save couldn't be copied.
 The save in use ("%s", as the game last saved it) is copied into routes/ first (it does not show in the save list), then the pad is recorded until you stop.	The save in use ("%s", as the game last saved it) is copied into routes/ first (it does not show in the save list), then the pad is recorded until you stop.
+The save will be checked: any tampering with it will get you banned from Lumiose Online!	The save will be checked: any tampering with it will get you banned from Lumiose Online!
 The sharpest the dynamic resolution goes: the game's own %s, %s (1.5x), or your display's own resolution.\n\nIt's lowered from there while your GPU can't keep the frame rate.	The sharpest the dynamic resolution goes: the game's own %s, %s (1.5x), or your display's own resolution.\n\nIt's lowered from there while your GPU can't keep the frame rate.
 The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024).\n\nHigher: smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory (4x: about 240 MB, 2x: 60 MB). Applies at once.	The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024).\n\nHigher: smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory (4x: about 240 MB, 2x: 60 MB). Applies at once.
 The trackpad's two-finger scroll turns the camera, as the mouse does.	The trackpad's two-finger scroll turns the camera, as the mouse does.
@@ -488,7 +505,10 @@ This Mac's graphics chip is not the one it was done on.	This Mac's graphics chip
 This build has no online setup.	This build has no online setup.
 This deletes MonZaMac's copy of the game files (%.1f GB).	This deletes MonZaMac's copy of the game files (%.1f GB).
 This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.	This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.
+This file isn't a valid Switch 2 Edition .nup package.	This file isn't a valid Switch 2 Edition .nup package.
+This is usually a damaged download of the update, and the game crashes when it loads the damaged part. Get the update again, from your own Switch or another download, then delete the game files and set them up again. Saves, mods and settings are kept.	This is usually a damaged download of the update, and the game crashes when it loads the damaged part. Get the update again, from your own Switch or another download, then delete the game files and set them up again. Saves, mods and settings are kept.
 This only needs to be done once and may take a while.	This only needs to be done once and may take a while.
+This save is for Lumiose Online only: start it with Play online.	This save is for Lumiose Online only: start it with Play online.
 This version of MonZaMac precompiles more than the last one did.	This version of MonZaMac precompiles more than the last one did.
 Those files can't be used	Those files can't be used
 Time: several minutes (about 5 on a 10-core M5, longer elsewhere), using every CPU core: the Mac gets warm. You can stop any time; what was compiled is kept.	Time: several minutes (about 5 on a 10-core M5, longer elsewhere), using every CPU core: the Mac gets warm. You can stop any time; what was compiled is kept.
@@ -496,6 +516,7 @@ Title screen	Title screen
 Trackpad	Trackpad
 Trainer	Trainer
 Trainer\s	Trainer\s
+Trainer name	Trainer name
 Try again	Try again
 Two-finger drag on the trackpad	Two-finger drag on the trackpad
 Unable to check	Unable to check
@@ -509,6 +530,7 @@ Up to date.	Up to date.
 Up to match display	Up to match display
 Up to match display (%dp)	Up to match display (%dp)
 Update (2.0.2)	Update (2.0.2)
+Update MonZaMac first	Update MonZaMac first
 Update available	Update available
 Update available!\s\s	Update available!\s\s
 Update failed	Update failed
@@ -519,12 +541,15 @@ Updating the online version	Updating the online version
 Updating...	Updating...
 Upscaler	Upscaler
 Upscaling and AA	Upscaling and AA
+Use as online save	Use as online save
+Use one of my saves as the online save	Use one of my saves as the online save
 Use substitute font	Use substitute font
-Uses the save selected offline	Uses the save selected offline
+Version %s is out. Update to play online.	Version %s is out. Update to play online.
 Video	Video
 View + Menu	View + Menu
 Voice chat	Voice chat
 Volume	Volume
+WARNING: once this save is used online, it can no longer be played offline!	WARNING: once this save is used online, it can no longer be played offline!
 Wait for shaders	Wait for shaders
 Warning	Warning
 While holding a button	While holding a button
@@ -548,6 +573,7 @@ You can change this any time in Settings.	You can change this any time in Settin
 You're on the start screen.	You're on the start screen.
 Your copy of the game	Your copy of the game
 Your game files are another version.	Your game files are another version.
+Your game files look damaged	Your game files look damaged
 Your game, your responsibility	Your game, your responsibility
 abc	abc
 connected	connected

@@ -1391,7 +1391,7 @@ static void clear(int index, int kind, const void *color, uint32_t mask, bool de
         else if (renderer_format_is_sint(f)) kind = 1;
         else kind = 0;
     }
-    // A float clear of an integer target converts the value, as the hardware does (Ryujinx too): Pokémon Z-A clears
+    // A float clear of an integer target converts the value, as the hardware does: Pokémon Z-A clears
     // its R8_UINT shadow caster-class map with ClearColor(1.0) and expects 1. Its raw bits saturated to 255, every
     // empty texel then named a caster class, and the shadow mask self-shadowed the characters (faceted streaks).
     uint32_t conv[4];
@@ -2150,6 +2150,23 @@ static bool cs_compile(CsProg *cp, uint64_t trace_addr) {
             if (cp->pipe) __atomic_fetch_add(&g_archive_hits, 1, __ATOMIC_RELAXED);
         }
         if (!cp->pipe) cp->pipe = TIMED_COMPILE([dev newComputePipelineStateWithDescriptor:cd options:MTLPipelineOptionNone reflection:nil error:&err]);
+        // The most threads per group a kernel can run depends on its register use and on the GPU (M1/M2: sometimes under what
+        // the game declares); when it falls short Metal skips the dispatch without a word. Asking the compiler for the declared
+        // size makes it fit the kernel (or fail visibly). Only when the plain build falls short: every other pipeline, and the
+        // pipeline archive entry it has, stays as it was.
+        NSUInteger want = (NSUInteger)cp->local[0] * cp->local[1] * cp->local[2];
+        if (cp->pipe && cp->pipe.maxTotalThreadsPerThreadgroup < want) {
+            NSUInteger had = cp->pipe.maxTotalThreadsPerThreadgroup;
+            cd.maxTotalThreadsPerThreadgroup = want;
+            cd.binaryArchives = nil;
+            NSError *err2 = nil;
+            id<MTLComputePipelineState> fit = TIMED_COMPILE([dev newComputePipelineStateWithDescriptor:cd options:MTLPipelineOptionNone reflection:nil error:&err2]);
+            static int n;
+            if (n++ < 10) LOG("[compute] group %ux%ux%u (%lu threads) over the %lu this GPU allows the kernel: %s\n", cp->local[0], cp->local[1], cp->local[2],
+                              (unsigned long)want, (unsigned long)had,
+                              fit && fit.maxTotalThreadsPerThreadgroup >= want ? "rebuilt to fit" : err2 ? err2.localizedDescription.UTF8String : "still too large, its dispatches are skipped");
+            if (fit && fit.maxTotalThreadsPerThreadgroup >= want) cp->pipe = fit;
+        }
         if (cp->pipe) cs_archive_add([cd copy]);
         if (shader_trace_enabled()) shader_trace_compile("compute-pipeline", now_ms() - trace_start, trace_addr, 0, fnv64(cp->si->msl), 0, -1);
     }
@@ -2237,7 +2254,10 @@ static Prog *get_program(NvnProgram *p, ShaderKey *vkey, ShaderKey *fkey) {
     // the compiler constants follow the code, so they bound the instruction scan
     size_t vmax = p->stages[0].const_offset ? p->stages[0].const_offset : 0x10000;
     size_t fmax = p->stages[1].const_offset ? p->stages[1].const_offset : 0x10000;
-    pr->vi = maxwell_translate((const uint8_t *)(uintptr_t)p->stages[0].code_addr, vmax, STAGE_VERTEX, vkey);
+    // (with the compiler constants, as the fragment stage and the precompile: branchy programs get structured flow)
+    NvnShaderStage *vs = &p->stages[0];
+    pr->vi = maxwell_translate_with_constants((const uint8_t *)(uintptr_t)vs->code_addr, vmax, STAGE_VERTEX, vkey,
+                                             (const uint8_t *)(uintptr_t)(vs->code_addr + vs->const_offset), vs->const_offset ? vs->const_size : 0);
     if (!pr->vi->msl) {
         LOG("[shader] VS translate failed: %s (code %llx)\n", pr->vi->error, p->stages[0].code_addr);
         char path[128];
@@ -2799,11 +2819,15 @@ static void dump_pending_arrays(void) {
         id<MTLBlitCommandEncoder> bb = [c blitCommandEncoder];
         [bb copyFromTexture:t sourceSlice:g_arr_pend[k].layer sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
                  sourceSize:MTLSizeMake(t.width, t.height, 1) toBuffer:rb destinationOffset:0
-             destinationBytesPerRow:t.width * bpp destinationBytesPerImage:n options:MTLBlitOptionNone];
+             destinationBytesPerRow:t.width * bpp destinationBytesPerImage:n
+                         options:t.pixelFormat == MTLPixelFormatDepth32Float_Stencil8 ? MTLBlitOptionDepthFromDepthStencil : MTLBlitOptionNone];
         [bb endEncoding];
         [c commit];
         [c waitUntilCompleted];
         char path[128];
+        if (t.textureType == MTLTextureType2D)  // (a 2D depth texture: raw floats, its size in the name)
+            snprintf(path, sizeof path, "build/dz_%03d_%d_%lux%lu.f32", g_arr_pend[k].idx, g_arr_pend[k].slot, (unsigned long)t.width, (unsigned long)t.height);
+        else
         snprintf(path, sizeof path, bpp == 1 ? "build/arr_%03d_%d_L%d.u8" : "build/arr_%03d_%d_L%d.f32", g_arr_pend[k].idx, g_arr_pend[k].slot, g_arr_pend[k].layer);
         FILE *ff = fopen(path, "wb");
         if (ff) { fwrite(rb.contents, 1, n, ff); fclose(ff); }
@@ -2851,7 +2875,7 @@ static void bind_textures(int stage, ShaderInfo *si) {
                         FILE *af = fopen(ap, "wb");
                         if (af) { fwrite(p, 1, total, af); fclose(af); }
                         LOG("[dtex] atlas %s target %u stride %u flags %#x levels %u layers %u | gpu type %lu arr %lu\n", ap, e->tex->target,
-                            e->tex->stride, e->tex->flags, e->tex->levels, e->tex->layout.layers,
+                            (unsigned)e->tex->stride, e->tex->flags, e->tex->levels, e->tex->layout.layers,
                             (unsigned long)tex.textureType, (unsigned long)tex.arrayLength);
                         id<MTLTexture> abase = renderer_texture(e->tex, nil, false);
                         snprintf(ap, sizeof ap, "build/atlas_%llx_gpu.png", e->tex->addr);
@@ -2863,7 +2887,7 @@ static void bind_textures(int stage, ShaderInfo *si) {
                     if (!once++ || g_debug_frame) {
                         id<MTLTexture> base = renderer_texture(e->tex, nil, false);
                         LOG("[dtex] glyph cache target %u depth %u layers %u levels %u stride %u flags %#x base type %lu arrlen %lu\n",
-                            e->tex->target, e->tex->depth, e->tex->layout.layers, e->tex->levels, e->tex->stride, e->tex->flags,
+                            e->tex->target, e->tex->depth, e->tex->layout.layers, e->tex->levels, (unsigned)e->tex->stride, e->tex->flags,
                             (unsigned long)base.textureType, (unsigned long)base.arrayLength);
                         LOG("[dtex] glyph view: has %d mask %#x levels %u+%u layers %u+%u fmt %#x target %u\n", e->has_view, e->view.setmask,
                             e->view.base_level, e->view.num_levels, e->view.min_layer, e->view.num_layers, e->view.format, e->view.target);
@@ -2893,7 +2917,7 @@ static void bind_textures(int stage, ShaderInfo *si) {
                         snprintf(rp, sizeof rp, "build/raw_%llx.bin", e->tex->addr);
                         FILE *rf = fopen(rp, "wb");
                         if (rf) { fwrite(p, 1, total, rf); fclose(rf); }
-                        LOG("[dtex] linear texture stride %u -> %s\n", e->tex->stride, rp);
+                        LOG("[dtex] linear texture stride %u -> %s\n", (unsigned)e->tex->stride, rp);
                     }
                 }
                 LOG("[dtex] slot %d tex %ux%u f%#x addr %llx size %llu nonzero %llu gpu_owned %d | swz %d %d %d %d view(%d,%#x) %d %d %d %d\n",
@@ -2960,6 +2984,13 @@ static void bind_textures(int stage, ShaderInfo *si) {
             }
         }
         if (!smp) smp = default_sampler();
+        static int dev_tools = -1;  // LARECOMP_DEVTOOLS: the developer's extra logs
+        if (dev_tools < 0) dev_tools = getenv("LARECOMP_DEVTOOLS") != NULL;
+        if (dev_tools && g_debug_frame && stage == 1 && sd)  // (diagnostics) the game's sampler state per slot and draw
+            LOG("[dsmp] slot %d tsc %u min %u mag %u wrap %u %u lod %g..%g bias %g aniso %g cmp %u/%u red %u | tex %lux%lu mips %lu\n",
+                i, tsc, sd->min_filter, sd->mag_filter, sd->wrap[0], sd->wrap[1], sd->lod_min, sd->lod_max, sd->lod_bias,
+                sd->max_aniso, sd->compare_mode, sd->compare_func, sd->reduction, (unsigned long)tex.width,
+                (unsigned long)tex.height, (unsigned long)tex.mipmapLevelCount);
         if (g_debug_frame && tex.textureType == MTLTextureType2D && stage == 1) {
             static int dn;
             char path[128];
@@ -2975,6 +3006,14 @@ static void bind_textures(int stage, ShaderInfo *si) {
             static int sn;
             id<MTLTexture> base = renderer_texture(e_dbg_tex, nil, false);
             if (base.pixelFormat == MTLPixelFormatDepth32Float_Stencil8) g_arr_pend[g_arr_n++] = (ArrPend){base, sn++, i, 0, true};
+        }
+        if (g_debug_frame && stage == 1 && !st_->stencil && tex.textureType == MTLTextureType2D && g_arr_n < 16 &&
+            (tex.pixelFormat == MTLPixelFormatDepth32Float || tex.pixelFormat == MTLPixelFormatDepth32Float_Stencil8) &&
+            getenv("LARECOMP_DUMP_UBO") && si->msl && fnv64(si->msl) == strtoull(getenv("LARECOMP_DUMP_UBO"), NULL, 16)) {
+            // (diagnostics) depth the LARECOMP_DUMP_UBO shader samples, as raw floats (CPU re-runs of its maths)
+            static int dzn;
+            LOG("[dtex]   build/dz_%03d_%d_%lux%lu.f32 depth\n", dzn, i, (unsigned long)tex.width, (unsigned long)tex.height);
+            g_arr_pend[g_arr_n++] = (ArrPend){tex, dzn++, i, 0};
         }
         if (g_debug_frame && tex.textureType == MTLTextureType2DArray && stage == 1 && tex.width >= 512 && !st_->is_image) {
             // (diagnostics) array textures (shadow cascades...): every layer (up to 4) as its own image
@@ -3336,9 +3375,14 @@ static void debug_draw(Prog *pr, CmdRec *r, bool indexed) {
             if (!st.ubuf[1][i].addr) continue;
             const float *f = (const float *)(uintptr_t)st.ubuf[1][i].addr;
             LOG("[ubo] f%d (%llu):", i, st.ubuf[1][i].size);
-            for (uint64_t k = 0; k < st.ubuf[1][i].size / 4 && k < 1200; k++) LOG(" %g", f[k]);
+            for (uint64_t k = 0; k < st.ubuf[1][i].size / 4 && k < 1200; k++) LOG(" %.9g", f[k]);
             LOG("\n");
         }
+        NvnShaderStage *ss = &st.program->stages[1];  // the compiler constants (shader bank 1)
+        const float *c1 = (const float *)(uintptr_t)(ss->code_addr + ss->const_offset);
+        LOG("[ubo] c1 (%llu):", (unsigned long long)ss->const_size);
+        for (uint64_t k = 0; ss->const_size && k < ss->const_size / 4 && k < 256; k++) LOG(" %.9g", c1[k]);
+        LOG("\n");
     }
     static int dump_vs = -1;  // LARECOMP_DUMP_VSUBO: every vertex-stage UBO (first 48 floats) of debug-frame draws
     if (dump_vs < 0) dump_vs = getenv("LARECOMP_DUMP_VSUBO") != NULL;
@@ -4817,7 +4861,7 @@ static void copy_texture_gpu(const TexRefRec *src, const TexRefRec *dst, uint64_
         static int nl;
         uint64_t total = tegra_total_size(&st_->layout), nz = 0;
         for (uint64_t k = 0; k < total && st_->addr; k++) nz += ((const uint8_t *)(uintptr_t)st_->addr)[k] != 0;
-        if (nl < 400) LOG("[copytex] src addr %llx size %llu nonzero %llu tflags %#x stride %u bh %u\n", st_->addr, total, nz, st_->flags, st_->stride, st_->layout.block_height_log2);
+        if (nl < 400) LOG("[copytex] src addr %llx size %llu nonzero %llu tflags %#x stride %u bh %u\n", st_->addr, total, nz, st_->flags, (unsigned)st_->stride, st_->layout.block_height_log2);
         if (nl++ < 400) LOG("[copytex] %ux%u f%#x (%d,%d %dx%d) -> %ux%u f%#x (%d,%d %dx%d) flags %llx src_gpu %d\n", st_->width, st_->height, st_->format,
             sr[0], sr[1], sr[3], sr[4], dt->width, dt->height, dt->format, dr[0], dr[1], dr[3], dr[4], flags, renderer_is_gpu_owned(st_));
     }

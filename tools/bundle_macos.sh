@@ -63,6 +63,10 @@ cp docs/icon/icon_1024.png "$C/Resources/icon.png"  # (window / Dock icon at run
 [ -n "${LUMIOSE_ONLINE:-}" ] && cp docs/icon/lumiose_banner.jpg "$C/Resources/lumiose_banner.jpg"  # (the online column's background)
 cp third_party/fonts/Baloo2/Baloo2-SemiBold.ttf "$C/Resources/Baloo2-SemiBold.ttf"  # (start screen; OFL, README "License")
 cp third_party/fonts/Baloo2/OFL.txt "$C/Resources/Baloo2-OFL.txt"
+mkdir -p "$C/Resources/licenses"  # (notices for code built into monzamac)
+cp third_party/audio-reverb/LICENSE.txt "$C/Resources/licenses/audio-reverb-MIT.txt"
+cp third_party/smaa/LICENSE.txt "$C/Resources/licenses/smaa-MIT.txt"
+cp third_party/imgui/LICENSE.txt "$C/Resources/licenses/imgui-MIT.txt"
 
 # ---- dylibs: copy every non-system dependency, recursively; point all references at @rpath/<name>
 is_system() { case "$1" in /usr/lib/*|/System/*) return 0;; esac; return 1; }

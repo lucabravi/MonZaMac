@@ -9,6 +9,7 @@
 %s is now %s.	%s ahora es %s.
 %s is now %s; %s moved to %s (swapped).	%s ahora es %s; %s pasa a %s (intercambio).
 %s%s%s%s\nPlay time %s  ·  %s coins\nTeam: %s	%s%s%s%s\nTiempo de juego %s  ·  %s monedas\nEquipo: %s
+%u of %u parts of the game data differ from the original files of version 2.0.2.	%u de %u partes de los datos del juego difieren de los archivos originales de la versión 2.0.2.
 %u recipes	%u recetas
 + New save	+ Nueva ranura
 1. DLC package (.nsp)	1. Paquete DLC (.nsp)
@@ -17,6 +18,7 @@
 30 fps: as on the Switch.\n60 fps: smoother motion, with the world step adapting to the time each frame takes to keep the game speed steady down to 30 fps. Needs a faster CPU.\n\nFrame generation selects its own source rate; turning it off restores your choice here.	30 fps: como en la Switch.\n60 fps: movimiento más fluido, con el paso del mundo adaptándose al tiempo de cada fotograma para mantener estable la velocidad del juego hasta 30 fps. Necesita una CPU más rápida.\n\nLa generación de fotogramas elige su propia tasa de origen; al desactivarla se restablece tu elección.
 60 fps	60 FPS
 A  type      B  delete      Start / +  OK      (%d / %d)	A  escribir      B  borrar      Start / +  aceptar      (%d / %d)
+A .nup container packed from your own dump: base game, update and DLC, already decrypted. No prod.keys needed.	Un contenedor .nup creado a partir de tu propio volcado: juego base, actualización y DLC, ya descifrados. No hace falta prod.keys.
 A .zip exported from MonZaMac, or a folder with a Z-A save (a JKSV backup, a copy from a console). It becomes a new save: yours stay as they are.	Importa un .zip exportado desde MonZaMac o una carpeta con una partida guardada de Z-A (copia de JKSV o de una consola). Se creará una nueva partida guardada sin modificar las existentes.
 A .zip of this save: keep it, or import it on another Mac.	Archivo .zip de esta partida: consérvalo o impórtalo en otro Mac.
 A right stick (or mouse camera) pointed within this many degrees of up, down, left or right is held exactly on that direction. 0: off.	Un stick derecho (o la cámara con el ratón) orientado dentro de estos grados de arriba, abajo, izquierda o derecha se fija exactamente en esa dirección. 0: desactivado.
@@ -34,8 +36,11 @@ All files	Todos los archivos
 All shaders	Todos los shaders
 Always (cursor held in the window)	Siempre (cursor retenido en la ventana)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	Crea una ranura de guardado vacía con el nombre que elijas. Se pedirá confirmación antes de reiniciar el juego para iniciar una partida nueva.
+An online save can't be copied.	Una partida en línea no se puede copiar.
+An online save can't be deleted.	Una partida en línea no se puede eliminar.
 Anisotropic filtering	Filtrado anisotrópico
 Anti-aliasing	Antialiasing
+Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	¡Cualquier acción para eludir el bloqueo y avanzar en el juego sin conexión puede provocar un baneo en Lumiose Online!
 Any button	Cualquier botón
 Application language	Idioma de la aplicación
 Are you sure?	¿Estás seguro?
@@ -78,9 +83,12 @@ Choose NEW GAME to begin.	Elige NUEVA PARTIDA para empezar.
 Choose a save exported from MonZaMac (.zip), or a folder holding a Z-A save (a JKSV backup, a copy from a console).	Elige una partida exportada de MonZaMac (.zip) o una carpeta con una partida de Z-A (copia JKSV o de la consola).
 Choose or drop the extracted game folder.	Elige o suelta aquí la carpeta del juego extraída.
 Choose the folder that holds the game files.	Elige la carpeta que contiene los archivos del juego.
+Choose the game's .nup file before setup.	Antes de empezar, selecciona el archivo .nup del juego.
 Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.	Selecciona estos dos archivos. Solo se leen en este Mac para añadir el DLC, sin recompilar el código del juego.
 Choose your base game, update and prod.keys before setup.	Antes de empezar, selecciona el juego base, la actualización y prod.keys.
+Choose your online save	Elige tu partida guardada en línea
 Choose...	Elegir...
+Chosen the first time you press Play online.	Se elige la primera vez que pulses Jugar en línea.
 Chosen:\s	Seleccionado:\s
 Close	Cerrar
 Closes MonZaMac.	Cierra MonZaMac.
@@ -195,6 +203,7 @@ Game data missing	Faltan datos del juego
 Game dynamic resolution	Resolución dinámica del juego
 Game effects	Efectos del juego
 Game files	Archivos del juego
+Game files changed	Archivos del juego modificados
 Game files deleted.	Archivos del juego eliminados.
 Game files folder	Carpeta de archivos del juego
 Game files incomplete	Archivos del juego incompletos
@@ -203,7 +212,7 @@ Game files ready.	Archivos del juego listos.
 Game font	Fuente del juego
 Game mode	Modo de juego
 Game packages	Paquetes del juego
-Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere.	Paquetes de juego: elige el NSP/XCI base, el NSP de actualización y prod.keys. Carpeta extraída: usa exefs/romfs preparados en otro sitio.
+Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.	Paquetes de juego: elige el NSP/XCI base, el NSP de actualización y prod.keys. Carpeta extraída: usa exefs/romfs preparados en otro sitio. Switch 2 Edition: un solo contenedor .nup con el juego base, la actualización y el DLC; sin claves.
 Game text language	Idioma de los textos del juego
 Game update	Actualización del juego
 Game's	Del juego
@@ -300,6 +309,7 @@ Neither MonZaMac nor this application is affiliated with, endorsed by, sponsored
 Never	Nunca
 New game	Nueva partida
 New game in a new save	Nueva partida en una ranura de guardado nueva
+New online game (recommended)	Nueva partida en línea (recomendado)
 New save	Nueva ranura de guardado
 Nintendo font (imported)	Fuente Nintendo (importada)
 No Pokémon yet	Aún no hay Pokémon
@@ -326,6 +336,7 @@ Not published yet	Aún no publicado
 Nothing is uploaded. It starts the game, which does this, then comes back here. Redo it when MonZaMac, macOS, your GPU or the game files change: the badge turns yellow then.	No se envía nada. El juego compila los shaders y vuelve aquí. Repítelo cuando cambie MonZaMac, macOS, la GPU o los archivos del juego: el indicador se pondrá amarillo.
 Nothing pressed: %s unchanged.	No se ha pulsado nada: %s sin cambios.
 OK	Aceptar
+ONLINE	EN LÍNEA
 Off	Desactivado
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	Catálogo oficial de recetas de shaders: %s.%s No se envían datos del juego. La compilación ocurre al iniciar o registrar shaders.
 Offline play	Juego sin conexión
@@ -348,6 +359,7 @@ PLAY  %s	TIEMPO DE JUEGO  %s
 Package import tools are missing. Install the complete app or use an extracted folder.	Faltan las herramientas de importación de paquetes. Instala la app completa o usa una carpeta extraída.
 Performance	Rendimiento
 Play "%s"? The game restarts with it: progress in "%s" since its last save is lost.	¿Jugar con "%s"? El juego se reiniciará y se perderá el progreso de "%s" desde el último guardado.
+Play anyway	Jugar de todos modos
 Play it (the game restarts with it), copy, export, rename or delete it.	Juega con esta partida (el juego se reinicia), o cópiala, expórtala, cámbiale el nombre o elimínala.
 Play offline	Jugar sin conexión
 Play online	Jugar en línea
@@ -402,7 +414,6 @@ SET UP GAME FILES	CONFIGURAR ARCHIVOS DEL JUEGO
 Same as offline	Igual que sin conexión
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	Guarda una contribución JSON con solo metadatos, para revisarla y compartirla a mano. La exportación no la envía a ninguna parte. Las recetas con ubicaciones de origen desconocidas aún requieren investigación.
 Save in the game first: then it can be copied and exported here.	Guarda primero la partida dentro del juego; después podrás copiarla y exportarla aquí.
-Save name	Nombre de la partida
 Saves	Partidas guardadas
 Saves, seeds and settings are kept. Your own game files aren't touched.	Se conservarán las partidas, semillas y ajustes. No se modificarán tus archivos originales.
 Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button that's already in use swaps with the old one.	Selecciona una asignación y pulsa el nuevo botón o tecla. Esc (o 5 segundos) cancela. Si ya está en uso, se intercambian las asignaciones.
@@ -446,11 +457,15 @@ Starting...	Iniciando...
 Stays where you are.	Permaneces en esta pantalla.
 Stop recording	Detener grabación
 Switch	Switch
+Switch 2 Edition (.nup)	Switch 2 Edition (.nup)
+Switch 2 Edition .nup	Switch 2 Edition .nup
+Switch 2 Edition package	Paquete Switch 2 Edition
 Switch fonts	Fuentes Switch
 Switch keys	Claves criptográficas de Switch
 Switch tabs	Cambiar de pestaña
 Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	Cambiar pestaña: L / R (Q / E)      Atrás: B (Esc)
 System default	Predeterminado del sistema
+Team	Equipo
 Tests	Pruebas
 Text: %s    Button icons: %s	Texto: %s    Iconos de botones: %s
 Text: imported	Texto: fuente importada
@@ -467,6 +482,7 @@ The first time, the online version is prepared on this Mac (it can take a few mi
 The folder with your own game folders (exefs/romfs) of Pokémon Legends: Z-A for Nintendo Switch, version 2.0.2. The game isn't included with MonZaMac.	Carpeta con tus archivos del juego (exefs/romfs) de Pokémon Legends: Z-A para Nintendo Switch, versión 2.0.2. El juego no se incluye en MonZaMac.
 The game code build for online play could not be kept.	No se pudo conservar la compilación del código del juego para el modo en línea.
 The game code didn't build	No se pudo compilar el código del juego
+The game data is not the original of version 2.0.2.	Los datos del juego no son los originales de la versión 2.0.2.
 The game files changed.	Los archivos del juego han cambiado.
 The game restarts to switch its text to %s. Progress since your last save is lost.	El juego se reinicia para cambiar los textos a %s. Se perderá el progreso desde tu última partida guardada.
 The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.	Desenfoque de los elementos alejados del punto de enfoque. Desactivado: toda la imagen permanece nítida.
@@ -480,6 +496,7 @@ The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter e
 The online version could not be prepared.	No se pudo preparar la versión en línea.
 The save couldn't be copied.	No se pudo copiar la partida guardada.
 The save in use ("%s", as the game last saved it) is copied into routes/ first (it does not show in the save list), then the pad is recorded until you stop.	La partida actual ("%s", tal como la guardó el juego) se copia primero en routes/ (no aparece en la lista); después se graban las acciones del mando hasta que lo detengas.
+The save will be checked: any tampering with it will get you banned from Lumiose Online!	Se comprobará la partida guardada: cualquier manipulación provocará un baneo en Lumiose Online.
 The sharpest the dynamic resolution goes: the game's own %s, %s (1.5x), or your display's own resolution.\n\nIt's lowered from there while your GPU can't keep the frame rate.	El máximo de la resolución dinámica: la del propio juego (%s), %s (1,5x) o la de tu pantalla.\n\nDesde ahí se reduce mientras la GPU no mantenga la tasa de fotogramas.
 The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024).\n\nHigher: smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory (4x: about 240 MB, 2x: 60 MB). Applies at once.	El tamaño del mapa con el que se dibujan las sombras del sol (el del juego: 1024 x 1024).\n\nMás alto: bordes de sombra más suaves, sin escalones, a cambio de algo de tiempo de GPU y más memoria de GPU (4x: unos 240 MB, 2x: 60 MB). Se aplica al instante.
 The trackpad's two-finger scroll turns the camera, as the mouse does.	Deslizar dos dedos en el trackpad gira la cámara, como el ratón.
@@ -488,7 +505,10 @@ This Mac's graphics chip is not the one it was done on.	El chip gráfico de este
 This build has no online setup.	Esta versión no incluye la configuración del modo en línea.
 This deletes MonZaMac's copy of the game files (%.1f GB).	Se eliminará la copia de los archivos del juego de MonZaMac (%.1f GB).
 This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or XCI game package.	Este archivo es un 7z pese a tener extensión .nsp. Elige un paquete NSP o XCI sin comprimir.
+This file isn't a valid Switch 2 Edition .nup package.	Este archivo no es un paquete .nup de Switch 2 Edition válido.
+This is usually a damaged download of the update, and the game crashes when it loads the damaged part. Get the update again, from your own Switch or another download, then delete the game files and set them up again. Saves, mods and settings are kept.	Suele ser una descarga dañada de la actualización, y el juego se cierra al cargar la parte dañada. Vuelve a obtener la actualización, desde tu Switch o con otra descarga, y luego elimina los archivos del juego y configúralos de nuevo. Las partidas guardadas, los mods y los ajustes se conservan.
 This only needs to be done once and may take a while.	Solo hace falta hacerlo una vez y puede tardar un poco.
+This save is for Lumiose Online only: start it with Play online.	Esta partida es solo para Lumiose Online: inícialo con Jugar en línea.
 This version of MonZaMac precompiles more than the last one did.	Esta versión de MonZaMac precompila más que la anterior.
 Those files can't be used	Esos archivos no se pueden usar
 Time: several minutes (about 5 on a 10-core M5, longer elsewhere), using every CPU core: the Mac gets warm. You can stop any time; what was compiled is kept.	Tiempo: varios minutos (unos 5 en un M5 de 10 núcleos, más en otros equipos), usando toda la CPU. El Mac se calentará. Puedes detenerlo; se conserva lo ya compilado.
@@ -496,6 +516,7 @@ Title screen	Pantalla inicial
 Trackpad	Trackpad
 Trainer	Entrenador
 Trainer\s	Entrenador\s
+Trainer name	Nombre del entrenador
 Try again	Reintentar
 Two-finger drag on the trackpad	Arrastre con dos dedos en el trackpad
 Unable to check	No se puede comprobar
@@ -509,6 +530,7 @@ Up to date.	Actualizado.
 Up to match display	Hasta la resolución de pantalla
 Up to match display (%dp)	Hasta la resolución de pantalla (%dp)
 Update (2.0.2)	Actualización (2.0.2)
+Update MonZaMac first	Actualiza MonZaMac primero
 Update available	Actualización disponible
 Update available!\s\s	¡Actualización disponible!\s\s
 Update failed	Error al actualizar
@@ -519,12 +541,15 @@ Updating the online version	Actualizando versión en línea
 Updating...	Actualizando...
 Upscaler	Escalado
 Upscaling and AA	Escalado y antialiasing
+Use as online save	Usar como partida en línea
+Use one of my saves as the online save	Usar una de mis partidas guardadas como partida en línea
 Use substitute font	Usar fuente alternativa
-Uses the save selected offline	Usa la partida seleccionada sin conexión
+Version %s is out. Update to play online.	Ya está disponible la versión %s. Actualiza para jugar en línea.
 Video	Vídeo
 View + Menu	Ver + Menú
 Voice chat	Chat de voz
 Volume	Volumen
+WARNING: once this save is used online, it can no longer be played offline!	¡ATENCIÓN: una vez usada en línea, ya no se podrá jugar sin conexión con esta partida guardada!
 Wait for shaders	Esperar los shaders
 Warning	Advertencia
 While holding a button	Manteniendo pulsado un botón
@@ -548,6 +573,7 @@ You can change this any time in Settings.	Puedes cambiarlo en cualquier momento 
 You're on the start screen.	Ya estás en la pantalla de inicio.
 Your copy of the game	Tu copia del juego
 Your game files are another version.	Tus archivos del juego corresponden a otra versión.
+Your game files look damaged	Los archivos del juego parecen dañados
 Your game, your responsibility	Tu juego, tu responsabilidad
 abc	abc
 connected	conectado

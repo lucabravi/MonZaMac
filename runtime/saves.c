@@ -46,6 +46,7 @@ static bool exists(const char *p) {
     struct stat st;
     return lstat(p, &st) == 0;
 }
+static bool marked(const char *path);  // (the online marker, below)
 
 // Newest modification time of the regular files under p (links are not followed).
 static void scan(const char *p, long long *newest) {
@@ -72,6 +73,11 @@ static void fill(SaveSlot *s, const char *id) {
     snprintf(s->name, sizeof s->name, "%s", *id ? id : ORIGINAL_NAME);
     slot_path(id, s->path, sizeof s->path);
     scan(s->path, &s->played);
+    s->online = marked(s->path);
+    if (s->online) {  // (an online save is named after its character, not by the player: that name, once the game has made one)
+        const SaveInfo *si = save_info(s->path);
+        if (si && si->trainer[0]) snprintf(s->name, sizeof s->name, "%s", si->trainer);
+    }
     struct stat st;
     if (stat(s->path, &st) == 0)
 #ifdef __APPLE__
@@ -193,7 +199,7 @@ bool saves_create(const char *name, char *id_out) {
 }
 
 bool saves_copy(const char *id, const char *name) {
-    if (!valid_id(id)) return false;
+    if (!valid_id(id) || saves_slot_online(id)) return false;  // (a copy of an online save would be a second one of the same player)
     char nid[SAVE_NAME_MAX + 1], to[128], from[128];
     if (!new_slot_path(name, nid, to, sizeof to)) return false;
     slot_path(id, from, sizeof from);
@@ -203,7 +209,7 @@ bool saves_copy(const char *id, const char *name) {
 }
 
 bool saves_rename(const char *id, const char *name, char *id_out) {
-    if (!valid_id(id)) return false;
+    if (!valid_id(id) || saves_slot_online(id)) return false;  // (an online save keeps the name of its character)
     char nid[SAVE_NAME_MAX + 1], to[128], from[128];
     if (!new_slot_path(name, nid, to, sizeof to)) return false;
     slot_path(id, from, sizeof from);  // (the original save/ moves into saves/ under its new name)
@@ -212,12 +218,16 @@ bool saves_rename(const char *id, const char *name, char *id_out) {
     return true;
 }
 
-bool saves_delete(const char *id) {
-    if (!valid_id(id)) return false;
+static bool delete_slot(const char *id) {
     char p[128];
     slot_path(id, p, sizeof p);
     remove_tree(p);
     return !exists(p);
+}
+
+bool saves_delete(const char *id) {
+    if (!valid_id(id) || saves_slot_online(id)) return false;  // (an online save is not deleted from the app: Lumiose Online keeps one per player)
+    return delete_slot(id);
 }
 
 // Routes live apart from the saves (routes/<name>/save = the starting point, routes/<name>/route.txt = the pad), so they
@@ -257,6 +267,38 @@ const char *saves_route_replay_dir(const char *name) {
 // The slot the game reads and writes (g_save_dir): its path as in SaveSlot.path
 const char *saves_current_path(void) { return g_save_dir ? g_save_dir : DEFAULT_DIR; }
 
+#define ONLINE_MARK ".online"  // in the slot's folder, next to save_0: a dot name, so it never counts as progress
+static bool marked(const char *path) {
+    char p[160];
+    snprintf(p, sizeof p, "%s/" ONLINE_MARK, path);
+    return exists(p);
+}
+bool saves_slot_online(const char *id) {
+    char path[128];
+    if (!valid_id(id)) return false;
+    slot_path(id, path, sizeof path);
+    return marked(path);
+}
+bool saves_set_online(const char *id) {
+    char path[128], p[160];
+    if (!valid_id(id)) return false;
+    slot_path(id, path, sizeof path);
+    mkdir(path, 0755);  // (the original save/ may not exist yet)
+    snprintf(p, sizeof p, "%s/" ONLINE_MARK, path);
+    FILE *f = fopen(p, "w");
+    if (!f) return false;
+    fputs("online\n", f);
+    return fclose(f) == 0;
+}
+bool saves_create_online(const char *name, char *id_out) {
+    char id[SAVE_NAME_MAX + 1];
+    if (!saves_create(name, id)) return false;
+    if (!saves_set_online(id)) { delete_slot(id); return false; }
+    if (id_out) snprintf(id_out, SAVE_NAME_MAX + 1, "%s", id);
+    return true;
+}
+bool saves_current_matches(bool online_game) { return marked(saves_current_path()) == online_game; }
+
 void saves_select(const char *id) {
     if (!valid_id(id)) id = "";
     static char dir[128];
@@ -265,12 +307,14 @@ void saves_select(const char *id) {
     g_save_dir = dir;
 }
 
-void saves_select_latest(void) {
+void saves_select_latest(bool online) {
     SaveSlot slots[SAVE_SLOTS_MAX];
     int n = saves_list(slots, SAVE_SLOTS_MAX), best = -1;
     for (int i = 0; i < n; i++)
-        if (slots[i].played && (best < 0 || slots[i].played > slots[best].played)) best = i;
-    saves_select(best < 0 ? "" : slots[best].id);
+        if (slots[i].online == online && slots[i].played && (best < 0 || slots[i].played > slots[best].played)) best = i;
+    if (best >= 0) saves_select(slots[best].id);
+    else if (!online) saves_select("");
+    // (online with no online save: the one in use stays; the start screen makes one before the game starts)
 }
 
 // ------------------------------------------------------------------ import / export

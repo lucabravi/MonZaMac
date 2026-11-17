@@ -11,4 +11,5 @@ struct OnlineView {
     const char *button;    // the button's label
     bool on;               // it can be pressed
     float progress;        // < 0: none; else 0..1, drawn as the button fills
+    const char *save_path; // the online save's slot folder (its trainer card is drawn); "" or NULL: none chosen yet
 };

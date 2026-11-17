@@ -34,7 +34,13 @@ work-202/
 /docs-private/
 # your own keys (local only)
 .keys/
+# your own game dumps (never committed)
+*.nsp
+*.xci
+*.nup
 
 # run and build logs
 *.log
 logs/
+.game-setup/
+.game-setup.lock

@@ -5,8 +5,54 @@ from pathlib import Path
 import struct
 import tempfile
 import unittest
+from unittest import mock
 
-from game_extract import ImportFailure, Package, in_field, program_content, run_tool, validate_extracted
+import hashlib
+
+from game_extract import (ImportFailure, Package, extract_nup, in_field, program_content, run_tool,
+                          validate_extracted)
+
+APP = 0x0100F43008C44000
+BUILD = bytes.fromhex('b1f12fd919eae86a')
+
+
+def nup_file(packages, compress=None):
+    """A NUP v1 container. packages: (title id, kind, version, {name: bytes or {...}}); the tree's top level is the
+    package's exefs / romfs folders. compress: packs files named *.trpfd with zstd (codec 1)."""
+    pool = bytearray(); blob = bytearray(); dirs = []; files = []; children = []
+    def name(s):
+        raw = s.encode(); off = len(pool); pool.extend(raw); return off, len(raw)
+    def add_dir(label, tree):
+        me = len(dirs); dirs.append(None); kids = []
+        for n, v in tree.items():
+            if isinstance(v, dict): kids.append(('d', add_dir(n, v)))
+            else:
+                stored = compress(v) if compress and n.endswith('.trpfd') else v
+                off = len(blob); blob.extend(stored); blob.extend(bytes(-len(blob) % 16))
+                files.append((name(n), len(v), off, len(stored), hashlib.sha256(v).digest(), int(stored is not v)))
+                kids.append(('f', len(files) - 1))
+        dirs[me] = (name(label), kids)
+        return me
+    pkgs = []
+    for title, kind, version, tree in packages:
+        root = add_dir('', tree)
+        sub = {dirs[i][0]: i for t, i in dirs[root][1] if t == 'd'}
+        find = lambda label: next((i for (o, l), i in sub.items() if pool[o:o + l] == label), 0xFFFFFFFF)
+        pkgs.append(struct.pack('<QIIIIBBHIQI20x', title, root, find(b'exefs'), find(b'romfs'), version, kind, 0, 0, 0, 0, 0))
+    drec = b''
+    for (noff, nlen), kids in dirs:
+        drec += struct.pack('<IIIIQ', noff, nlen, len(children), len(kids), 0)
+        children += [i if t == 'd' else len(dirs) + i for t, i in kids]
+    fixed = 48 + len(pkgs) * 64 + len(dirs) * 24 + len(files) * 80
+    pool_off = fixed + 4 * len(children)
+    blob_off = (0x80 + pool_off + len(pool) + 15) & ~15
+    frec = b''.join(struct.pack('<IIQQQ32sBBH12x', no, nl, size, blob_off + off, stored, sha, codec, 0, 0)
+                    for (no, nl), size, off, stored, sha, codec in files)
+    toc = struct.pack('<4sIQQQQQ', b'TOC\x01', len(pkgs), len(dirs), len(files), pool_off, len(pool), 0)
+    toc += b''.join(pkgs) + drec + frec + struct.pack('<%dI' % len(children), *children) + pool
+    header = struct.pack('<4sHHQQ32sQQII16s32s', b'NUP\x01', 0x80, 1, 0x80, len(toc), hashlib.sha256(toc).digest(),
+                         blob_off, blob_off + len(blob), len(pkgs), 0, bytes(16), bytes(32))
+    return header + toc + bytes(blob_off - 0x80 - len(toc)) + bytes(blob)
 
 
 def container(magic, files):
@@ -94,6 +140,69 @@ class ImportBoundaries(unittest.TestCase):
         (self.root / 'romfs/region_common').mkdir()
         with self.assertRaises(ImportFailure) as error: validate_extracted(self.root, build_id)
         self.assertEqual(error.exception.code, 'files')
+
+    def test_reads_a_nup_container(self):
+        try:
+            import zstandard
+        except ImportError:
+            self.skipTest('zstandard not installed')
+        from nup import Nup, NupError
+        main = bytes(64) + BUILD
+        path = self.root / 'game.nup'
+        path.write_bytes(nup_file([(APP, 0, 0, {'exefs': {'main': main}, 'romfs': {'arc': {'data.trpfd': b'hello'}}})],
+                                  compress=zstandard.ZstdCompressor().compress))
+        out = self.root / 'out'; out.mkdir()
+        with Nup(path) as n:
+            self.assertEqual((n.packages[0].title_id, n.packages[0].kind), (APP, 0))
+            n.extract(n.packages[0].root_dir, out)
+        self.assertEqual((out / 'exefs/main').read_bytes(), main)
+        self.assertEqual((out / 'romfs/arc/data.trpfd').read_bytes(), b'hello')
+        path.write_bytes(path.read_bytes()[:0x80] + b'X' + path.read_bytes()[0x81:])
+        with self.assertRaises(NupError): Nup(path)
+
+    def test_nup_names_cannot_leave_the_output(self):
+        from nup import Nup, NupError
+        for bad in ('..', '.', 'a/b', 'a\\b', 'a\0b'):
+            path = self.root / 'bad.nup'
+            path.write_bytes(nup_file([(APP, 0, 0, {'exefs': {bad: b'x'}})]))
+            with self.assertRaises(NupError, msg=repr(bad)): Nup(path)
+
+    def nup_game(self, packages):
+        path = self.root / 'game.nup'; path.write_bytes(nup_file(packages))
+        out = self.root / 'stage'; out.mkdir()
+        free = mock.patch('game_extract.shutil.disk_usage', return_value=mock.Mock(free=1 << 40))  # (not the host's disk)
+        free.start(); self.addCleanup(free.stop)
+        return path, out
+
+    def test_nup_import_applies_the_update_and_keeps_addons(self):
+        exefs = {n: b'base' for n in ('main.npdm', 'rtld', 'sdk')}
+        path, out = self.nup_game([
+            (APP, 0, 0, {'exefs': dict(exefs, main=bytes(72)), 'romfs': {'arc': {'data.trpfd': b'v1'}, 'keep': b'k'}}),
+            (APP, 1, 3, {'exefs': {'main': bytes(64) + BUILD}, 'romfs': {'arc': {'data.trpfd': b'v2'}}}),
+            (APP, 1, 2, {'exefs': {'main': bytes(72)}}),   # (an older update: not the one applied)
+            (APP + 0x1001, 2, 0, {'romfs': {'dlc.bin': b'd'}})])
+        with contextlib.redirect_stdout(io.StringIO()):
+            extract_nup(path, out, BUILD)
+        self.assertEqual((out / 'exefs/main').read_bytes()[64:], BUILD)
+        self.assertEqual((out / 'exefs/sdk').read_bytes(), b'base')
+        self.assertEqual((out / 'romfs/arc/data.trpfd').read_bytes(), b'v2')
+        self.assertEqual((out / 'romfs/keep').read_bytes(), b'k')
+        self.assertEqual((out / 'aoc-tree' / ('%016x' % (APP + 0x1001)) / 'dlc.bin').read_bytes(), b'd')
+
+    def test_nup_import_refuses_other_games_and_damaged_files(self):
+        tree = {'exefs': {n: bytes(64) + BUILD for n in ('main', 'main.npdm', 'rtld', 'sdk')},
+                'romfs': {'arc': {'data.trpfd': b'payload-payload'}}}
+        path, out = self.nup_game([(APP + 0x10000, 0, 0, tree)])
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(ImportFailure) as e:
+            extract_nup(path, out, BUILD)
+        self.assertEqual(e.exception.code, 'game')
+        data = bytearray(nup_file([(APP, 0, 0, tree)]))
+        at = data.rindex(b'payload-payload'); data[at] ^= 1   # (one flipped bit in a file's content)
+        path.write_bytes(data)
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(ImportFailure) as e:
+            extract_nup(path, out, BUILD)
+        self.assertEqual(e.exception.code, 'nup')
+        self.assertEqual(sorted(p.name for p in out.iterdir()), [])   # nothing half-written is left behind
 
     def test_reads_the_addon_meta(self):
         import struct

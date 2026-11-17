@@ -205,7 +205,7 @@ static void dump(const char *dir, const char *tag, long n, const char *src, cons
     fclose(f);
 }
 
-// Hand-written instructions whose operand layout was checked against Ryujinx / yuzu (docs/translator-audit.md): the
+// Hand-written instructions whose operand layout was checked against the reference decoders (docs/translator-audit.md): the
 // translation of each (one or two instructions, then EXIT) must contain `want`, and must not contain `bad`.
 #define PT_ 0x70000ull  // predicate guard PT
 static int run_cases(void) {
@@ -215,7 +215,7 @@ static int run_cases(void) {
          "t0.read(rsc(uint2(r2, r3), rscale[1]), uint(r1))", NULL},
         {"tlds 2d array glsl", STAGE_FRAGMENT, true, 0, 0xdaull << 56 | 8ull << 53 | 255ull << 28 | 2 << 20 | PT_ | 1 << 8, 0,
          "texelFetch(t0, ivec3(ivec2(rsc(uvec2(r2, r3), rscale[1])), int(r1)), 0)", NULL},
-        // TEXS 2D.LL.DC (info 5): lod = Rb, dref = Rb+1 (yuzu; Ryujinx's EmitTexs reads them the other way round)
+        // TEXS 2D.LL.DC (info 5): lod = Rb, dref = Rb+1 (reference B; reference A reads them the other way round)
         {"texs 2d ll dc", STAGE_FRAGMENT, false, 0, 0xd8ull << 56 | 5ull << 53 | 255ull << 28 | 4 << 20 | PT_ | 2 << 8, 0,
          "sample_compare(s0, float2(as_type<float>(r2), as_type<float>(r3)), as_type<float>(r5), level(as_type<float>(r4)))", NULL},
         // TEXS ARRAY_2D.LZ.DC (info 9): the layer is clamped like the other array lookups
@@ -240,6 +240,14 @@ static int run_cases(void) {
         // instance id from 0 (Metal's instance_id includes the base); driver word c0[0x644] = the draw's base instance
         {"instance id + base instance", STAGE_VERTEX, false, 0, 0xefd8ull << 48 | 0x2f8ull << 20 | 255 << 8 | PT_ | 1,
          0x4c10ull << 48 | (0x644ull / 4) << 20 | PT_ | 1 << 8, "(iid - biid)", "cb0[100]"},
+        // BRA.NE (condition-code test 13): taken only when the flags say so (it was a plain jump: a contact-shadow ray
+        // counted every step as a hit). A test that needs carry / overflow stays a plain jump.
+        {"bra cc ne", STAGE_FRAGMENT, false, 0, 0xe240ull << 48 | 13 | PT_, 0, "if (!ccz) { pc = ", NULL},
+        // EXIT.NE: leaves only when the flags say so too (it ignored the test: an early out after FSET.CC always left).
+        {"exit cc ne", STAGE_FRAGMENT, false, 0, 0xe300ull << 48 | 13 | PT_, 0, "    if (!ccz) {\n    break;\n    }\n", NULL},
+        // ISET.NE.CC RZ, R1, R2: writes the flags for a following BRA.NE (it wrote none, so the branch always went).
+        {"iset cc", STAGE_FRAGMENT, false, 0, 0x5b50ull << 48 | 5ull << 49 | 1ull << 47 | 7ull << 39 | 2 << 20 | PT_ | 1 << 8 | 255,
+         0xe240ull << 48 | 13 | PT_ | (0x8ull << 20), "ccz = ccv == 0u", NULL},
         {"base instance glsl", STAGE_VERTEX, true, 0, 0xefd8ull << 48 | 0x2f8ull << 20 | 255 << 8 | PT_ | 1,
          0x4c10ull << 48 | (0x644ull / 4) << 20 | PT_ | 1 << 8, "(r1 + uint(gl_BaseInstance))", "cb0[100]"},
     };

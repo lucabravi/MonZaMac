@@ -15,6 +15,8 @@
 #include "saves.h"
 #include "hle.h"
 #include "kernel.h"
+#include "gamecheck.h"
+#include "online_env.h"
 
 const char *g_romfs_dir;
 
@@ -39,6 +41,10 @@ static void module_init(Cpu *c, Module *m) {
 static void rtld_init_sdk(Cpu *c) { module_init(c, &g_modules[1]); }
 static void rtld_init_main(Cpu *c) {
     module_init(c, &g_modules[0]);
+    if (getenv("LARECOMP_TEST_NULL_GETTER")) {  // (test: the listed getter called with no object, once)
+        extern void rt_null_getter_test(Cpu *c);
+        rt_null_getter_test(c);
+    }
     if (g_nmodules > 2) {  // the Lumiose module (loader.c), after main
         extern int lumiose_test_initializing;
         extern void lumiose_test_snapshot(void);
@@ -145,6 +151,7 @@ static void boot(const char *root) {
     snprintf(romfs, sizeof romfs, "%s/romfs", root);
     snprintf(npdm_path, sizeof npdm_path, "%s/main.npdm", exefs);
     if (!g_romfs_dir) g_romfs_dir = strdup(romfs);
+    gamecheck_load_and_log(root);  // (what the start screen found about the game files, for a crash report)
 
     char why[512];
     if (!gamelib_load(root, why, sizeof why)) FATAL("%s\n", why);
@@ -188,6 +195,7 @@ uint8_t g_game_build[8];  // the exefs/main build ID read at start (all zero whe
 
 extern int g_saves_first;  // runtime/ui/launcher.mm: the start screen opens on the save picker
 int main(int argc, char **argv) {
+    rt_online_env_sanitize();  // (an online start, restarted by the start screen: before anything reads the variables)
     plat_init();
 #ifdef _WIN32
     setvbuf(stderr, NULL, _IONBF, 0);  // the Windows CRT treats _IOLBF as full buffering
@@ -219,9 +227,10 @@ int main(int argc, char **argv) {
     }
 #endif
     if (play_flag) {  // --play skips the start screen: the most recent save, as its CONTINUE
-        saves_select_latest();
+        bool online_game = getenv("LUMIOSE_TEST_MODULE") != NULL;  // (online and offline saves stay apart: saves.h)
+        saves_select_latest(online_game);
         const char *want = getenv("LARECOMP_PLAY_SAVE");  // (the start screen restarting the game for online play: the save chosen there)
-        if (want && *want) saves_select(want);
+        if (want && *want && saves_slot_online(want) == online_game) saves_select(want);
     }
     {   // Pokémon Legends Z-A (exefs/main build 7222e13ecf6adb32: 1.0.0, 8a1c86c437394b69: 2.0.0, b1f12fd919eae86a: 2.0.2): the start screen would ask for
         // game files it doesn't use - straight into the game, as with --play. Started without a log redirect (a
@@ -253,6 +262,8 @@ int main(int argc, char **argv) {
         discord_presence_start();  // (from the start screen on: its settings turn it on; it stops when the window is done)
         if (title) {  // start screen (runtime/ui/launcher.mm): game files setup, seed choice, settings
             extern bool launcher_run(const char *root, void (*boot_fn)(const char *));
+            extern void ui_loading_cover_hide(void);  // runtime/nvn/metal.m
+            ui_loading_cover_hide();
             booted = launcher_run(root, boot);  // (PLAY boots the game on a worker thread behind the loading screen)
         }
         if (!booted && getenv("LARECOMP_LOADING_COVER")) {  // (restarted by the start screen: the window and the loading cover go up before the game starts)
@@ -280,6 +291,7 @@ int main(int argc, char **argv) {
         teardown();
         title = kind == RT_REBOOT_TITLE;
         if (title && getenv("LUMIOSE_TEST_MODULE")) {
+            rt_online_env_restore();  // (the debug variables of an offline game that follows)
             // Back to the start screen from an online session: the game library with the Lumiose module is loaded once per
             // process, so a start without the module needs a fresh one (Play offline, or Play online again, as the player
             // chooses). The start screen opens (no --play).

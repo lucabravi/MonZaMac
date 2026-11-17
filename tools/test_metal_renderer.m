@@ -35,6 +35,7 @@ static void uniform_snapshots(void) {
     CHECK(pipe != nil, "snapshot test pipeline compiles");
     id<MTLBuffer> result = [dev newBufferWithLength:16 options:MTLResourceStorageModeShared];
     id<MTLCommandBuffer> command = [renderer_queue() commandBuffer];
+    cmdbuf = command;  // the renderer's open command buffer, as in a frame: a ring retired now is fenced behind its submission
     id<MTLComputeCommandEncoder> e = [command computeCommandEncoder];
     [e setComputePipelineState:pipe];
     [e setBuffer:result offset:0 atIndex:1];
@@ -50,8 +51,7 @@ static void uniform_snapshots(void) {
         [e dispatchThreadgroups:MTLSizeMake(1, 1, 1) threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
     }
     [e endEncoding];
-    [command commit];
-    [command waitUntilCompleted];
+    renderer_flush();  // (submits cmdbuf and waits for it)
     CHECK(command.error == nil, "snapshot GPU reads complete");
     CHECK(((uint32_t *)result.contents)[0] == 17 && ((uint32_t *)result.contents)[1] == 23 &&
           ((uint32_t *)result.contents)[2] == 31,

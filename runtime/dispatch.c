@@ -232,7 +232,7 @@ GuestFn dispatch_lookup(uint64_t addr) {
 }
 
 // Small direct-mapped cache in front of the binary search
-#define DCACHE 4096
+#define DCACHE 32768
 static __thread struct { uint64_t addr; GuestFn fn; } dcache[DCACHE];
 
 // Guest setjmp sites of this thread (cpu.h RtJmp): one per guest jmp_buf, the oldest replaced when full
@@ -414,6 +414,50 @@ bool rt_fault_watch(uint64_t fa, uint64_t pc) {
     }
     plat_protect(watch_page, PLAT_PAGE, PLAT_PROT_RW);
     return true;
+}
+
+// A null object read inside a game getter. In 2.0.2 + the DLC, the first DLC mission's battle crashed "accessing 0xc0"
+// in f_70009e198c: a leaf that copies three vectors (48 bytes) from an object's +0xc0 into v0-v2. Three of its callers
+// (0x7002968c58, 0x7002971074, 0x70009df558) take the object from a handle and never check the handle first, and in that
+// battle the object was already gone (the game's threads run in another order than on the Switch). A read of the null
+// page inside one of these getters is answered with zeros, as if the object held zeros (the platform's fault handler
+// does it); the getter then returns to its caller as always. Logged the first times.
+// LARECOMP_NULL_GETTER=0 turns it off.
+static const uint64_t null_getters[] = {
+    0x70009e012cull,  // 2.0.0 (the same body)
+    0x70009e198cull,  // 2.0.2
+};
+bool rt_null_getter(uint64_t fa, uint64_t pc) {
+    static int on = -1;
+    if (on < 0) { const char *e = getenv("LARECOMP_NULL_GETTER"); on = !(e && !atoi(e)); }
+    if (!on || fa >= 0x10000) return false;
+    uint64_t off = 0, fn = 0;
+    const char *nm = rt_host_fn_name(pc, &off);
+    if (!nm || sscanf(nm, "f_%llx", (unsigned long long *)&fn) != 1) return false;
+    bool listed = false;
+    for (size_t i = 0; i < sizeof null_getters / sizeof *null_getters; i++) listed |= null_getters[i] == fn;
+    if (!listed) return false;
+    static _Atomic int n;
+    int k = ++n;
+    if (k <= 10 || !(k & (k - 1))) {
+        Cpu *c = kernel_current_cpu();
+        LOG("[guard] f_%llx read an object that isn't there (accessing %#llx, guest lr %llx): zeros given back (%d reads so far)\n",
+            (unsigned long long)fn, (unsigned long long)fa, c ? (unsigned long long)c->x[30] : 0ull, k);
+    }
+    return true;
+}
+
+// LARECOMP_TEST_NULL_GETTER=1: calls the 2.0.2 getter with no object once, at boot: v0-v2 must come back zero.
+void rt_null_getter_test(Cpu *c) {
+    GuestFn f = dispatch_lookup(null_getters[1]);
+    if (!f) { LOG("[guard] test: no getter at %llx in this build\n", (unsigned long long)null_getters[1]); return; }
+    uint64_t x0 = c->x[0];
+    __uint128_t v[3] = {c->v[0], c->v[1], c->v[2]};
+    c->x[0] = 0, c->v[0] = c->v[1] = c->v[2] = ~(__uint128_t)0;
+    f(c);
+    bool ok = !c->v[0] && !c->v[1] && !c->v[2];
+    LOG("[guard] test: f_%llx called with no object came back, v0-v2 %s\n", (unsigned long long)null_getters[1], ok ? "zero" : "NOT zero");
+    c->x[0] = x0, c->v[0] = v[0], c->v[1] = v[1], c->v[2] = v[2];
 }
 
 void rt_fault_report(const char *what, uint64_t fa, uint64_t pc, uint64_t lr) {
