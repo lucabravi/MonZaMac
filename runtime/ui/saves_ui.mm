@@ -350,7 +350,7 @@ static void import_preview(float sc, ImFont *small_) {
     money_row(dl, small_, ImVec2(rx, p.y + u * 0.35f), u, si->money, true);
     team_row(dl, small_, ImVec2(x, p.y + u * 2.75f), u * 0.8f, si);
     ImGui::Dummy(ImVec2(w, h + 10 * sc));
-    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(pal::sub), ui_tr("It becomes a new save: your saves stay as they are."));
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(pal::sub), "%s", ui_tr("It becomes a new save: your saves stay as they are."));
 }
 
 // The new slot's name (saves_import_name), in the name field

@@ -2858,7 +2858,7 @@ static void bind_textures(int stage, ShaderInfo *si) {
                         FILE *af = fopen(ap, "wb");
                         if (af) { fwrite(p, 1, total, af); fclose(af); }
                         LOG("[dtex] atlas %s target %u stride %u flags %#x levels %u layers %u | gpu type %lu arr %lu\n", ap, e->tex->target,
-                            e->tex->stride, e->tex->flags, e->tex->levels, e->tex->layout.layers,
+                            (unsigned)e->tex->stride, e->tex->flags, e->tex->levels, e->tex->layout.layers,
                             (unsigned long)tex.textureType, (unsigned long)tex.arrayLength);
                         id<MTLTexture> abase = renderer_texture(e->tex, nil, false);
                         snprintf(ap, sizeof ap, "build/atlas_%llx_gpu.png", e->tex->addr);
@@ -2870,7 +2870,7 @@ static void bind_textures(int stage, ShaderInfo *si) {
                     if (!once++ || g_debug_frame) {
                         id<MTLTexture> base = renderer_texture(e->tex, nil, false);
                         LOG("[dtex] glyph cache target %u depth %u layers %u levels %u stride %u flags %#x base type %lu arrlen %lu\n",
-                            e->tex->target, e->tex->depth, e->tex->layout.layers, e->tex->levels, e->tex->stride, e->tex->flags,
+                            e->tex->target, e->tex->depth, e->tex->layout.layers, e->tex->levels, (unsigned)e->tex->stride, e->tex->flags,
                             (unsigned long)base.textureType, (unsigned long)base.arrayLength);
                         LOG("[dtex] glyph view: has %d mask %#x levels %u+%u layers %u+%u fmt %#x target %u\n", e->has_view, e->view.setmask,
                             e->view.base_level, e->view.num_levels, e->view.min_layer, e->view.num_layers, e->view.format, e->view.target);
@@ -2900,7 +2900,7 @@ static void bind_textures(int stage, ShaderInfo *si) {
                         snprintf(rp, sizeof rp, "build/raw_%llx.bin", e->tex->addr);
                         FILE *rf = fopen(rp, "wb");
                         if (rf) { fwrite(p, 1, total, rf); fclose(rf); }
-                        LOG("[dtex] linear texture stride %u -> %s\n", e->tex->stride, rp);
+                        LOG("[dtex] linear texture stride %u -> %s\n", (unsigned)e->tex->stride, rp);
                     }
                 }
                 LOG("[dtex] slot %d tex %ux%u f%#x addr %llx size %llu nonzero %llu gpu_owned %d | swz %d %d %d %d view(%d,%#x) %d %d %d %d\n",
@@ -4844,7 +4844,7 @@ static void copy_texture_gpu(const TexRefRec *src, const TexRefRec *dst, uint64_
         static int nl;
         uint64_t total = tegra_total_size(&st_->layout), nz = 0;
         for (uint64_t k = 0; k < total && st_->addr; k++) nz += ((const uint8_t *)(uintptr_t)st_->addr)[k] != 0;
-        if (nl < 400) LOG("[copytex] src addr %llx size %llu nonzero %llu tflags %#x stride %u bh %u\n", st_->addr, total, nz, st_->flags, st_->stride, st_->layout.block_height_log2);
+        if (nl < 400) LOG("[copytex] src addr %llx size %llu nonzero %llu tflags %#x stride %u bh %u\n", st_->addr, total, nz, st_->flags, (unsigned)st_->stride, st_->layout.block_height_log2);
         if (nl++ < 400) LOG("[copytex] %ux%u f%#x (%d,%d %dx%d) -> %ux%u f%#x (%d,%d %dx%d) flags %llx src_gpu %d\n", st_->width, st_->height, st_->format,
             sr[0], sr[1], sr[3], sr[4], dt->width, dt->height, dt->format, dr[0], dr[1], dr[3], dr[4], flags, renderer_is_gpu_owned(st_));
     }

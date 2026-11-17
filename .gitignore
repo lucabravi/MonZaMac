@@ -42,3 +42,5 @@ work-202/
 # run and build logs
 *.log
 logs/
+.game-setup/
+.game-setup.lock
