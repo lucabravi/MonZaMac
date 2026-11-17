@@ -1047,15 +1047,15 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
     const ImU32 purple = IM_COL32(150, 110, 255, 170);
     dl->AddRectFilled(ImVec2(rx, ry), ImVec2(rx + rw, ry + ph), IM_COL32(8, 12, 36, 255), r);
     if (bg && bg_aspect > 0) {  // the picture across the top, as wide as the column; cropped from above to the banner's height
-        float bh = ph - u * 7.3f, full = rw / bg_aspect, vis = fminf(1.0f, bh / full), v0 = 0.0f, v1 = vis;  // (down to where the state begins, fading out)
+        float bh = ph - u * 5.3f, full = rw / bg_aspect, vis = fminf(1.0f, bh / full), v0 = 0.0f, v1 = vis;  // (down to where the state begins, fading out)
         float u0 = 0, u1 = 1;
         if (vis >= 1.0f) {  // (a banner taller than the picture: crop its sides instead)
             float wv = rw / (bh * bg_aspect);
             u0 = fmaxf(0.0f, fminf(1 - wv, 0.84f - wv * 0.5f)), u1 = u0 + wv, v0 = 0, v1 = 1;
         }
         dl->AddImageRounded(bg, ImVec2(rx, ry), ImVec2(rx + rw, ry + bh), ImVec2(u0, v0), ImVec2(u1, v1), IM_COL32_WHITE, r, ImDrawFlags_RoundCornersTop);
-        dl->AddRectFilledMultiColor(ImVec2(rx + 1, ry + bh - u * 5.0f), ImVec2(rx + rw - 1, ry + bh), IM_COL32(8, 12, 36, 0), IM_COL32(8, 12, 36, 0),
-                                    IM_COL32(8, 12, 36, 255), IM_COL32(8, 12, 36, 255));
+        dl->AddRectFilledMultiColor(ImVec2(rx + 1, ry + bh - u * 8.5f), ImVec2(rx + rw - 1, ry + bh), IM_COL32(8, 12, 36, 0), IM_COL32(8, 12, 36, 0),
+                                    IM_COL32(8, 12, 36, 255), IM_COL32(8, 12, 36, 255));  // (the card's text sits on its darker half: no panel behind it)
     }
     dl->AddRect(ImVec2(rx, ry), ImVec2(rx + rw, ry + ph), purple, r, 0, 1.5f);
     // the mark: an arc over a bar with a ring in the middle (a ball, opened), and the name
@@ -1089,57 +1089,61 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
         dl->AddText(tf, u * 1.75f, tp, sp ? IM_COL32(250, 198, 84, 255) : IM_COL32(255, 255, 255, 255), name, sp);
         if (sp) dl->AddText(tf, u * 1.75f, ImVec2(tp.x + tw, tp.y), IM_COL32(255, 255, 255, 255), sp);
     }
-    {   // the online save's trainer card, like the offline one (who, play time, money, team; not the save's own name)
+    {   // the online save's trainer card, like the offline one (who, play time, money, team; not the save's own name). No panel:
+        // the picture fades darker under it and each text has a soft shadow, so the art stays visible.
         const SaveInfo *si = v.save_path && v.save_path[0] ? save_info(v.save_path) : NULL;
-        float ctop = ry + u * 5.3f, cwid = w, chgt = u * 8.0f;
-        ImVec2 cp(x, ctop), cq(x + w, ctop + chgt);
-        dl->AddRectFilled(cp, cq, IM_COL32(8, 16, 40, 218), u * 0.5f);
-        dl->AddRect(cp, cq, IM_COL32(150, 110, 255, 90), u * 0.5f, 0, 1.0f);
-        float tx = x + u * 0.9f, tx2 = x + cwid * 0.42f, rr = cq.x - u * 0.9f;  // (the offline card's columns)
-        const ImU32 faint = IM_COL32(176, 196, 226, 225);
-        auto label = [&](float xx, float yy, const char *t) { dl->AddText(small_, u * 0.72f, ImVec2(xx, yy), faint, ui_tr(t)); };
+        float ctop = ry + u * 6.4f, cwid = w, chgt = u * 7.9f;
+        float cbot = ctop + chgt;
+        float tx = x + u * 0.9f, tx2 = x + cwid * 0.42f, rr = x + w - u * 0.9f;  // (the offline card's columns)
+        const ImU32 faint = IM_COL32(190, 208, 236, 240);
+        auto shade = [&](ImFont *f, float size, ImVec2 at, ImU32 col, const char *t) {  // (a text with a dark soft shadow)
+            dl->AddText(f, size, ImVec2(at.x + u * 0.07f, at.y + u * 0.09f), IM_COL32(0, 0, 8, 200), t);
+            dl->AddText(f, size, ImVec2(at.x, at.y + u * 0.16f), IM_COL32(0, 0, 8, 90), t);
+            dl->AddText(f, size, at, col, t);
+        };
+        auto label = [&](float xx, float yy, const char *t) { shade(small_, u * 0.72f, ImVec2(xx, yy), faint, ui_tr(t)); };
         char cut[96];
         if (si) {
             char idb[16];
             snprintf(idb, sizeof idb, "ID %06u", si->id);
             float iw = small_->CalcTextSizeA(u * 0.72f, FLT_MAX, 0, idb).x;
             label(rr - iw, ctop + u * 0.55f, idb);
-            dl->AddText(small_, u * 1.45f, ImVec2(tx, ctop + u * 1.2f), pal::text,
-                        fit(small_, u * 1.45f, si->trainer[0] ? si->trainer : ui_tr("Trainer"), rr - tx, cut, sizeof cut));
-            dl->AddLine(ImVec2(tx, ctop + u * 2.8f), ImVec2(rr, ctop + u * 2.8f), IM_COL32(76, 100, 137, 120), 1.0f);
+            shade(small_, u * 1.45f, ImVec2(tx, ctop + u * 1.2f), pal::text,
+                  fit(small_, u * 1.45f, si->trainer[0] ? si->trainer : ui_tr("Trainer"), rr - tx, cut, sizeof cut));
+            dl->AddLine(ImVec2(tx, ctop + u * 2.8f), ImVec2(rr, ctop + u * 2.8f), IM_COL32(120, 150, 200, 130), 1.0f);
             float r1 = ctop + u * 3.05f, vfs = u * 1.0f;
             label(tx, r1, "Play time");
             char pl[16];
             fmt_played(si->played, pl, sizeof pl);
             ImVec2 cc(tx + u * 0.34f, r1 + u * 0.85f + vfs * 0.5f - u * 0.04f);  // (a small clock, centred on the time's line)
-            dl->AddCircle(cc, u * 0.34f, pal::sub, 20, u * 0.1f);
-            dl->AddLine(cc, ImVec2(cc.x, cc.y - u * 0.22f), pal::sub, u * 0.1f);
-            dl->AddLine(cc, ImVec2(cc.x + u * 0.17f, cc.y + u * 0.07f), pal::sub, u * 0.1f);
-            dl->AddText(small_, vfs, ImVec2(tx + u * 0.95f, r1 + u * 0.85f), pal::text, pl);
+            dl->AddCircle(cc, u * 0.34f, faint, 20, u * 0.1f);
+            dl->AddLine(cc, ImVec2(cc.x, cc.y - u * 0.22f), faint, u * 0.1f);
+            dl->AddLine(cc, ImVec2(cc.x + u * 0.17f, cc.y + u * 0.07f), faint, u * 0.1f);
+            shade(small_, vfs, ImVec2(tx + u * 0.95f, r1 + u * 0.85f), pal::text, pl);
             label(tx2, r1, "Money");
             money_row(dl, small_, ImVec2(tx2, r1 + u * 0.85f), u, si->money);
-            team_row(dl, small_, ImVec2(tx + u * 0.1f, ctop + chgt - u * 1.7f), u, si);  // (on the card's bottom edge, as the offline one)
+            team_row(dl, small_, ImVec2(tx + u * 0.1f, cbot - u * 1.7f), u, si);  // (on the card's bottom edge, as the offline one)
         } else if (v.save_path && v.save_path[0]) {  // (an online game made, not played yet)
-            dl->AddText(small_, u * 1.0f, ImVec2(tx, ctop + u * 1.6f), pal::text, ui_tr("No progress yet"));
+            shade(small_, u * 1.0f, ImVec2(tx, ctop + u * 1.6f), pal::text, ui_tr("No progress yet"));
         } else {
             // (none chosen: the first Play online asks)
-            dl->AddText(small_, u * 0.85f, ImVec2(tx, ctop + u * 1.6f), pal::sub, ui_tr("Chosen the first time you press Play online."), NULL, rr - tx);
+            dl->AddText(small_, u * 0.85f, ImVec2(tx, ctop + u * 1.6f), faint, ui_tr("Chosen the first time you press Play online."), NULL, rr - tx);
         }
     }
-    // the state
-    float ch = u * 2.5f, cy = ry + ph - u * 0.6f - u * 2.05f - u * 0.9f - ch;  // (the state sits right above the button, at the column's bottom)
-    ImVec2 ic(x + u * 1.0f, cy + u * 1.35f);
+    // the state: small, a dot, the headline and one line, right above the button
+    float ch = u * 1.9f, cy = ry + ph - u * 0.6f - u * 2.05f - u * 0.9f - ch;
+    ImVec2 ic(x + u * 0.7f, cy + u * 0.95f);
     const ImU32 dot = v.good ? IM_COL32(70, 214, 110, 255) : v.bad ? IM_COL32(255, 170, 90, 255) : IM_COL32(150, 172, 210, 255);
     const ImU32 dark = IM_COL32(8, 18, 35, 255);
-    dl->AddCircleFilled(ic, u * 0.95f, dot, 24);
+    dl->AddCircleFilled(ic, u * 0.6f, dot, 24);
     if (v.good) {
-        ui_check(dl, ic, u * 0.95f, dark);
+        ui_check(dl, ic, u * 0.6f, dark);
     } else {  // "!" for a problem, "i" otherwise
-        dl->AddText(small_, u * 1.1f, ImVec2(ic.x - u * (v.bad ? 0.1f : 0.12f), ic.y - u * 0.62f), dark, v.bad ? "!" : "i");
+        dl->AddText(small_, u * 0.8f, ImVec2(ic.x - u * (v.bad ? 0.07f : 0.09f), ic.y - u * 0.45f), dark, v.bad ? "!" : "i");
     }
     char fit_line[96];
-    dl->AddText(small_, u * 1.15f, ImVec2(x + u * 2.5f, cy + u * 0.05f), v.good ? pal::accent2 : v.bad ? pal::warn : pal::text, ui_tr(v.headline));
-    dl->AddText(small_, u * 0.85f, ImVec2(x + u * 2.5f, cy + u * 1.45f), pal::sub, fit(small_, u * 0.85f, ui_tr(v.line), w - u * 2.5f, fit_line, sizeof fit_line));
+    dl->AddText(small_, u * 0.95f, ImVec2(x + u * 1.8f, cy + u * 0.0f), v.good ? pal::accent2 : v.bad ? pal::warn : pal::text, ui_tr(v.headline));
+    dl->AddText(small_, u * 0.72f, ImVec2(x + u * 1.8f, cy + u * 1.15f), pal::sub, fit(small_, u * 0.72f, ui_tr(v.line), w - u * 1.8f, fit_line, sizeof fit_line));
     // PLAY ONLINE
     ImVec2 p(x, cy + ch + u * 0.9f), q(x + w, p.y + u * 2.05f);
     ImGui::SetCursorScreenPos(p);
