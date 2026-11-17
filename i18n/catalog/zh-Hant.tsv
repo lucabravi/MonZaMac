@@ -465,6 +465,7 @@ Switch keys	Switch 加密金鑰
 Switch tabs	切換分頁
 Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	切換分頁：L / R（Q / E）      返回：B（Esc）
 System default	系統預設
+Team	隊伍
 Tests	測試
 Text: %s    Button icons: %s	文字：%s  按鍵圖示：%s
 Text: imported	文字：已匯入
@@ -495,6 +496,7 @@ The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter e
 The online version could not be prepared.	無法準備線上版本。
 The save couldn't be copied.	無法複製存檔。
 The save in use ("%s", as the game last saved it) is copied into routes/ first (it does not show in the save list), then the pad is recorded until you stop.	目前存檔（「%s」，以遊戲上次儲存狀態為準）將先複製到 routes/（不會顯示於存檔清單），隨後記錄控制器輸入，直到停止。
+The save will be checked: any tampering with it will get you banned from Lumiose Online!	存檔會受到檢查：任何竄改都會導致在 Lumiose Online 中被封鎖！
 The sharpest the dynamic resolution goes: the game's own %s, %s (1.5x), or your display's own resolution.\n\nIt's lowered from there while your GPU can't keep the frame rate.	動態解析度的上限：遊戲原生解析度（%s）、%s（1.5 倍）或你顯示器的解析度。\n\n當 GPU 無法維持幀率時，會從這裡往下降。
 The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024).\n\nHigher: smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory (4x: about 240 MB, 2x: 60 MB). Applies at once.	繪製太陽陰影所用貼圖的大小（遊戲原本為 1024 x 1024）。\n\n越高：陰影邊緣越平滑，沒有階梯狀鋸齒，代價是多一點 GPU 時間和更多 GPU 記憶體（4 倍：約 240 MB，2 倍：60 MB）。立即生效。
 The trackpad's two-finger scroll turns the camera, as the mouse does.	在觸控板上以雙指捲動可像滑鼠一樣旋轉鏡頭。

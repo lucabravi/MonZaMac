@@ -465,6 +465,7 @@ Switch keys	Switch 암호화 키
 Switch tabs	탭 전환
 Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	탭 전환: L / R (Q / E)      뒤로: B (Esc)
 System default	시스템 기본값
+Team	팀
 Tests	테스트
 Text: %s    Button icons: %s	텍스트: %s   버튼 아이콘: %s
 Text: imported	텍스트: 가져옴
@@ -495,6 +496,7 @@ The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter e
 The online version could not be prepared.	온라인 버전을 준비하지 못했습니다.
 The save couldn't be copied.	저장 데이터를 복사하지 못했습니다.
 The save in use ("%s", as the game last saved it) is copied into routes/ first (it does not show in the save list), then the pad is recorded until you stop.	현재 저장 데이터("%s", 게임의 마지막 저장 상태)를 먼저 routes/에 복사합니다(저장 목록에는 표시되지 않음). 이후 중지할 때까지 컨트롤러 입력을 기록합니다.
+The save will be checked: any tampering with it will get you banned from Lumiose Online!	세이브는 검사됩니다. 조작이 발견되면 Lumiose Online에서 이용이 정지됩니다!
 The sharpest the dynamic resolution goes: the game's own %s, %s (1.5x), or your display's own resolution.\n\nIt's lowered from there while your GPU can't keep the frame rate.	동적 해상도의 최댓값입니다: 게임 자체 해상도(%s), %s(1.5배) 또는 디스플레이 해상도.\n\nGPU가 프레임 속도를 유지하지 못하는 동안에는 여기서부터 낮아집니다.
 The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024).\n\nHigher: smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory (4x: about 240 MB, 2x: 60 MB). Applies at once.	태양 그림자를 그리는 데 쓰는 맵의 크기입니다(게임 기본: 1024 x 1024).\n\n높을수록 그림자 가장자리가 계단 없이 부드러워지지만, GPU 시간과 GPU 메모리를 더 씁니다(4배: 약 240 MB, 2배: 60 MB). 즉시 적용됩니다.
 The trackpad's two-finger scroll turns the camera, as the mouse does.	트랙패드에서 두 손가락으로 스크롤하면 마우스처럼 카메라가 회전합니다.

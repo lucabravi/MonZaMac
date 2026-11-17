@@ -465,6 +465,7 @@ Switch keys	Ключи шифрования Switch
 Switch tabs	Переключить вкладки
 Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	Смена вкладки: L / R (Q / E)      Назад: B (Esc)
 System default	По умолчанию в системе
+Team	Команда
 Tests	Тесты
 Text: %s    Button icons: %s	Текст: %s    Значки кнопок: %s
 Text: imported	Текст: импортирован
@@ -495,6 +496,7 @@ The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter e
 The online version could not be prepared.	Не удалось подготовить онлайн-версию.
 The save couldn't be copied.	Не удалось скопировать сохранение.
 The save in use ("%s", as the game last saved it) is copied into routes/ first (it does not show in the save list), then the pad is recorded until you stop.	Активное сохранение («%s», на момент последней записи игрой) сначала копируется в routes/ (в списке не видно), затем записываются нажатия геймпада до остановки.
+The save will be checked: any tampering with it will get you banned from Lumiose Online!	Сохранение будет проверяться: любое вмешательство приведёт к бану в Lumiose Online!
 The sharpest the dynamic resolution goes: the game's own %s, %s (1.5x), or your display's own resolution.\n\nIt's lowered from there while your GPU can't keep the frame rate.	Максимум динамического разрешения: собственное разрешение игры (%s), %s (1,5x) или разрешение вашего дисплея.\n\nОт него оно снижается, пока GPU не держит частоту кадров.
 The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024).\n\nHigher: smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory (4x: about 240 MB, 2x: 60 MB). Applies at once.	Размер карты, по которой рисуются тени от солнца (в игре: 1024 x 1024).\n\nВыше: более мягкие края теней без «лесенки», ценой небольшого времени GPU и большего объёма памяти GPU (4x: около 240 МБ, 2x: 60 МБ). Применяется сразу.
 The trackpad's two-finger scroll turns the camera, as the mouse does.	Прокрутка двумя пальцами по трекпаду поворачивает камеру, как мышь.

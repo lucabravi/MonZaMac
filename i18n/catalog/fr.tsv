@@ -465,6 +465,7 @@ Switch keys	Clés de chiffrement Switch
 Switch tabs	Changer d’onglet
 Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	Changer d’onglet : L / R (Q / E)      Retour : B (Échap)
 System default	Par défaut du système
+Team	Équipe
 Tests	Tests
 Text: %s    Button icons: %s	Texte : %s    Icônes des boutons : %s
 Text: imported	Texte : police importée
@@ -495,6 +496,7 @@ The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter e
 The online version could not be prepared.	Impossible de préparer la version en ligne.
 The save couldn't be copied.	Impossible de copier la sauvegarde.
 The save in use ("%s", as the game last saved it) is copied into routes/ first (it does not show in the save list), then the pad is recorded until you stop.	La sauvegarde active (« %s », telle qu’enregistrée par le jeu) est d’abord copiée dans routes/ (elle n’apparaît pas dans la liste), puis les actions de la manette sont enregistrées jusqu’à l’arrêt.
+The save will be checked: any tampering with it will get you banned from Lumiose Online!	La sauvegarde sera contrôlée : toute manipulation entraînera un bannissement de Lumiose Online !
 The sharpest the dynamic resolution goes: the game's own %s, %s (1.5x), or your display's own resolution.\n\nIt's lowered from there while your GPU can't keep the frame rate.	Le maximum de la résolution dynamique : celle du jeu (%s), %s (1,5x) ou la résolution de votre écran.\n\nElle est abaissée à partir de là tant que le GPU ne tient pas la fréquence d’images.
 The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024).\n\nHigher: smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory (4x: about 240 MB, 2x: 60 MB). Applies at once.	La taille de la carte à partir de laquelle les ombres du soleil sont dessinées (celle du jeu : 1024 x 1024).\n\nPlus élevée : bords d’ombre plus doux, sans marches d’escalier, pour un peu de temps GPU et plus de mémoire GPU (4x : environ 240 Mo, 2x : 60 Mo). S’applique immédiatement.
 The trackpad's two-finger scroll turns the camera, as the mouse does.	Le défilement à deux doigts sur le trackpad fait tourner la caméra comme la souris.

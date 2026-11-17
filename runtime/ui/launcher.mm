@@ -52,6 +52,7 @@ extern "C" {
 extern "C" void input_mouse_release(SDL_Window *w);  // runtime/hle/input.c
 #include "romfs_build.h"
 #include "settings.h"
+#include "save_info.h"
 #include "saves.h"
 #include "input_bind.h"
 #include "precompile_stamp.h"
@@ -1491,6 +1492,71 @@ static void online_consent_popup(float s) {
     }
 }
 
+// A line cut to `room` with an ellipsis (whole UTF-8 characters)
+static const char *online_fit(ImFont *font, float size, const char *text, float room, char *out, size_t n) {
+    snprintf(out, n, "%s", text);
+    if (font->CalcTextSizeA(size, FLT_MAX, 0, out).x <= room) return out;
+    size_t len = strlen(out);
+    while (len > 1) {
+        do len--; while (len > 1 && (out[len] & 0xC0) == 0x80);
+        snprintf(out + len, n - len, "\xe2\x80\xa6");
+        if (font->CalcTextSizeA(size, FLT_MAX, 0, out).x <= room) break;
+    }
+    return out;
+}
+
+// One save of the choice: its name, the trainer, play time, money, when it was played and the team
+static void online_pick_row(const SaveSlot &sl, ImVec2 a, ImVec2 b, float s) {
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    ImFont *font = ImGui::GetFont();
+    const float fs = ImGui::GetFontSize(), big = fs * 1.12f, small = fs * 0.88f;
+    const ImU32 white = IM_COL32(236, 242, 255, 255), sub = IM_COL32(176, 196, 226, 230), accent = IM_COL32(72, 214, 255, 255),
+                gold = IM_COL32(244, 194, 72, 255);
+    const SaveInfo *si = save_info(sl.path);
+    float x = a.x + 14 * s, right = b.x - 14 * s, y = a.y + 7 * s;
+    char cut[160], line[192], when[96];
+    dl->PushClipRect(a, b, true);
+    // when it was last written (the Saves page's wording)
+    time_t t = (time_t)sl.played;
+    char date[48];
+    strftime(date, sizeof date, "%Y-%m-%d %H:%M", localtime(&t));
+    long d = (long)(difftime(time(NULL), t) / 86400);
+    char ago[64];
+    if (d <= 0) snprintf(ago, sizeof ago, "%s", ui_tr("today"));
+    else if (d == 1) snprintf(ago, sizeof ago, "%s", ui_tr("yesterday"));
+    else snprintf(ago, sizeof ago, ui_tr("%ld days ago"), d);
+    snprintf(when, sizeof when, "%s  \xc2\xb7  %s", date, ago);
+    float ww = font->CalcTextSizeA(small, FLT_MAX, 0, when).x;
+    dl->AddText(font, small, ImVec2(right - ww, y + (big - small) * 0.5f), sub, when);
+    dl->AddText(font, big, ImVec2(x, y), white, online_fit(font, big, sl.name, right - x - ww - 16 * s, cut, sizeof cut));
+    y += big + 5 * s;
+    if (si) {
+        char money[24], digits[16];
+        int k = snprintf(digits, sizeof digits, "%u", si->money), w = 0;
+        for (int i = 0; i < k && w + 2 < (int)sizeof money; i++) {
+            if (i && (k - i) % 3 == 0) money[w++] = ' ';
+            money[w++] = digits[i];
+        }
+        money[w] = 0;
+        int hours = (int)(si->played / 3600), mins = ((int)si->played % 3600) / 60;
+        snprintf(line, sizeof line, "%s %s  \xc2\xb7  ID %06u  \xc2\xb7  %s %dh %02dm  \xc2\xb7  %s %s", ui_tr("Trainer"),
+                 si->trainer[0] ? si->trainer : "-", si->id, ui_tr("Play time"), hours, mins, ui_tr("Money"), money);
+        dl->AddText(font, small, ImVec2(x, y), accent, online_fit(font, small, line, right - x, cut, sizeof cut));
+        y += small + 4 * s;
+        if (si->party_n) {
+            std::string team = std::string(ui_tr("Team")) + ": ";
+            for (int k = 0; k < si->party_n; k++) {
+                char one[64];
+                snprintf(one, sizeof one, "%s%s Lv. %u", k ? "  \xc2\xb7  " : "", si->party[k].egg ? ui_tr("Egg") : si->party[k].name,
+                         si->party[k].level);
+                team += one;
+            }
+            dl->AddText(font, small, ImVec2(x, y), gold, online_fit(font, small, team.c_str(), right - x, cut, sizeof cut));
+        } else dl->AddText(font, small, ImVec2(x, y), sub, ui_tr("No Pokémon yet"));
+    }
+    dl->PopClipRect();
+}
+
 // The online save is chosen once: a new online game (recommended), or one of the player's saves made the online one. Nothing
 // is converted without this choice and the warning in it: Lumiose Online checks a save for anything done to it outside online
 // play, and the save is only ever started online from then on (saves.h).
@@ -1509,7 +1575,7 @@ static void online_pick_popup(float s) {
         g_ou_pick_open = false;
     }
     ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(fminf(ds.x * 0.92f, 640 * s), fminf(ds.y * 0.92f, 520 * s)));
+    ImGui::SetNextWindowSize(ImVec2(fminf(ds.x * 0.94f, 760 * s), fminf(ds.y * 0.94f, 700 * s)));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(28 * s, 24 * s));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 16 * s);
     ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.04f, 0.07f, 0.14f, 1));
@@ -1527,9 +1593,16 @@ static void online_pick_popup(float s) {
     if (ImGui::RadioButton(ui_tr("Use one of my saves as the online save"), mode == 1)) mode = 1;
     ImGui::EndDisabled();
     if (mode == 1) {
-        ImGui::BeginChild("##online_pick_list", ImVec2(0, 120 * s), true);
-        for (int i = 0; i < n; i++)
-            if (ImGui::Selectable(slots[i].name, pick == i)) pick = i;
+        float rowh = ImGui::GetFontSize() * 4.5f;
+        ImGui::BeginChild("##online_pick_list", ImVec2(0, fminf(rowh * 3.3f, ImGui::GetContentRegionAvail().y * 0.55f)), true);
+        for (int i = 0; i < n; i++) {
+            ImGui::PushID(i);
+            ImVec2 a = ImGui::GetCursorScreenPos();
+            float w = ImGui::GetContentRegionAvail().x;
+            if (ImGui::Selectable("##slot", pick == i, 0, ImVec2(w, rowh - 4 * s))) pick = i;
+            online_pick_row(slots[i], a, ImVec2(a.x + w, a.y + rowh - 4 * s), s);
+            ImGui::PopID();
+        }
         ImGui::EndChild();
     } else ImGui::Dummy(ImVec2(0, 8 * s));
     ImGui::Dummy(ImVec2(0, 6 * s));
@@ -1539,6 +1612,8 @@ static void online_pick_popup(float s) {
     ImGui::TextWrapped("%s", ui_tr("WARNING: once this save is used online, it can no longer be played offline!"));
     ImGui::Dummy(ImVec2(0, 8 * s));
     ImGui::TextWrapped("%s", ui_tr("Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!"));
+    ImGui::Dummy(ImVec2(0, 8 * s));
+    ImGui::TextWrapped("%s", ui_tr("The save will be checked: any tampering with it will get you banned from Lumiose Online!"));
     ImGui::PopStyleColor();
     ImGui::PopTextWrapPos();
     ImGui::EndChild();

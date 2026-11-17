@@ -465,6 +465,7 @@ Switch keys	Switch 加密密钥
 Switch tabs	切换标签页
 Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	切换标签：L / R（Q / E）      返回：B（Esc）
 System default	系统默认
+Team	队伍
 Tests	测试
 Text: %s    Button icons: %s	文字：%s  按键图标：%s
 Text: imported	文本：已导入
@@ -495,6 +496,7 @@ The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter e
 The online version could not be prepared.	无法准备在线版本。
 The save couldn't be copied.	无法复制存档。
 The save in use ("%s", as the game last saved it) is copied into routes/ first (it does not show in the save list), then the pad is recorded until you stop.	当前存档（“%s”，以游戏上次保存状态为准）将先复制到 routes/（不会显示在存档列表），随后录制控制器输入，直到你停止。
+The save will be checked: any tampering with it will get you banned from Lumiose Online!	存档会受到检查：任何篡改都会导致在 Lumiose Online 中被封禁！
 The sharpest the dynamic resolution goes: the game's own %s, %s (1.5x), or your display's own resolution.\n\nIt's lowered from there while your GPU can't keep the frame rate.	动态分辨率的上限：游戏原生分辨率（%s）、%s（1.5 倍）或你显示器的分辨率。\n\n当 GPU 无法保持帧率时，会从这里往下降。
 The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024).\n\nHigher: smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory (4x: about 240 MB, 2x: 60 MB). Applies at once.	绘制太阳阴影所用贴图的大小（游戏原本为 1024 x 1024）。\n\n越高：阴影边缘越平滑，没有阶梯状锯齿，代价是多一点 GPU 时间和更多 GPU 显存（4 倍：约 240 MB，2 倍：60 MB）。立即生效。
 The trackpad's two-finger scroll turns the camera, as the mouse does.	在触控板上双指滑动可像鼠标一样旋转镜头。

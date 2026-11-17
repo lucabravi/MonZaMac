@@ -465,6 +465,7 @@ Switch keys	Chaves criptográficas do Switch
 Switch tabs	Alternar abas
 Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	Trocar aba: L / R (Q / E)      Voltar: B (Esc)
 System default	Padrão do sistema
+Team	Equipe
 Tests	Testes
 Text: %s    Button icons: %s	Texto: %s    Ícones dos botões: %s
 Text: imported	Texto: fonte importada
@@ -495,6 +496,7 @@ The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter e
 The online version could not be prepared.	Não foi possível preparar a versão online.
 The save couldn't be copied.	Não foi possível copiar o salvamento.
 The save in use ("%s", as the game last saved it) is copied into routes/ first (it does not show in the save list), then the pad is recorded until you stop.	O salvamento em uso ("%s", conforme o último registro no jogo) é primeiro copiado para routes/ (sem aparecer na lista); depois, as ações do controle são gravadas até você parar.
+The save will be checked: any tampering with it will get you banned from Lumiose Online!	O salvamento será verificado: qualquer adulteração resultará em banimento do Lumiose Online!
 The sharpest the dynamic resolution goes: the game's own %s, %s (1.5x), or your display's own resolution.\n\nIt's lowered from there while your GPU can't keep the frame rate.	O máximo da resolução dinâmica: a do próprio jogo (%s), %s (1,5x) ou a da sua tela.\n\nA partir daí ela é reduzida enquanto a GPU não mantiver a taxa de quadros.
 The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024).\n\nHigher: smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory (4x: about 240 MB, 2x: 60 MB). Applies at once.	O tamanho do mapa a partir do qual as sombras do sol são desenhadas (o do jogo: 1024 x 1024).\n\nMais alto: bordas de sombra mais suaves, sem degraus, por um pouco de tempo de GPU e mais memória de GPU (4x: cerca de 240 MB, 2x: 60 MB). Aplica na hora.
 The trackpad's two-finger scroll turns the camera, as the mouse does.	O gesto com dois dedos no trackpad gira a câmera como o mouse.

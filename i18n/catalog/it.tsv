@@ -465,6 +465,7 @@ Switch keys	Chiavi di cifratura Switch
 Switch tabs	Cambia scheda
 Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	Cambia scheda: L / R (Q / E)      Indietro: B (Esc)
 System default	Predefinito di sistema
+Team	Squadra
 Tests	Test
 Text: %s    Button icons: %s	Testo: %s    Icone pulsanti: %s
 Text: imported	Testo: font importato
@@ -495,6 +496,7 @@ The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter e
 The online version could not be prepared.	Impossibile preparare la versione online.
 The save couldn't be copied.	Impossibile copiare il salvataggio.
 The save in use ("%s", as the game last saved it) is copied into routes/ first (it does not show in the save list), then the pad is recorded until you stop.	Il salvataggio in uso ("%s", allo stato dell’ultimo salvataggio nel gioco) viene prima copiato in routes/ (non compare nell’elenco), quindi il controller viene registrato fino a quando interrompi.
+The save will be checked: any tampering with it will get you banned from Lumiose Online!	Il salvataggio sarà sottoposto a controlli: ogni manomissione porterà al ban da Lumiose Online!
 The sharpest the dynamic resolution goes: the game's own %s, %s (1.5x), or your display's own resolution.\n\nIt's lowered from there while your GPU can't keep the frame rate.	Il massimo della risoluzione dinamica: quella del gioco (%s), %s (1,5x) o la risoluzione del tuo schermo.\n\nDa lì viene abbassata finché la GPU non riesce a mantenere il frame rate.
 The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024).\n\nHigher: smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory (4x: about 240 MB, 2x: 60 MB). Applies at once.	La dimensione della mappa da cui vengono disegnate le ombre del sole (quella del gioco: 1024 x 1024).\n\nPiù alta: bordi delle ombre più morbidi, senza scalini, per un po’ di tempo GPU e più memoria GPU (4x: circa 240 MB, 2x: 60 MB). Si applica subito.
 The trackpad's two-finger scroll turns the camera, as the mouse does.	Lo scorrimento a due dita sul trackpad ruota la telecamera, come il mouse.

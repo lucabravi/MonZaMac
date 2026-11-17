@@ -465,6 +465,7 @@ Switch keys	Claves criptográficas de Switch
 Switch tabs	Cambiar de pestaña
 Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	Cambiar pestaña: L / R (Q / E)      Atrás: B (Esc)
 System default	Predeterminado del sistema
+Team	Equipo
 Tests	Pruebas
 Text: %s    Button icons: %s	Texto: %s    Iconos de botones: %s
 Text: imported	Texto: fuente importada
@@ -495,6 +496,7 @@ The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter e
 The online version could not be prepared.	No se pudo preparar la versión en línea.
 The save couldn't be copied.	No se pudo copiar la partida guardada.
 The save in use ("%s", as the game last saved it) is copied into routes/ first (it does not show in the save list), then the pad is recorded until you stop.	La partida actual ("%s", tal como la guardó el juego) se copia primero en routes/ (no aparece en la lista); después se graban las acciones del mando hasta que lo detengas.
+The save will be checked: any tampering with it will get you banned from Lumiose Online!	Se comprobará la partida guardada: cualquier manipulación provocará un baneo en Lumiose Online.
 The sharpest the dynamic resolution goes: the game's own %s, %s (1.5x), or your display's own resolution.\n\nIt's lowered from there while your GPU can't keep the frame rate.	El máximo de la resolución dinámica: la del propio juego (%s), %s (1,5x) o la de tu pantalla.\n\nDesde ahí se reduce mientras la GPU no mantenga la tasa de fotogramas.
 The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024).\n\nHigher: smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory (4x: about 240 MB, 2x: 60 MB). Applies at once.	El tamaño del mapa con el que se dibujan las sombras del sol (el del juego: 1024 x 1024).\n\nMás alto: bordes de sombra más suaves, sin escalones, a cambio de algo de tiempo de GPU y más memoria de GPU (4x: unos 240 MB, 2x: 60 MB). Se aplica al instante.
 The trackpad's two-finger scroll turns the camera, as the mouse does.	Deslizar dos dedos en el trackpad gira la cámara, como el ratón.

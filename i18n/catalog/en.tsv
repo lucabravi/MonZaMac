@@ -465,6 +465,7 @@ Switch keys	Switch keys
 Switch tabs	Switch tabs
 Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)
 System default	System default
+Team	Team
 Tests	Tests
 Text: %s    Button icons: %s	Text: %s    Button icons: %s
 Text: imported	Text: imported
@@ -495,6 +496,7 @@ The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter e
 The online version could not be prepared.	The online version could not be prepared.
 The save couldn't be copied.	The save couldn't be copied.
 The save in use ("%s", as the game last saved it) is copied into routes/ first (it does not show in the save list), then the pad is recorded until you stop.	The save in use ("%s", as the game last saved it) is copied into routes/ first (it does not show in the save list), then the pad is recorded until you stop.
+The save will be checked: any tampering with it will get you banned from Lumiose Online!	The save will be checked: any tampering with it will get you banned from Lumiose Online!
 The sharpest the dynamic resolution goes: the game's own %s, %s (1.5x), or your display's own resolution.\n\nIt's lowered from there while your GPU can't keep the frame rate.	The sharpest the dynamic resolution goes: the game's own %s, %s (1.5x), or your display's own resolution.\n\nIt's lowered from there while your GPU can't keep the frame rate.
 The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024).\n\nHigher: smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory (4x: about 240 MB, 2x: 60 MB). Applies at once.	The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024).\n\nHigher: smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory (4x: about 240 MB, 2x: 60 MB). Applies at once.
 The trackpad's two-finger scroll turns the camera, as the mouse does.	The trackpad's two-finger scroll turns the camera, as the mouse does.

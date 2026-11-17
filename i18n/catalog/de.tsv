@@ -465,6 +465,7 @@ Switch keys	Switch-Verschlüsselungsschlüssel
 Switch tabs	Tab wechseln
 Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	Tab wechseln: L / R (Q / E)      Zurück: B (Esc)
 System default	Systemstandard
+Team	Team
 Tests	Tests
 Text: %s    Button icons: %s	Text: %s    Tastensymbole: %s
 Text: imported	Text: Schrift importiert
@@ -495,6 +496,7 @@ The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter e
 The online version could not be prepared.	Die Online-Version konnte nicht vorbereitet werden.
 The save couldn't be copied.	Der Spielstand konnte nicht kopiert werden.
 The save in use ("%s", as the game last saved it) is copied into routes/ first (it does not show in the save list), then the pad is recorded until you stop.	Der aktive Spielstand („%s“, Stand des letzten Speicherns) wird zunächst nach routes/ kopiert (nicht in der Liste sichtbar); anschließend werden die Controller-Eingaben bis zum Stopp aufgezeichnet.
+The save will be checked: any tampering with it will get you banned from Lumiose Online!	Der Spielstand wird überprüft: Jede Manipulation führt zu einem Bann bei Lumiose Online!
 The sharpest the dynamic resolution goes: the game's own %s, %s (1.5x), or your display's own resolution.\n\nIt's lowered from there while your GPU can't keep the frame rate.	Das Maximum der dynamischen Auflösung: die des Spiels (%s), %s (1,5x) oder die Auflösung deines Displays.\n\nVon dort wird sie gesenkt, solange die GPU die Bildrate nicht hält.
 The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024).\n\nHigher: smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory (4x: about 240 MB, 2x: 60 MB). Applies at once.	Die Größe der Karte, aus der die Sonnenschatten gezeichnet werden (die des Spiels: 1024 x 1024).\n\nHöher: weichere Schattenkanten ohne Treppenstufen, für etwas GPU-Zeit und mehr GPU-Speicher (4x: etwa 240 MB, 2x: 60 MB). Wirkt sofort.
 The trackpad's two-finger scroll turns the camera, as the mouse does.	Mit zwei Fingern auf dem Trackpad wird die Kamera wie mit der Maus gedreht.
