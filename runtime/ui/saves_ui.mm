@@ -39,6 +39,7 @@ static char g_name[SAVE_NAME_MAX * 4 + 1], g_err[96], g_created[SAVE_NAME_MAX + 
 static bool g_made;  // NEW just made the slot g_created (the home screen's NEW GAME goes on with it)
 static char g_msg[1024];  // under the bar: what the last import / export did
 static bool g_msg_bad;
+static bool g_msg_hint;  // the message is the online save's hint, shown while it is selected
 extern "C" bool route_record_start(const char *file);  // runtime/hle/input.c
 extern "C" void route_record_stop(void);
 extern "C" bool route_recording(void);
@@ -671,7 +672,13 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
         bool hot = hovered || (ImGui::IsItemFocused() && !s_hover_prev);
         hover_now |= hovered;
         bool play = clicked && (was_sel || nav);  // (a double click: the first click selects, the second plays)
-        if (clicked || nav) g_sel = i;
+        if (clicked || nav) {
+            g_sel = i;
+            if (s.online) {  // (said as soon as the online save is selected, not only when it is played)
+                snprintf(g_msg, sizeof g_msg, "%s", ui_tr("This save is for Lumiose Online only: start it with Play online."));
+                g_msg_bad = false, g_msg_hint = true;
+            } else if (g_msg_hint) g_msg[0] = 0, g_msg_hint = false;
+        }
         if (nav) ImGui::SetScrollHereY(0.5f);
         bool more_hot = false;
         if (has_team) {  // the expand button: the card's right column, reached with Right from the card
