@@ -3,7 +3,9 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
-## Unreleased
+## 0.4.1
+
+A few follow-ups to 0.4.0: a save of the wrong kind now stops the game, a GPU program built to fit is found again at the next start, and the game version that mods read follows the game files. No shader preparation is needed.
 
 ### Game
 - **A save of the wrong kind now stops the game** instead of only writing a line to the log: online saves start only online, the others only offline. The start screen already kept them apart; this is the last stop behind it.
