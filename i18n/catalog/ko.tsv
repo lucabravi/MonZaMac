@@ -342,7 +342,6 @@ Offline play	오프라인 플레이
 On	켜짐
 Online play	온라인 플레이
 Online play (Lumiose Online)	온라인 플레이 (Lumiose Online)
-Online save	온라인 세이브
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	온라인에서 게임 안에 커서가 표시될 때(Lumiose 화면은 커서로 클릭해 조작합니다): 이 시간 동안 마우스를 움직이거나 클릭하지 않으면 숨겨지고, 조작하면 바로 다시 나타납니다(두 손가락 드래그는 해당되지 않습니다).
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	셰이더 해시 및 숫자 그래픽 상태만 포함합니다. 게임 코드, 키, 저장 데이터, 개인정보는 포함되지 않으며 자동 업로드하지 않습니다.
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	메뉴 열기/닫기: F1, Esc, 컨트롤러 Home / Xbox / PlayStation 버튼 또는 Back + Start

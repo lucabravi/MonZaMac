@@ -1091,15 +1091,14 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
     }
     {   // the online save's trainer card, like the offline one (who, play time, money, team; not the save's own name)
         const SaveInfo *si = v.save_path && v.save_path[0] ? save_info(v.save_path) : NULL;
-        float ctop = ry + u * 5.3f, cwid = w, chgt = u * 7.3f;
+        float ctop = ry + u * 5.3f, cwid = w, chgt = u * 8.0f;
         ImVec2 cp(x, ctop), cq(x + w, ctop + chgt);
         dl->AddRectFilled(cp, cq, IM_COL32(8, 16, 40, 218), u * 0.5f);
         dl->AddRect(cp, cq, IM_COL32(150, 110, 255, 90), u * 0.5f, 0, 1.0f);
-        float tx = x + u * 0.9f, tx2 = x + cwid * 0.5f, rr = cq.x - u * 0.9f;
+        float tx = x + u * 0.9f, tx2 = x + cwid * 0.42f, rr = cq.x - u * 0.9f;  // (the offline card's columns)
         const ImU32 faint = IM_COL32(176, 196, 226, 225);
         auto label = [&](float xx, float yy, const char *t) { dl->AddText(small_, u * 0.72f, ImVec2(xx, yy), faint, ui_tr(t)); };
         char cut[96];
-        dl->AddText(small_, u * 0.72f, ImVec2(tx, ctop + u * 0.55f), faint, ui_uppercase(ui_tr("Online save")).c_str());
         if (si) {
             char idb[16];
             snprintf(idb, sizeof idb, "ID %06u", si->id);
@@ -1119,7 +1118,7 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
             dl->AddText(small_, vfs, ImVec2(tx + u * 0.95f, r1 + u * 0.85f), pal::text, pl);
             label(tx2, r1, "Money");
             money_row(dl, small_, ImVec2(tx2, r1 + u * 0.85f), u, si->money);
-            team_row(dl, small_, ImVec2(tx + u * 0.1f, ctop + u * 5.2f), u, si);
+            team_row(dl, small_, ImVec2(tx + u * 0.1f, ctop + chgt - u * 1.7f), u, si);  // (on the card's bottom edge, as the offline one)
         } else if (v.save_path && v.save_path[0]) {  // (an online game made, not played yet)
             dl->AddText(small_, u * 1.0f, ImVec2(tx, ctop + u * 1.6f), pal::text, ui_tr("No progress yet"));
         } else {

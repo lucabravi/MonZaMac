@@ -342,7 +342,6 @@ Offline play	離線遊玩
 On	開
 Online play	線上遊玩
 Online play (Lumiose Online)	線上遊玩（Lumiose Online）
-Online save	線上存檔
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	線上時，遊戲內會顯示游標（Lumiose 介面需用它點擊）：滑鼠在此時間內未移動或點擊時會隱藏，一有操作便立即重新顯示（雙指拖曳不計入）。
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	僅包含著色器雜湊值與數值化圖形狀態，不含遊戲程式碼、金鑰、存檔或個人資料。不會自動上傳。
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	開啟／關閉選單：F1、Esc、控制器 Home / Xbox / PlayStation 按鈕或 Back + Start

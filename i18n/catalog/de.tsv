@@ -342,7 +342,6 @@ Offline play	Offline-Spiel
 On	Ein
 Online play	Online-Spiel
 Online play (Lumiose Online)	Online-Spiel (Lumiose Online)
-Online save	Online-Spielstand
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	Online, wo der Cursor im Spiel sichtbar ist (die Lumiose-Oberfläche wird damit angeklickt): Er wird ausgeblendet, wenn die Maus so lange nicht bewegt oder geklickt wurde, und erscheint sofort wieder, sobald das geschieht (ein Zwei-Finger-Wischen zählt nicht).
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	Nur Shader-Hashes und numerische Grafikzustände. Keine Spielcodes, Schlüssel, Spielstände oder persönlichen Daten. Nichts wird automatisch hochgeladen.
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	Menü öffnen/schließen: F1, Esc, Home-/Xbox-/PlayStation-Taste oder Back + Start

@@ -342,7 +342,6 @@ Offline play	Игра без сети
 On	Вкл.
 Online play	Игра онлайн
 Online play (Lumiose Online)	Онлайн-игра (Lumiose Online)
-Online save	Онлайн-сохранение
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	Онлайн, где в игре виден курсор (интерфейс Lumiose управляется щелчками): он скрывается, если мышь не двигалась и не нажималась столько времени, и сразу возвращается при действии (перетаскивание двумя пальцами не считается).
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	Только хеши шейдеров и числовые графические параметры. Без кода игры, ключей, сохранений и личных данных. Автоматической загрузки нет.
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	Открыть/закрыть меню: F1, Esc, Home / Xbox / PlayStation на геймпаде или Back + Start
