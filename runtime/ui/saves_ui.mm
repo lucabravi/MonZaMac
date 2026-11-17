@@ -1290,7 +1290,7 @@ bool saves_ingame_tab(float scale, ImFont *body, ImFont *small_) {
     opt_section("Other saves");
     int others = 0;
     for (int i = 0; i < g_n; i++) {
-        if (i == cur) continue;
+        if (i == cur || g_slots[i].online) continue;  // (an offline game does not list the online saves: they are played from Play online)
         others++;
         save_value(g_slots[i], v, sizeof v);
         save_desc(g_slots[i], d, sizeof d);

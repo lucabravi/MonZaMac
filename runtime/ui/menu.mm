@@ -1194,8 +1194,12 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
     if (prelaunch) tabs[ntabs++] = {"Prelaunch", -1, true};
     static const char *names[] = {"Video", "Audio", "", "", "", "", "", "", "Controls", "Quit", "Developer", "Saves", "Shaders"};
     static const int order[] = {8, 0, 12, 1, 11, 9};  // Controls, Video, Shaders, Audio, Saves, Quit (ids stay: test hooks)
+    // Online (the Lumiose module is loaded) there is no Saves tab: the game never switches save, and a copy, an export or a
+    // reload of the online save would take it out of online play (runtime/saves.h).
+    const bool online_game = getenv("LUMIOSE_TEST_MODULE") != NULL;
+    if (online_game && g_tab == 11) g_tab = 8, g_tab_request = -2;
     for (int i : order)  // (Saves and Quit: in game only - the start screen has its own SAVES and QUIT)
-        if ((i != 9 && i != 11) || !prelaunch) tabs[ntabs++] = {names[i], i, true};
+        if (((i != 9 && i != 11) || !prelaunch) && !(online_game && i == 11)) tabs[ntabs++] = {names[i], i, true};
     if (g_settings.developer || getenv("LARECOMP_DEVELOPER")) tabs[ntabs++] = {names[10], 10, true};
     int cur = 0;  // g_tab / g_tab_request hold ids
     for (int i = 0; i < ntabs; i++) if (tabs[i].id == g_tab) cur = i;
