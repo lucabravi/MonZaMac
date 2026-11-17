@@ -8,7 +8,8 @@ Lumiose Online is a separate service run by its own authors, not by MonZaMac. Fo
 - A **Switch mod**, not code of this project: a `subsdk9` NSO module that Atmosphère loads next to the game's `main`
   and `sdk`. On a Switch it patches the game when it starts (branch hooks into itself), talks to a **relay server** over
   UDP through `nn::socket`, and shows other players and a chat in the game.
-- It updates itself: it gets a signed `subsdk9` from the relay and installs it on the SD card; on a Switch the next start runs that one. Here the SD card is the save's `sdcard` folder, and `setup_online.py` prepares that file on the next **Play online**, before looking at the site (which can be behind the relay). A module that is not newer than the active version, or is not the PC build (platform 2), is not activated.
+- On a Switch, the mod updates itself by writing a signed `subsdk9` from the relay to the SD card. MonZaMac does
+  not use modules from the save's `sdcard` folder. **Play online** uses the module published on the Lumiose Online site.
 - The relay is the team's server, `lumioseonline.site:27777` (the machine behind their site, also the one their own launcher uses). It is the default here and can be pointed elsewhere; the runtime only ever reaches the one IPv4 address it is given.
 
 ## What the runtime has for it
@@ -31,14 +32,14 @@ endpoint is reachable. Traffic is logged (`lumiose-net` developer log) by destin
 
 ## Preparing a version (`tools/lumiose/`)
 
-Nothing uses the network unless a command is run on purpose: only `fetch.py`, and `setup_online.py` when it has no module (the start screen asks for consent before running it).
+Nothing uses the network unless a command is run on purpose: `fetch.py` downloads builds, and `setup_online.py` checks for updates (the start screen asks for consent before running it).
 
 | Tool | What it does |
 |---|---|
 | `fetch.py` | Downloads the newest live module from the fixed link the Lumiose Online team keeps for it, and keeps it only if it matches the SHA-256 they publish next to it (https only, size limit, NSO header), under its own hash in `build/lumiose-modules/` |
 | `prepare.py` | From the module and the 2.0.2 game: starts the game hidden and offline to capture what the module patches, generates and compiles the module and the patched `main`/`sdk` libraries (unchanged objects are reused), and writes `ready.json` with the hash of every output |
 | `activate.py` | Lists prepared versions, makes one the active one after verifying it (optionally after starting it hidden to see that it comes up), goes back to the previous one, sets or clears the relay endpoint (the default is the team's `lumioseonline.site:27777`), prints the command that starts it |
-| `setup_online.py` | Does find (or download, when there is none), prepare, check and activate as one job with one progress (`PROGRESS` / `STATUS` lines) for a screen |
+| `setup_online.py` | Verifies cached module bytes against the published digest or downloads a matching module, then prepares, checks and activates it as one job (`PROGRESS` lines) for the start screen |
 | `versions.py` | Reads the module's switch tables from its own code (their targets are entry points for the generator). There is no list of known builds |
 
 In the online app the start screen's game code build is kept (`.gamebuild` in the game folder: generated C, objects,
@@ -53,15 +54,19 @@ only as a whole, so a failure leaves the previous choice as it was.
 A second column, **Lumiose Online**, beside the offline one. **Play online** is available only when the game files are
 there and are the 2.0.2 build (otherwise the column says what is missing, and the runtime itself refuses the module for any
 other build). The first press asks for consent (the game data goes to Lumiose Online, a separate service), prepares the
-version with `tools/lumiose/setup_online.py` (the button fills as it goes; `runtime/online_prep.c` follows its `PROGRESS` /
-`STATUS` lines) and then starts the game again with the module: offline and online are a restart apart. Every later press first
-checks the published SHA-256 of the newest module: the same one starts at once, a newer one is downloaded and prepared
-first, and when the check cannot be made the active version starts. In the app, an install whose game code build was not
-kept yet (made before the online edition) builds the game code first, then goes on. The relay is the Lumiose Online
+version with `tools/lumiose/setup_online.py` (the button fills as it goes; `runtime/online_prep.c` follows its
+`PROGRESS` lines). Every press checks the published SHA-256 of the newest module. An active version can be reused
+if its module matches; otherwise the helper prepares the published module. If the published checksum is unavailable,
+online play does not start. The launcher uses the exact prepared version returned by that check. In the app, an
+install whose game code build was not kept yet (made before the online edition) builds the game code first, then goes
+on. The relay is the Lumiose Online
 team's (`lumioseonline.site:27777`, the machine their own launcher uses; `activate.py set-server` points elsewhere): the name is looked
 up when the version is read and the runtime is given only the resulting IPv4 address. When the name cannot be found the column says
 so and nothing is started. The online app runs these tools through its bundled helper (`lasgen online <tool>`); a build without them says "not available here". A version prepared before an app update that changed the game code is prepared again on the next press, since the runtime refuses its library.
 `LARECOMP_ONLINE_STATE_TEST=ready|needs|setup|error|noserver (server not found)|off` shows each state without running anything.
+
+RomFS mod layers are also disabled during online play. This protects the launcher's mod loading paths. It does not
+verify saves or game files, or detect tampering by a modified client.
 
 The mod's own interface reads the Switch touch screen (`nn::hid::GetTouchScreenStates`, which the game does not import):
 the left mouse button held is one finger where the cursor is, in the touch screen's 1280x720 over the game's picture

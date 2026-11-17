@@ -97,8 +97,9 @@ with the Mac port: see [Credits](#credits-and-license).
    (the one MonZaMac supports) and about **1.3 GB** more disk space, which the app keeps to prepare the mod quickly.
 2. Press **Play online**. The first time it tells you what is shared, asks for your consent, then prepares the mod
    **on your Mac**, from your own game files (a few minutes, with a progress bar), and starts the game with it.
-3. Every later press checks for a newer version of the mod, downloaded from Lumiose Online's site and checked against
-   the hash they publish, and prepares it before starting. Without a connection it starts the version you have.
+3. Every press of **Play online** checks that the module matches the SHA-256 published by Lumiose Online. If the
+   check is unavailable, try again when the update site is reachable. Local modules and RomFS mods are ignored for
+   online play.
 4. **Quit to start screen** (in the in-game menu, F1) comes back to the start screen without the mod: **Continue** there
    plays offline.
 
