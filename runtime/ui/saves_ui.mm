@@ -1089,8 +1089,46 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
         dl->AddText(tf, u * 1.75f, tp, sp ? IM_COL32(250, 198, 84, 255) : IM_COL32(255, 255, 255, 255), name, sp);
         if (sp) dl->AddText(tf, u * 1.75f, ImVec2(tp.x + tw, tp.y), IM_COL32(255, 255, 255, 255), sp);
     }
+    {   // the online save's trainer card, like the offline one (who, play time, money, team; not the save's own name)
+        const SaveInfo *si = v.save_path && v.save_path[0] ? save_info(v.save_path) : NULL;
+        float ctop = ry + u * 5.3f, cwid = w, chgt = u * 7.3f;
+        ImVec2 cp(x, ctop), cq(x + w, ctop + chgt);
+        dl->AddRectFilled(cp, cq, IM_COL32(8, 16, 40, 218), u * 0.5f);
+        dl->AddRect(cp, cq, IM_COL32(150, 110, 255, 90), u * 0.5f, 0, 1.0f);
+        float tx = x + u * 0.9f, tx2 = x + cwid * 0.5f, rr = cq.x - u * 0.9f;
+        const ImU32 faint = IM_COL32(176, 196, 226, 225);
+        auto label = [&](float xx, float yy, const char *t) { dl->AddText(small_, u * 0.72f, ImVec2(xx, yy), faint, ui_tr(t)); };
+        char cut[96];
+        dl->AddText(small_, u * 0.72f, ImVec2(tx, ctop + u * 0.55f), faint, ui_uppercase(ui_tr("Online save")).c_str());
+        if (si) {
+            char idb[16];
+            snprintf(idb, sizeof idb, "ID %06u", si->id);
+            float iw = small_->CalcTextSizeA(u * 0.72f, FLT_MAX, 0, idb).x;
+            label(rr - iw, ctop + u * 0.55f, idb);
+            dl->AddText(small_, u * 1.45f, ImVec2(tx, ctop + u * 1.2f), pal::text,
+                        fit(small_, u * 1.45f, si->trainer[0] ? si->trainer : ui_tr("Trainer"), rr - tx, cut, sizeof cut));
+            dl->AddLine(ImVec2(tx, ctop + u * 2.8f), ImVec2(rr, ctop + u * 2.8f), IM_COL32(76, 100, 137, 120), 1.0f);
+            float r1 = ctop + u * 3.05f, vfs = u * 1.0f;
+            label(tx, r1, "Play time");
+            char pl[16];
+            fmt_played(si->played, pl, sizeof pl);
+            ImVec2 cc(tx + u * 0.34f, r1 + u * 0.85f + vfs * 0.5f - u * 0.04f);  // (a small clock, centred on the time's line)
+            dl->AddCircle(cc, u * 0.34f, pal::sub, 20, u * 0.1f);
+            dl->AddLine(cc, ImVec2(cc.x, cc.y - u * 0.22f), pal::sub, u * 0.1f);
+            dl->AddLine(cc, ImVec2(cc.x + u * 0.17f, cc.y + u * 0.07f), pal::sub, u * 0.1f);
+            dl->AddText(small_, vfs, ImVec2(tx + u * 0.95f, r1 + u * 0.85f), pal::text, pl);
+            label(tx2, r1, "Money");
+            money_row(dl, small_, ImVec2(tx2, r1 + u * 0.85f), u, si->money);
+            team_row(dl, small_, ImVec2(tx + u * 0.1f, ctop + u * 5.2f), u, si);
+        } else if (v.save_path && v.save_path[0]) {  // (an online game made, not played yet)
+            dl->AddText(small_, u * 1.0f, ImVec2(tx, ctop + u * 1.6f), pal::text, ui_tr("No progress yet"));
+        } else {
+            // (none chosen: the first Play online asks)
+            dl->AddText(small_, u * 0.85f, ImVec2(tx, ctop + u * 1.6f), pal::sub, ui_tr("Chosen the first time you press Play online."), NULL, rr - tx);
+        }
+    }
     // the state
-    float ch = u * 3.4f, cy = ry + ph - u * 0.6f - u * 2.05f - u * 0.9f - ch;  // (the state sits right above the button, at the column's bottom)
+    float ch = u * 2.5f, cy = ry + ph - u * 0.6f - u * 2.05f - u * 0.9f - ch;  // (the state sits right above the button, at the column's bottom)
     ImVec2 ic(x + u * 1.0f, cy + u * 1.35f);
     const ImU32 dot = v.good ? IM_COL32(70, 214, 110, 255) : v.bad ? IM_COL32(255, 170, 90, 255) : IM_COL32(150, 172, 210, 255);
     const ImU32 dark = IM_COL32(8, 18, 35, 255);
@@ -1103,7 +1141,6 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
     char fit_line[96];
     dl->AddText(small_, u * 1.15f, ImVec2(x + u * 2.5f, cy + u * 0.05f), v.good ? pal::accent2 : v.bad ? pal::warn : pal::text, ui_tr(v.headline));
     dl->AddText(small_, u * 0.85f, ImVec2(x + u * 2.5f, cy + u * 1.45f), pal::sub, fit(small_, u * 0.85f, ui_tr(v.line), w - u * 2.5f, fit_line, sizeof fit_line));
-    dl->AddText(small_, u * 0.85f, ImVec2(x + u * 2.5f, cy + u * 2.45f), pal::sub, ui_tr("Uses the save selected offline"));
     // PLAY ONLINE
     ImVec2 p(x, cy + ch + u * 0.9f), q(x + w, p.y + u * 2.05f);
     ImGui::SetCursorScreenPos(p);

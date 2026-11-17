@@ -87,6 +87,7 @@ Choose these two files. They are read on this Mac only to add the DLC, and the g
 Choose your base game, update and prod.keys before setup.	设置前请选择基础游戏、更新文件和 prod.keys。
 Choose your online save	选择你的在线存档
 Choose...	选择...
+Chosen the first time you press Play online.	第一次点击“在线游玩”时选择。
 Chosen:\s	已选择：
 Close	关闭
 Closes MonZaMac.	关闭 MonZaMac。
@@ -341,7 +342,7 @@ Offline play	离线游玩
 On	开
 Online play	在线游玩
 Online play (Lumiose Online)	在线游玩（Lumiose Online）
-Online save: %s	在线存档：%s
+Online save	在线存档
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	在线时，游戏内会显示光标（Lumiose 界面需用它点击）：鼠标在此时长内未移动或点击时会隐藏，一有操作便立即重新显示（双指拖动不计入）。
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	仅包含着色器哈希值及数字化图形状态，不含游戏代码、密钥、存档或个人信息。不会自动上传。
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	打开/关闭菜单：F1、Esc、控制器 Home / Xbox / PlayStation 按钮或 Back + Start
@@ -543,7 +544,6 @@ Upscaling and AA	画面放大与抗锯齿
 Use as online save	用作在线存档
 Use one of my saves as the online save	将我的某个存档用作在线存档
 Use substitute font	使用替代字体
-Uses the save selected offline	使用离线模式所选的存档
 Version %s is out. Update to play online.	版本 %s 已发布。请更新后再在线游玩。
 Video	视频
 View + Menu	视图 + 菜单

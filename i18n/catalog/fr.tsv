@@ -87,6 +87,7 @@ Choose these two files. They are read on this Mac only to add the DLC, and the g
 Choose your base game, update and prod.keys before setup.	Avant de commencer, choisissez le jeu de base, la mise à jour et prod.keys.
 Choose your online save	Choisissez votre sauvegarde en ligne
 Choose...	Choisir...
+Chosen the first time you press Play online.	Choisie la première fois que vous appuyez sur Jouer en ligne.
 Chosen:\s	Sélectionné :\s
 Close	Fermer
 Closes MonZaMac.	Ferme MonZaMac.
@@ -341,7 +342,7 @@ Offline play	Jeu hors ligne
 On	Activé
 Online play	Jeu en ligne
 Online play (Lumiose Online)	Jeu en ligne (Lumiose Online)
-Online save: %s	Sauvegarde en ligne : %s
+Online save	Sauvegarde en ligne
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	En ligne, où le curseur est visible en jeu (l’interface de Lumiose se clique avec) : il se masque quand la souris n’a ni bougé ni cliqué pendant ce délai, et réapparaît dès que c’est le cas (un glissement à deux doigts ne compte pas).
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	Uniquement les hachages de shaders et les paramètres graphiques numériques. Ni code du jeu, clés, sauvegardes ni données personnelles. Aucun envoi automatique.
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	Ouvrir/fermer le menu : F1, Échap, bouton Home / Xbox / PlayStation de la manette ou Back + Start
@@ -543,7 +544,6 @@ Upscaling and AA	Mise à l'échelle et anticrénelage
 Use as online save	Utiliser comme sauvegarde en ligne
 Use one of my saves as the online save	Utiliser une de mes sauvegardes comme sauvegarde en ligne
 Use substitute font	Utiliser une police de remplacement
-Uses the save selected offline	Utilise la sauvegarde choisie hors ligne
 Version %s is out. Update to play online.	La version %s est disponible. Mettez à jour pour jouer en ligne.
 Video	Vidéo
 View + Menu	Vue + Menu

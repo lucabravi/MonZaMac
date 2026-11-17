@@ -413,25 +413,25 @@ static void online_launch() {
 
 // Once per frame on the home page: moves the state on and fills what the column shows. `files`: "" when the game files are
 // there and are the right version, else why not (the launcher's check: it needs the exact 2.0.2 build).
-// The online save the column names (looked up every couple of seconds, not every frame)
-static const char *online_save_name() {
-    static char name[SAVE_NAME_MAX + 1];
+// The online save's folder, for the trainer card of the column (looked up every couple of seconds, not every frame)
+static const char *online_save_path() {
+    static char path[96];
     static double at = -10;
     double now = ImGui::GetTime();
     if (now - at > 2.0) {
         at = now;
-        name[0] = 0;
+        path[0] = 0;
         SaveSlot all[SAVE_SLOTS_MAX];
         int n = saves_list(all, SAVE_SLOTS_MAX);
         for (int i = 0; i < n; i++)
-            if (all[i].online && !strcmp(all[i].id, g_settings.online_save)) snprintf(name, sizeof name, "%s", all[i].name);
+            if (all[i].online && !strcmp(all[i].id, g_settings.online_save)) snprintf(path, sizeof path, "%s", all[i].path);
     }
-    return name;
+    return path;
 }
 
 static void online_view(const std::string &files, bool busy, OnlineView *v) {
     static char headline[192], line[512], build[128], button[192];
-    *v = {headline, line, build, false, false, false, button, false, -1.0f};
+    *v = {headline, line, build, false, false, false, button, false, -1.0f, online_save_path()};
     snprintf(button, sizeof button, "Play online");
     snprintf(build, sizeof build, "Not prepared yet");
     snprintf(line, sizeof line, "Lumiose Online (separate service)");
@@ -524,10 +524,7 @@ static void online_view(const std::string &files, bool busy, OnlineView *v) {
         } else {
             snprintf(headline, sizeof headline, g_ou_note.empty() ? "Service ready" : "Could not start");
             if (!g_ou_note.empty()) snprintf(line, sizeof line, "%s", g_ou_note.c_str()), v->bad = true;
-            else {
-                v->good = true;
-                if (online_save_name()[0]) snprintf(line, sizeof line, ui_tr("Online save: %s"), online_save_name());
-            }
+            else v->good = true;
             v->on = true;
         }
         break;
@@ -2531,7 +2528,7 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
                 {   // the columns, centered between the header and the bar: offline, and with LUMIOSE_ONLINE Lumiose Online beside it
                     float pad = 24 * s, ch = g_bar_y - g_hdr_h - 2 * pad, top = g_hdr_h + pad;
 #ifdef LUMIOSE_ONLINE
-                    float gap = 28 * s, cw = ds.x - 2 * pad - 20 * s, lw = (cw - gap) * 0.6f, x0 = (ds.x - cw) * 0.5f;
+                    float gap = 28 * s, cw = ds.x - 2 * pad - 20 * s, lw = (cw - gap) * 0.5f, x0 = (ds.x - cw) * 0.5f;
                     int col = saves_home_draw(g_font_small, ready, !ready || busy, !g_play_focused, false, x0, top, lw, ch);
                     if (col) act = col;
                     OnlineView ov;

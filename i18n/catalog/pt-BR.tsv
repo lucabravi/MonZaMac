@@ -87,6 +87,7 @@ Choose these two files. They are read on this Mac only to add the DLC, and the g
 Choose your base game, update and prod.keys before setup.	Antes de começar, selecione o jogo base, a atualização e prod.keys.
 Choose your online save	Escolha seu salvamento online
 Choose...	Escolher...
+Chosen the first time you press Play online.	Escolhido na primeira vez que você apertar Jogar online.
 Chosen:\s	Selecionado:\s
 Close	Fechar
 Closes MonZaMac.	Fecha o MonZaMac.
@@ -341,7 +342,7 @@ Offline play	Jogo offline
 On	Ativado
 Online play	Jogo online
 Online play (Lumiose Online)	Jogo online (Lumiose Online)
-Online save: %s	Salvamento online: %s
+Online save	Salvamento online
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	Online, onde o cursor aparece no jogo (a interface do Lumiose é clicada com ele): ele some quando o mouse não se move nem clica por esse tempo e volta assim que isso acontece (arrastar com dois dedos não conta).
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	Somente hashes de shaders e parâmetros gráficos numéricos. Sem código do jogo, chaves, jogos salvos ou dados pessoais. Nada é enviado automaticamente.
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	Abrir/fechar menu: F1, Esc, botão Home / Xbox / PlayStation do controle ou Back + Start
@@ -543,7 +544,6 @@ Upscaling and AA	Upscaling e antisserrilhamento
 Use as online save	Usar como salvamento online
 Use one of my saves as the online save	Usar um dos meus salvamentos como salvamento online
 Use substitute font	Usar fonte substituta
-Uses the save selected offline	Usa o salvamento selecionado offline
 Version %s is out. Update to play online.	A versão %s foi lançada. Atualize para jogar online.
 Video	Vídeo
 View + Menu	Exibir + Menu

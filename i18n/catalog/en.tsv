@@ -87,6 +87,7 @@ Choose these two files. They are read on this Mac only to add the DLC, and the g
 Choose your base game, update and prod.keys before setup.	Choose your base game, update and prod.keys before setup.
 Choose your online save	Choose your online save
 Choose...	Choose...
+Chosen the first time you press Play online.	Chosen the first time you press Play online.
 Chosen:\s	Chosen:\s
 Close	Close
 Closes MonZaMac.	Closes MonZaMac.
@@ -341,7 +342,7 @@ Offline play	Offline play
 On	On
 Online play	Online play
 Online play (Lumiose Online)	Online play (Lumiose Online)
-Online save: %s	Online save: %s
+Online save	Online save
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start
@@ -543,7 +544,6 @@ Upscaling and AA	Upscaling and AA
 Use as online save	Use as online save
 Use one of my saves as the online save	Use one of my saves as the online save
 Use substitute font	Use substitute font
-Uses the save selected offline	Uses the save selected offline
 Version %s is out. Update to play online.	Version %s is out. Update to play online.
 Video	Video
 View + Menu	View + Menu
