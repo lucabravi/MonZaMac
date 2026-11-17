@@ -95,12 +95,18 @@ with the Mac port: see [Credits](#credits-and-license).
 
 1. Install the online edition and set up your game files as usual. Online play needs the game at **version 2.0.2**
    (the one MonZaMac supports) and about **1.3 GB** more disk space, which the app keeps to prepare the mod quickly.
-2. Press **Play online**. The first time it tells you what is shared, asks for your consent, then prepares the mod
-   **on your Mac**, from your own game files (a few minutes, with a progress bar), and starts the game with it.
-3. Every press of **Play online** checks that the module matches the SHA-256 published by Lumiose Online. If the
-   check is unavailable, try again when the update site is reachable. Local modules and RomFS mods are ignored for
+2. Press **Play online**. The first time it tells you what is shared, asks for your consent, asks **which save is your
+   online save**, then prepares the mod **on your Mac**, from your own game files (a few minutes, with a progress bar),
+   and starts the game with it.
+3. **Your online save stays online.** Choose **New online game** (recommended) or make one of your saves the online one.
+   From then on that save is only played online: it can't be started offline, copied, renamed or deleted from the app, and
+   your other saves are never used online. Lumiose Online checks a save for anything done to it outside online play, and
+   tampering can get you banned.
+4. Every press of **Play online** checks that the module matches the SHA-256 published by Lumiose Online, that your game
+   files are the original 2.0.2 ones and that no newer MonZaMac is out. If a check can't be made or fails, online play
+   does not start and the column says why. Local modules, RomFS mods and the debug environment variables are ignored for
    online play.
-4. **Quit to start screen** (in the in-game menu, F1) comes back to the start screen without the mod: **Continue** there
+5. **Quit to start screen** (in the in-game menu, F1) comes back to the start screen without the mod: **Continue** there
    plays offline.
 
 **Your data, your choice.**

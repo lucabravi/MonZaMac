@@ -3,9 +3,9 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
-## Unreleased
+## 0.4.0
 
-Cleaner skin and hair in some close-ups, a little more speed, a new way to install the game from a Switch 2 Edition `.nup` file, and fixes. **After updating, run Prepare all shaders again** (the **All shaders** badge turns yellow): the shader translation changed.
+Cleaner skin and hair in some close-ups, a little more speed, a new way to install the game from a Switch 2 Edition `.nup` file, a new look for the start screen, stricter rules for Lumiose Online (one online save, original game files, the official module, the current version), and fixes. **After updating, run Prepare all shaders again** (the **All shaders** badge turns yellow): the shader translation changed. **If you play online, the first Play online asks which save is your online save.**
 
 ### Graphics
 - **Close-ups of characters no longer show moving blotchy noise** on skin and hair (seen in a story cutscene with two characters and red dotted lights on the wall). The screen-space contact shadow ignored one of its conditions, so every step of its ray counted as a hit. Now it matches the Switch.
@@ -28,14 +28,14 @@ Cleaner skin and hair in some close-ups, a little more speed, a new way to insta
 ### Start screen
 - The team on the offline card has more room: bigger balls, further apart, with the buttons lower. The Saves page follows.
 - **Prepare all shaders** no longer leaves the black loading screen over the start screen when the game returns before its first frame.
-- **Online play waits for the update.** When a newer MonZaMac release is out, the Lumiose Online column says **Update MonZaMac first** and **Play online** stays off until you update. Without an answer from GitHub (no connection, or `LARECOMP_NO_UPDATE_CHECK`), nothing is held. A release marked as a pre-release is no longer offered as an update.
-- **Online play is the same game for everyone.** While the Lumiose module is loaded, the debug and test `LARECOMP_*` variables (scripted input, route replay, warps...) are ignored; only the supported ones stay, and they come back for an offline game. **Play online** also stays off while the game data check finds files that differ from the original 2.0.2 (**Game files changed**).
 - **A new look for the two columns** (online edition): Play offline and Lumiose Online are the same width, and the online column shows your online save's trainer card (trainer, ID, play time, money and team) over the picture. On the offline card the save's name is the title and the trainer's name has its own row. The Saves page lists the online save first, greyed, with an **ONLINE** tag, and the page's messages are no longer cut off at the bottom.
 
 ### Lumiose Online (online edition)
-- **Play online only starts a module that matches the one Lumiose Online publishes.** A module placed in the save's `sdcard` folder (for example a cheat or debug menu installed like on a Switch) or in the downloads folder is no longer used. The check runs on every press, so online play needs the team's site to be reachable; without it, it asks you to try again. Back at the start screen, **Play online** restarts the game only when the version changed.
+- **Play online only starts a module that matches the one Lumiose Online publishes.** A module placed in the save's `sdcard` folder (for example a cheat or debug menu installed like on a Switch) or in the downloads folder is no longer used. The check runs on every press, so online play needs the team's site to be reachable; without it, it asks you to try again. Back at the start screen, **Play online** restarts the game only when the version changed. Thanks to **DarthMDev** for this one.
 - **Online saves are separate from offline ones.** Lumiose Online checks a save for anything done to it outside online play, so the first **Play online** asks which save is the online one: a **new online game** (recommended), or one of your saves, which then becomes online only (the window warns that getting around that block can get you banned). An online save is never started offline, an offline save is never started online, an online save can't be copied, and the Saves page marks it **ONLINE**. The saves you do not choose are not touched. Exporting and importing an online save is not handled yet: an import comes back as an offline save.
 - **The in-game menu has no Saves tab while you play online,** and the Saves tab of an offline game no longer lists your online save: it is played only from **Play online**. An online save is named after its character and can't be renamed, copied or deleted from the app.
+- **Online play waits for the update.** When a newer MonZaMac release is out, the Lumiose Online column says **Update MonZaMac first** and **Play online** stays off until you update. Without an answer from GitHub (no connection, or `LARECOMP_NO_UPDATE_CHECK`), nothing is held. A release marked as a pre-release is no longer offered as an update.
+- **Online play is the same game for everyone.** While the Lumiose module is loaded, the debug and test `LARECOMP_*` variables (scripted input, route replay, warps...) are ignored; only the supported ones stay, and they come back for an offline game. **Play online** also stays off while the game data check finds files that differ from the original 2.0.2 (**Game files changed**).
 
 ### Developer tools
 - `docs/environment.md` lists the ten `LARECOMP_*` environment variables that are supported (where the files are, switching off one fix to find a problem, logs and benchmarks); the rest stay debug hooks described in the code. A test fails when a name in the docs is no longer read by the code.
