@@ -38,11 +38,9 @@ Always (cursor held in the window)	Всегда (курсор внутри ок�
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	Создайте пустое сохранение с выбранным именем. Перед перезапуском игры с ним потребуется подтверждение.
 An online save can't be copied.	Онлайн-сохранение нельзя копировать.
 An online save can't be deleted.	Онлайн-сохранение нельзя удалить.
-Anisotropic filtering	Анизотропная фильтрация
 Anti-aliasing	Сглаживание
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	Любые действия для обхода блокировки и прогресса в игре офлайн могут привести к бану в Lumiose Online!
 Any button	Любая кнопка
-Application language	Язык приложения
 Are you sure?	Вы уверены?
 Asks for a name, copies the save in use (as the game last saved it: save first) to routes/<name>, then records everything you press until you stop. The copy keeps the starting point; it is kept in routes/<name>, not in the save list. To play it back: LARECOMP_ROUTE=<name> (a fresh copy of the starting save each time; LARECOMP_INPUT_REPLAY_AT=<frame> starts it later).	Запрашивает имя, копирует используемое сохранение (последнее сохранённое игрой состояние — сначала сохранитесь) в routes/<name>, затем записывает все нажатия до остановки. Копия сохраняет начальное состояние и лежит в routes/<name>, а не в списке сохранений. Воспроизведение: LARECOMP_ROUTE=<name> (каждый раз создаётся новая копия начального состояния; LARECOMP_INPUT_REPLAY_AT=<frame> откладывает запуск).
 Audio	Звук
@@ -68,10 +66,8 @@ Cancel	Отмена
 Cancelled: %s unchanged.	Отменено: %s не изменено.
 Catalog and contributions	Каталог и вклад сообщества
 Catalog verified and installed. Applies at the next game start.	Каталог проверен и установлен. Применится при следующем запуске игры.
-Change the game's text language too?	Изменить также язык текста игры?
 Changes the MonZaMac interface, not the game's text or the Lumiose Online mod.	Изменяет язык интерфейса MonZaMac, но не язык игры или мода Lumiose Online.
 Characters and Pokémon away from the camera animate every frame, as those close by do, instead of in visible steps.\n\nCosts a little CPU in crowded places. Off: the game's own. Game version 2.0.2 only.	Персонажи и покемоны вдали от камеры анимируются в каждом кадре, как и близкие, а не заметными шагами.\n\nНемного нагружает процессор в людных местах. Выкл.: как в игре. Только для версии игры 2.0.2.
-Check for updates	Проверить обновления
 Check free disk space and retry.	Проверьте свободное место на диске и повторите.
 Check now	Проверить сейчас
 Check your connection and try again.	Проверьте соединение и повторите попытку.
@@ -166,12 +162,10 @@ English	English
 Enter  confirm      Esc  cancel      (%d / %d)	Enter подтвердить   Esc отмена   (%d / %d)
 Enter text	Введите текст
 Enter your name	Введите имя
-Error	Ошибка
 Experimental	Экспериментально
 Exploring Lumiose	Исследует Люминопольс
 Export	Экспорт
 Export a save	Экспорт сохранения
-Export save	Экспортировать сохранение
 Export shader recipes	Экспортировать рецепты шейдеров
 Exported %s. Nothing was uploaded.	%s экспортирован. Ничего не отправлялось.
 Exported to %s	Экспортировано в %s
@@ -192,7 +186,6 @@ Free space for the game files, data image and compilation, then retry.	Осво�
 Frees the space MonZaMac's copy of the game files takes. Saves, seeds and settings are kept, and your own game files aren't touched: you can set the game files up again from them.	Освобождает место, занятое копией файлов игры в MonZaMac. Сохранения, сиды и настройки остаются, а ваши собственные файлы игры не затрагиваются: по ним можно снова настроить файлы игры.
 French	Français
 Fullscreen	Полный экран
-Fullscreen:  F11 / Alt+Enter	Полный экран: F11 / Alt+Enter
 GPU timing log	Журнал времени GPU
 Game	Игра
 Game FXAA	FXAA игры
@@ -213,8 +206,6 @@ Game font	Шрифт игры
 Game mode	Режим игры
 Game packages	Пакеты игры
 Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.	Игровые пакеты: выберите базовый NSP/XCI, NSP обновления и prod.keys. Распакованная папка: используйте exefs/romfs, подготовленные в другом месте. Switch 2 Edition: один контейнер .nup с базовой игрой, обновлением и DLC; ключи не нужны.
-Game text language	Язык текста игры
-Game update	Обновление игры
 Game's	По умолчанию в игре
 Game-file preparation didn't finish	Подготовка файлов игры не завершена
 German	Deutsch
@@ -264,14 +255,12 @@ Korean	한국어
 Language	Язык
 Last played\s\s	Последняя игра\s\s
 Last saved	Последнее сохранение
-Latest save	Последнее сохранение
 Leaves the game and goes back to the MonZaMac start screen.	Выходит из игры и возвращается на начальный экран MonZaMac.
 Left button	Левая кнопка
 Left stick	Левый стик
 Legal notice	Правовая информация
 Legal notice & responsible use	Правовая информация и ответственное использование
 Letters, numbers, space, - and _ (up to %d).	Буквы, цифры, пробелы, - и _ (до %d).
-Loading...	Загрузка...
 Local only	Только локально
 Locally records only new graphics pipeline recipes missing from the prepared catalog. Metadata is deduplicated and saved in the background; game code, keys and saves are not included. Nothing is uploaded. New shader programs are collected from the next game start.	Локально записывает только новые рецепты графических конвейеров, которых нет в подготовленном каталоге. Метаданные дедуплицируются и сохраняются в фоне; код игры, ключи и сохранения не включаются. Ничего не отправляется. Новые шейдерные программы собираются со следующего запуска игры.
 Looking for the game files...	Поиск файлов игры...
@@ -303,7 +292,6 @@ Name	Имя
 Name for the copy of "%s"	Имя копии «%s»
 Native	Нативное
 Native: uses the rendering resolution for generated frames.\nPerformance: caps only generated frames at 1920 pixels wide (1080p at 16:9) to reduce GPU cost. Real frames keep the selected rendering resolution. Intermediate images may look softer.\n\nApplies immediately.	Нативное: для сгенерированных кадров используется разрешение рендеринга.\nПроизводительность: ограничивает только сгенерированные кадры шириной 1920 пикселей (1080p при 16:9), чтобы снизить нагрузку на GPU. Реальные кадры сохраняют выбранное разрешение рендеринга. Промежуточные кадры могут выглядеть мягче.\n\nПрименяется сразу.
-Need game files to play	Для игры нужны файлы игры
 Needs game version 2.0.2	Нужна версия игры 2.0.2
 Neither MonZaMac nor this application is affiliated with, endorsed by, sponsored by or approved by Nintendo, GAME FREAK, Creatures Inc. or The Pokémon Company.	Ни MonZaMac, ни приложение не связаны с Nintendo, GAME FREAK, Creatures Inc. или The Pokémon Company и не одобрены, не спонсируются и не поддерживаются ими.
 Never	Никогда
@@ -311,7 +299,6 @@ New game	Новая игра
 New game in a new save	Новая игра в новом сохранении
 New online game (recommended)	Новая онлайн-игра (рекомендуется)
 New save	Новое сохранение
-Nintendo font (imported)	Шрифт Nintendo (импортирован)
 No Pokémon yet	Пока нет покемонов
 No controller connected	Геймпад не подключён
 No controller connected  (%s button names shown)	Геймпад не подключён  (названия кнопок %s)
@@ -330,7 +317,6 @@ Not checked	Не проверено
 Not chosen	Не выбрано
 Not done yet.	Ещё не завершено.
 Not enough free space	Недостаточно свободного места
-Not now	Не сейчас
 Not prepared yet	Пока не подготовлено
 Not published yet	Пока не опубликовано
 Nothing is uploaded. It starts the game, which does this, then comes back here. Redo it when MonZaMac, macOS, your GPU or the game files change: the badge turns yellow then.	Ничего не загружается в сеть. Игра компилирует шейдеры и возвращается сюда. Повторите после изменений MonZaMac, macOS, GPU или игровых файлов: индикатор станет жёлтым.
@@ -339,13 +325,11 @@ OK	ОК
 ONLINE	ОНЛАЙН
 Off	Выкл.
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	Официальный каталог рецептов шейдеров: %s.%s Игровые данные не загружаются. Компиляция выполняется при запуске игры или регистрации шейдеров.
-Offline play	Игра без сети
 On	Вкл.
 Online play	Игра онлайн
 Online play (Lumiose Online)	Онлайн-игра (Lumiose Online)
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	Онлайн, где в игре виден курсор (интерфейс Lumiose управляется щелчками): он скрывается, если мышь не двигалась и не нажималась столько времени, и сразу возвращается при действии (перетаскивание двумя пальцами не считается).
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	Только хеши шейдеров и числовые графические параметры. Без кода игры, ключей, сохранений и личных данных. Автоматической загрузки нет.
-Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	Открыть/закрыть меню: F1, Esc, Home / Xbox / PlayStation на геймпаде или Back + Start
 Open folder	Открыть папку
 Open form	Открыть форму
 Open it in game with F1 or Esc, or on a controller with the %s (or %s together).	Во время игры откройте его клавишами F1 или Esc либо кнопкой %s на геймпаде (или %s одновременно).
@@ -380,11 +364,9 @@ Press a button	Нажмите кнопку
 Press a key	Нажмите клавишу
 Privacy	Конфиденциальность
 Progress since your last save is lost.	Прогресс после последнего сохранения будет потерян.
-Push to talk	Нажми и говори
 Quit	Выход
 Quit to Desktop	Выйти из MonZaMac
 Quit to Start Screen	Вернуться на начальный экран
-Quit to start screen	На начальный экран
 Ready	Готово
 Ready · %s	Готово · %s
 Recompiling the game	Перекомпиляция игры
@@ -402,16 +384,12 @@ Reset controller to defaults	Сбросить настройки геймпад�
 Reset keyboard to defaults	Сбросить настройки клавиатуры
 Resolution	Разрешение
 Resolution mode	Режим разрешения
-Restart and switch	Перезапустить и переключить
-Retry	Повторить
 Right button	Правая кнопка
 Right stick	Правый стик
 Right stick snap	Привязка правого стика к осям
 Rights and trademarks	Права и товарные знаки
 Russian	Русский
 SELECT A SAVE	ВЫБЕРИТЕ СОХРАНЕНИЕ
-SET UP GAME FILES	НАСТРОЙКА ФАЙЛОВ ИГРЫ
-Same as offline	Как в офлайн-режиме
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	Сохраняет вклад в виде JSON только с метаданными для ручной проверки и передачи. Экспорт никуда его не отправляет. Рецепты с неизвестным источником всё ещё требуют изучения.
 Save in the game first: then it can be copied and exported here.	Сначала сохранитесь в игре, затем сможете скопировать или экспортировать сохранение здесь.
 Saves	Сохранения
@@ -421,7 +399,6 @@ Selected	Выбрано
 Selected save	Выбранное сохранение
 Server not found	Сервер не найден
 Service ready	Сервис готов
-Service unavailable	Сервис недоступен
 Set up	Настройка
 Set up game files	Настроить файлы игры
 Set up on first play	Настроить при первом запуске
@@ -463,11 +440,9 @@ Switch 2 Edition package	Пакет Switch 2 Edition
 Switch fonts	Шрифты Switch
 Switch keys	Ключи шифрования Switch
 Switch tabs	Переключить вкладки
-Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	Смена вкладки: L / R (Q / E)      Назад: B (Esc)
 System default	По умолчанию в системе
 Team	Команда
 Tests	Тесты
-Text: %s    Button icons: %s	Текст: %s    Значки кнопок: %s
 Text: imported	Текст: импортирован
 Text: substitute	Текст: запасной шрифт
 Textures stay sharp on ground and walls seen at a slant, and (macOS 26 or later) farther away too. Off: the game's own.	Текстуры остаются чёткими на земле и стенах, видимых под углом, а с macOS 26 или новее и вдали. Выкл.: как в игре.
@@ -484,12 +459,10 @@ The game code build for online play could not be kept.	Не удалось со�
 The game code didn't build	Не удалось собрать код игры
 The game data is not the original of version 2.0.2.	Данные игры не являются оригинальными данными версии 2.0.2.
 The game files changed.	Игровые файлы изменились.
-The game restarts to switch its text to %s. Progress since your last save is lost.	Игра перезапустится, чтобы переключить текст на %s. Прогресс после последнего сохранения будет потерян.
 The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.	Размытие областей вне фокуса камеры. Выключено: вся сцена остаётся чёткой.
 The game's glow around bright light. Off: no glow, a plainer image.	Добавляет свечение вокруг ярких источников света. Выключено: изображение более спокойное.
 The game's own anti-aliasing, a light blur over the whole image.\n\nOff: sharper, with more jagged edges (SMAA above can smooth them instead).	Собственное сглаживание игры: лёгкое размытие всего изображения.\n\nВыкл.: чётче, но края более зубчатые (вместо этого их может сгладить SMAA выше).
 The game's own resolution scaling, which lowers the picture when it thinks the GPU is slow.\n\nOff: it stays at full (a window in the background no longer makes it blurry for a while). Separate from Internal resolution > Dynamic.	Собственное масштабирование разрешения игры: оно снижает качество картинки, когда игра считает GPU медленным.\n\nВыкл.: всегда полное разрешение (окно в фоне больше не размывает картинку на время). Не связано с «Внутреннее разрешение > Динамическое».
-The game's text language, as its own system setting. Applies when the game restarts: Quit -> Title screen, then Play.	Язык текста игры задаётся как системный язык консоли. Применяется после перезапуска: Выход > Титульный экран > Играть.
 The game's volume. 100% is the game's own level; above it, louder.	Громкость игры. 100% — исходный уровень; выше звук усиливается.
 The microphone the game listens to. System default follows the Mac's choice in System Settings > Sound.	Микрофон, используемый игрой. «Системный» следует выбору в настройках Mac: Системные настройки > Звук.
 The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter effects, as on the Switch's own screen - far less work for the GPU, for slower Macs.\nDocked: 1080p.\n\nAlso Cmd+Ctrl+H. If the picture does not follow at once, restart the game.	Режим, в котором, по мнению игры, она работает.\n\nПортативный: рисует в 720p с более лёгкими эффектами, как на экране Switch - гораздо меньше работы для GPU, для более медленных Mac.\nСтационарный: 1080p.\n\nТакже Cmd+Ctrl+H. Если картинка не меняется сразу, перезапустите игру.
@@ -547,15 +520,12 @@ Use substitute font	Использовать запасной шрифт
 Version %s is out. Update to play online.	Вышла версия %s. Обновите игру, чтобы играть онлайн.
 Video	Видео
 View + Menu	Вид + Меню
-Voice chat	Голосовой чат
 Volume	Громкость
 WARNING: once this save is used online, it can no longer be played offline!	ВНИМАНИЕ: после использования онлайн это сохранение больше нельзя будет запускать офлайн!
 Wait for shaders	Ожидать шейдеры
-Warning	Предупреждение
 While holding a button	При удержании кнопки
 While holding a button: the mouse turns the camera while the chosen button is held. Always: the camera follows the mouse all the time, and the cursor is held inside the window (the menus free it).	Пока удерживается кнопка: мышь вращает камеру при нажатой выбранной кнопке. Всегда: камера постоянно следует за мышью, курсор удерживается в окне (в меню освобождается).
 Wider view	Широкий угол обзора
-Windowed	В окне
 With MetalFX temporal, frame generation uses the reconstructed output resolution. Performance is inactive in this combination.\n\nYour saved quality choice is restored when temporal is off.	С MetalFX temporal генерация кадров использует восстановленное выходное разрешение. В этом сочетании «Производительность» неактивна.\n\nСохранённый выбор качества вернётся, когда temporal отключён.
 Working...	Выполняется...
 Wrong game version	Неверная версия игры
@@ -584,7 +554,6 @@ not done yet	ещё не выполнено
 out of date	устарело
 precompiled	предкомпилированы
 substitute	заменены
-substitute (Hiragino Sans)	замена (Hiragino Sans)
 this game	этой игре
 today	сегодня
 yesterday	вчера

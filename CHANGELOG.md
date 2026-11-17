@@ -3,6 +3,12 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
+## Unreleased
+
+### Developer tools
+- The translation table (`i18n/translations.tsv`) no longer holds 31 sentences that the interface stopped using (for example the old help lines, the game-language prompt and the fullscreen hint), so the 11 catalogs are smaller and a translator does not spend time on text nobody sees.
+- The applet test (`tools/test_am_applet.c`) builds again after 0.4.1 (it needed a stub for the game's build ID) and now also checks the game version the game is told (1.0.0, 2.0.0 or 2.0.2).
+
 ## 0.4.1
 
 A few follow-ups to 0.4.0: a save of the wrong kind now stops the game, a GPU program built to fit is found again at the next start, and the game version that mods read follows the game files. No shader preparation is needed.

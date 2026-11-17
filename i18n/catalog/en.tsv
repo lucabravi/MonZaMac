@@ -38,11 +38,9 @@ Always (cursor held in the window)	Always (cursor held in the window)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	An empty save with a name of your own, ready to play: you're asked before the game restarts with it.
 An online save can't be copied.	An online save can't be copied.
 An online save can't be deleted.	An online save can't be deleted.
-Anisotropic filtering	Anisotropic filtering
 Anti-aliasing	Anti-aliasing
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!
 Any button	Any button
-Application language	Application language
 Are you sure?	Are you sure?
 Asks for a name, copies the save in use (as the game last saved it: save first) to routes/<name>, then records everything you press until you stop. The copy keeps the starting point; it is kept in routes/<name>, not in the save list. To play it back: LARECOMP_ROUTE=<name> (a fresh copy of the starting save each time; LARECOMP_INPUT_REPLAY_AT=<frame> starts it later).	Asks for a name, copies the save in use (as the game last saved it: save first) to routes/<name>, then records everything you press until you stop. The copy keeps the starting point; it is kept in routes/<name>, not in the save list. To play it back: LARECOMP_ROUTE=<name> (a fresh copy of the starting save each time; LARECOMP_INPUT_REPLAY_AT=<frame> starts it later).
 Audio	Audio
@@ -68,10 +66,8 @@ Cancel	Cancel
 Cancelled: %s unchanged.	Cancelled: %s unchanged.
 Catalog and contributions	Catalog and contributions
 Catalog verified and installed. Applies at the next game start.	Catalog verified and installed. Applies at the next game start.
-Change the game's text language too?	Change the game's text language too?
 Changes the MonZaMac interface, not the game's text or the Lumiose Online mod.	Changes the MonZaMac interface, not the game's text or the Lumiose Online mod.
 Characters and Pokémon away from the camera animate every frame, as those close by do, instead of in visible steps.\n\nCosts a little CPU in crowded places. Off: the game's own. Game version 2.0.2 only.	Characters and Pokémon away from the camera animate every frame, as those close by do, instead of in visible steps.\n\nCosts a little CPU in crowded places. Off: the game's own. Game version 2.0.2 only.
-Check for updates	Check for updates
 Check free disk space and retry.	Check free disk space and retry.
 Check now	Check now
 Check your connection and try again.	Check your connection and try again.
@@ -166,12 +162,10 @@ English	English
 Enter  confirm      Esc  cancel      (%d / %d)	Enter  confirm      Esc  cancel      (%d / %d)
 Enter text	Enter text
 Enter your name	Enter your name
-Error	Error
 Experimental	Experimental
 Exploring Lumiose	Exploring Lumiose
 Export	Export
 Export a save	Export a save
-Export save	Export save
 Export shader recipes	Export shader recipes
 Exported %s. Nothing was uploaded.	Exported %s. Nothing was uploaded.
 Exported to %s	Exported to %s
@@ -192,7 +186,6 @@ Free space for the game files, data image and compilation, then retry.	Free spac
 Frees the space MonZaMac's copy of the game files takes. Saves, seeds and settings are kept, and your own game files aren't touched: you can set the game files up again from them.	Frees the space MonZaMac's copy of the game files takes. Saves, seeds and settings are kept, and your own game files aren't touched: you can set the game files up again from them.
 French	French
 Fullscreen	Fullscreen
-Fullscreen:  F11 / Alt+Enter	Fullscreen:  F11 / Alt+Enter
 GPU timing log	GPU timing log
 Game	Game
 Game FXAA	Game FXAA
@@ -213,8 +206,6 @@ Game font	Game font
 Game mode	Game mode
 Game packages	Game packages
 Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.	Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.
-Game text language	Game text language
-Game update	Game update
 Game's	Game's
 Game-file preparation didn't finish	Game-file preparation didn't finish
 German	German
@@ -264,14 +255,12 @@ Korean	Korean
 Language	Language
 Last played\s\s	Last played\s\s
 Last saved	Last saved
-Latest save	Latest save
 Leaves the game and goes back to the MonZaMac start screen.	Leaves the game and goes back to the MonZaMac start screen.
 Left button	Left button
 Left stick	Left stick
 Legal notice	Legal notice
 Legal notice & responsible use	Legal notice & responsible use
 Letters, numbers, space, - and _ (up to %d).	Letters, numbers, space, - and _ (up to %d).
-Loading...	Loading...
 Local only	Local only
 Locally records only new graphics pipeline recipes missing from the prepared catalog. Metadata is deduplicated and saved in the background; game code, keys and saves are not included. Nothing is uploaded. New shader programs are collected from the next game start.	Locally records only new graphics pipeline recipes missing from the prepared catalog. Metadata is deduplicated and saved in the background; game code, keys and saves are not included. Nothing is uploaded. New shader programs are collected from the next game start.
 Looking for the game files...	Looking for the game files...
@@ -303,7 +292,6 @@ Name	Name
 Name for the copy of "%s"	Name for the copy of "%s"
 Native	Native
 Native: uses the rendering resolution for generated frames.\nPerformance: caps only generated frames at 1920 pixels wide (1080p at 16:9) to reduce GPU cost. Real frames keep the selected rendering resolution. Intermediate images may look softer.\n\nApplies immediately.	Native: uses the rendering resolution for generated frames.\nPerformance: caps only generated frames at 1920 pixels wide (1080p at 16:9) to reduce GPU cost. Real frames keep the selected rendering resolution. Intermediate images may look softer.\n\nApplies immediately.
-Need game files to play	Need game files to play
 Needs game version 2.0.2	Needs game version 2.0.2
 Neither MonZaMac nor this application is affiliated with, endorsed by, sponsored by or approved by Nintendo, GAME FREAK, Creatures Inc. or The Pokémon Company.	Neither MonZaMac nor this application is affiliated with, endorsed by, sponsored by or approved by Nintendo, GAME FREAK, Creatures Inc. or The Pokémon Company.
 Never	Never
@@ -311,7 +299,6 @@ New game	New game
 New game in a new save	New game in a new save
 New online game (recommended)	New online game (recommended)
 New save	New save
-Nintendo font (imported)	Nintendo font (imported)
 No Pokémon yet	No Pokémon yet
 No controller connected	No controller connected
 No controller connected  (%s button names shown)	No controller connected  (%s button names shown)
@@ -330,7 +317,6 @@ Not checked	Not checked
 Not chosen	Not chosen
 Not done yet.	Not done yet.
 Not enough free space	Not enough free space
-Not now	Not now
 Not prepared yet	Not prepared yet
 Not published yet	Not published yet
 Nothing is uploaded. It starts the game, which does this, then comes back here. Redo it when MonZaMac, macOS, your GPU or the game files change: the badge turns yellow then.	Nothing is uploaded. It starts the game, which does this, then comes back here. Redo it when MonZaMac, macOS, your GPU or the game files change: the badge turns yellow then.
@@ -339,13 +325,11 @@ OK	OK
 ONLINE	ONLINE
 Off	Off
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.
-Offline play	Offline play
 On	On
 Online play	Online play
 Online play (Lumiose Online)	Online play (Lumiose Online)
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.
-Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start
 Open folder	Open folder
 Open form	Open form
 Open it in game with F1 or Esc, or on a controller with the %s (or %s together).	Open it in game with F1 or Esc, or on a controller with the %s (or %s together).
@@ -380,11 +364,9 @@ Press a button	Press a button
 Press a key	Press a key
 Privacy	Privacy
 Progress since your last save is lost.	Progress since your last save is lost.
-Push to talk	Push to talk
 Quit	Quit
 Quit to Desktop	Quit to Desktop
 Quit to Start Screen	Quit to Start Screen
-Quit to start screen	Quit to start screen
 Ready	Ready
 Ready · %s	Ready · %s
 Recompiling the game	Recompiling the game
@@ -402,16 +384,12 @@ Reset controller to defaults	Reset controller to defaults
 Reset keyboard to defaults	Reset keyboard to defaults
 Resolution	Resolution
 Resolution mode	Resolution mode
-Restart and switch	Restart and switch
-Retry	Retry
 Right button	Right button
 Right stick	Right stick
 Right stick snap	Right stick snap
 Rights and trademarks	Rights and trademarks
 Russian	Russian
 SELECT A SAVE	SELECT A SAVE
-SET UP GAME FILES	SET UP GAME FILES
-Same as offline	Same as offline
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.
 Save in the game first: then it can be copied and exported here.	Save in the game first: then it can be copied and exported here.
 Saves	Saves
@@ -421,7 +399,6 @@ Selected	Selected
 Selected save	Selected save
 Server not found	Server not found
 Service ready	Service ready
-Service unavailable	Service unavailable
 Set up	Set up
 Set up game files	Set up game files
 Set up on first play	Set up on first play
@@ -463,11 +440,9 @@ Switch 2 Edition package	Switch 2 Edition package
 Switch fonts	Switch fonts
 Switch keys	Switch keys
 Switch tabs	Switch tabs
-Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)
 System default	System default
 Team	Team
 Tests	Tests
-Text: %s    Button icons: %s	Text: %s    Button icons: %s
 Text: imported	Text: imported
 Text: substitute	Text: substitute
 Textures stay sharp on ground and walls seen at a slant, and (macOS 26 or later) farther away too. Off: the game's own.	Textures stay sharp on ground and walls seen at a slant, and (macOS 26 or later) farther away too. Off: the game's own.
@@ -484,12 +459,10 @@ The game code build for online play could not be kept.	The game code build for o
 The game code didn't build	The game code didn't build
 The game data is not the original of version 2.0.2.	The game data is not the original of version 2.0.2.
 The game files changed.	The game files changed.
-The game restarts to switch its text to %s. Progress since your last save is lost.	The game restarts to switch its text to %s. Progress since your last save is lost.
 The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.	The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.
 The game's glow around bright light. Off: no glow, a plainer image.	The game's glow around bright light. Off: no glow, a plainer image.
 The game's own anti-aliasing, a light blur over the whole image.\n\nOff: sharper, with more jagged edges (SMAA above can smooth them instead).	The game's own anti-aliasing, a light blur over the whole image.\n\nOff: sharper, with more jagged edges (SMAA above can smooth them instead).
 The game's own resolution scaling, which lowers the picture when it thinks the GPU is slow.\n\nOff: it stays at full (a window in the background no longer makes it blurry for a while). Separate from Internal resolution > Dynamic.	The game's own resolution scaling, which lowers the picture when it thinks the GPU is slow.\n\nOff: it stays at full (a window in the background no longer makes it blurry for a while). Separate from Internal resolution > Dynamic.
-The game's text language, as its own system setting. Applies when the game restarts: Quit -> Title screen, then Play.	The game's text language, as its own system setting. Applies when the game restarts: Quit -> Title screen, then Play.
 The game's volume. 100% is the game's own level; above it, louder.	The game's volume. 100% is the game's own level; above it, louder.
 The microphone the game listens to. System default follows the Mac's choice in System Settings > Sound.	The microphone the game listens to. System default follows the Mac's choice in System Settings > Sound.
 The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter effects, as on the Switch's own screen - far less work for the GPU, for slower Macs.\nDocked: 1080p.\n\nAlso Cmd+Ctrl+H. If the picture does not follow at once, restart the game.	The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter effects, as on the Switch's own screen - far less work for the GPU, for slower Macs.\nDocked: 1080p.\n\nAlso Cmd+Ctrl+H. If the picture does not follow at once, restart the game.
@@ -547,15 +520,12 @@ Use substitute font	Use substitute font
 Version %s is out. Update to play online.	Version %s is out. Update to play online.
 Video	Video
 View + Menu	View + Menu
-Voice chat	Voice chat
 Volume	Volume
 WARNING: once this save is used online, it can no longer be played offline!	WARNING: once this save is used online, it can no longer be played offline!
 Wait for shaders	Wait for shaders
-Warning	Warning
 While holding a button	While holding a button
 While holding a button: the mouse turns the camera while the chosen button is held. Always: the camera follows the mouse all the time, and the cursor is held inside the window (the menus free it).	While holding a button: the mouse turns the camera while the chosen button is held. Always: the camera follows the mouse all the time, and the cursor is held inside the window (the menus free it).
 Wider view	Wider view
-Windowed	Windowed
 With MetalFX temporal, frame generation uses the reconstructed output resolution. Performance is inactive in this combination.\n\nYour saved quality choice is restored when temporal is off.	With MetalFX temporal, frame generation uses the reconstructed output resolution. Performance is inactive in this combination.\n\nYour saved quality choice is restored when temporal is off.
 Working...	Working...
 Wrong game version	Wrong game version
@@ -584,7 +554,6 @@ not done yet	not done yet
 out of date	out of date
 precompiled	precompiled
 substitute	substitute
-substitute (Hiragino Sans)	substitute (Hiragino Sans)
 this game	this game
 today	today
 yesterday	yesterday

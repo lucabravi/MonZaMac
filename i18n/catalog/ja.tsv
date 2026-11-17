@@ -38,11 +38,9 @@ Always (cursor held in the window)	常時 (カーソルをウィンドウ内に�
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	名前を付けた空のセーブを作成します。このセーブで新しくプレイするためにゲームを再起動する前に、確認画面が表示されます。
 An online save can't be copied.	オンライン用セーブデータはコピーできません。
 An online save can't be deleted.	オンライン用セーブデータは削除できません。
-Anisotropic filtering	異方性フィルタリング
 Anti-aliasing	アンチエイリアス
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	ロックを回避してオフラインでゲームを進める行為は、Lumiose Onlineからの利用停止につながる可能性があります！
 Any button	どのボタンでも
-Application language	アプリの言語
 Are you sure?	よろしいですか？
 Asks for a name, copies the save in use (as the game last saved it: save first) to routes/<name>, then records everything you press until you stop. The copy keeps the starting point; it is kept in routes/<name>, not in the save list. To play it back: LARECOMP_ROUTE=<name> (a fresh copy of the starting save each time; LARECOMP_INPUT_REPLAY_AT=<frame> starts it later).	名前を指定し、現在使用中のセーブ（最後に保存した状態。先にゲーム内でセーブしてください）をroutes/<name>にコピーして、停止するまでの入力操作を記録します。コピーは開始時点の状態を保持し、セーブ一覧には表示されません。再生するにはLARECOMP_ROUTE=<name>を使用します（毎回開始時点の新しいコピーを使用。LARECOMP_INPUT_REPLAY_AT=<frame>で再生開始を遅らせます）。
 Audio	音声
@@ -68,10 +66,8 @@ Cancel	キャンセル
 Cancelled: %s unchanged.	キャンセル：%s は変更されません。
 Catalog and contributions	カタログと投稿
 Catalog verified and installed. Applies at the next game start.	カタログを検証してインストールしました。次回のゲーム起動時に反映されます。
-Change the game's text language too?	ゲームのテキスト言語も変更しますか？
 Changes the MonZaMac interface, not the game's text or the Lumiose Online mod.	MonZaMacの画面表示言語を変更します。ゲーム内テキストやLumiose OnlineのMODには影響しません。
 Characters and Pokémon away from the camera animate every frame, as those close by do, instead of in visible steps.\n\nCosts a little CPU in crowded places. Off: the game's own. Game version 2.0.2 only.	カメラから離れたキャラクターやポケモンも、近くのものと同じく毎フレームアニメーションし、動きがカクカクしなくなります。\n\n人の多い場所ではCPUを少し使います。オフ：ゲーム本来の動作です。ゲームバージョン2.0.2のみ。
-Check for updates	アップデートを確認
 Check free disk space and retry.	ディスクの空き容量を確認して、もう一度お試しください。
 Check now	今すぐ確認
 Check your connection and try again.	接続を確認してから再試行してください。
@@ -166,12 +162,10 @@ English	English
 Enter  confirm      Esc  cancel      (%d / %d)	Enter 決定   Esc キャンセル   (%d / %d)
 Enter text	テキストを入力
 Enter your name	名前を入力してください
-Error	エラー
 Experimental	試験的
 Exploring Lumiose	ミアレシティを探索中
 Export	エクスポート
 Export a save	セーブデータをエクスポート
-Export save	セーブをエクスポート
 Export shader recipes	シェーダーレシピをエクスポート
 Exported %s. Nothing was uploaded.	%sを書き出しました。何もアップロードされていません。
 Exported to %s	%sにエクスポートしました
@@ -192,7 +186,6 @@ Free space for the game files, data image and compilation, then retry.	ゲーム
 Frees the space MonZaMac's copy of the game files takes. Saves, seeds and settings are kept, and your own game files aren't touched: you can set the game files up again from them.	MonZaMacが持つゲームファイルのコピーが使っている容量を空けます。セーブデータ、シード、設定は残り、お手持ちのゲームファイルには手を加えません。それらから、あらためてゲームファイルをセットアップできます。
 French	Français
 Fullscreen	フルスクリーン
-Fullscreen:  F11 / Alt+Enter	フルスクリーン：F11 / Alt+Enter
 GPU timing log	GPU時間ログ
 Game	ゲーム
 Game FXAA	ゲーム内FXAA
@@ -213,8 +206,6 @@ Game font	ゲーム用フォント
 Game mode	ゲームモード
 Game packages	ゲームパッケージ
 Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.	ゲームパッケージ：ベースのNSP/XCI、アップデートのNSP、prod.keysを選びます。展開済みフォルダ：別の場所で用意したexefs/romfsを使います。Switch 2 Edition：ベース、アップデート、DLCを含む1つの.nupコンテナ。キーは不要です。
-Game text language	ゲーム内テキストの言語
-Game update	ゲームの更新データ
 Game's	ゲーム標準
 Game-file preparation didn't finish	ゲームファイルの準備が完了しませんでした
 German	Deutsch
@@ -264,14 +255,12 @@ Korean	한국어
 Language	言語
 Last played\s\s	最後にプレイ\s\s
 Last saved	最終セーブ
-Latest save	最後のセーブ
 Leaves the game and goes back to the MonZaMac start screen.	ゲームを終了してMonZaMacのスタート画面に戻ります。
 Left button	左ボタン
 Left stick	左スティック
 Legal notice	法的情報
 Legal notice & responsible use	法的注意事項と適切な利用
 Letters, numbers, space, - and _ (up to %d).	文字・数字・空白・-・_（最大%d文字）。
-Loading...	読み込み中...
 Local only	ローカルのみ
 Locally records only new graphics pipeline recipes missing from the prepared catalog. Metadata is deduplicated and saved in the background; game code, keys and saves are not included. Nothing is uploaded. New shader programs are collected from the next game start.	準備済みカタログにない新しいグラフィックスパイプラインのレシピだけを、ローカルに記録します。メタデータは重複を除いてバックグラウンドで保存され、ゲームコード、キー、セーブデータは含まれません。何もアップロードされません。新しいシェーダープログラムは次回のゲーム起動から収集されます。
 Looking for the game files...	ゲームファイルを探しています...
@@ -303,7 +292,6 @@ Name	名前
 Name for the copy of "%s"	「%s」のコピー名
 Native	ネイティブ
 Native: uses the rendering resolution for generated frames.\nPerformance: caps only generated frames at 1920 pixels wide (1080p at 16:9) to reduce GPU cost. Real frames keep the selected rendering resolution. Intermediate images may look softer.\n\nApplies immediately.	ネイティブ：生成フレームにもレンダリング解像度を使います。\nパフォーマンス：GPUの負荷を下げるため、生成フレームだけを幅1920ピクセル（16:9で1080p）に制限します。実際のフレームは選択したレンダリング解像度のままです。中間の映像はやや柔らかく見えることがあります。\n\nすぐに反映されます。
-Need game files to play	プレイにはゲームファイルが必要です
 Needs game version 2.0.2	ゲームのバージョン2.0.2が必要
 Neither MonZaMac nor this application is affiliated with, endorsed by, sponsored by or approved by Nintendo, GAME FREAK, Creatures Inc. or The Pokémon Company.	MonZaMacおよび本アプリは、Nintendo、GAME FREAK、Creatures Inc.、The Pokémon Companyと提携しておらず、承認・後援・公認も受けていません。
 Never	しない
@@ -311,7 +299,6 @@ New game	はじめから
 New game in a new save	新しいセーブでゲーム開始
 New online game (recommended)	新しいオンラインゲーム（おすすめ）
 New save	新しいセーブ
-Nintendo font (imported)	Nintendoフォント（読み込み済み）
 No Pokémon yet	まだポケモンがいません
 No controller connected	コントローラーが接続されていません
 No controller connected  (%s button names shown)	コントローラー未接続（%sのボタン表記）
@@ -330,7 +317,6 @@ Not checked	未確認
 Not chosen	未選択
 Not done yet.	まだ完了していません。
 Not enough free space	空き容量が足りません
-Not now	今はしない
 Not prepared yet	まだ準備されていません
 Not published yet	未公開
 Nothing is uploaded. It starts the game, which does this, then comes back here. Redo it when MonZaMac, macOS, your GPU or the game files change: the badge turns yellow then.	何もアップロードされません。ゲームがシェーダーをコンパイルしてここに戻ります。MonZaMac、macOS、GPU、ゲームファイルが変わったら再実行してください。バッジが黄色になります。
@@ -339,13 +325,11 @@ OK	OK
 ONLINE	オンライン
 Off	オフ
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	公式シェーダーレシピカタログ：%s.%s ゲームデータはアップロードされません。コンパイルは起動時またはシェーダー登録時に実行されます。
-Offline play	オフラインプレイ
 On	オン
 Online play	オンラインプレイ
 Online play (Lumiose Online)	オンラインプレイ（Lumiose Online）
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	オンラインでゲーム内にカーソルが表示されるとき（Lumioseの画面はカーソルでクリックして操作します）：マウスの移動やクリックがこの時間ない場合は非表示になり、操作するとすぐに再表示されます（2本指のドラッグは含まれません）。
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	対象はシェーダーのハッシュと数値の描画状態のみです。ゲームコード、キー、セーブ、個人情報は含まれず、自動アップロードもしません。
-Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	メニュー表示／非表示：F1、Esc、Home / Xbox / PlayStationボタン、またはBack + Start
 Open folder	フォルダーを開く
 Open form	フォームを開く
 Open it in game with F1 or Esc, or on a controller with the %s (or %s together).	プレイ中はF1またはEsc、コントローラーでは%s（または%s同時押し）で開けます。
@@ -380,11 +364,9 @@ Press a button	ボタンを押してください
 Press a key	キーを押してください
 Privacy	プライバシー
 Progress since your last save is lost.	最後のセーブ以降の進行状況は失われます。
-Push to talk	プッシュ・トゥ・トーク
 Quit	終了
 Quit to Desktop	MonZaMacを終了
 Quit to Start Screen	スタート画面に戻る
-Quit to start screen	スタート画面に戻る
 Ready	準備完了
 Ready · %s	準備完了 · %s
 Recompiling the game	ゲームを再コンパイルしています
@@ -402,16 +384,12 @@ Reset controller to defaults	コントローラー設定を初期化
 Reset keyboard to defaults	キーボード設定を初期化
 Resolution	解像度
 Resolution mode	解像度モード
-Restart and switch	再起動して切り替える
-Retry	再試行
 Right button	右ボタン
 Right stick	右スティック
 Right stick snap	右スティックの軸補正
 Rights and trademarks	権利と商標
 Russian	Русский
 SELECT A SAVE	セーブデータを選択
-SET UP GAME FILES	ゲームファイルを設定
-Same as offline	オフラインと共通
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	メタデータのみのJSON提供データを保存し、手動で確認・共有できます。エクスポートでは、どこにも送信されません。出所が不明なレシピは、引き続き調査が必要です。
 Save in the game first: then it can be copied and exported here.	まずゲーム内でセーブしてください。その後、ここでコピーやエクスポートができます。
 Saves	セーブデータ
@@ -421,7 +399,6 @@ Selected	選択済み
 Selected save	選択中のセーブデータ
 Server not found	サーバーが見つかりません
 Service ready	サービス利用可能
-Service unavailable	サービスを利用できません
 Set up	セットアップ
 Set up game files	ゲームファイルを設定
 Set up on first play	初回プレイ時に設定
@@ -463,11 +440,9 @@ Switch 2 Edition package	Switch 2 Editionパッケージ
 Switch fonts	Switchのフォント
 Switch keys	Switchの暗号鍵
 Switch tabs	タブを切り替え
-Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	タブ切替：L / R（Q / E）      戻る：B（Esc）
 System default	システムのデフォルト
 Team	手持ち
 Tests	テスト
-Text: %s    Button icons: %s	文字：%s  ボタンアイコン：%s
 Text: imported	テキスト：インポート済み
 Text: substitute	テキスト：代替フォント
 Textures stay sharp on ground and walls seen at a slant, and (macOS 26 or later) farther away too. Off: the game's own.	斜めから見た地面や壁でもテクスチャが鮮明に保たれ、macOS 26以降ではより遠くでも鮮明です。オフ：ゲーム本来の動作です。
@@ -484,12 +459,10 @@ The game code build for online play could not be kept.	オンラインプレイ�
 The game code didn't build	ゲームコードのビルドに失敗しました
 The game data is not the original of version 2.0.2.	ゲームデータがバージョン2.0.2のオリジナルではありません。
 The game files changed.	ゲームファイルが変更されました。
-The game restarts to switch its text to %s. Progress since your last save is lost.	テキストを%sに切り替えるためゲームを再起動します。最後にセーブしてからの進行状況は失われます。
 The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.	カメラの焦点から離れた部分をぼかします。オフにすると画面全体が鮮明になります。
 The game's glow around bright light. Off: no glow, a plainer image.	明るい光の周囲に輝きを加えます。オフにすると落ち着いた画面になります。
 The game's own anti-aliasing, a light blur over the whole image.\n\nOff: sharper, with more jagged edges (SMAA above can smooth them instead).	ゲーム自体のアンチエイリアスで、映像全体を軽くぼかします。\n\nオフ：より鮮明になりますが、エッジのギザギザが目立ちます（上のSMAAで滑らかにできます）。
 The game's own resolution scaling, which lowers the picture when it thinks the GPU is slow.\n\nOff: it stays at full (a window in the background no longer makes it blurry for a while). Separate from Internal resolution > Dynamic.	ゲーム自体の解像度スケーリングで、GPUが遅いと判断すると映像の解像度を下げます。\n\nオフ：常にフル解像度のままです（バックグラウンドのウィンドウで一時的にぼやけることもなくなります）。「内部解像度＞動的」とは別の設定です。
-The game's text language, as its own system setting. Applies when the game restarts: Quit -> Title screen, then Play.	ゲーム内テキストの言語を本体のシステム言語として指定します。ゲーム再起動後に反映されます：終了 > タイトル画面 > プレイ。
 The game's volume. 100% is the game's own level; above it, louder.	ゲームの音量です。100%が標準音量で、それ以上にすると音が大きくなります。
 The microphone the game listens to. System default follows the Mac's choice in System Settings > Sound.	ゲームが使用するマイクです。「システムのデフォルト」はMacの「システム設定 > サウンド」に従います。
 The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter effects, as on the Switch's own screen - far less work for the GPU, for slower Macs.\nDocked: 1080p.\n\nAlso Cmd+Ctrl+H. If the picture does not follow at once, restart the game.	ゲームが動作していると認識するモードです。\n\n携帯モード：Switch本体の画面と同じく、軽い効果で720pで描画します。GPUの負荷がずっと小さく、遅いMac向けです。\n据え置きモード：1080p。\n\nCmd+Ctrl+Hでも切り替えられます。映像がすぐに変わらない場合は、ゲームを再起動してください。
@@ -547,15 +520,12 @@ Use substitute font	代替フォントを使用
 Version %s is out. Update to play online.	バージョン%sが公開されています。オンラインでプレイするには更新してください。
 Video	映像
 View + Menu	ビュー＋メニュー
-Voice chat	ボイスチャット
 Volume	音量
 WARNING: once this save is used online, it can no longer be played offline!	注意：一度オンラインで使用したセーブデータは、今後オフラインでプレイできなくなります！
 Wait for shaders	シェーダーの完了を待つ
-Warning	警告
 While holding a button	ボタンを押している間
 While holding a button: the mouse turns the camera while the chosen button is held. Always: the camera follows the mouse all the time, and the cursor is held inside the window (the menus free it).	ボタンを押している間：指定したボタンの押下中だけマウスでカメラを操作します。常時：マウスの動きに常に追従し、カーソルはウィンドウ内に固定されます（メニュー中は解除）。
 Wider view	視野角を広げる
-Windowed	ウィンドウ表示
 With MetalFX temporal, frame generation uses the reconstructed output resolution. Performance is inactive in this combination.\n\nYour saved quality choice is restored when temporal is off.	MetalFX時間的を使う場合、フレーム生成は再構築された出力解像度を使います。この組み合わせでは「パフォーマンス」は無効です。\n\n時間的をオフにすると、保存した画質の選択に戻ります。
 Working...	処理中...
 Wrong game version	ゲームのバージョンが異なります
@@ -584,7 +554,6 @@ not done yet	未実行
 out of date	古い
 precompiled	コンパイル済み
 substitute	代替
-substitute (Hiragino Sans)	代替フォント（Hiragino Sans）
 this game	このゲーム
 today	今日
 yesterday	昨日
