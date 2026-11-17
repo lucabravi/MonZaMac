@@ -28,6 +28,7 @@ Cleaner skin and hair in some close-ups, a little more speed, a new way to insta
 - **Prepare all shaders** no longer leaves the black loading screen over the start screen when the game returns before its first frame.
 
 ### Developer tools
+- `docs/environment.md` lists the ten `LARECOMP_*` environment variables that are supported (where the files are, switching off one fix to find a problem, logs and benchmarks); the rest stay debug hooks described in the code. A test fails when a name in the docs is no longer read by the code.
 - The interface text goes to the drawing library as an argument, never as its format (20 places in the start screen and the menus): a translation with a stray `%` can no longer read memory. The compiler's format warnings in the renderer's logs are fixed, and git ignores `.game-setup/`.
 - `gmake test-tools` runs every test in `tools/test_*.py` that needs no game files, with the project's Python. Eight of them (the settings, menu, crash window, shader trace and SIMD tests) no longer built after changes in the code they test, and the offscreen Metal renderer test ended a ring before its command buffer was submitted: all pass again.
 - With `LARECOMP_DEVTOOLS=1`, the **0** key takes one complete frame dump (F9 is awkward on a Mac) and debug frames log more: sampler state, raw depth and the scene constants.
