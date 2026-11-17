@@ -201,9 +201,9 @@ Building from source and the developer tools are in [docs/development.md](docs/d
 
 ## Status
 
-**Playable.** The game runs from the intro through the first part of the story, with battles, menus and saves, and
-the maintainer has played it that far without problems. It is still a work in progress: later areas and other Macs
-have had less testing, so please report what you find.
+**Playable.** The game runs on Apple Silicon Macs from the intro on, with the story, battles, menus, saves and the
+Mega Dimension DLC, and people are playing it. Some areas and Mac models have had less testing than others, so please
+report what you find.
 
 On an Apple M5 at 2880x1620 (1.5x, SMAA and anisotropic filtering on) the open world runs at about 60 fps, with small dips
 in busy animated scenes.
@@ -218,12 +218,12 @@ Working:
   culling (indirect draws), text, dialogue and UI
 - Audio, the game's menus, saves
 - Controller and keyboard input
-- Online play with Lumiose Online (online edition): connecting, other players, the mod's lists and chat, and voice chat, on the maintainer's Mac
+- Online play with Lumiose Online (online edition): connecting, other players, the mod's lists and chat, and voice chat
 
 **Known limitations:** brief first-use shader-compilation stutter can occur, frame generation is experimental
 (it can show artifacts on fast-moving characters and particles), and online play is new (see
 [its state](#play-online-with-lumiose-online)). No persistent visual defects are
-currently known from the maintainer’s testing; later areas and other Mac configurations still need more coverage.
+currently known; if you find one, please report it.
 
 Bugs and questions: [GitHub issues](https://github.com/lucabravi/MonZaMac/issues), see [CONTRIBUTING.md](CONTRIBUTING.md).
 
