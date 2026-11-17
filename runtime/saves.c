@@ -74,6 +74,10 @@ static void fill(SaveSlot *s, const char *id) {
     slot_path(id, s->path, sizeof s->path);
     scan(s->path, &s->played);
     s->online = marked(s->path);
+    if (s->online) {  // (an online save is named after its character, not by the player: that name, once the game has made one)
+        const SaveInfo *si = save_info(s->path);
+        if (si && si->trainer[0]) snprintf(s->name, sizeof s->name, "%s", si->trainer);
+    }
     struct stat st;
     if (stat(s->path, &st) == 0)
 #ifdef __APPLE__
@@ -205,7 +209,7 @@ bool saves_copy(const char *id, const char *name) {
 }
 
 bool saves_rename(const char *id, const char *name, char *id_out) {
-    if (!valid_id(id)) return false;
+    if (!valid_id(id) || saves_slot_online(id)) return false;  // (an online save keeps the name of its character)
     char nid[SAVE_NAME_MAX + 1], to[128], from[128];
     if (!new_slot_path(name, nid, to, sizeof to)) return false;
     slot_path(id, from, sizeof from);  // (the original save/ moves into saves/ under its new name)
@@ -214,12 +218,16 @@ bool saves_rename(const char *id, const char *name, char *id_out) {
     return true;
 }
 
-bool saves_delete(const char *id) {
-    if (!valid_id(id)) return false;
+static bool delete_slot(const char *id) {
     char p[128];
     slot_path(id, p, sizeof p);
     remove_tree(p);
     return !exists(p);
+}
+
+bool saves_delete(const char *id) {
+    if (!valid_id(id) || saves_slot_online(id)) return false;  // (an online save is not deleted from the app: Lumiose Online keeps one per player)
+    return delete_slot(id);
 }
 
 // Routes live apart from the saves (routes/<name>/save = the starting point, routes/<name>/route.txt = the pad), so they
@@ -285,7 +293,7 @@ bool saves_set_online(const char *id) {
 bool saves_create_online(const char *name, char *id_out) {
     char id[SAVE_NAME_MAX + 1];
     if (!saves_create(name, id)) return false;
-    if (!saves_set_online(id)) { saves_delete(id); return false; }
+    if (!saves_set_online(id)) { delete_slot(id); return false; }
     if (id_out) snprintf(id_out, SAVE_NAME_MAX + 1, "%s", id);
     return true;
 }

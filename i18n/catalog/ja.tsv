@@ -37,6 +37,7 @@ All shaders	すべてのシェーダー
 Always (cursor held in the window)	常時 (カーソルをウィンドウ内に固定)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	名前を付けた空のセーブを作成します。このセーブで新しくプレイするためにゲームを再起動する前に、確認画面が表示されます。
 An online save can't be copied.	オンライン用セーブデータはコピーできません。
+An online save can't be deleted.	オンライン用セーブデータは削除できません。
 Anisotropic filtering	異方性フィルタリング
 Anti-aliasing	アンチエイリアス
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	ロックを回避してオフラインでゲームを進める行為は、Lumiose Onlineからの利用停止につながる可能性があります！
@@ -87,6 +88,7 @@ Choose these two files. They are read on this Mac only to add the DLC, and the g
 Choose your base game, update and prod.keys before setup.	セットアップ前に、本編、アップデート、prod.keysを選んでください。
 Choose your online save	オンライン用のセーブデータを選んでください
 Choose...	選択...
+Chosen the first time you press Play online.	最初に「オンラインでプレイ」を押したときに選びます。
 Chosen:\s	選択済み：
 Close	閉じる
 Closes MonZaMac.	MonZaMacを終了します。
@@ -341,7 +343,6 @@ Offline play	オフラインプレイ
 On	オン
 Online play	オンラインプレイ
 Online play (Lumiose Online)	オンラインプレイ（Lumiose Online）
-Online save: %s	オンライン用セーブ：%s
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	オンラインでゲーム内にカーソルが表示されるとき（Lumioseの画面はカーソルでクリックして操作します）：マウスの移動やクリックがこの時間ない場合は非表示になり、操作するとすぐに再表示されます（2本指のドラッグは含まれません）。
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	対象はシェーダーのハッシュと数値の描画状態のみです。ゲームコード、キー、セーブ、個人情報は含まれず、自動アップロードもしません。
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	メニュー表示／非表示：F1、Esc、Home / Xbox / PlayStationボタン、またはBack + Start
@@ -413,7 +414,6 @@ SET UP GAME FILES	ゲームファイルを設定
 Same as offline	オフラインと共通
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	メタデータのみのJSON提供データを保存し、手動で確認・共有できます。エクスポートでは、どこにも送信されません。出所が不明なレシピは、引き続き調査が必要です。
 Save in the game first: then it can be copied and exported here.	まずゲーム内でセーブしてください。その後、ここでコピーやエクスポートができます。
-Save name	セーブ名
 Saves	セーブデータ
 Saves, seeds and settings are kept. Your own game files aren't touched.	セーブ、seed、設定は保持されます。元のゲームファイルには触れません。
 Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button that's already in use swaps with the old one.	割り当てを選び、新しいボタン／キーを押します。Esc（または5秒経過）でキャンセル。すでに使用中のボタンなら割り当てを交換します。
@@ -516,6 +516,7 @@ Title screen	スタート画面
 Trackpad	トラックパッド
 Trainer	トレーナー
 Trainer\s	トレーナー\s
+Trainer name	トレーナー名
 Try again	再試行
 Two-finger drag on the trackpad	トラックパッドを2本指でドラッグ
 Unable to check	確認できません
@@ -543,7 +544,6 @@ Upscaling and AA	アップスケーリングとAA
 Use as online save	オンライン用にする
 Use one of my saves as the online save	自分のセーブデータをオンライン用にする
 Use substitute font	代替フォントを使用
-Uses the save selected offline	オフラインで選択したセーブデータを使用
 Version %s is out. Update to play online.	バージョン%sが公開されています。オンラインでプレイするには更新してください。
 Video	映像
 View + Menu	ビュー＋メニュー

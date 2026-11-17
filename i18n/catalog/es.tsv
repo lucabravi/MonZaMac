@@ -37,6 +37,7 @@ All shaders	Todos los shaders
 Always (cursor held in the window)	Siempre (cursor retenido en la ventana)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	Crea una ranura de guardado vacía con el nombre que elijas. Se pedirá confirmación antes de reiniciar el juego para iniciar una partida nueva.
 An online save can't be copied.	Una partida en línea no se puede copiar.
+An online save can't be deleted.	Una partida en línea no se puede eliminar.
 Anisotropic filtering	Filtrado anisotrópico
 Anti-aliasing	Antialiasing
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	¡Cualquier acción para eludir el bloqueo y avanzar en el juego sin conexión puede provocar un baneo en Lumiose Online!
@@ -87,6 +88,7 @@ Choose these two files. They are read on this Mac only to add the DLC, and the g
 Choose your base game, update and prod.keys before setup.	Antes de empezar, selecciona el juego base, la actualización y prod.keys.
 Choose your online save	Elige tu partida guardada en línea
 Choose...	Elegir...
+Chosen the first time you press Play online.	Se elige la primera vez que pulses Jugar en línea.
 Chosen:\s	Seleccionado:\s
 Close	Cerrar
 Closes MonZaMac.	Cierra MonZaMac.
@@ -341,7 +343,6 @@ Offline play	Juego sin conexión
 On	Activado
 Online play	Juego en línea
 Online play (Lumiose Online)	Juego en línea (Lumiose Online)
-Online save: %s	Partida en línea: %s
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	En línea, donde el cursor se ve en el juego (la interfaz de Lumiose se maneja con él): se oculta cuando el ratón no se mueve ni hace clic durante este tiempo, y reaparece en cuanto lo hace (un arrastre con dos dedos no cuenta).
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	Solo hashes de shaders y parámetros gráficos numéricos. Sin código del juego, claves, partidas guardadas ni datos personales. Nada se envía automáticamente.
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	Abrir/cerrar menú: F1, Esc, botón Home / Xbox / PlayStation del mando o Back + Start
@@ -413,7 +414,6 @@ SET UP GAME FILES	CONFIGURAR ARCHIVOS DEL JUEGO
 Same as offline	Igual que sin conexión
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	Guarda una contribución JSON con solo metadatos, para revisarla y compartirla a mano. La exportación no la envía a ninguna parte. Las recetas con ubicaciones de origen desconocidas aún requieren investigación.
 Save in the game first: then it can be copied and exported here.	Guarda primero la partida dentro del juego; después podrás copiarla y exportarla aquí.
-Save name	Nombre de la partida
 Saves	Partidas guardadas
 Saves, seeds and settings are kept. Your own game files aren't touched.	Se conservarán las partidas, semillas y ajustes. No se modificarán tus archivos originales.
 Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button that's already in use swaps with the old one.	Selecciona una asignación y pulsa el nuevo botón o tecla. Esc (o 5 segundos) cancela. Si ya está en uso, se intercambian las asignaciones.
@@ -516,6 +516,7 @@ Title screen	Pantalla inicial
 Trackpad	Trackpad
 Trainer	Entrenador
 Trainer\s	Entrenador\s
+Trainer name	Nombre del entrenador
 Try again	Reintentar
 Two-finger drag on the trackpad	Arrastre con dos dedos en el trackpad
 Unable to check	No se puede comprobar
@@ -543,7 +544,6 @@ Upscaling and AA	Escalado y antialiasing
 Use as online save	Usar como partida en línea
 Use one of my saves as the online save	Usar una de mis partidas guardadas como partida en línea
 Use substitute font	Usar fuente alternativa
-Uses the save selected offline	Usa la partida seleccionada sin conexión
 Version %s is out. Update to play online.	Ya está disponible la versión %s. Actualiza para jugar en línea.
 Video	Vídeo
 View + Menu	Ver + Menú

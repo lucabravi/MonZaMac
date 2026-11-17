@@ -37,6 +37,7 @@ All shaders	Todos os shaders
 Always (cursor held in the window)	Sempre (cursor preso na janela)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	Crie um salvamento vazio com o nome escolhido. Antes de reiniciar o jogo para começar uma nova partida, será solicitada uma confirmação.
 An online save can't be copied.	Um salvamento online não pode ser copiado.
+An online save can't be deleted.	Um salvamento online não pode ser excluído.
 Anisotropic filtering	Filtragem anisotrópica
 Anti-aliasing	Antisserrilhamento
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	Qualquer ação usada para contornar o bloqueio e progredir no jogo offline pode resultar em banimento do Lumiose Online!
@@ -87,6 +88,7 @@ Choose these two files. They are read on this Mac only to add the DLC, and the g
 Choose your base game, update and prod.keys before setup.	Antes de começar, selecione o jogo base, a atualização e prod.keys.
 Choose your online save	Escolha seu salvamento online
 Choose...	Escolher...
+Chosen the first time you press Play online.	Escolhido na primeira vez que você apertar Jogar online.
 Chosen:\s	Selecionado:\s
 Close	Fechar
 Closes MonZaMac.	Fecha o MonZaMac.
@@ -341,7 +343,6 @@ Offline play	Jogo offline
 On	Ativado
 Online play	Jogo online
 Online play (Lumiose Online)	Jogo online (Lumiose Online)
-Online save: %s	Salvamento online: %s
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	Online, onde o cursor aparece no jogo (a interface do Lumiose é clicada com ele): ele some quando o mouse não se move nem clica por esse tempo e volta assim que isso acontece (arrastar com dois dedos não conta).
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	Somente hashes de shaders e parâmetros gráficos numéricos. Sem código do jogo, chaves, jogos salvos ou dados pessoais. Nada é enviado automaticamente.
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	Abrir/fechar menu: F1, Esc, botão Home / Xbox / PlayStation do controle ou Back + Start
@@ -413,7 +414,6 @@ SET UP GAME FILES	CONFIGURAR ARQUIVOS DO JOGO
 Same as offline	Igual ao modo offline
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	Salva uma contribuição JSON só com metadados, para revisar e compartilhar manualmente. A exportação não a envia a lugar nenhum. Receitas com origem desconhecida ainda precisam de investigação.
 Save in the game first: then it can be copied and exported here.	Salve primeiro dentro do jogo; depois você poderá copiar e exportar o salvamento aqui.
-Save name	Nome do salvamento
 Saves	Salvamentos
 Saves, seeds and settings are kept. Your own game files aren't touched.	Jogos salvos, seeds e configurações serão mantidos. Seus arquivos não serão alterados.
 Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button that's already in use swaps with the old one.	Selecione um mapeamento e pressione o novo botão ou tecla. Esc (ou 5 segundos) cancela. Se já estiver em uso, as atribuições serão trocadas.
@@ -516,6 +516,7 @@ Title screen	Tela inicial
 Trackpad	Trackpad
 Trainer	Treinador
 Trainer\s	Treinador\s
+Trainer name	Nome do treinador
 Try again	Tentar novamente
 Two-finger drag on the trackpad	Arrastar com dois dedos no trackpad
 Unable to check	Não foi possível verificar
@@ -543,7 +544,6 @@ Upscaling and AA	Upscaling e antisserrilhamento
 Use as online save	Usar como salvamento online
 Use one of my saves as the online save	Usar um dos meus salvamentos como salvamento online
 Use substitute font	Usar fonte substituta
-Uses the save selected offline	Usa o salvamento selecionado offline
 Version %s is out. Update to play online.	A versão %s foi lançada. Atualize para jogar online.
 Video	Vídeo
 View + Menu	Exibir + Menu

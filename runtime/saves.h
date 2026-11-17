@@ -47,7 +47,8 @@ const char *saves_current_path(void);  // the slot the game uses (as SaveSlot.pa
 // Online and offline saves are two kinds that never convert on their own (Lumiose Online checks a save for anything done to
 // it outside online play): an online save carries a hidden `.online` file in its folder. It is made online (a new game
 // online), or an existing save is made online once, on the player's explicit choice, and from then on it is never started
-// without the Lumiose module, and an offline one never with it. An online save can't be copied.
+// without the Lumiose module, and an offline one never with it. An online save can't be copied, renamed or deleted from the app: it is
+// shown under the name of its character.
 bool saves_create_online(const char *name, char *id_out);  // as saves_create, an empty online slot
 bool saves_set_online(const char *id);                     // an existing slot becomes online (it can't go back)
 bool saves_slot_online(const char *id);

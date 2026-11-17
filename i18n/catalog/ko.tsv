@@ -37,6 +37,7 @@ All shaders	모든 셰이더
 Always (cursor held in the window)	항상 (커서를 창 안에 고정)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	원하는 이름으로 빈 저장 데이터를 만듭니다. 이 데이터로 새 게임을 시작하기 위해 재시작하기 전에 확인을 요청합니다.
 An online save can't be copied.	온라인 세이브는 복사할 수 없습니다.
+An online save can't be deleted.	온라인 세이브는 삭제할 수 없습니다.
 Anisotropic filtering	비등방성 필터링
 Anti-aliasing	안티앨리어싱
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	제한을 우회하여 오프라인에서 게임을 진행하는 행위는 Lumiose Online에서 이용 정지 사유가 될 수 있습니다!
@@ -87,6 +88,7 @@ Choose these two files. They are read on this Mac only to add the DLC, and the g
 Choose your base game, update and prod.keys before setup.	설치 전에 기본 게임, 업데이트 및 prod.keys를 선택하세요.
 Choose your online save	온라인 세이브를 선택하세요
 Choose...	선택...
+Chosen the first time you press Play online.	처음 온라인 플레이를 누를 때 선택합니다.
 Chosen:\s	선택됨:\s
 Close	닫기
 Closes MonZaMac.	MonZaMac을 종료합니다.
@@ -341,7 +343,6 @@ Offline play	오프라인 플레이
 On	켜짐
 Online play	온라인 플레이
 Online play (Lumiose Online)	온라인 플레이 (Lumiose Online)
-Online save: %s	온라인 세이브: %s
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	온라인에서 게임 안에 커서가 표시될 때(Lumiose 화면은 커서로 클릭해 조작합니다): 이 시간 동안 마우스를 움직이거나 클릭하지 않으면 숨겨지고, 조작하면 바로 다시 나타납니다(두 손가락 드래그는 해당되지 않습니다).
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	셰이더 해시 및 숫자 그래픽 상태만 포함합니다. 게임 코드, 키, 저장 데이터, 개인정보는 포함되지 않으며 자동 업로드하지 않습니다.
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	메뉴 열기/닫기: F1, Esc, 컨트롤러 Home / Xbox / PlayStation 버튼 또는 Back + Start
@@ -413,7 +414,6 @@ SET UP GAME FILES	게임 파일 설정
 Same as offline	오프라인과 동일
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	메타데이터만 담은 JSON 기여 파일을 저장해 직접 검토하고 공유할 수 있습니다. 내보내기는 어디에도 전송하지 않습니다. 출처를 알 수 없는 레시피는 추가 조사가 필요합니다.
 Save in the game first: then it can be copied and exported here.	먼저 게임 안에서 저장하세요. 그다음 여기에서 복사하거나 내보낼 수 있습니다.
-Save name	저장 이름
 Saves	저장 데이터
 Saves, seeds and settings are kept. Your own game files aren't touched.	저장 데이터, 시드, 설정은 유지되며 원본 게임 파일은 변경되지 않습니다.
 Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button that's already in use swaps with the old one.	키 할당을 선택한 뒤 새 버튼/키를 누르세요. Esc 또는 5초 후 취소됩니다. 이미 사용 중인 버튼은 할당을 교환합니다.
@@ -516,6 +516,7 @@ Title screen	시작 화면
 Trackpad	트랙패드
 Trainer	트레이너
 Trainer\s	트레이너\s
+Trainer name	트레이너 이름
 Try again	다시 시도
 Two-finger drag on the trackpad	트랙패드 두 손가락 드래그
 Unable to check	확인할 수 없음
@@ -543,7 +544,6 @@ Upscaling and AA	업스케일링 및 AA
 Use as online save	온라인 세이브로 사용
 Use one of my saves as the online save	내 세이브 중 하나를 온라인 세이브로 사용
 Use substitute font	대체 글꼴 사용
-Uses the save selected offline	오프라인에서 선택한 저장 데이터를 사용
 Version %s is out. Update to play online.	버전 %s이(가) 출시되었습니다. 온라인으로 플레이하려면 업데이트하세요.
 Video	비디오
 View + Menu	뷰 + 메뉴

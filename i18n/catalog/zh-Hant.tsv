@@ -37,6 +37,7 @@ All shaders	全部著色器
 Always (cursor held in the window)	始終（游標限制在視窗內）
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	建立自訂名稱的空存檔。重新啟動遊戲並使用此存檔開始新遊戲前，會要求你確認。
 An online save can't be copied.	線上存檔無法複製。
+An online save can't be deleted.	線上存檔無法刪除。
 Anisotropic filtering	非等向性過濾
 Anti-aliasing	反鋸齒
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	任何繞過限制並在離線模式下推進遊戲進度的行為，都可能導致在 Lumiose Online 中被封鎖！
@@ -87,6 +88,7 @@ Choose these two files. They are read on this Mac only to add the DLC, and the g
 Choose your base game, update and prod.keys before setup.	設定前請選擇遊戲本體、更新檔和 prod.keys。
 Choose your online save	選擇你的線上存檔
 Choose...	選擇...
+Chosen the first time you press Play online.	第一次點擊「線上遊玩」時選擇。
 Chosen:\s	已選擇：
 Close	關閉
 Closes MonZaMac.	關閉 MonZaMac。
@@ -341,7 +343,6 @@ Offline play	離線遊玩
 On	開
 Online play	線上遊玩
 Online play (Lumiose Online)	線上遊玩（Lumiose Online）
-Online save: %s	線上存檔：%s
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	線上時，遊戲內會顯示游標（Lumiose 介面需用它點擊）：滑鼠在此時間內未移動或點擊時會隱藏，一有操作便立即重新顯示（雙指拖曳不計入）。
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	僅包含著色器雜湊值與數值化圖形狀態，不含遊戲程式碼、金鑰、存檔或個人資料。不會自動上傳。
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	開啟／關閉選單：F1、Esc、控制器 Home / Xbox / PlayStation 按鈕或 Back + Start
@@ -413,7 +414,6 @@ SET UP GAME FILES	設定遊戲檔案
 Same as offline	與離線模式相同
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	儲存僅含中繼資料的 JSON 貢獻檔，供手動審核與分享。匯出不會將其提交到任何地方。來源位置未知的配方仍需進一步調查。
 Save in the game first: then it can be copied and exported here.	請先在遊戲中儲存，之後才能在這裡複製或匯出存檔。
-Save name	存檔名稱
 Saves	存檔
 Saves, seeds and settings are kept. Your own game files aren't touched.	存檔、seed 與設定都會保留。原始遊戲檔案不會修改。
 Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button that's already in use swaps with the old one.	選擇按鍵對應後按下新按鍵。按 Esc（或等待 5 秒）取消。若按鍵已指派，則交換對應。
@@ -516,6 +516,7 @@ Title screen	開始畫面
 Trackpad	觸控板
 Trainer	訓練家
 Trainer\s	訓練家\s
+Trainer name	訓練家名稱
 Try again	重試
 Two-finger drag on the trackpad	觸控板雙指拖曳
 Unable to check	無法檢查
@@ -543,7 +544,6 @@ Upscaling and AA	畫面放大與反鋸齒
 Use as online save	用作線上存檔
 Use one of my saves as the online save	將我的某個存檔用作線上存檔
 Use substitute font	使用替代字型
-Uses the save selected offline	使用離線模式所選的存檔
 Version %s is out. Update to play online.	版本 %s 已發布。請更新後再線上遊玩。
 Video	影片
 View + Menu	檢視 + 選單

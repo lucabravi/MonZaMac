@@ -37,6 +37,7 @@ All shaders	Tous les shaders
 Always (cursor held in the window)	Toujours (curseur capturé par la fenêtre)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	Créez un emplacement de sauvegarde vide avec le nom de votre choix. Une confirmation vous sera demandée avant de démarrer une nouvelle partie avec lui.
 An online save can't be copied.	Une sauvegarde en ligne ne peut pas être copiée.
+An online save can't be deleted.	Une sauvegarde en ligne ne peut pas être supprimée.
 Anisotropic filtering	Filtrage anisotrope
 Anti-aliasing	Anticrénelage
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	Toute action visant à contourner le blocage et à progresser dans le jeu hors ligne peut entraîner un bannissement de Lumiose Online !
@@ -87,6 +88,7 @@ Choose these two files. They are read on this Mac only to add the DLC, and the g
 Choose your base game, update and prod.keys before setup.	Avant de commencer, choisissez le jeu de base, la mise à jour et prod.keys.
 Choose your online save	Choisissez votre sauvegarde en ligne
 Choose...	Choisir...
+Chosen the first time you press Play online.	Choisie la première fois que vous appuyez sur Jouer en ligne.
 Chosen:\s	Sélectionné :\s
 Close	Fermer
 Closes MonZaMac.	Ferme MonZaMac.
@@ -341,7 +343,6 @@ Offline play	Jeu hors ligne
 On	Activé
 Online play	Jeu en ligne
 Online play (Lumiose Online)	Jeu en ligne (Lumiose Online)
-Online save: %s	Sauvegarde en ligne : %s
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	En ligne, où le curseur est visible en jeu (l’interface de Lumiose se clique avec) : il se masque quand la souris n’a ni bougé ni cliqué pendant ce délai, et réapparaît dès que c’est le cas (un glissement à deux doigts ne compte pas).
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	Uniquement les hachages de shaders et les paramètres graphiques numériques. Ni code du jeu, clés, sauvegardes ni données personnelles. Aucun envoi automatique.
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	Ouvrir/fermer le menu : F1, Échap, bouton Home / Xbox / PlayStation de la manette ou Back + Start
@@ -413,7 +414,6 @@ SET UP GAME FILES	CONFIGURER LES FICHIERS DU JEU
 Same as offline	Comme hors ligne
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	Enregistre une contribution JSON contenant uniquement des métadonnées, à relire et partager manuellement. L'export ne l'envoie nulle part. Les recettes dont l'origine est inconnue doivent encore être examinées.
 Save in the game first: then it can be copied and exported here.	Sauvegardez d’abord dans le jeu pour pouvoir ensuite copier et exporter la sauvegarde ici.
-Save name	Nom de la sauvegarde
 Saves	Sauvegardes
 Saves, seeds and settings are kept. Your own game files aren't touched.	Sauvegardes, seeds et paramètres conservés. Vos fichiers d’origine restent intacts.
 Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button that's already in use swaps with the old one.	Sélectionnez une commande puis appuyez sur le nouveau bouton ou la nouvelle touche. Échap (ou 5 secondes) annule. Si le bouton est déjà utilisé, les affectations sont échangées.
@@ -516,6 +516,7 @@ Title screen	Écran d'accueil
 Trackpad	Trackpad
 Trainer	Dresseur
 Trainer\s	Dresseur\s
+Trainer name	Nom du dresseur
 Try again	Réessayer
 Two-finger drag on the trackpad	Glissement à deux doigts sur le trackpad
 Unable to check	Vérification impossible
@@ -543,7 +544,6 @@ Upscaling and AA	Mise à l'échelle et anticrénelage
 Use as online save	Utiliser comme sauvegarde en ligne
 Use one of my saves as the online save	Utiliser une de mes sauvegardes comme sauvegarde en ligne
 Use substitute font	Utiliser une police de remplacement
-Uses the save selected offline	Utilise la sauvegarde choisie hors ligne
 Version %s is out. Update to play online.	La version %s est disponible. Mettez à jour pour jouer en ligne.
 Video	Vidéo
 View + Menu	Vue + Menu

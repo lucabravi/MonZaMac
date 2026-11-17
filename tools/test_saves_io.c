@@ -30,6 +30,7 @@ int plat_proc_wait(PlatProc p, bool block) {
 }
 const SaveInfo *save_info(const char *slot) {
     static SaveInfo si;
+    snprintf(si.trainer, sizeof si.trainer, "%s", !strcmp(slot, "saves/Trainer") ? "Red" : "");  // (the character of that one slot)
     char f[512], head[2] = {0};
     snprintf(f, sizeof f, "%s/save_0/main", slot);
     FILE *in = fopen(f, "rb");
@@ -151,11 +152,13 @@ int main(void) {
     assert(!saves_copy("Trainer", "Trainer online copy") && !there("saves/Trainer online copy"));
     char oid[SAVE_NAME_MAX + 1];
     assert(saves_create_online("Online game", oid) && !strcmp(oid, "Online game") && saves_slot_online(oid));
+    assert(!saves_rename("Trainer", "Another name", NULL) && there("saves/Trainer"));  // (an online save is not renamed)
+    assert(!saves_delete("Trainer") && there("saves/Trainer/save_0/main"));            // (nor deleted)
     int n = saves_list(all, SAVE_SLOTS_MAX), seen = 0;
     for (int i = 0; i < n; i++) {
-        if (!strcmp(all[i].id, "Trainer")) assert(all[i].online && all[i].played), seen++;
+        if (!strcmp(all[i].id, "Trainer")) assert(all[i].online && all[i].played && !strcmp(all[i].name, "Red")), seen++;  // (named after its character)
         if (!strcmp(all[i].id, "Online game")) assert(all[i].online && !all[i].played), seen++;  // (the marker is not progress)
-        if (!strcmp(all[i].id, "Trainer 2")) assert(!all[i].online), seen++;
+        if (!strcmp(all[i].id, "Trainer 2")) assert(!all[i].online && !strcmp(all[i].name, "Trainer 2")), seen++;
     }
     assert(seen == 3);
     saves_select_latest(true);
