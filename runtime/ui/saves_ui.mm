@@ -95,6 +95,11 @@ static void ask_copy(const SaveSlot &s) {
 static void ask_delete(void) {
     const SaveSlot &s = sel_slot();
     g_err[0] = 0;
+    if (g_n && s.online) {  // (the online save stays: one per player)
+        snprintf(g_msg, sizeof g_msg, "%s", ui_tr("An online save can't be deleted."));
+        g_msg_bad = true, g_msg_hint = false;
+        return;
+    }
     if (g_n && !s.played && saves_delete(s.id)) {
         if (!strcmp(g_settings.save_slot, s.id)) g_settings.save_slot[0] = 0;
         settings_save();
@@ -847,7 +852,7 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
         ImGui::BeginDisabled(!g_n || sel_slot().online);  // (an online save keeps its character's name)
         if (tool_button("rn", "Rename", IC_RENAME, ImVec2(bx, by2), wid("Rename"), bh, small_, fs, 0)) g_ask = RENAME, g_err[0] = 0;
         ImGui::EndDisabled();
-        ImGui::BeginDisabled(!g_n);
+        ImGui::BeginDisabled(!g_n || sel_slot().online);
         if (tool_button("del", "Delete", IC_DELETE, ImVec2(x0 + w - pad - wid("Delete"), by2), wid("Delete"), bh, small_, fs, 2)) ask_delete();
         ImGui::EndDisabled();
         by += 34 * sc + ch2 - bar_h;  // (the message line below the container)
@@ -878,7 +883,7 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
     if (bar_button("Rename", bwid("Rename"), bar_h, small_)) g_ask = RENAME, g_err[0] = 0;
     ImGui::EndDisabled();
     ImGui::SameLine(0, bgap);
-    ImGui::BeginDisabled(!g_n);
+    ImGui::BeginDisabled(!g_n || sel_slot().online);
     if (bar_button("Delete", bwid("Delete"), bar_h, small_, true)) ask_delete();
     ImGui::EndDisabled();
     ImGui::SameLine(0, 0);

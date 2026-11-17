@@ -37,6 +37,7 @@ All shaders	Alle Shader
 Always (cursor held in the window)	Immer (Mauszeiger im Fenster)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	Erstelle einen leeren Spielstand mit einem eigenen Namen. Vor dem Neustart des Spiels mit diesem Spielstand wird eine Bestätigung verlangt.
 An online save can't be copied.	Ein Online-Spielstand kann nicht kopiert werden.
+An online save can't be deleted.	Ein Online-Spielstand kann nicht gelöscht werden.
 Anisotropic filtering	Anisotrope Filterung
 Anti-aliasing	Kantenglättung
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	Jede Handlung, um die Sperre zu umgehen und offline im Spiel voranzukommen, kann zu einem Bann bei Lumiose Online führen!

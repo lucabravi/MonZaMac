@@ -37,6 +37,7 @@ All shaders	Tutti gli shader
 Always (cursor held in the window)	Sempre (cursore bloccato nella finestra)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	Crea uno slot di salvataggio vuoto con il nome che scegli. Prima di avviare una nuova partita al suo interno ti verrà chiesta conferma.
 An online save can't be copied.	Un salvataggio online non si può copiare.
+An online save can't be deleted.	Un salvataggio online non si può eliminare.
 Anisotropic filtering	Filtro anisotropico
 Anti-aliasing	Antialiasing
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	Ogni azione utilizzata per aggirare il blocco e fare progressi in gioco in modalità offline potrebbe far incappare in un ban in Lumiose Online!

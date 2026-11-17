@@ -37,6 +37,7 @@ All shaders	すべてのシェーダー
 Always (cursor held in the window)	常時 (カーソルをウィンドウ内に固定)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	名前を付けた空のセーブを作成します。このセーブで新しくプレイするためにゲームを再起動する前に、確認画面が表示されます。
 An online save can't be copied.	オンライン用セーブデータはコピーできません。
+An online save can't be deleted.	オンライン用セーブデータは削除できません。
 Anisotropic filtering	異方性フィルタリング
 Anti-aliasing	アンチエイリアス
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	ロックを回避してオフラインでゲームを進める行為は、Lumiose Onlineからの利用停止につながる可能性があります！

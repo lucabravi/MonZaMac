@@ -37,6 +37,7 @@ All shaders	全部着色器
 Always (cursor held in the window)	始终（光标限制在窗口内）
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	创建自定义名称的空存档。重新启动游戏并使用该存档开始新游戏前，会要求你确认。
 An online save can't be copied.	在线存档无法复制。
+An online save can't be deleted.	在线存档无法删除。
 Anisotropic filtering	各向异性过滤
 Anti-aliasing	抗锯齿
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	任何绕过限制并在离线模式下推进游戏进度的行为，都可能导致在 Lumiose Online 中被封禁！

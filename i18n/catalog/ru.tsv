@@ -37,6 +37,7 @@ All shaders	Все шейдеры
 Always (cursor held in the window)	Всегда (курсор внутри окна)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	Создайте пустое сохранение с выбранным именем. Перед перезапуском игры с ним потребуется подтверждение.
 An online save can't be copied.	Онлайн-сохранение нельзя копировать.
+An online save can't be deleted.	Онлайн-сохранение нельзя удалить.
 Anisotropic filtering	Анизотропная фильтрация
 Anti-aliasing	Сглаживание
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	Любые действия для обхода блокировки и прогресса в игре офлайн могут привести к бану в Lumiose Online!

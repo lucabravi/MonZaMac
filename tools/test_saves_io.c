@@ -153,6 +153,7 @@ int main(void) {
     char oid[SAVE_NAME_MAX + 1];
     assert(saves_create_online("Online game", oid) && !strcmp(oid, "Online game") && saves_slot_online(oid));
     assert(!saves_rename("Trainer", "Another name", NULL) && there("saves/Trainer"));  // (an online save is not renamed)
+    assert(!saves_delete("Trainer") && there("saves/Trainer/save_0/main"));            // (nor deleted)
     int n = saves_list(all, SAVE_SLOTS_MAX), seen = 0;
     for (int i = 0; i < n; i++) {
         if (!strcmp(all[i].id, "Trainer")) assert(all[i].online && all[i].played && !strcmp(all[i].name, "Red")), seen++;  // (named after its character)

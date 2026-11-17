@@ -218,12 +218,16 @@ bool saves_rename(const char *id, const char *name, char *id_out) {
     return true;
 }
 
-bool saves_delete(const char *id) {
-    if (!valid_id(id)) return false;
+static bool delete_slot(const char *id) {
     char p[128];
     slot_path(id, p, sizeof p);
     remove_tree(p);
     return !exists(p);
+}
+
+bool saves_delete(const char *id) {
+    if (!valid_id(id) || saves_slot_online(id)) return false;  // (an online save is not deleted from the app: Lumiose Online keeps one per player)
+    return delete_slot(id);
 }
 
 // Routes live apart from the saves (routes/<name>/save = the starting point, routes/<name>/route.txt = the pad), so they
@@ -289,7 +293,7 @@ bool saves_set_online(const char *id) {
 bool saves_create_online(const char *name, char *id_out) {
     char id[SAVE_NAME_MAX + 1];
     if (!saves_create(name, id)) return false;
-    if (!saves_set_online(id)) { saves_delete(id); return false; }
+    if (!saves_set_online(id)) { delete_slot(id); return false; }
     if (id_out) snprintf(id_out, SAVE_NAME_MAX + 1, "%s", id);
     return true;
 }

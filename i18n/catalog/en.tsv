@@ -37,6 +37,7 @@ All shaders	All shaders
 Always (cursor held in the window)	Always (cursor held in the window)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	An empty save with a name of your own, ready to play: you're asked before the game restarts with it.
 An online save can't be copied.	An online save can't be copied.
+An online save can't be deleted.	An online save can't be deleted.
 Anisotropic filtering	Anisotropic filtering
 Anti-aliasing	Anti-aliasing
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!
