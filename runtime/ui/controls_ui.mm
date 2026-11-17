@@ -49,7 +49,7 @@ extern "C" void controls_bindings_draw(float scale) {
     SDL_free(ids);
     ImGui::TextUnformatted(line);
     ImGui::PushTextWrapPos(0);
-    ImGui::TextDisabled(ui_tr("Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button "
+    ImGui::TextDisabled("%s", ui_tr("Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button "
                         "that's already in use swaps with the old one."));
     ImGui::PopTextWrapPos();
 
@@ -92,7 +92,7 @@ extern "C" void controls_bindings_draw(float scale) {
             ImGui::TextUnformatted(ui_tr(bind_input_name(slot)));
             ImGui::TableNextColumn();
             if (slot < BIND_PAD_COUNT) cell(BIND_DEV_PAD, slot, fam, cd, cs, ms);
-            else ImGui::TextDisabled(ui_tr(slot < BIND_RS_UP ? "Left stick" : "Right stick"));
+            else ImGui::TextDisabled("%s", ui_tr(slot < BIND_RS_UP ? "Left stick" : "Right stick"));
             ImGui::TableNextColumn();
             cell(BIND_DEV_KEY, slot, fam, cd, cs, ms);
         }
@@ -107,7 +107,7 @@ extern "C" void controls_bindings_draw(float scale) {
     if (ImGui::Button(ui_tr("Reset keyboard to defaults"))) { bind_capture_cancel(); bind_reset(BIND_DEV_KEY); }
     ImGui::EndDisabled();
     ImGui::PushTextWrapPos(0);
-    ImGui::TextDisabled(ui_tr("Bindings apply to the game only. Menus keep the fixed layout (right face button / Enter "
+    ImGui::TextDisabled("%s", ui_tr("Bindings apply to the game only. Menus keep the fixed layout (right face button / Enter "
                         "select, bottom face button / Esc back), and the in-game menu always opens with F1 or Esc, or "
                         "the controller's Back + Start held together, or its Home / Guide button - so this page can't be "
                         "locked out. The game's button icons follow the controller bindings."));

@@ -812,7 +812,7 @@ static void dlc_popup(float s, SDL_Window *win) {
     pthread_mutex_unlock(&g_lock);
     ImGui::PushFont(g_font_small);
     ImGui::SetWindowFontScale(1.35f);
-    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), ui_tr("Add the Mega Dimension DLC"));
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), "%s", ui_tr("Add the Mega Dimension DLC"));
     ImGui::SetWindowFontScale(1.1f);
     ImGui::Dummy(ImVec2(0, 12 * s));
     ImGui::PushTextWrapPos(0);
@@ -833,7 +833,7 @@ static void dlc_popup(float s, SDL_Window *win) {
             SDL_ShowOpenFileDialog(dlc_file_picked, i ? (void *)1 : NULL, win, i ? kf : nf, i ? 1 : 2, NULL, false);
         ImGui::SameLine();
         const char *name = strrchr(rows[i].value.c_str(), '/');
-        if (rows[i].value.empty()) ImGui::TextDisabled(ui_tr("Not chosen"));
+        if (rows[i].value.empty()) ImGui::TextDisabled("%s", ui_tr("Not chosen"));
         else ImGui::TextColored(ImVec4(0.45f, 0.95f, 0.55f, 1), "%s", name ? name + 1 : rows[i].value.c_str());
         ImGui::PopID();
         ImGui::Dummy(ImVec2(0, 6 * s));
@@ -1277,7 +1277,7 @@ static void legal_notice(float s) {
         dl->AddCircleFilled(ImVec2(c.x, c.y + 5.5f * s), 1.1f * s, IM_COL32(17, 25, 40, 255));
     }
     dl->AddText(font, fs, ImVec2(p.x + 24 * s + 32 * s, p.y + (h - text.y) * 0.5f), IM_COL32(238, 244, 255, 255), ui_tr("Legal notice"));
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip(ui_tr("Ownership, non-affiliation and responsible use"));
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", ui_tr("Ownership, non-affiliation and responsible use"));
     ImGui::SetCursorScreenPos(saved);
     if (clicked || g_legal_test) {
         ImGui::OpenPopup("##legal_notice");
@@ -1297,7 +1297,7 @@ static void legal_notice(float s) {
     if (!open) return;
     ImGui::PushFont(g_font_small);
     ImGui::SetWindowFontScale(0.82f);
-    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), ui_tr("Legal notice & responsible use"));
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), "%s", ui_tr("Legal notice & responsible use"));
     ImGui::Dummy(ImVec2(0, 12 * s));
     ImGui::BeginChild("##legal_text", ImVec2(0, -68 * s), false);
     ImGui::PushTextWrapPos(0);
@@ -1436,7 +1436,7 @@ static void precompile_badge(float s) {
     if (!open) return;
     ImGui::PushFont(g_font_small);
     ImGui::SetWindowFontScale(0.82f);
-    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), ui_tr("Prepare all shaders"));
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), "%s", ui_tr("Prepare all shaders"));
     ImGui::Dummy(ImVec2(0, 10 * s));
     ImGui::TextColored(good ? ImVec4(0.49f, 0.9f, 0.65f, 1) : ImVec4(1, 0.79f, 0.39f, 1), "%s", ui_tr(reason));
     ImGui::Dummy(ImVec2(0, 8 * s));
@@ -1488,7 +1488,7 @@ static bool aspect_prompt(float s) {
         ImGui::PushTextWrapPos(0);
         ImGui::TextUnformatted(ui_tr("How would you like to play?"));
         ImGui::Spacing();
-        ImGui::TextDisabled(ui_tr("You can change this any time in Settings."));
+        ImGui::TextDisabled("%s", ui_tr("You can change this any time in Settings."));
         ImGui::PopTextWrapPos();
         ImGui::Dummy(ImVec2(0, 14 * s));
         float bw = 300 * s, gap = 20 * s;
@@ -1739,10 +1739,10 @@ static void prelaunch_tab(float sc) {
         ImGui::OpenPopup("##delfiles"), shot_del = false;  // (test: :askdelete)
     if (ImGui::BeginPopupModal("##delfiles", NULL, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
         ImGui::PushFont(g_font_menu);
-        ImGui::TextColored(ImVec4(1, 0.72f, 0.4f, 1), ui_tr("Are you sure?"));
+        ImGui::TextColored(ImVec4(1, 0.72f, 0.4f, 1), "%s", ui_tr("Are you sure?"));
         ImGui::PopFont();
         ImGui::Text(ui_tr("This deletes MonZaMac's copy of the game files (%.1f GB)."), gb);
-        ImGui::TextDisabled(ui_tr("Saves, seeds and settings are kept. Your own game files aren't touched."));
+        ImGui::TextDisabled("%s", ui_tr("Saves, seeds and settings are kept. Your own game files aren't touched."));
         if (rt_dev_mode()) {  // (a source checkout: the files are the project's own extracted/)
             bool abs = !g_root.empty() && (g_root[0] == '/' || (g_root.size() > 1 && g_root[1] == ':'));
             std::string where = abs ? g_root : std::string(rt_data_root()) + "/" + g_root;
@@ -2343,7 +2343,7 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
                 ImGui::SetWindowFontScale(0.82f);  // (the start screen's fonts are sized for its big type)
                 ImGui::PushFont(g_font_small);
                 ImGui::PushFont(g_font_menu);
-                ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), ui_tr("Settings"));
+                ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "%s", ui_tr("Settings"));
                 ImGui::PopFont();
                 bool back;
                 {  // a Back button in the corner, drawn like the header's (B / Esc too)
@@ -2398,7 +2398,7 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
                 ImGui::PopStyleColor();
                 ImGui::PushFont(g_font_small);
                 ImGui::PushFont(g_font_menu);
-                ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), ui_tr("Game Files"));
+                ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "%s", ui_tr("Game Files"));
                 ImGui::PopFont();
                 bool back = false;
                 if (!busy) {  // close: the drawn X in the corner, as Settings (B / Esc too)
@@ -2713,7 +2713,7 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
                     ui_check(ImGui::GetWindowDrawList(), ImVec2(p.x + u * 0.5f, p.y + u * 0.5f), u * 0.7f, g);
                     ImGui::SetCursorPosX(x0 + u * 1.3f);
                 }
-                ImGui::TextColored(ImVec4(0.45f, 0.95f, 0.55f, 1), ui_tr("Game files ready."));
+                ImGui::TextColored(ImVec4(0.45f, 0.95f, 0.55f, 1), "%s", ui_tr("Game files ready."));
                 ImGui::SetCursorPosX(x0);
                 {
                     // The Mega Dimension add-on is one aoc/<id>.bin RomFS image (tools/game_extract.py --dlc). Not just any
@@ -2723,7 +2723,7 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
                                        ui_tr(dlc ? "DLC found" : "DLC not found"));
                     if (!dlc && !busy) {
                         ImGui::SameLine();
-                        if (g_dlc_busy) ImGui::TextDisabled(ui_tr("Adding DLC..."));
+                        if (g_dlc_busy) ImGui::TextDisabled("%s", ui_tr("Adding DLC..."));
                         else if (ImGui::SmallButton(ui_tr("Add DLC..."))) {
                             pthread_mutex_lock(&g_lock);
                             g_dlc_msg.clear(); g_dlc_pick.clear(); g_dlc_keys.clear();
@@ -2738,7 +2738,7 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
             } else {
                 ImGui::TextColored(ImVec4(1, 0.72f, 0.4f, 1), ui_tr("!  %s"), busy ? ui_tr("Setting up the game files...") : ui_tr(status.c_str()));
                 ImGui::SetCursorPosX(x0);
-                ImGui::TextDisabled(ui_tr("Set up the game files to play."));
+                ImGui::TextDisabled("%s", ui_tr("Set up the game files to play."));
             }
             if (const char *f = getenv("LARECOMP_LAUNCHER_FONT")) {  // (test) which typeface this window shows
                 const char *b = strrchr(f, '/');
