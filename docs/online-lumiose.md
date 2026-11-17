@@ -68,6 +68,15 @@ so and nothing is started. The online app runs these tools through its bundled h
 RomFS mod layers are also disabled during online play. This protects the launcher's mod loading paths. It does not
 verify saves or game files, or detect tampering by a modified client.
 
+What the check covers: the module file (`subsdk9`) the start screen prepares and starts from must be byte for byte the one
+the team publishes, so a module put in the save's `sdcard` folder or in the downloads folder is never used. The libraries
+prepared from it (`lumiose.dylib`, `lasgame.dylib`) are built on the player's own Mac and are not signed, so someone who
+changes them, or who starts the game by hand with the `LUMIOSE_TEST_*` variables, is not stopped here. That check belongs to
+the relay. The check needs the team's site every time: when it cannot be reached, online play does not start (an
+unchecked version could be swapped by blocking the site), and the screen says to try again. Back at the start screen,
+**Play online** starts in the same process again only when the checked version is the one already running; a different
+one starts a new process.
+
 The mod's own interface reads the Switch touch screen (`nn::hid::GetTouchScreenStates`, which the game does not import):
 the left mouse button held is one finger where the cursor is, in the touch screen's 1280x720 over the game's picture
 (`runtime/hle/input.c`). When the left button also turns the camera (Mouse camera "Left button" / "Any button"), a tap is

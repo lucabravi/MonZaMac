@@ -135,7 +135,7 @@ def main():
         expected = latest_sha256()
     except (ValueError, OSError):
         report(0.0, 'Verification failed', 'error',
-               message='Could not verify the Lumiose Online module. Check your connection and try again.')
+               message='Could not check the Lumiose Online module against the published version. Online play needs that check every time: check your connection and try again.')
         return 1
     active = status_info(args.root)
     if ready(active, args.game, expected):

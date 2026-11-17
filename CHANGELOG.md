@@ -27,6 +27,9 @@ Cleaner skin and hair in some close-ups, a little more speed, a new way to insta
 - The team on the offline card has more room: bigger balls, further apart, with the buttons lower. The Saves page follows.
 - **Prepare all shaders** no longer leaves the black loading screen over the start screen when the game returns before its first frame.
 
+### Lumiose Online (online edition)
+- **Play online only starts a module that matches the one Lumiose Online publishes.** A module placed in the save's `sdcard` folder (for example a cheat or debug menu installed like on a Switch) or in the downloads folder is no longer used. The check runs on every press, so online play needs the team's site to be reachable; without it, it asks you to try again. Back at the start screen, **Play online** restarts the game only when the version changed.
+
 ### Developer tools
 - `docs/environment.md` lists the ten `LARECOMP_*` environment variables that are supported (where the files are, switching off one fix to find a problem, logs and benchmarks); the rest stay debug hooks described in the code. A test fails when a name in the docs is no longer read by the code.
 - The interface text goes to the drawing library as an argument, never as its format (20 places in the start screen and the menus): a translation with a stray `%` can no longer read memory. The compiler's format warnings in the renderer's logs are fixed, and git ignores `.game-setup/`.

@@ -346,6 +346,8 @@ static void online_launch() {
     char exe[4096];
     if (!plat_exe_path(exe, sizeof exe)) { g_ou_note = "Could not find the program to restart."; return; }
     std::string dir = g_ou_status.dir;
+    const char *running = getenv("LUMIOSE_TEST_MODULE");  // (the version this process already runs, when it runs one)
+    bool same = g_game_booted == 2 && running && (dir + "/subsdk9") == running;
     setenv("LUMIOSE_TEST_MODULE", (dir + "/subsdk9").c_str(), 1);
     setenv("LUMIOSE_TEST_LIBRARY", (dir + "/lumiose.dylib").c_str(), 1);
     setenv("LARECOMP_GAME_LIB", (dir + "/lasgame.dylib").c_str(), 1);
@@ -354,8 +356,9 @@ static void online_launch() {
     saves_use_latest();  // the chosen save, else the most recent (as CONTINUE)
     settings_save();
     setenv("LARECOMP_PLAY_SAVE", g_settings.save_slot, 1);  // (--play would take the most recent one)
-    // A loaded game library cannot be swapped. The verified version may differ from the one already in memory.
-    if (!g_game_booted && !getenv("LARECOMP_ONLINE_RESTART")) {
+    // A loaded game library cannot be swapped: the same process only when none is loaded yet or the verified version is the
+    // one already running (a different one needs a new process).
+    if ((!g_game_booted || same) && !getenv("LARECOMP_ONLINE_RESTART")) {
         g_play_request = true;
         return;
     }
