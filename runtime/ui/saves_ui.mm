@@ -844,8 +844,10 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
         if (tool_button("ex", "Export", IC_EXPORT, ImVec2(bx, by2), wid("Export"), bh, small_, fs, 0)) export_pick(sel_slot());
         ImGui::EndDisabled();
         bx += wid("Export") + 6 * sc;
-        ImGui::BeginDisabled(!g_n);
+        ImGui::BeginDisabled(!g_n || sel_slot().online);  // (an online save keeps its character's name)
         if (tool_button("rn", "Rename", IC_RENAME, ImVec2(bx, by2), wid("Rename"), bh, small_, fs, 0)) g_ask = RENAME, g_err[0] = 0;
+        ImGui::EndDisabled();
+        ImGui::BeginDisabled(!g_n);
         if (tool_button("del", "Delete", IC_DELETE, ImVec2(x0 + w - pad - wid("Delete"), by2), wid("Delete"), bh, small_, fs, 2)) ask_delete();
         ImGui::EndDisabled();
         by += 34 * sc + ch2 - bar_h;  // (the message line below the container)
@@ -872,7 +874,7 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
     if (bar_button("Export", bwid("Export"), bar_h, small_)) export_pick(sel_slot());
     ImGui::EndDisabled();
     ImGui::SameLine(0, bgap);
-    ImGui::BeginDisabled(!g_n);
+    ImGui::BeginDisabled(!g_n || sel_slot().online);  // (an online save keeps its character's name)
     if (bar_button("Rename", bwid("Rename"), bar_h, small_)) g_ask = RENAME, g_err[0] = 0;
     ImGui::EndDisabled();
     ImGui::SameLine(0, bgap);

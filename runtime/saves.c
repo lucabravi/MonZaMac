@@ -74,6 +74,10 @@ static void fill(SaveSlot *s, const char *id) {
     slot_path(id, s->path, sizeof s->path);
     scan(s->path, &s->played);
     s->online = marked(s->path);
+    if (s->online) {  // (an online save is named after its character, not by the player: that name, once the game has made one)
+        const SaveInfo *si = save_info(s->path);
+        if (si && si->trainer[0]) snprintf(s->name, sizeof s->name, "%s", si->trainer);
+    }
     struct stat st;
     if (stat(s->path, &st) == 0)
 #ifdef __APPLE__
@@ -205,7 +209,7 @@ bool saves_copy(const char *id, const char *name) {
 }
 
 bool saves_rename(const char *id, const char *name, char *id_out) {
-    if (!valid_id(id)) return false;
+    if (!valid_id(id) || saves_slot_online(id)) return false;  // (an online save keeps the name of its character)
     char nid[SAVE_NAME_MAX + 1], to[128], from[128];
     if (!new_slot_path(name, nid, to, sizeof to)) return false;
     slot_path(id, from, sizeof from);  // (the original save/ moves into saves/ under its new name)
