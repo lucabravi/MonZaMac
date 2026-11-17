@@ -413,7 +413,6 @@ SET UP GAME FILES	ゲームファイルを設定
 Same as offline	オフラインと共通
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	メタデータのみのJSON提供データを保存し、手動で確認・共有できます。エクスポートでは、どこにも送信されません。出所が不明なレシピは、引き続き調査が必要です。
 Save in the game first: then it can be copied and exported here.	まずゲーム内でセーブしてください。その後、ここでコピーやエクスポートができます。
-Save name	セーブ名
 Saves	セーブデータ
 Saves, seeds and settings are kept. Your own game files aren't touched.	セーブ、seed、設定は保持されます。元のゲームファイルには触れません。
 Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button that's already in use swaps with the old one.	割り当てを選び、新しいボタン／キーを押します。Esc（または5秒経過）でキャンセル。すでに使用中のボタンなら割り当てを交換します。
@@ -516,6 +515,7 @@ Title screen	スタート画面
 Trackpad	トラックパッド
 Trainer	トレーナー
 Trainer\s	トレーナー\s
+Trainer name	トレーナー名
 Try again	再試行
 Two-finger drag on the trackpad	トラックパッドを2本指でドラッグ
 Unable to check	確認できません

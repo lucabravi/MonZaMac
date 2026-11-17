@@ -1020,12 +1020,12 @@ int saves_home_draw(ImFont *small_, bool ready, bool show_setup, bool focus_firs
             float iw = small_->CalcTextSizeA(u * 0.72f, FLT_MAX, 0, idb).x;
             label(rx - iw, cty + u * 0.55f, idb);
         }
-        const char *who = si && si->trainer[0] ? si->trainer : cur->name;
-        dl->AddText(small_, u * 1.45f, ImVec2(tx, cty + u * 1.2f), pal::text, fit(small_, u * 1.45f, who, rx - tx, cut, sizeof cut));
+        dl->AddText(small_, u * 1.45f, ImVec2(tx, cty + u * 1.2f), pal::text, fit(small_, u * 1.45f, cur->name, rx - tx, cut, sizeof cut));  // (the save's own name)
         dl->AddLine(ImVec2(tx, cty + u * 2.8f), ImVec2(rx, cty + u * 2.8f), IM_COL32(76, 100, 137, 120), 1.0f);
         float r1 = cty + u * 3.05f, r2 = cty + u * 4.95f, vfs = u * 1.0f;  // (the two rows of label + value)
-        label(tx, r1, "Save name");
-        dl->AddText(small_, vfs, ImVec2(tx, r1 + u * 0.85f), pal::text, fit(small_, vfs, cur->name, tx2 - tx - u * 0.5f, cut, sizeof cut));
+        label(tx, r1, "Trainer name");
+        dl->AddText(small_, vfs, ImVec2(tx, r1 + u * 0.85f), pal::text,
+                    fit(small_, vfs, si && si->trainer[0] ? si->trainer : "-", tx2 - tx - u * 0.5f, cut, sizeof cut));
         label(tx2, r1, "Play time");
         char pl[16];
         fmt_played(si ? si->played : 0, pl, sizeof pl);

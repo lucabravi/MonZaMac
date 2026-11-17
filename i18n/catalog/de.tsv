@@ -413,7 +413,6 @@ SET UP GAME FILES	SPIELDATEIEN EINRICHTEN
 Same as offline	Wie offline
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	Speichert einen JSON-Beitrag, der nur Metadaten enthält, zur manuellen Prüfung und Weitergabe. Der Export sendet ihn nirgendwohin. Rezepte mit unbekannter Herkunft müssen noch untersucht werden.
 Save in the game first: then it can be copied and exported here.	Speichere zuerst im Spiel. Danach kannst du den Spielstand hier kopieren und exportieren.
-Save name	Spielstandname
 Saves	Spielstände
 Saves, seeds and settings are kept. Your own game files aren't touched.	Spielstände, Seeds und Einstellungen bleiben erhalten. Eigene Spieldateien bleiben unberührt.
 Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button that's already in use swaps with the old one.	Wähle eine Belegung und drücke die neue Taste. Esc (oder 5 Sekunden) bricht ab. Ist die Taste bereits vergeben, werden die Belegungen getauscht.
@@ -516,6 +515,7 @@ Title screen	Startbildschirm
 Trackpad	Trackpad
 Trainer	Trainer
 Trainer\s	Trainer\s
+Trainer name	Trainername
 Try again	Erneut versuchen
 Two-finger drag on the trackpad	Zwei-Finger-Ziehen auf dem Trackpad
 Unable to check	Prüfung nicht möglich

@@ -413,7 +413,6 @@ SET UP GAME FILES	SET UP GAME FILES
 Same as offline	Same as offline
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.
 Save in the game first: then it can be copied and exported here.	Save in the game first: then it can be copied and exported here.
-Save name	Save name
 Saves	Saves
 Saves, seeds and settings are kept. Your own game files aren't touched.	Saves, seeds and settings are kept. Your own game files aren't touched.
 Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button that's already in use swaps with the old one.	Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button that's already in use swaps with the old one.
@@ -516,6 +515,7 @@ Title screen	Title screen
 Trackpad	Trackpad
 Trainer	Trainer
 Trainer\s	Trainer\s
+Trainer name	Trainer name
 Try again	Try again
 Two-finger drag on the trackpad	Two-finger drag on the trackpad
 Unable to check	Unable to check

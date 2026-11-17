@@ -413,7 +413,6 @@ SET UP GAME FILES	НАСТРОЙКА ФАЙЛОВ ИГРЫ
 Same as offline	Как в офлайн-режиме
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	Сохраняет вклад в виде JSON только с метаданными для ручной проверки и передачи. Экспорт никуда его не отправляет. Рецепты с неизвестным источником всё ещё требуют изучения.
 Save in the game first: then it can be copied and exported here.	Сначала сохранитесь в игре, затем сможете скопировать или экспортировать сохранение здесь.
-Save name	Название сохранения
 Saves	Сохранения
 Saves, seeds and settings are kept. Your own game files aren't touched.	Сохранения, seed и настройки останутся. Ваши исходные файлы не изменятся.
 Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button that's already in use swaps with the old one.	Выберите назначение, затем нажмите новую кнопку или клавишу. Esc (или 5 секунд) — отмена. Если кнопка уже занята, назначения меняются местами.
@@ -516,6 +515,7 @@ Title screen	Начальный экран
 Trackpad	Трекпад
 Trainer	Тренер
 Trainer\s	Тренер\s
+Trainer name	Имя тренера
 Try again	Повторить попытку
 Two-finger drag on the trackpad	Перетаскивание двумя пальцами
 Unable to check	Не удалось проверить

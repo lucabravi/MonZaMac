@@ -413,7 +413,6 @@ SET UP GAME FILES	CONFIGURER LES FICHIERS DU JEU
 Same as offline	Comme hors ligne
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	Enregistre une contribution JSON contenant uniquement des métadonnées, à relire et partager manuellement. L'export ne l'envoie nulle part. Les recettes dont l'origine est inconnue doivent encore être examinées.
 Save in the game first: then it can be copied and exported here.	Sauvegardez d’abord dans le jeu pour pouvoir ensuite copier et exporter la sauvegarde ici.
-Save name	Nom de la sauvegarde
 Saves	Sauvegardes
 Saves, seeds and settings are kept. Your own game files aren't touched.	Sauvegardes, seeds et paramètres conservés. Vos fichiers d’origine restent intacts.
 Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button that's already in use swaps with the old one.	Sélectionnez une commande puis appuyez sur le nouveau bouton ou la nouvelle touche. Échap (ou 5 secondes) annule. Si le bouton est déjà utilisé, les affectations sont échangées.
@@ -516,6 +515,7 @@ Title screen	Écran d'accueil
 Trackpad	Trackpad
 Trainer	Dresseur
 Trainer\s	Dresseur\s
+Trainer name	Nom du dresseur
 Try again	Réessayer
 Two-finger drag on the trackpad	Glissement à deux doigts sur le trackpad
 Unable to check	Vérification impossible

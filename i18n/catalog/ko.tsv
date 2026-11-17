@@ -413,7 +413,6 @@ SET UP GAME FILES	게임 파일 설정
 Same as offline	오프라인과 동일
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	메타데이터만 담은 JSON 기여 파일을 저장해 직접 검토하고 공유할 수 있습니다. 내보내기는 어디에도 전송하지 않습니다. 출처를 알 수 없는 레시피는 추가 조사가 필요합니다.
 Save in the game first: then it can be copied and exported here.	먼저 게임 안에서 저장하세요. 그다음 여기에서 복사하거나 내보낼 수 있습니다.
-Save name	저장 이름
 Saves	저장 데이터
 Saves, seeds and settings are kept. Your own game files aren't touched.	저장 데이터, 시드, 설정은 유지되며 원본 게임 파일은 변경되지 않습니다.
 Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button that's already in use swaps with the old one.	키 할당을 선택한 뒤 새 버튼/키를 누르세요. Esc 또는 5초 후 취소됩니다. 이미 사용 중인 버튼은 할당을 교환합니다.
@@ -516,6 +515,7 @@ Title screen	시작 화면
 Trackpad	트랙패드
 Trainer	트레이너
 Trainer\s	트레이너\s
+Trainer name	트레이너 이름
 Try again	다시 시도
 Two-finger drag on the trackpad	트랙패드 두 손가락 드래그
 Unable to check	확인할 수 없음

@@ -413,7 +413,6 @@ SET UP GAME FILES	設定遊戲檔案
 Same as offline	與離線模式相同
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	儲存僅含中繼資料的 JSON 貢獻檔，供手動審核與分享。匯出不會將其提交到任何地方。來源位置未知的配方仍需進一步調查。
 Save in the game first: then it can be copied and exported here.	請先在遊戲中儲存，之後才能在這裡複製或匯出存檔。
-Save name	存檔名稱
 Saves	存檔
 Saves, seeds and settings are kept. Your own game files aren't touched.	存檔、seed 與設定都會保留。原始遊戲檔案不會修改。
 Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button that's already in use swaps with the old one.	選擇按鍵對應後按下新按鍵。按 Esc（或等待 5 秒）取消。若按鍵已指派，則交換對應。
@@ -516,6 +515,7 @@ Title screen	開始畫面
 Trackpad	觸控板
 Trainer	訓練家
 Trainer\s	訓練家\s
+Trainer name	訓練家名稱
 Try again	重試
 Two-finger drag on the trackpad	觸控板雙指拖曳
 Unable to check	無法檢查

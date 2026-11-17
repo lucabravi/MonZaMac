@@ -413,7 +413,6 @@ SET UP GAME FILES	CONFIGURAR ARCHIVOS DEL JUEGO
 Same as offline	Igual que sin conexión
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	Guarda una contribución JSON con solo metadatos, para revisarla y compartirla a mano. La exportación no la envía a ninguna parte. Las recetas con ubicaciones de origen desconocidas aún requieren investigación.
 Save in the game first: then it can be copied and exported here.	Guarda primero la partida dentro del juego; después podrás copiarla y exportarla aquí.
-Save name	Nombre de la partida
 Saves	Partidas guardadas
 Saves, seeds and settings are kept. Your own game files aren't touched.	Se conservarán las partidas, semillas y ajustes. No se modificarán tus archivos originales.
 Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button that's already in use swaps with the old one.	Selecciona una asignación y pulsa el nuevo botón o tecla. Esc (o 5 segundos) cancela. Si ya está en uso, se intercambian las asignaciones.
@@ -516,6 +515,7 @@ Title screen	Pantalla inicial
 Trackpad	Trackpad
 Trainer	Entrenador
 Trainer\s	Entrenador\s
+Trainer name	Nombre del entrenador
 Try again	Reintentar
 Two-finger drag on the trackpad	Arrastre con dos dedos en el trackpad
 Unable to check	No se puede comprobar
