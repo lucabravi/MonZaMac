@@ -198,6 +198,7 @@ Game data missing	Отсутствуют данные игры
 Game dynamic resolution	Динамическое разрешение игры
 Game effects	Эффекты игры
 Game files	Файлы игры
+Game files changed	Файлы игры изменены
 Game files deleted.	Файлы игры удалены.
 Game files folder	Папка файлов игры
 Game files incomplete	Неполные файлы игры
@@ -474,6 +475,7 @@ The first time, the online version is prepared on this Mac (it can take a few mi
 The folder with your own game folders (exefs/romfs) of Pokémon Legends: Z-A for Nintendo Switch, version 2.0.2. The game isn't included with MonZaMac.	Папка с собственными файлами (exefs/romfs) Pokémon Legends: Z-A для Nintendo Switch версии 2.0.2. Игра не входит в MonZaMac.
 The game code build for online play could not be kept.	Не удалось сохранить сборку кода игры для онлайн-режима.
 The game code didn't build	Не удалось собрать код игры
+The game data is not the original of version 2.0.2.	Данные игры не являются оригинальными данными версии 2.0.2.
 The game files changed.	Игровые файлы изменились.
 The game restarts to switch its text to %s. Progress since your last save is lost.	Игра перезапустится, чтобы переключить текст на %s. Прогресс после последнего сохранения будет потерян.
 The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.	Размытие областей вне фокуса камеры. Выключено: вся сцена остаётся чёткой.

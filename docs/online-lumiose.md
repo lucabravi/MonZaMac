@@ -69,6 +69,12 @@ the left mouse button held is one finger where the cursor is, in the touch scree
 a touch and a drag the camera. The cursor is shown in game unless the mouse is turning the camera, and hides after 5 seconds without movement or
 click (Settings > Controls > Hide the idle cursor: never, 5, 10, 30 or 60 seconds). Offline the cursor stays hidden in game.
 
+Online play also switches off the debug, test and experimental `LARECOMP_*` variables (scripted input, route replay, warps and
+the like: only the ten supported ones in `docs/environment.md` stay, `runtime/online_env.c`), and **Play online** stays off
+while the start screen's check of the game data (`runtime/gamecheck.c`) finds packs that differ from the original 2.0.2 or
+cannot tell. That check runs on the player's own Mac too (its result is kept in `.packcheck`), so it stops mistakes and casual
+changes, not someone who sets out to avoid it; the relay is where that belongs.
+
 ## What is verified, and what is not
 
 - Native and ASan/UBSan tests for the kernel sessions, the HLE hooks, the UDP service and the texture uploads

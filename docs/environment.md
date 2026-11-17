@@ -5,6 +5,11 @@ from one release to the next. The code reads many more (debug switches, test hoo
 because they can change or disappear at any time; each one is described where the code reads it
 (`grep 'getenv("LARECOMP_'`).
 
+In the online edition, **Play online** keeps only these ten and what the start screen passes on (the game library, the save
+and the loading cover): every other `LARECOMP_*` variable is ignored while the Lumiose module is loaded, so the game is the
+same for every player (`runtime/online_env.c`; a line in the log names each one). They come back for an offline game started
+afterwards.
+
 To start the app with a variable, run the executable inside the bundle from a terminal:
 
 ```sh
