@@ -815,7 +815,9 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
     // under the list: the actions on the selected save, then the "ask every time" switch
     float by = framed ? ds.y - 150 * sc : ds.y - foot + u * 0.4f;  // (framed: the toolbar, 110 high, ends 40 above the window's bottom)
     ImGui::SetCursorScreenPos(ImVec2(x0, wp.y + by));
+    float msg_y = 0;  // (framed: the message goes on the toolbar's heading row, on the right: below the toolbar there is no room)
     if (framed) {  // a toolbar in one container, for the selected save: Copy, Export, Rename, and Delete apart on the right
+        msg_y = wp.y + by;
         float fs = 36 * sc, bh = 56 * sc, pad = 10 * sc, cy0 = wp.y + by + 34 * sc, ch2 = bh + 2 * pad;
         char nm[96], cut[96];
         std::string head = ui_uppercase(ui_tr("Selected save"));
@@ -878,8 +880,11 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
         ImGui::PushFont(small_);
         ImU32 col = g_msg_bad ? pal::warn : pal::accent2;
         char clipped[1024];
-        const char *shown = fit(small_, u * 0.8f, ui_tr(g_msg), w, clipped, sizeof clipped);
-        dl->AddText(small_, u * 0.8f, ImVec2(x0, wp.y + by + bar_h + u * 0.45f), col, shown);
+        const char *shown = fit(small_, u * 0.8f, ui_tr(g_msg), framed ? w * 0.55f : w, clipped, sizeof clipped);
+        if (framed)  // (on the heading's row, right-aligned)
+            dl->AddText(small_, u * 0.8f, ImVec2(x0 + w - small_->CalcTextSizeA(u * 0.8f, FLT_MAX, 0, shown).x, msg_y + 13 * sc - u * 0.4f), col, shown);
+        else
+            dl->AddText(small_, u * 0.8f, ImVec2(x0, wp.y + by + bar_h + u * 0.45f), col, shown);
         ImGui::PopFont();
     }
 
