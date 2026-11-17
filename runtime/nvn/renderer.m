@@ -2150,6 +2150,23 @@ static bool cs_compile(CsProg *cp, uint64_t trace_addr) {
             if (cp->pipe) __atomic_fetch_add(&g_archive_hits, 1, __ATOMIC_RELAXED);
         }
         if (!cp->pipe) cp->pipe = TIMED_COMPILE([dev newComputePipelineStateWithDescriptor:cd options:MTLPipelineOptionNone reflection:nil error:&err]);
+        // The most threads per group a kernel can run depends on its register use and on the GPU (M1/M2: sometimes under what
+        // the game declares); when it falls short Metal skips the dispatch without a word. Asking the compiler for the declared
+        // size makes it fit the kernel (or fail visibly). Only when the plain build falls short: every other pipeline, and the
+        // pipeline archive entry it has, stays as it was.
+        NSUInteger want = (NSUInteger)cp->local[0] * cp->local[1] * cp->local[2];
+        if (cp->pipe && cp->pipe.maxTotalThreadsPerThreadgroup < want) {
+            NSUInteger had = cp->pipe.maxTotalThreadsPerThreadgroup;
+            cd.maxTotalThreadsPerThreadgroup = want;
+            cd.binaryArchives = nil;
+            NSError *err2 = nil;
+            id<MTLComputePipelineState> fit = TIMED_COMPILE([dev newComputePipelineStateWithDescriptor:cd options:MTLPipelineOptionNone reflection:nil error:&err2]);
+            static int n;
+            if (n++ < 10) LOG("[compute] group %ux%ux%u (%lu threads) over the %lu this GPU allows the kernel: %s\n", cp->local[0], cp->local[1], cp->local[2],
+                              (unsigned long)want, (unsigned long)had,
+                              fit && fit.maxTotalThreadsPerThreadgroup >= want ? "rebuilt to fit" : err2 ? err2.localizedDescription.UTF8String : "still too large, its dispatches are skipped");
+            if (fit && fit.maxTotalThreadsPerThreadgroup >= want) cp->pipe = fit;
+        }
         if (cp->pipe) cs_archive_add([cd copy]);
         if (shader_trace_enabled()) shader_trace_compile("compute-pipeline", now_ms() - trace_start, trace_addr, 0, fnv64(cp->si->msl), 0, -1);
     }
