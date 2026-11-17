@@ -1506,8 +1506,19 @@ static const char *online_fit(ImFont *font, float size, const char *text, float 
 }
 
 // One save of the choice: its name, the trainer, play time, money, when it was played and the team
-static void online_pick_row(const SaveSlot &sl, ImVec2 a, ImVec2 b, float s) {
+void ui_check(ImDrawList *dl, ImVec2 c, float r, ImU32 col);  // runtime/ui/saves_ui.mm
+static void online_pick_row(const SaveSlot &sl, ImVec2 a, ImVec2 b, float s, bool selected, bool hovered) {
     ImDrawList *dl = ImGui::GetWindowDrawList();
+    if (selected || hovered) {  // (the choice must be plain to see: a tint, an outline, a bar and a check mark on the chosen one)
+        dl->AddRectFilled(a, b, selected ? IM_COL32(72, 214, 255, 44) : IM_COL32(72, 214, 255, 18), 10 * s);
+        if (selected) {
+            dl->AddRect(a, b, IM_COL32(72, 214, 255, 255), 10 * s, 0, 2 * s);
+            dl->AddRectFilled(ImVec2(a.x + 2 * s, a.y + 8 * s), ImVec2(a.x + 6 * s, b.y - 8 * s), IM_COL32(72, 214, 255, 255), 2 * s);
+            ImVec2 c(b.x - 22 * s, (a.y + b.y) * 0.5f + 8 * s);
+            dl->AddCircleFilled(c, 12 * s, IM_COL32(72, 214, 255, 255), 24);
+            ui_check(dl, c, 12 * s, IM_COL32(4, 12, 28, 255));
+        }
+    }
     ImFont *font = ImGui::GetFont();
     const float fs = ImGui::GetFontSize(), big = fs * 1.12f, small = fs * 0.88f;
     const ImU32 white = IM_COL32(236, 242, 255, 255), sub = IM_COL32(176, 196, 226, 230), accent = IM_COL32(72, 214, 255, 255),
@@ -1599,8 +1610,8 @@ static void online_pick_popup(float s) {
             ImGui::PushID(i);
             ImVec2 a = ImGui::GetCursorScreenPos();
             float w = ImGui::GetContentRegionAvail().x;
-            if (ImGui::Selectable("##slot", pick == i, 0, ImVec2(w, rowh - 4 * s))) pick = i;
-            online_pick_row(slots[i], a, ImVec2(a.x + w, a.y + rowh - 4 * s), s);
+            if (ImGui::Selectable("##slot", false, 0, ImVec2(w, rowh - 4 * s))) pick = i;
+            online_pick_row(slots[i], a, ImVec2(a.x + w, a.y + rowh - 4 * s), s, pick == i, ImGui::IsItemHovered());
             ImGui::PopID();
         }
         ImGui::EndChild();
