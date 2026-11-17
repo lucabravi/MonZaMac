@@ -67,7 +67,7 @@ class LocalizationTest(unittest.TestCase):
         for lang in LANGUAGES[1:]:
             entries = self.tables[lang]
             for key in ('Settings', 'Play offline', 'Play online', 'Saves', 'Quit',
-                        'Application language', 'Interface language', 'Game text language',
+                        'Interface language',
                         'Add DLC', 'Volume', 'Import a save'):
                 self.assertIn(key, entries, (lang, key))
 

@@ -38,11 +38,9 @@ Always (cursor held in the window)	Toujours (curseur capturé par la fenêtre)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	Créez un emplacement de sauvegarde vide avec le nom de votre choix. Une confirmation vous sera demandée avant de démarrer une nouvelle partie avec lui.
 An online save can't be copied.	Une sauvegarde en ligne ne peut pas être copiée.
 An online save can't be deleted.	Une sauvegarde en ligne ne peut pas être supprimée.
-Anisotropic filtering	Filtrage anisotrope
 Anti-aliasing	Anticrénelage
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	Toute action visant à contourner le blocage et à progresser dans le jeu hors ligne peut entraîner un bannissement de Lumiose Online !
 Any button	N'importe quel bouton
-Application language	Langue de l'application
 Are you sure?	Êtes-vous sûr ?
 Asks for a name, copies the save in use (as the game last saved it: save first) to routes/<name>, then records everything you press until you stop. The copy keeps the starting point; it is kept in routes/<name>, not in the save list. To play it back: LARECOMP_ROUTE=<name> (a fresh copy of the starting save each time; LARECOMP_INPUT_REPLAY_AT=<frame> starts it later).	Demande un nom, copie la sauvegarde utilisée (dans son dernier état enregistré : sauvegardez d’abord) dans routes/<name>, puis enregistre les commandes jusqu’à l’arrêt. La copie préserve le point de départ et reste dans routes/<name>, hors de la liste des sauvegardes. Pour rejouer la séquence : LARECOMP_ROUTE=<name> (une copie fraîche du point de départ à chaque fois ; LARECOMP_INPUT_REPLAY_AT=<frame> retarde le début).
 Audio	Audio
@@ -68,10 +66,8 @@ Cancel	Annuler
 Cancelled: %s unchanged.	Annulé : %s inchangé.
 Catalog and contributions	Catalogue et contributions
 Catalog verified and installed. Applies at the next game start.	Catalogue vérifié et installé. S’applique au prochain démarrage du jeu.
-Change the game's text language too?	Changer aussi la langue des textes du jeu ?
 Changes the MonZaMac interface, not the game's text or the Lumiose Online mod.	Change la langue de MonZaMac, pas celle des textes du jeu ni du mod Lumiose Online.
 Characters and Pokémon away from the camera animate every frame, as those close by do, instead of in visible steps.\n\nCosts a little CPU in crowded places. Off: the game's own. Game version 2.0.2 only.	Les personnages et Pokémon éloignés de la caméra s’animent à chaque image, comme ceux qui sont proches, au lieu de saccades visibles.\n\nCoûte un peu de CPU dans les lieux bondés. Non : comportement du jeu. Version 2.0.2 du jeu uniquement.
-Check for updates	Rechercher des mises à jour
 Check free disk space and retry.	Vérifiez l'espace disque libre et réessayez.
 Check now	Vérifier maintenant
 Check your connection and try again.	Vérifiez votre connexion et réessayez.
@@ -166,12 +162,10 @@ English	English
 Enter  confirm      Esc  cancel      (%d / %d)	Entrée  valider      Esc  annuler      (%d / %d)
 Enter text	Saisir du texte
 Enter your name	Entrez votre nom
-Error	Erreur
 Experimental	Expérimental
 Exploring Lumiose	Explore Illumis
 Export	Exporter
 Export a save	Exporter une sauvegarde
-Export save	Exporter la sauvegarde
 Export shader recipes	Exporter les recettes de shaders
 Exported %s. Nothing was uploaded.	%s exporté. Rien n’a été envoyé.
 Exported to %s	Exportée vers %s
@@ -192,7 +186,6 @@ Free space for the game files, data image and compilation, then retry.	Libérez 
 Frees the space MonZaMac's copy of the game files takes. Saves, seeds and settings are kept, and your own game files aren't touched: you can set the game files up again from them.	Libère l'espace occupé par la copie des fichiers du jeu de MonZaMac. Les sauvegardes, les seeds et les réglages sont conservés, et vos propres fichiers de jeu ne sont pas touchés : vous pourrez préparer à nouveau les fichiers du jeu à partir d'eux.
 French	Français
 Fullscreen	Plein écran
-Fullscreen:  F11 / Alt+Enter	Plein écran : F11 / Alt+Entrée
 GPU timing log	Journal des temps GPU
 Game	Jeu
 Game FXAA	FXAA du jeu
@@ -213,8 +206,6 @@ Game font	Police du jeu
 Game mode	Mode de jeu
 Game packages	Fichiers du jeu
 Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.	Paquets de jeu : choisissez le NSP/XCI de base, le NSP de mise à jour et prod.keys. Dossier extrait : utilisez des exefs/romfs préparés ailleurs. Switch 2 Edition : un seul conteneur .nup avec le jeu de base, la mise à jour et le DLC ; sans clés.
-Game text language	Langue des textes du jeu
-Game update	Mise à jour du jeu
 Game's	Du jeu
 Game-file preparation didn't finish	La préparation des fichiers du jeu n’a pas été terminée
 German	Deutsch
@@ -264,14 +255,12 @@ Korean	한국어
 Language	Langue
 Last played\s\s	Dernière session\s\s
 Last saved	Dernière sauvegarde
-Latest save	Dernière sauvegarde
 Leaves the game and goes back to the MonZaMac start screen.	Quitte le jeu et revient à l’écran d’accueil de MonZaMac.
 Left button	Bouton gauche
 Left stick	Stick gauche
 Legal notice	Mentions légales
 Legal notice & responsible use	Mentions légales et utilisation responsable
 Letters, numbers, space, - and _ (up to %d).	Lettres, chiffres, espaces, - et _ (%d max.).
-Loading...	Chargement...
 Local only	Local uniquement
 Locally records only new graphics pipeline recipes missing from the prepared catalog. Metadata is deduplicated and saved in the background; game code, keys and saves are not included. Nothing is uploaded. New shader programs are collected from the next game start.	Enregistre localement seulement les nouvelles recettes de pipelines graphiques absentes du catalogue préparé. Les métadonnées sont dédoublonnées et enregistrées en arrière-plan ; le code du jeu, les clés et les sauvegardes n'en font pas partie. Rien n'est envoyé. Les nouveaux programmes de shaders sont collectés dès le prochain démarrage du jeu.
 Looking for the game files...	Recherche des fichiers du jeu...
@@ -303,7 +292,6 @@ Name	Nom
 Name for the copy of "%s"	Nom de la copie de « %s »
 Native	Native
 Native: uses the rendering resolution for generated frames.\nPerformance: caps only generated frames at 1920 pixels wide (1080p at 16:9) to reduce GPU cost. Real frames keep the selected rendering resolution. Intermediate images may look softer.\n\nApplies immediately.	Native : utilise la résolution de rendu pour les images générées.\nPerformances : limite seulement les images générées à 1920 pixels de large (1080p en 16:9) pour réduire le coût GPU. Les images réelles gardent la résolution de rendu choisie. Les images intermédiaires peuvent paraître plus douces.\n\nS’applique immédiatement.
-Need game files to play	Fichiers du jeu nécessaires pour jouer
 Needs game version 2.0.2	Nécessite la version 2.0.2 du jeu
 Neither MonZaMac nor this application is affiliated with, endorsed by, sponsored by or approved by Nintendo, GAME FREAK, Creatures Inc. or The Pokémon Company.	Ni MonZaMac ni cette application ne sont affiliés, approuvés, parrainés ou autorisés par Nintendo, GAME FREAK, Creatures Inc. ou The Pokémon Company.
 Never	Jamais
@@ -311,7 +299,6 @@ New game	Nouvelle partie
 New game in a new save	Nouvelle partie dans une nouvelle sauvegarde
 New online game (recommended)	Nouvelle partie en ligne (recommandé)
 New save	Nouvelle sauvegarde
-Nintendo font (imported)	Police Nintendo (importée)
 No Pokémon yet	Aucun Pokémon
 No controller connected	Aucune manette connectée
 No controller connected  (%s button names shown)	Aucune manette connectée  (noms des boutons %s)
@@ -330,7 +317,6 @@ Not checked	Non vérifié
 Not chosen	Non sélectionné
 Not done yet.	Pas encore terminé.
 Not enough free space	Espace libre insuffisant
-Not now	Pas maintenant
 Not prepared yet	Pas encore préparé
 Not published yet	Pas encore publié
 Nothing is uploaded. It starts the game, which does this, then comes back here. Redo it when MonZaMac, macOS, your GPU or the game files change: the badge turns yellow then.	Aucune donnée n’est envoyée. Le jeu compile les shaders puis revient ici. Recommencez après un changement de MonZaMac, macOS, GPU ou des fichiers du jeu : l’indicateur deviendra jaune.
@@ -339,13 +325,11 @@ OK	OK
 ONLINE	EN LIGNE
 Off	Désactivé
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	Catalogue officiel des recettes de shaders : %s.%s Aucune donnée de jeu n’est envoyée. La compilation a lieu au démarrage ou lors de l’enregistrement des shaders.
-Offline play	Jeu hors ligne
 On	Activé
 Online play	Jeu en ligne
 Online play (Lumiose Online)	Jeu en ligne (Lumiose Online)
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	En ligne, où le curseur est visible en jeu (l’interface de Lumiose se clique avec) : il se masque quand la souris n’a ni bougé ni cliqué pendant ce délai, et réapparaît dès que c’est le cas (un glissement à deux doigts ne compte pas).
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	Uniquement les hachages de shaders et les paramètres graphiques numériques. Ni code du jeu, clés, sauvegardes ni données personnelles. Aucun envoi automatique.
-Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	Ouvrir/fermer le menu : F1, Échap, bouton Home / Xbox / PlayStation de la manette ou Back + Start
 Open folder	Ouvrir le dossier
 Open form	Ouvrir le formulaire
 Open it in game with F1 or Esc, or on a controller with the %s (or %s together).	Ouvrez-le en jeu avec F1 ou Échap, ou avec %s sur la manette (ou %s simultanément).
@@ -380,11 +364,9 @@ Press a button	Appuyez sur un bouton
 Press a key	Appuyez sur une touche
 Privacy	Confidentialité
 Progress since your last save is lost.	Toute progression depuis la dernière sauvegarde sera perdue.
-Push to talk	Appuyer pour parler
 Quit	Quitter
 Quit to Desktop	Quitter MonZaMac
 Quit to Start Screen	Retour à l'écran d'accueil
-Quit to start screen	Revenir à l’écran d’accueil
 Ready	Prêt
 Ready · %s	Prêt · %s
 Recompiling the game	Recompilation du jeu
@@ -402,16 +384,12 @@ Reset controller to defaults	Rétablir les commandes par défaut de la manette
 Reset keyboard to defaults	Rétablir les commandes par défaut du clavier
 Resolution	Résolution
 Resolution mode	Mode de résolution
-Restart and switch	Redémarrer et changer
-Retry	Réessayer
 Right button	Bouton droit
 Right stick	Stick droit
 Right stick snap	Alignement du stick droit
 Rights and trademarks	Droits et marques
 Russian	Русский
 SELECT A SAVE	CHOISIR UNE SAUVEGARDE
-SET UP GAME FILES	CONFIGURER LES FICHIERS DU JEU
-Same as offline	Comme hors ligne
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	Enregistre une contribution JSON contenant uniquement des métadonnées, à relire et partager manuellement. L'export ne l'envoie nulle part. Les recettes dont l'origine est inconnue doivent encore être examinées.
 Save in the game first: then it can be copied and exported here.	Sauvegardez d’abord dans le jeu pour pouvoir ensuite copier et exporter la sauvegarde ici.
 Saves	Sauvegardes
@@ -421,7 +399,6 @@ Selected	Sélectionné
 Selected save	Sauvegarde sélectionnée
 Server not found	Serveur introuvable
 Service ready	Service prêt
-Service unavailable	Service indisponible
 Set up	Configuration
 Set up game files	Configurer les fichiers du jeu
 Set up on first play	Configurer au premier lancement
@@ -463,11 +440,9 @@ Switch 2 Edition package	Paquet Switch 2 Edition
 Switch fonts	Polices Switch
 Switch keys	Clés de chiffrement Switch
 Switch tabs	Changer d’onglet
-Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	Changer d’onglet : L / R (Q / E)      Retour : B (Échap)
 System default	Par défaut du système
 Team	Équipe
 Tests	Tests
-Text: %s    Button icons: %s	Texte : %s    Icônes des boutons : %s
 Text: imported	Texte : police importée
 Text: substitute	Texte : police de remplacement
 Textures stay sharp on ground and walls seen at a slant, and (macOS 26 or later) farther away too. Off: the game's own.	Les textures restent nettes sur le sol et les murs vus en biais, et (macOS 26 ou ultérieur) plus loin aussi. Non : comportement du jeu.
@@ -484,12 +459,10 @@ The game code build for online play could not be kept.	La compilation du code du
 The game code didn't build	Le code du jeu n'a pas pu être compilé
 The game data is not the original of version 2.0.2.	Les données du jeu ne sont pas celles d'origine de la version 2.0.2.
 The game files changed.	Les fichiers du jeu ont changé.
-The game restarts to switch its text to %s. Progress since your last save is lost.	Le jeu redémarre pour passer les textes en %s. La progression depuis votre dernière sauvegarde sera perdue.
 The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.	Flou des éléments éloignés du point de mise au point. Désactivé : toute l’image reste nette.
 The game's glow around bright light. Off: no glow, a plainer image.	Halo autour des lumières vives. Désactivé : l’image est plus sobre.
 The game's own anti-aliasing, a light blur over the whole image.\n\nOff: sharper, with more jagged edges (SMAA above can smooth them instead).	L’anticrénelage du jeu, un léger flou sur toute l’image.\n\nNon : plus net, avec des bords plus crénelés (SMAA ci-dessus peut les adoucir).
 The game's own resolution scaling, which lowers the picture when it thinks the GPU is slow.\n\nOff: it stays at full (a window in the background no longer makes it blurry for a while). Separate from Internal resolution > Dynamic.	La mise à l’échelle propre au jeu, qui abaisse l’image quand il croit le GPU lent.\n\nNon : reste à pleine résolution (une fenêtre en arrière-plan ne la rend plus floue un moment). Distinct de Résolution interne > Dynamique.
-The game's text language, as its own system setting. Applies when the game restarts: Quit -> Title screen, then Play.	Langue des textes du jeu selon le réglage système de la console. S’applique après redémarrage : Quitter > Écran titre > Jouer.
 The game's volume. 100% is the game's own level; above it, louder.	Volume du jeu. 100 % correspond au niveau d’origine ; au-delà, le son est amplifié.
 The microphone the game listens to. System default follows the Mac's choice in System Settings > Sound.	Microphone utilisé par le jeu. « Par défaut » suit le choix du Mac dans Réglages Système > Son.
 The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter effects, as on the Switch's own screen - far less work for the GPU, for slower Macs.\nDocked: 1080p.\n\nAlso Cmd+Ctrl+H. If the picture does not follow at once, restart the game.	Le mode dans lequel le jeu croit tourner.\n\nPortable : il dessine en 720p avec des effets plus légers, comme sur l’écran de la Switch - bien moins de travail pour le GPU, pour les Mac plus lents.\nDock : 1080p.\n\nAussi avec Cmd+Ctrl+H. Si l’image ne suit pas tout de suite, relancez le jeu.
@@ -547,15 +520,12 @@ Use substitute font	Utiliser une police de remplacement
 Version %s is out. Update to play online.	La version %s est disponible. Mettez à jour pour jouer en ligne.
 Video	Vidéo
 View + Menu	Vue + Menu
-Voice chat	Chat vocal
 Volume	Volume
 WARNING: once this save is used online, it can no longer be played offline!	ATTENTION : une fois cette sauvegarde utilisée en ligne, il ne sera plus possible d'y jouer hors ligne !
 Wait for shaders	Attendre les shaders
-Warning	Avertissement
 While holding a button	En maintenant un bouton
 While holding a button: the mouse turns the camera while the chosen button is held. Always: the camera follows the mouse all the time, and the cursor is held inside the window (the menus free it).	En maintenant le bouton : la souris tourne la caméra tant que le bouton choisi est enfoncé. Toujours : la caméra suit la souris et le pointeur reste dans la fenêtre (libéré dans les menus).
 Wider view	Champ de vision élargi
-Windowed	Fenêtré
 With MetalFX temporal, frame generation uses the reconstructed output resolution. Performance is inactive in this combination.\n\nYour saved quality choice is restored when temporal is off.	Avec MetalFX temporel, la génération d’images utilise la résolution de sortie reconstruite. Performances est inactif dans cette combinaison.\n\nVotre choix de qualité est rétabli quand le temporel est désactivé.
 Working...	Opération en cours...
 Wrong game version	Mauvaise version du jeu
@@ -584,7 +554,6 @@ not done yet	pas encore fait
 out of date	obsolète
 precompiled	précompilés
 substitute	de remplacement
-substitute (Hiragino Sans)	remplacement (Hiragino Sans)
 this game	cette partie
 today	aujourd’hui
 yesterday	hier

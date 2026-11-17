@@ -12,6 +12,7 @@
 // Unused host/UI dependencies; handles, events, dispatch and applet behavior are real.
 Settings g_settings;
 const uint8_t g_user_id[16] = {0};
+uint8_t g_game_build[8];  // (runtime/main.c: the exefs/main build ID)
 volatile int g_rt_unwind;
 const char *settings_language(void) { return "en-US"; }
 const char *plat_symbol(uint64_t pc, uint64_t *off) { (void)pc; (void)off; return NULL; }
@@ -430,7 +431,28 @@ static void check_reset(void) {
     puts("PASS reset isolates applet state");
 }
 
+// GetDisplayVersion answers from the build ID of the game files (1.0.0, 2.0.0, 2.0.2; unreadable files: 2.0.2).
+static void check_display_version(void) {
+    static const struct { uint8_t id[8]; const char *version; } cases[] = {
+        {{0x72, 0x22, 0xe1, 0x3e, 0xcf, 0x6a, 0xdb, 0x32}, "1.0.0"},
+        {{0x8a, 0x1c, 0x86, 0xc4, 0x37, 0x39, 0x4b, 0x69}, "2.0.0"},
+        {{0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a}, "2.0.2"},
+        {{0}, "2.0.2"},
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof *cases; i++) {
+        memcpy(g_game_build, cases[i].id, 8);
+        IpcReq req = {.cmd = 23};
+        IpcResp resp = {0};
+        application_functions(NULL, &req, &resp);
+        assert(!strcmp((const char *)resp.data, cases[i].version));
+        assert(resp.data_size == 0x10);
+    }
+    memset(g_game_build, 0, 8);
+}
+
 int main(void) {
+    check_display_version();
+    reset();
     check_event_requery();
     reset();
     check_protocol();

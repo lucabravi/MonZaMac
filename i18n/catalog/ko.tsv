@@ -38,11 +38,9 @@ Always (cursor held in the window)	항상 (커서를 창 안에 고정)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	원하는 이름으로 빈 저장 데이터를 만듭니다. 이 데이터로 새 게임을 시작하기 위해 재시작하기 전에 확인을 요청합니다.
 An online save can't be copied.	온라인 세이브는 복사할 수 없습니다.
 An online save can't be deleted.	온라인 세이브는 삭제할 수 없습니다.
-Anisotropic filtering	비등방성 필터링
 Anti-aliasing	안티앨리어싱
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	제한을 우회하여 오프라인에서 게임을 진행하는 행위는 Lumiose Online에서 이용 정지 사유가 될 수 있습니다!
 Any button	아무 버튼
-Application language	앱 언어
 Are you sure?	정말 진행하시겠습니까?
 Asks for a name, copies the save in use (as the game last saved it: save first) to routes/<name>, then records everything you press until you stop. The copy keeps the starting point; it is kept in routes/<name>, not in the save list. To play it back: LARECOMP_ROUTE=<name> (a fresh copy of the starting save each time; LARECOMP_INPUT_REPLAY_AT=<frame> starts it later).	이름을 입력하면 현재 사용 중인 저장 데이터(게임에서 마지막으로 저장한 상태이므로 먼저 게임에서 저장하세요)를 routes/<name>에 복사하고 중지할 때까지 모든 입력을 기록합니다. 복사본은 시작 상태를 보존하며 저장 목록에는 나타나지 않습니다. 재생: LARECOMP_ROUTE=<name>(매번 시작 상태의 새 복사본 사용, LARECOMP_INPUT_REPLAY_AT=<frame>으로 시작 시점 지정).
 Audio	오디오
@@ -68,10 +66,8 @@ Cancel	취소
 Cancelled: %s unchanged.	취소됨: %s 변경 없음.
 Catalog and contributions	카탈로그 및 기여
 Catalog verified and installed. Applies at the next game start.	카탈로그를 확인하고 설치했습니다. 다음 게임 시작 때 적용됩니다.
-Change the game's text language too?	게임 텍스트 언어도 변경할까요?
 Changes the MonZaMac interface, not the game's text or the Lumiose Online mod.	MonZaMac 인터페이스 언어만 변경합니다. 게임 텍스트와 Lumiose Online 모드에는 영향을 주지 않습니다.
 Characters and Pokémon away from the camera animate every frame, as those close by do, instead of in visible steps.\n\nCosts a little CPU in crowded places. Off: the game's own. Game version 2.0.2 only.	카메라에서 먼 캐릭터와 포켓몬도 가까운 것처럼 매 프레임 애니메이션되어, 눈에 띄는 끊김이 없어집니다.\n\n사람이 많은 곳에서는 CPU를 조금 더 씁니다. 끔: 게임 기본 방식입니다. 게임 버전 2.0.2에서만 적용됩니다.
-Check for updates	업데이트 확인
 Check free disk space and retry.	디스크 여유 공간을 확인하고 다시 시도하세요.
 Check now	지금 확인
 Check your connection and try again.	연결을 확인한 후 다시 시도하세요.
@@ -166,12 +162,10 @@ English	English
 Enter  confirm      Esc  cancel      (%d / %d)	Enter 확인   Esc 취소   (%d / %d)
 Enter text	텍스트 입력
 Enter your name	이름을 입력하세요
-Error	오류
 Experimental	실험적
 Exploring Lumiose	미아레 시티 탐험 중
 Export	내보내기
 Export a save	저장 데이터 내보내기
-Export save	저장 데이터 내보내기
 Export shader recipes	셰이더 레시피 내보내기
 Exported %s. Nothing was uploaded.	%s을(를) 내보냈습니다. 업로드된 것은 없습니다.
 Exported to %s	%s(으)로 내보냈습니다
@@ -192,7 +186,6 @@ Free space for the game files, data image and compilation, then retry.	게임 �
 Frees the space MonZaMac's copy of the game files takes. Saves, seeds and settings are kept, and your own game files aren't touched: you can set the game files up again from them.	MonZaMac이 보관한 게임 파일 사본이 차지하는 공간을 비웁니다. 저장 데이터, 시드, 설정은 유지되고 사용자의 게임 파일은 건드리지 않으므로, 그 파일로 게임 파일을 다시 설정할 수 있습니다.
 French	Français
 Fullscreen	전체 화면
-Fullscreen:  F11 / Alt+Enter	전체 화면: F11 / Alt+Enter
 GPU timing log	GPU 타이밍 로그
 Game	게임
 Game FXAA	게임 FXAA
@@ -213,8 +206,6 @@ Game font	게임 글꼴
 Game mode	게임 모드
 Game packages	게임 패키지
 Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.	게임 패키지: 기본 NSP/XCI, 업데이트 NSP, prod.keys를 선택하세요. 압축 해제된 폴더: 다른 곳에서 준비한 exefs/romfs를 사용하세요. Switch 2 Edition: 기본 게임, 업데이트, DLC가 들어 있는 .nup 컨테이너 하나; 키가 필요 없습니다.
-Game text language	게임 텍스트 언어
-Game update	게임 업데이트
 Game's	게임 기본값
 Game-file preparation didn't finish	게임 파일 준비 미완료
 German	Deutsch
@@ -264,14 +255,12 @@ Korean	한국어
 Language	언어
 Last played\s\s	마지막 플레이\s\s
 Last saved	마지막 저장
-Latest save	최근 저장 데이터
 Leaves the game and goes back to the MonZaMac start screen.	게임을 종료하고 MonZaMac 시작 화면으로 돌아갑니다.
 Left button	왼쪽 버튼
 Left stick	왼쪽 스틱
 Legal notice	법적 고지
 Legal notice & responsible use	법적 고지 및 책임 있는 이용
 Letters, numbers, space, - and _ (up to %d).	문자, 숫자, 공백, - 및 _ (최대 %d자).
-Loading...	불러오는 중...
 Local only	로컬 전용
 Locally records only new graphics pipeline recipes missing from the prepared catalog. Metadata is deduplicated and saved in the background; game code, keys and saves are not included. Nothing is uploaded. New shader programs are collected from the next game start.	준비된 카탈로그에 없는 새 그래픽 파이프라인 레시피만 로컬에 기록합니다. 메타데이터는 중복이 제거되어 백그라운드에서 저장되며, 게임 코드, 키, 저장 데이터는 포함되지 않습니다. 아무것도 업로드되지 않습니다. 새 셰이더 프로그램은 다음 게임 시작부터 수집됩니다.
 Looking for the game files...	게임 파일을 찾는 중...
@@ -303,7 +292,6 @@ Name	이름
 Name for the copy of "%s"	"%s" 복사본 이름
 Native	네이티브
 Native: uses the rendering resolution for generated frames.\nPerformance: caps only generated frames at 1920 pixels wide (1080p at 16:9) to reduce GPU cost. Real frames keep the selected rendering resolution. Intermediate images may look softer.\n\nApplies immediately.	기본: 생성된 프레임에도 렌더링 해상도를 사용합니다.\n성능: GPU 부담을 줄이기 위해 생성된 프레임만 가로 1920픽셀(16:9에서 1080p)로 제한합니다. 실제 프레임은 선택한 렌더링 해상도를 유지합니다. 중간 영상은 다소 부드럽게 보일 수 있습니다.\n\n즉시 적용됩니다.
-Need game files to play	플레이하려면 게임 파일이 필요합니다
 Needs game version 2.0.2	게임 버전 2.0.2 필요
 Neither MonZaMac nor this application is affiliated with, endorsed by, sponsored by or approved by Nintendo, GAME FREAK, Creatures Inc. or The Pokémon Company.	MonZaMac 및 이 앱은 Nintendo, GAME FREAK, Creatures Inc., The Pokémon Company와 관련이 없으며 승인, 후원 또는 보증을 받지 않았습니다.
 Never	사용 안 함
@@ -311,7 +299,6 @@ New game	새 게임
 New game in a new save	새 저장 데이터로 게임 시작
 New online game (recommended)	새 온라인 게임(권장)
 New save	새 저장 데이터
-Nintendo font (imported)	Nintendo 글꼴 (가져옴)
 No Pokémon yet	아직 포켓몬이 없음
 No controller connected	연결된 컨트롤러 없음
 No controller connected  (%s button names shown)	컨트롤러 미연결 (%s 버튼 이름)
@@ -330,7 +317,6 @@ Not checked	확인되지 않음
 Not chosen	선택되지 않음
 Not done yet.	아직 완료되지 않음.
 Not enough free space	여유 공간이 부족합니다
-Not now	나중에
 Not prepared yet	아직 준비되지 않음
 Not published yet	아직 게시되지 않음
 Nothing is uploaded. It starts the game, which does this, then comes back here. Redo it when MonZaMac, macOS, your GPU or the game files change: the badge turns yellow then.	아무것도 업로드하지 않습니다. 게임이 셰이더를 컴파일한 후 이 화면으로 돌아옵니다. MonZaMac, macOS, GPU 또는 게임 파일이 바뀌면 다시 실행하세요. 배지가 노란색으로 바뀝니다.
@@ -339,13 +325,11 @@ OK	확인
 ONLINE	온라인
 Off	꺼짐
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	공식 셰이더 레시피 카탈로그: %s.%s 게임 데이터는 업로드되지 않습니다. 컴파일은 게임 시작 또는 셰이더 등록 시 실행됩니다.
-Offline play	오프라인 플레이
 On	켜짐
 Online play	온라인 플레이
 Online play (Lumiose Online)	온라인 플레이 (Lumiose Online)
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	온라인에서 게임 안에 커서가 표시될 때(Lumiose 화면은 커서로 클릭해 조작합니다): 이 시간 동안 마우스를 움직이거나 클릭하지 않으면 숨겨지고, 조작하면 바로 다시 나타납니다(두 손가락 드래그는 해당되지 않습니다).
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	셰이더 해시 및 숫자 그래픽 상태만 포함합니다. 게임 코드, 키, 저장 데이터, 개인정보는 포함되지 않으며 자동 업로드하지 않습니다.
-Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	메뉴 열기/닫기: F1, Esc, 컨트롤러 Home / Xbox / PlayStation 버튼 또는 Back + Start
 Open folder	폴더 열기
 Open form	양식 열기
 Open it in game with F1 or Esc, or on a controller with the %s (or %s together).	게임 중 F1이나 Esc, 컨트롤러의 %s(또는 %s 동시 누름)로 열 수 있습니다.
@@ -380,11 +364,9 @@ Press a button	버튼을 누르세요
 Press a key	키를 누르세요
 Privacy	개인정보 보호
 Progress since your last save is lost.	마지막 저장 이후의 진행 내용은 사라집니다.
-Push to talk	눌러서 말하기
 Quit	종료
 Quit to Desktop	MonZaMac 종료
 Quit to Start Screen	시작 화면으로 돌아가기
-Quit to start screen	시작 화면으로 돌아가기
 Ready	준비 완료
 Ready · %s	준비 완료 · %s
 Recompiling the game	게임을 다시 컴파일하는 중
@@ -402,16 +384,12 @@ Reset controller to defaults	컨트롤러 설정 초기화
 Reset keyboard to defaults	키보드 설정 초기화
 Resolution	해상도
 Resolution mode	해상도 모드
-Restart and switch	다시 시작하고 변경
-Retry	다시 시도
 Right button	오른쪽 버튼
 Right stick	오른쪽 스틱
 Right stick snap	오른쪽 스틱 방향 보정
 Rights and trademarks	권리 및 상표
 Russian	Русский
 SELECT A SAVE	저장 데이터 선택
-SET UP GAME FILES	게임 파일 설정
-Same as offline	오프라인과 동일
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	메타데이터만 담은 JSON 기여 파일을 저장해 직접 검토하고 공유할 수 있습니다. 내보내기는 어디에도 전송하지 않습니다. 출처를 알 수 없는 레시피는 추가 조사가 필요합니다.
 Save in the game first: then it can be copied and exported here.	먼저 게임 안에서 저장하세요. 그다음 여기에서 복사하거나 내보낼 수 있습니다.
 Saves	저장 데이터
@@ -421,7 +399,6 @@ Selected	선택됨
 Selected save	선택한 저장 데이터
 Server not found	서버를 찾을 수 없음
 Service ready	서비스 준비 완료
-Service unavailable	서비스를 사용할 수 없음
 Set up	설정
 Set up game files	게임 파일 설정
 Set up on first play	처음 플레이할 때 설정
@@ -463,11 +440,9 @@ Switch 2 Edition package	Switch 2 Edition 패키지
 Switch fonts	Switch 글꼴
 Switch keys	Switch 암호화 키
 Switch tabs	탭 전환
-Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	탭 전환: L / R (Q / E)      뒤로: B (Esc)
 System default	시스템 기본값
 Team	팀
 Tests	테스트
-Text: %s    Button icons: %s	텍스트: %s   버튼 아이콘: %s
 Text: imported	텍스트: 가져옴
 Text: substitute	텍스트: 대체 글꼴
 Textures stay sharp on ground and walls seen at a slant, and (macOS 26 or later) farther away too. Off: the game's own.	비스듬히 보이는 바닥과 벽의 텍스처가 선명하게 유지되며, macOS 26 이상에서는 더 먼 곳에서도 마찬가지입니다. 끔: 게임 기본 방식입니다.
@@ -484,12 +459,10 @@ The game code build for online play could not be kept.	온라인 플레이용 �
 The game code didn't build	게임 코드를 빌드하지 못했습니다
 The game data is not the original of version 2.0.2.	게임 데이터가 버전 2.0.2의 원본이 아닙니다.
 The game files changed.	게임 파일이 변경되었습니다.
-The game restarts to switch its text to %s. Progress since your last save is lost.	텍스트를 %s(으)로 바꾸기 위해 게임이 다시 시작됩니다. 마지막 저장 이후의 진행 상황은 사라집니다.
 The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.	카메라 초점에서 벗어난 부분을 흐리게 합니다. 끄면 화면 전체가 선명해집니다.
 The game's glow around bright light. Off: no glow, a plainer image.	밝은 광원 주위에 빛 번짐을 추가합니다. 끄면 화면이 더 담백해집니다.
 The game's own anti-aliasing, a light blur over the whole image.\n\nOff: sharper, with more jagged edges (SMAA above can smooth them instead).	게임 자체의 안티앨리어싱으로, 화면 전체를 살짝 흐리게 합니다.\n\n끔: 더 선명하지만 가장자리가 더 울퉁불퉁해집니다(위의 SMAA로 대신 부드럽게 할 수 있습니다).
 The game's own resolution scaling, which lowers the picture when it thinks the GPU is slow.\n\nOff: it stays at full (a window in the background no longer makes it blurry for a while). Separate from Internal resolution > Dynamic.	게임 자체의 해상도 조절 기능으로, GPU가 느리다고 판단하면 화면 해상도를 낮춥니다.\n\n끔: 항상 최대 해상도를 유지합니다(창이 백그라운드에 있어도 한동안 흐려지지 않습니다). '내부 해상도 > 동적'과는 별개입니다.
-The game's text language, as its own system setting. Applies when the game restarts: Quit -> Title screen, then Play.	게임 내 텍스트 언어를 콘솔 시스템 언어로 설정합니다. 게임을 재시작하면 적용됩니다: 종료 > 시작 화면 > 플레이.
 The game's volume. 100% is the game's own level; above it, louder.	게임 음량입니다. 100%는 기본 음량이며 더 높이면 소리가 커집니다.
 The microphone the game listens to. System default follows the Mac's choice in System Settings > Sound.	게임에서 사용하는 마이크입니다. '시스템 기본값'은 Mac의 '시스템 설정 > 사운드'를 따릅니다.
 The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter effects, as on the Switch's own screen - far less work for the GPU, for slower Macs.\nDocked: 1080p.\n\nAlso Cmd+Ctrl+H. If the picture does not follow at once, restart the game.	게임이 실행 중이라고 인식하는 모드입니다.\n\n휴대 모드: Switch 본체 화면처럼 가벼운 효과로 720p로 그립니다. GPU 부담이 훨씬 적어 느린 Mac에 적합합니다.\n독 모드: 1080p.\n\nCmd+Ctrl+H로도 바꿀 수 있습니다. 화면이 바로 바뀌지 않으면 게임을 다시 시작하세요.
@@ -547,15 +520,12 @@ Use substitute font	대체 글꼴 사용
 Version %s is out. Update to play online.	버전 %s이(가) 출시되었습니다. 온라인으로 플레이하려면 업데이트하세요.
 Video	비디오
 View + Menu	뷰 + 메뉴
-Voice chat	음성 채팅
 Volume	볼륨
 WARNING: once this save is used online, it can no longer be played offline!	주의: 이 세이브를 온라인에서 한 번 사용하면 더 이상 오프라인으로 플레이할 수 없습니다!
 Wait for shaders	셰이더 컴파일 대기
-Warning	경고
 While holding a button	버튼을 누르는 동안
 While holding a button: the mouse turns the camera while the chosen button is held. Always: the camera follows the mouse all the time, and the cursor is held inside the window (the menus free it).	버튼을 누르는 동안: 선택한 버튼을 누를 때만 마우스로 카메라를 움직입니다. 항상: 카메라가 계속 마우스를 따라가며 커서는 창 안에 고정됩니다(메뉴에서는 해제).
 Wider view	넓은 시야
-Windowed	창 모드
 With MetalFX temporal, frame generation uses the reconstructed output resolution. Performance is inactive in this combination.\n\nYour saved quality choice is restored when temporal is off.	MetalFX 시간적을 사용하면 프레임 생성은 재구성된 출력 해상도를 사용합니다. 이 조합에서는 '성능'이 비활성화됩니다.\n\n시간적을 끄면 저장해 둔 품질 선택으로 돌아갑니다.
 Working...	작업 중...
 Wrong game version	게임 버전이 일치하지 않음
@@ -584,7 +554,6 @@ not done yet	아직 안 함
 out of date	오래됨
 precompiled	미리 컴파일됨
 substitute	대체
-substitute (Hiragino Sans)	대체 글꼴 (Hiragino Sans)
 this game	현재 게임
 today	오늘
 yesterday	어제
