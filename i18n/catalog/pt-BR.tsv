@@ -36,6 +36,7 @@ All files	Todos os arquivos
 All shaders	Todos os shaders
 Always (cursor held in the window)	Sempre (cursor preso na janela)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	Crie um salvamento vazio com o nome escolhido. Antes de reiniciar o jogo para começar uma nova partida, será solicitada uma confirmação.
+An online save can't be copied.	Um salvamento online não pode ser copiado.
 Anisotropic filtering	Filtragem anisotrópica
 Anti-aliasing	Antisserrilhamento
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	Qualquer ação usada para contornar o bloqueio e progredir no jogo offline pode resultar em banimento do Lumiose Online!
@@ -84,6 +85,7 @@ Choose the folder that holds the game files.	Escolha a pasta que contém os arqu
 Choose the game's .nup file before setup.	Antes de começar, selecione o arquivo .nup do jogo.
 Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.	Escolha estes dois arquivos. Eles são lidos apenas neste Mac para adicionar o DLC, sem recompilar o código do jogo.
 Choose your base game, update and prod.keys before setup.	Antes de começar, selecione o jogo base, a atualização e prod.keys.
+Choose your online save	Escolha seu salvamento online
 Choose...	Escolher...
 Chosen:\s	Selecionado:\s
 Close	Fechar
@@ -305,6 +307,7 @@ Neither MonZaMac nor this application is affiliated with, endorsed by, sponsored
 Never	Nunca
 New game	Novo jogo
 New game in a new save	Novo jogo em um novo salvamento
+New online game (recommended)	Novo jogo online (recomendado)
 New save	Novo salvamento
 Nintendo font (imported)	Fonte Nintendo (importada)
 No Pokémon yet	Nenhum Pokémon ainda
@@ -331,12 +334,14 @@ Not published yet	Ainda não publicado
 Nothing is uploaded. It starts the game, which does this, then comes back here. Redo it when MonZaMac, macOS, your GPU or the game files change: the badge turns yellow then.	Nada é enviado. O jogo compila os shaders e volta aqui. Repita quando MonZaMac, macOS, GPU ou arquivos do jogo mudarem: o indicador ficará amarelo.
 Nothing pressed: %s unchanged.	Nenhuma tecla pressionada: %s inalterado.
 OK	OK
+ONLINE	ONLINE
 Off	Desativado
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	Catálogo oficial de receitas de shaders: %s.%s Nenhum dado do jogo é enviado. A compilação ocorre na inicialização ou ao registrar shaders.
 Offline play	Jogo offline
 On	Ativado
 Online play	Jogo online
 Online play (Lumiose Online)	Jogo online (Lumiose Online)
+Online save: %s	Salvamento online: %s
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	Online, onde o cursor aparece no jogo (a interface do Lumiose é clicada com ele): ele some quando o mouse não se move nem clica por esse tempo e volta assim que isso acontece (arrastar com dois dedos não conta).
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	Somente hashes de shaders e parâmetros gráficos numéricos. Sem código do jogo, chaves, jogos salvos ou dados pessoais. Nada é enviado automaticamente.
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	Abrir/fechar menu: F1, Esc, botão Home / Xbox / PlayStation do controle ou Back + Start
@@ -501,6 +506,7 @@ This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or X
 This file isn't a valid Switch 2 Edition .nup package.	Este arquivo não é um pacote .nup Switch 2 Edition válido.
 This is usually a damaged download of the update, and the game crashes when it loads the damaged part. Get the update again, from your own Switch or another download, then delete the game files and set them up again. Saves, mods and settings are kept.	Geralmente é um download danificado da atualização, e o jogo fecha ao carregar a parte danificada. Obtenha a atualização de novo, do seu próprio Switch ou de outro download, depois exclua os arquivos do jogo e configure-os novamente. Saves, mods e configurações são mantidos.
 This only needs to be done once and may take a while.	Isso só precisa ser feito uma vez e pode demorar um pouco.
+This save is for Lumiose Online only: start it with Play online.	Este salvamento é só para o Lumiose Online: inicie com Jogar online.
 This version of MonZaMac precompiles more than the last one did.	Esta versão do MonZaMac pré-compila mais do que a anterior.
 Those files can't be used	Esses arquivos não podem ser usados
 Time: several minutes (about 5 on a 10-core M5, longer elsewhere), using every CPU core: the Mac gets warm. You can stop any time; what was compiled is kept.	Tempo: vários minutos (cerca de 5 em um M5 de 10 núcleos, mais em outros), usando todos os núcleos da CPU. O Mac aquece. Você pode interromper; o que já foi compilado permanece.
@@ -532,8 +538,9 @@ Updating the online version	Atualizando a versão online
 Updating...	Atualizando...
 Upscaler	Upscaler
 Upscaling and AA	Upscaling e antisserrilhamento
+Use as online save	Usar como salvamento online
+Use one of my saves as the online save	Usar um dos meus salvamentos como salvamento online
 Use substitute font	Usar fonte substituta
-Use this save online?	Usar este salvamento online?
 Uses the save selected offline	Usa o salvamento selecionado offline
 Version %s is out. Update to play online.	A versão %s foi lançada. Atualize para jogar online.
 Video	Vídeo

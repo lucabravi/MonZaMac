@@ -36,6 +36,7 @@ All files	所有檔案
 All shaders	全部著色器
 Always (cursor held in the window)	始終（游標限制在視窗內）
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	建立自訂名稱的空存檔。重新啟動遊戲並使用此存檔開始新遊戲前，會要求你確認。
+An online save can't be copied.	線上存檔無法複製。
 Anisotropic filtering	非等向性過濾
 Anti-aliasing	反鋸齒
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	任何繞過限制並在離線模式下推進遊戲進度的行為，都可能導致在 Lumiose Online 中被封鎖！
@@ -84,6 +85,7 @@ Choose the folder that holds the game files.	請選擇存放遊戲檔案的資�
 Choose the game's .nup file before setup.	設定前請先選擇遊戲的 .nup 檔案。
 Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.	請選取這兩個檔案。僅在此 Mac 上讀取以新增 DLC，不會重新編譯遊戲程式碼。
 Choose your base game, update and prod.keys before setup.	設定前請選擇遊戲本體、更新檔和 prod.keys。
+Choose your online save	選擇你的線上存檔
 Choose...	選擇...
 Chosen:\s	已選擇：
 Close	關閉
@@ -305,6 +307,7 @@ Neither MonZaMac nor this application is affiliated with, endorsed by, sponsored
 Never	從不
 New game	新遊戲
 New game in a new save	使用新存檔開始遊戲
+New online game (recommended)	新的線上遊戲（建議）
 New save	新增存檔
 Nintendo font (imported)	Nintendo 字型（已匯入）
 No Pokémon yet	尚無寶可夢
@@ -331,12 +334,14 @@ Not published yet	尚未發布
 Nothing is uploaded. It starts the game, which does this, then comes back here. Redo it when MonZaMac, macOS, your GPU or the game files change: the badge turns yellow then.	不會上傳任何內容。遊戲會編譯著色器後返回此處。若 MonZaMac、macOS、GPU 或遊戲檔案有變更，請重新執行：標記會變黃。
 Nothing pressed: %s unchanged.	未按下按鍵：%s 未變更。
 OK	確定
+ONLINE	線上
 Off	關
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	官方著色器配方目錄：%s.%s 不會上傳遊戲資料。著色器會於啟動或註冊時編譯。
 Offline play	離線遊玩
 On	開
 Online play	線上遊玩
 Online play (Lumiose Online)	線上遊玩（Lumiose Online）
+Online save: %s	線上存檔：%s
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	線上時，遊戲內會顯示游標（Lumiose 介面需用它點擊）：滑鼠在此時間內未移動或點擊時會隱藏，一有操作便立即重新顯示（雙指拖曳不計入）。
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	僅包含著色器雜湊值與數值化圖形狀態，不含遊戲程式碼、金鑰、存檔或個人資料。不會自動上傳。
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	開啟／關閉選單：F1、Esc、控制器 Home / Xbox / PlayStation 按鈕或 Back + Start
@@ -501,6 +506,7 @@ This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or X
 This file isn't a valid Switch 2 Edition .nup package.	此檔案不是有效的 Switch 2 Edition .nup 套件。
 This is usually a damaged download of the update, and the game crashes when it loads the damaged part. Get the update again, from your own Switch or another download, then delete the game files and set them up again. Saves, mods and settings are kept.	這通常是更新下載損毀所致，遊戲在載入損毀部分時會當機。請重新取得更新（來自你自己的 Switch 或其他下載），然後刪除遊戲檔案並重新設定。存檔、模組和設定都會保留。
 This only needs to be done once and may take a while.	只需執行一次，可能需要一些時間。
+This save is for Lumiose Online only: start it with Play online.	此存檔僅限 Lumiose Online：請用「線上遊玩」啟動。
 This version of MonZaMac precompiles more than the last one did.	此版本的 MonZaMac 預先編譯的內容比上一版本更多。
 Those files can't be used	無法使用這些檔案
 Time: several minutes (about 5 on a 10-core M5, longer elsewhere), using every CPU core: the Mac gets warm. You can stop any time; what was compiled is kept.	耗時：數分鐘（10 核心 M5 約 5 分鐘，其他裝置可能更久），會使用全部 CPU 核心，Mac 會發熱。可隨時停止，已編譯內容會保留。
@@ -532,8 +538,9 @@ Updating the online version	正在更新線上版本
 Updating...	正在更新...
 Upscaler	影像放大演算法
 Upscaling and AA	畫面放大與反鋸齒
+Use as online save	用作線上存檔
+Use one of my saves as the online save	將我的某個存檔用作線上存檔
 Use substitute font	使用替代字型
-Use this save online?	要線上使用此存檔嗎？
 Uses the save selected offline	使用離線模式所選的存檔
 Version %s is out. Update to play online.	版本 %s 已發布。請更新後再線上遊玩。
 Video	影片

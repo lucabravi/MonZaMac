@@ -140,16 +140,29 @@ int main(void) {
     put("junk.zip", "not a zip");
     assert(!saves_import_stage("junk.zip", err, sizeof err) && strstr(err, "couldn't be opened"));
 
-    // played online: the marker sits in the slot's folder, next to the game's save_0, and a copy keeps it
+    // online and offline saves: the hidden .online file in the slot's folder makes one online; it is not progress, an online
+    // save can't be copied, and the latest-save pick keeps to its own kind
+    SaveSlot all[SAVE_SLOTS_MAX];
     saves_select("Trainer");
-    assert(!saves_current_online_used());
-    saves_mark_current_online();
-    assert(saves_current_online_used() && there("saves/Trainer/online") && same("saves/Trainer/save_0/main", "ZA save one"));
-    assert(saves_copy("Trainer", "Trainer online copy"));
-    saves_select("Trainer online copy");
-    assert(saves_current_online_used());
-    saves_select("Trainer 2");
-    assert(!saves_current_online_used());
+    assert(!saves_slot_online("Trainer") && saves_current_matches(false) && !saves_current_matches(true));
+    assert(saves_set_online("Trainer") && saves_slot_online("Trainer") && there("saves/Trainer/.online"));
+    assert(saves_current_matches(true) && !saves_current_matches(false));
+    assert(same("saves/Trainer/save_0/main", "ZA save one"));
+    assert(!saves_copy("Trainer", "Trainer online copy") && !there("saves/Trainer online copy"));
+    char oid[SAVE_NAME_MAX + 1];
+    assert(saves_create_online("Online game", oid) && !strcmp(oid, "Online game") && saves_slot_online(oid));
+    int n = saves_list(all, SAVE_SLOTS_MAX), seen = 0;
+    for (int i = 0; i < n; i++) {
+        if (!strcmp(all[i].id, "Trainer")) assert(all[i].online && all[i].played), seen++;
+        if (!strcmp(all[i].id, "Online game")) assert(all[i].online && !all[i].played), seen++;  // (the marker is not progress)
+        if (!strcmp(all[i].id, "Trainer 2")) assert(!all[i].online), seen++;
+    }
+    assert(seen == 3);
+    saves_select_latest(true);
+    assert(!strcmp(saves_current_path(), "saves/Trainer"));
+    saves_select_latest(false);
+    assert(strcmp(saves_current_path(), "saves/Trainer") && strcmp(saves_current_path(), "saves/Online game"));
+    assert(saves_current_matches(false));
 
     char rm[600];
     snprintf(rm, sizeof rm, "rm -rf '%s'", tmp);

@@ -22,6 +22,7 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1], "svcbreak")) rt_fatal_msg("svcBreak(reason=0, info=0, size=4) at 70\n");
     else if (!strcmp(argv[1], "terminate")) rt_fatal_msg("no function at 0 (lr=1 _ZSt13get_terminatev+20)\n");
     else if (!strcmp(argv[1], "font")) rt_fatal_msg("no usable system font substitute\n");
+    else if (!strcmp(argv[1], "savekind")) rt_fatal_msg("this save is of the other kind (online/offline)\n");
     else if (!strcmp(argv[1], "gpu")) rt_crash_fault("signal 11", 0x10, 0x9999);
     else if (!strcmp(argv[1], "game")) rt_crash_fault("signal 11", 0x10, 0x1234);
     else if (!strcmp(argv[1], "damaged")) g_damaged = 3, rt_crash_fault("signal 11", 0x10, 0x1234);  // (a crash in the game's code, damaged packs found)

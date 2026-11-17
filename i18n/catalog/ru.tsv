@@ -36,6 +36,7 @@ All files	Все файлы
 All shaders	Все шейдеры
 Always (cursor held in the window)	Всегда (курсор внутри окна)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	Создайте пустое сохранение с выбранным именем. Перед перезапуском игры с ним потребуется подтверждение.
+An online save can't be copied.	Онлайн-сохранение нельзя копировать.
 Anisotropic filtering	Анизотропная фильтрация
 Anti-aliasing	Сглаживание
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	Любые действия для обхода блокировки и прогресса в игре офлайн могут привести к бану в Lumiose Online!
@@ -84,6 +85,7 @@ Choose the folder that holds the game files.	Выберите папку с фа
 Choose the game's .nup file before setup.	Перед настройкой выберите файл .nup игры.
 Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.	Выберите два файла. Они считываются только на этом Mac для добавления DLC; код игры не перекомпилируется.
 Choose your base game, update and prod.keys before setup.	Перед настройкой выберите основную игру, обновление и prod.keys.
+Choose your online save	Выберите онлайн-сохранение
 Choose...	Выбрать...
 Chosen:\s	Выбрано:\s
 Close	Закрыть
@@ -305,6 +307,7 @@ Neither MonZaMac nor this application is affiliated with, endorsed by, sponsored
 Never	Никогда
 New game	Новая игра
 New game in a new save	Новая игра в новом сохранении
+New online game (recommended)	Новая онлайн-игра (рекомендуется)
 New save	Новое сохранение
 Nintendo font (imported)	Шрифт Nintendo (импортирован)
 No Pokémon yet	Пока нет покемонов
@@ -331,12 +334,14 @@ Not published yet	Пока не опубликовано
 Nothing is uploaded. It starts the game, which does this, then comes back here. Redo it when MonZaMac, macOS, your GPU or the game files change: the badge turns yellow then.	Ничего не загружается в сеть. Игра компилирует шейдеры и возвращается сюда. Повторите после изменений MonZaMac, macOS, GPU или игровых файлов: индикатор станет жёлтым.
 Nothing pressed: %s unchanged.	Ничего не нажато: %s не изменено.
 OK	ОК
+ONLINE	ОНЛАЙН
 Off	Выкл.
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	Официальный каталог рецептов шейдеров: %s.%s Игровые данные не загружаются. Компиляция выполняется при запуске игры или регистрации шейдеров.
 Offline play	Игра без сети
 On	Вкл.
 Online play	Игра онлайн
 Online play (Lumiose Online)	Онлайн-игра (Lumiose Online)
+Online save: %s	Онлайн-сохранение: %s
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	Онлайн, где в игре виден курсор (интерфейс Lumiose управляется щелчками): он скрывается, если мышь не двигалась и не нажималась столько времени, и сразу возвращается при действии (перетаскивание двумя пальцами не считается).
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	Только хеши шейдеров и числовые графические параметры. Без кода игры, ключей, сохранений и личных данных. Автоматической загрузки нет.
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	Открыть/закрыть меню: F1, Esc, Home / Xbox / PlayStation на геймпаде или Back + Start
@@ -501,6 +506,7 @@ This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or X
 This file isn't a valid Switch 2 Edition .nup package.	Этот файл не является корректным пакетом .nup Switch 2 Edition.
 This is usually a damaged download of the update, and the game crashes when it loads the damaged part. Get the update again, from your own Switch or another download, then delete the game files and set them up again. Saves, mods and settings are kept.	Обычно это повреждённая загрузка обновления: игра закрывается, когда загружает повреждённую часть. Получите обновление заново, со своей Switch или другой загрузкой, затем удалите файлы игры и настройте их снова. Сохранения, моды и настройки сохраняются.
 This only needs to be done once and may take a while.	Это нужно сделать лишь один раз, и это может занять некоторое время.
+This save is for Lumiose Online only: start it with Play online.	Это сохранение только для Lumiose Online: запускайте его через «Играть онлайн».
 This version of MonZaMac precompiles more than the last one did.	Эта версия MonZaMac предкомпилирует больше, чем предыдущая.
 Those files can't be used	Эти файлы нельзя использовать
 Time: several minutes (about 5 on a 10-core M5, longer elsewhere), using every CPU core: the Mac gets warm. You can stop any time; what was compiled is kept.	Время: несколько минут (около 5 на 10-ядерном M5, дольше на других Mac) при использовании всех ядер CPU. Mac нагреется. Процесс можно остановить; готовые шейдеры сохранятся.
@@ -532,8 +538,9 @@ Updating the online version	Обновление онлайн-версии
 Updating...	Обновление...
 Upscaler	Метод масштабирования
 Upscaling and AA	Масштабирование и сглаживание
+Use as online save	Сделать онлайн-сохранением
+Use one of my saves as the online save	Использовать одно из моих сохранений как онлайн-сохранение
 Use substitute font	Использовать запасной шрифт
-Use this save online?	Использовать это сохранение онлайн?
 Uses the save selected offline	Использует сохранение, выбранное офлайн
 Version %s is out. Update to play online.	Вышла версия %s. Обновите игру, чтобы играть онлайн.
 Video	Видео

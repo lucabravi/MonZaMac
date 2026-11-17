@@ -36,6 +36,7 @@ All files	すべてのファイル
 All shaders	すべてのシェーダー
 Always (cursor held in the window)	常時 (カーソルをウィンドウ内に固定)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	名前を付けた空のセーブを作成します。このセーブで新しくプレイするためにゲームを再起動する前に、確認画面が表示されます。
+An online save can't be copied.	オンライン用セーブデータはコピーできません。
 Anisotropic filtering	異方性フィルタリング
 Anti-aliasing	アンチエイリアス
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	ロックを回避してオフラインでゲームを進める行為は、Lumiose Onlineからの利用停止につながる可能性があります！
@@ -84,6 +85,7 @@ Choose the folder that holds the game files.	ゲームファイルが入って�
 Choose the game's .nup file before setup.	セットアップの前に、ゲームの.nupファイルを選んでください。
 Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.	この2つのファイルを選択してください。DLCの追加時にこのMac上でのみ読み込まれ、ゲームコードの再コンパイルは行いません。
 Choose your base game, update and prod.keys before setup.	セットアップ前に、本編、アップデート、prod.keysを選んでください。
+Choose your online save	オンライン用のセーブデータを選んでください
 Choose...	選択...
 Chosen:\s	選択済み：
 Close	閉じる
@@ -305,6 +307,7 @@ Neither MonZaMac nor this application is affiliated with, endorsed by, sponsored
 Never	しない
 New game	はじめから
 New game in a new save	新しいセーブでゲーム開始
+New online game (recommended)	新しいオンラインゲーム（おすすめ）
 New save	新しいセーブ
 Nintendo font (imported)	Nintendoフォント（読み込み済み）
 No Pokémon yet	まだポケモンがいません
@@ -331,12 +334,14 @@ Not published yet	未公開
 Nothing is uploaded. It starts the game, which does this, then comes back here. Redo it when MonZaMac, macOS, your GPU or the game files change: the badge turns yellow then.	何もアップロードされません。ゲームがシェーダーをコンパイルしてここに戻ります。MonZaMac、macOS、GPU、ゲームファイルが変わったら再実行してください。バッジが黄色になります。
 Nothing pressed: %s unchanged.	入力なし：%s は変更されません。
 OK	OK
+ONLINE	オンライン
 Off	オフ
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	公式シェーダーレシピカタログ：%s.%s ゲームデータはアップロードされません。コンパイルは起動時またはシェーダー登録時に実行されます。
 Offline play	オフラインプレイ
 On	オン
 Online play	オンラインプレイ
 Online play (Lumiose Online)	オンラインプレイ（Lumiose Online）
+Online save: %s	オンライン用セーブ：%s
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	オンラインでゲーム内にカーソルが表示されるとき（Lumioseの画面はカーソルでクリックして操作します）：マウスの移動やクリックがこの時間ない場合は非表示になり、操作するとすぐに再表示されます（2本指のドラッグは含まれません）。
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	対象はシェーダーのハッシュと数値の描画状態のみです。ゲームコード、キー、セーブ、個人情報は含まれず、自動アップロードもしません。
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	メニュー表示／非表示：F1、Esc、Home / Xbox / PlayStationボタン、またはBack + Start
@@ -501,6 +506,7 @@ This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or X
 This file isn't a valid Switch 2 Edition .nup package.	このファイルは有効なSwitch 2 Editionの.nupパッケージではありません。
 This is usually a damaged download of the update, and the game crashes when it loads the damaged part. Get the update again, from your own Switch or another download, then delete the game files and set them up again. Saves, mods and settings are kept.	多くの場合、アップデートのダウンロードが破損しており、破損した部分を読み込むとゲームが終了します。ご自分のSwitchまたは別のダウンロードからアップデートを取得し直し、ゲームファイルを削除してから、もう一度セットアップしてください。セーブデータ、MOD、設定は残ります。
 This only needs to be done once and may take a while.	この作業は一度だけで済みますが、しばらく時間がかかることがあります。
+This save is for Lumiose Online only: start it with Play online.	このセーブデータはLumiose Online専用です。「オンラインでプレイ」から始めてください。
 This version of MonZaMac precompiles more than the last one did.	このバージョンのMonZaMacは、前回より多くをプリコンパイルします。
 Those files can't be used	これらのファイルは使用できません
 Time: several minutes (about 5 on a 10-core M5, longer elsewhere), using every CPU core: the Mac gets warm. You can stop any time; what was compiled is kept.	所要時間：数分（10コアM5で約5分、他のMacではさらに長い場合あり）。CPUの全コアを使うため本体が熱くなります。いつでも停止でき、完了した分は保持されます。
@@ -532,8 +538,9 @@ Updating the online version	オンライン版を更新中
 Updating...	更新中...
 Upscaler	アップスケーラー
 Upscaling and AA	アップスケーリングとAA
+Use as online save	オンライン用にする
+Use one of my saves as the online save	自分のセーブデータをオンライン用にする
 Use substitute font	代替フォントを使用
-Use this save online?	このセーブデータをオンラインで使用しますか？
 Uses the save selected offline	オフラインで選択したセーブデータを使用
 Version %s is out. Update to play online.	バージョン%sが公開されています。オンラインでプレイするには更新してください。
 Video	映像
