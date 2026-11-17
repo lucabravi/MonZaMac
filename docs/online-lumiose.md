@@ -89,6 +89,8 @@ while the start screen's check of the game data (`runtime/gamecheck.c`) finds pa
 cannot tell. That check runs on the player's own Mac too (its result is kept in `.packcheck`), so it stops mistakes and casual
 changes, not someone who sets out to avoid it; the relay is where that belongs.
 
+Online and offline saves are two kinds that never convert on their own (the mod checks a save for anything done to it outside online play). The first **Play online** asks which save is the online one: a new online game (recommended), or one of the player's saves, made online on that choice and a warning (`runtime/ui/launcher.mm`). An online save carries a hidden `.online` file in its folder, next to the game's own `save_0` (`runtime/saves.c`): the start screen's CONTINUE and the Saves page never start it offline, an offline save is never started with the module, an online save can't be copied, and the game itself refuses to start a save of the other kind (`runtime/services/fs.c`; test runs with `LARECOMP_SAVE_DIR` are exempt). The file can be deleted by someone who sets out to, so this stops mistakes, not people; the relay is where that belongs. Not handled yet: an exported online save comes back from an import as an offline one, and a copy of an offline save can't become an online one on its own.
+
 ## What is verified, and what is not
 
 - Native and ASan/UBSan tests for the kernel sessions, the HLE hooks, the UDP service and the texture uploads

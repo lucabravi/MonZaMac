@@ -18,6 +18,7 @@ typedef struct {
     char path[64];               // relative to the data root ("saves/" + the id)
     long long played;            // last write in it (unix seconds); 0 = nothing saved yet
     long long born;              // when the folder was made (the order of the list)
+    bool online;                 // an online save: Lumiose Online only, never started offline (see saves_set_online)
 } SaveSlot;
 
 // The slots in a fixed order: the original `save/` first (as "Main save" until renamed, only when it holds something), then the others as
@@ -43,10 +44,20 @@ bool saves_route_begin(const char *name, char *route_out, size_t n);  // false: 
 bool saves_route_names(const char *name);
 const char *saves_route_replay_dir(const char *name);  // LARECOMP_ROUTE=<name>: a fresh copy of the start to play on
 const char *saves_current_path(void);  // the slot the game uses (as SaveSlot.path)
+// Online and offline saves are two kinds that never convert on their own (Lumiose Online checks a save for anything done to
+// it outside online play): an online save carries a hidden `.online` file in its folder. It is made online (a new game
+// online), or an existing save is made online once, on the player's explicit choice, and from then on it is never started
+// without the Lumiose module, and an offline one never with it. An online save can't be copied.
+bool saves_create_online(const char *name, char *id_out);  // as saves_create, an empty online slot
+bool saves_set_online(const char *id);                     // an existing slot becomes online (it can't go back)
+bool saves_slot_online(const char *id);
+// The slot the game uses is of the kind this game is (online: the Lumiose module is loaded). False: it must not start.
+bool saves_current_matches(bool online_game);
 // The game uses this slot's data from now on (g_save_dir). Unknown id: the original.
 void saves_select(const char *id);
-// The save with the most recent write (as the start screen's CONTINUE); none has progress: the original `save/`.
-void saves_select_latest(void);
+// The save of this kind (online or offline) with the most recent write (as the start screen's CONTINUE); none has progress:
+// the original `save/` offline, nothing online (the player makes one).
+void saves_select_latest(bool online);
 
 #ifdef __cplusplus
 }

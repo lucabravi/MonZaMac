@@ -36,8 +36,10 @@ All files	Alle Dateien
 All shaders	Alle Shader
 Always (cursor held in the window)	Immer (Mauszeiger im Fenster)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	Erstelle einen leeren Spielstand mit einem eigenen Namen. Vor dem Neustart des Spiels mit diesem Spielstand wird eine Bestätigung verlangt.
+An online save can't be copied.	Ein Online-Spielstand kann nicht kopiert werden.
 Anisotropic filtering	Anisotrope Filterung
 Anti-aliasing	Kantenglättung
+Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	Jede Handlung, um die Sperre zu umgehen und offline im Spiel voranzukommen, kann zu einem Bann bei Lumiose Online führen!
 Any button	Beliebige Taste
 Application language	App-Sprache
 Are you sure?	Bist du sicher?
@@ -83,6 +85,7 @@ Choose the folder that holds the game files.	Wähle den Ordner mit den Spieldate
 Choose the game's .nup file before setup.	Wähle vor der Einrichtung die .nup-Datei des Spiels aus.
 Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.	Wähle diese beiden Dateien. Sie werden nur auf diesem Mac zum Hinzufügen des DLC gelesen; der Spielcode wird nicht neu kompiliert.
 Choose your base game, update and prod.keys before setup.	Wähle vor der Einrichtung Basisspiel, Update und prod.keys aus.
+Choose your online save	Wähle deinen Online-Spielstand
 Choose...	Auswählen...
 Chosen:\s	Ausgewählt:\s
 Close	Schließen
@@ -304,6 +307,7 @@ Neither MonZaMac nor this application is affiliated with, endorsed by, sponsored
 Never	Nie
 New game	Neues Spiel
 New game in a new save	Neues Spiel in neuem Spielstand
+New online game (recommended)	Neues Online-Spiel (empfohlen)
 New save	Neuer Spielstand
 Nintendo font (imported)	Nintendo-Schrift (importiert)
 No Pokémon yet	Noch keine Pokémon
@@ -330,12 +334,14 @@ Not published yet	Noch nicht veröffentlicht
 Nothing is uploaded. It starts the game, which does this, then comes back here. Redo it when MonZaMac, macOS, your GPU or the game files change: the badge turns yellow then.	Es wird nichts hochgeladen. Das Spiel kompiliert die Shader und kehrt hierher zurück. Wiederhole es nach Änderungen an MonZaMac, macOS, GPU oder Spieldateien; die Markierung wird dann gelb.
 Nothing pressed: %s unchanged.	Keine Taste gedrückt: %s unverändert.
 OK	OK
+ONLINE	ONLINE
 Off	Aus
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	Offizieller Shader-Rezeptkatalog: %s.%s Es werden keine Spieldaten hochgeladen. Die Kompilierung erfolgt beim Spielstart oder bei der Shader-Registrierung.
 Offline play	Offline-Spiel
 On	Ein
 Online play	Online-Spiel
 Online play (Lumiose Online)	Online-Spiel (Lumiose Online)
+Online save: %s	Online-Spielstand: %s
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	Online, wo der Cursor im Spiel sichtbar ist (die Lumiose-Oberfläche wird damit angeklickt): Er wird ausgeblendet, wenn die Maus so lange nicht bewegt oder geklickt wurde, und erscheint sofort wieder, sobald das geschieht (ein Zwei-Finger-Wischen zählt nicht).
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	Nur Shader-Hashes und numerische Grafikzustände. Keine Spielcodes, Schlüssel, Spielstände oder persönlichen Daten. Nichts wird automatisch hochgeladen.
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	Menü öffnen/schließen: F1, Esc, Home-/Xbox-/PlayStation-Taste oder Back + Start
@@ -459,6 +465,7 @@ Switch keys	Switch-Verschlüsselungsschlüssel
 Switch tabs	Tab wechseln
 Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	Tab wechseln: L / R (Q / E)      Zurück: B (Esc)
 System default	Systemstandard
+Team	Team
 Tests	Tests
 Text: %s    Button icons: %s	Text: %s    Tastensymbole: %s
 Text: imported	Text: Schrift importiert
@@ -489,6 +496,7 @@ The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter e
 The online version could not be prepared.	Die Online-Version konnte nicht vorbereitet werden.
 The save couldn't be copied.	Der Spielstand konnte nicht kopiert werden.
 The save in use ("%s", as the game last saved it) is copied into routes/ first (it does not show in the save list), then the pad is recorded until you stop.	Der aktive Spielstand („%s“, Stand des letzten Speicherns) wird zunächst nach routes/ kopiert (nicht in der Liste sichtbar); anschließend werden die Controller-Eingaben bis zum Stopp aufgezeichnet.
+The save will be checked: any tampering with it will get you banned from Lumiose Online!	Der Spielstand wird überprüft: Jede Manipulation führt zu einem Bann bei Lumiose Online!
 The sharpest the dynamic resolution goes: the game's own %s, %s (1.5x), or your display's own resolution.\n\nIt's lowered from there while your GPU can't keep the frame rate.	Das Maximum der dynamischen Auflösung: die des Spiels (%s), %s (1,5x) oder die Auflösung deines Displays.\n\nVon dort wird sie gesenkt, solange die GPU die Bildrate nicht hält.
 The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024).\n\nHigher: smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory (4x: about 240 MB, 2x: 60 MB). Applies at once.	Die Größe der Karte, aus der die Sonnenschatten gezeichnet werden (die des Spiels: 1024 x 1024).\n\nHöher: weichere Schattenkanten ohne Treppenstufen, für etwas GPU-Zeit und mehr GPU-Speicher (4x: etwa 240 MB, 2x: 60 MB). Wirkt sofort.
 The trackpad's two-finger scroll turns the camera, as the mouse does.	Mit zwei Fingern auf dem Trackpad wird die Kamera wie mit der Maus gedreht.
@@ -500,6 +508,7 @@ This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or X
 This file isn't a valid Switch 2 Edition .nup package.	Diese Datei ist kein gültiges .nup-Paket der Switch 2 Edition.
 This is usually a damaged download of the update, and the game crashes when it loads the damaged part. Get the update again, from your own Switch or another download, then delete the game files and set them up again. Saves, mods and settings are kept.	Meist ist ein Download des Updates beschädigt, und das Spiel stürzt ab, sobald es den beschädigten Teil lädt. Hole das Update erneut, von deiner eigenen Switch oder aus einem anderen Download, lösche dann die Spieldateien und richte sie neu ein. Spielstände, Mods und Einstellungen bleiben erhalten.
 This only needs to be done once and may take a while.	Das ist nur einmal nötig und kann eine Weile dauern.
+This save is for Lumiose Online only: start it with Play online.	Dieser Spielstand ist nur für Lumiose Online: Starte ihn mit Online spielen.
 This version of MonZaMac precompiles more than the last one did.	Diese Version von MonZaMac kompiliert mehr vor als die letzte.
 Those files can't be used	Diese Dateien können nicht verwendet werden
 Time: several minutes (about 5 on a 10-core M5, longer elsewhere), using every CPU core: the Mac gets warm. You can stop any time; what was compiled is kept.	Dauer: mehrere Minuten (ca. 5 auf einem 10-Kern-M5, auf anderen länger), unter Nutzung aller CPU-Kerne. Der Mac wird warm. Du kannst jederzeit abbrechen; bereits Kompiliertes bleibt erhalten.
@@ -531,6 +540,8 @@ Updating the online version	Online-Version wird aktualisiert
 Updating...	Aktualisierung läuft...
 Upscaler	Upscaler
 Upscaling and AA	Upscaling und Kantenglättung
+Use as online save	Als Online-Spielstand verwenden
+Use one of my saves as the online save	Einen meiner Spielstände als Online-Spielstand verwenden
 Use substitute font	Ersatzschrift verwenden
 Uses the save selected offline	Nutzt den offline gewählten Spielstand
 Version %s is out. Update to play online.	Version %s ist erschienen. Zum Online-Spielen bitte aktualisieren.
@@ -538,6 +549,7 @@ Video	Video
 View + Menu	Ansicht + Menü
 Voice chat	Sprachchat
 Volume	Lautstärke
+WARNING: once this save is used online, it can no longer be played offline!	ACHTUNG: Sobald dieser Spielstand online verwendet wurde, kann er nicht mehr offline gespielt werden!
 Wait for shaders	Auf Shader warten
 Warning	Warnung
 While holding a button	Taste gedrückt halten

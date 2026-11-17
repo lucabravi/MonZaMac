@@ -65,6 +65,10 @@ void rt_crash_explain(char *out, size_t n, const char *log_path) {
         snprintf(head, sizeof head, "The game stopped at one of its own checks");
         snprintf(what, sizeof what, "Start it again: this happens now and then while the game starts, and the next "
                  "start is normally fine. If it keeps happening at the same place, it's a bug in MonZaMac. %s", report);
+    } else if (has("save is of the other kind")) {
+        snprintf(head, sizeof head, "This save is for the other kind of game");
+        snprintf(what, sizeof what, "Online saves are only played online, and the others only offline. Go back to the start "
+                 "screen and choose the save again from the matching side.");
     } else if (has("no usable system font")) {
         snprintf(head, sizeof head, "No font for the game's text");
         snprintf(what, sizeof what, "MonZaMac couldn't find a font on this Mac for the game's text. Reinstall "

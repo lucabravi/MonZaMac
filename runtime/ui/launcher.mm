@@ -52,6 +52,7 @@ extern "C" {
 extern "C" void input_mouse_release(SDL_Window *w);  // runtime/hle/input.c
 #include "romfs_build.h"
 #include "settings.h"
+#include "save_info.h"
 #include "saves.h"
 #include "input_bind.h"
 #include "precompile_stamp.h"
@@ -351,6 +352,7 @@ static bool online_setup() {
 // Said once, before the first online start (online_consent_popup, drawn with the legal notice): what goes where. The answer
 // is kept in a marker file of the data folder.
 static bool g_ou_consent_open;  // the question is to be shown
+static bool g_ou_pick_open;  // the online save has to be chosen: the window is to be shown
 static std::string online_marker() { return std::string(rt_data_root()) + "/lumiose-online-consent"; }
 static bool online_consent_given() { return access(online_marker().c_str(), F_OK) == 0; }
 
@@ -389,9 +391,13 @@ static void online_launch() {
     setenv("LARECOMP_GAME_LIB", (dir + "/lasgame.dylib").c_str(), 1);
     setenv("LUMIOSE_TEST_NETWORK", "1", 1);
     setenv("LUMIOSE_TEST_SERVER", g_ou_status.endpoint, 1);
-    saves_use_latest();  // the chosen save, else the most recent (as CONTINUE)
+    if (!g_settings.online_save[0] || !saves_slot_online(g_settings.online_save)) {  // (the start screen chose it before: the last stop)
+        g_ou_note = "Choose the online save first.";
+        return;
+    }
+    saves_select(g_settings.online_save);  // (never the offline save the start screen's CONTINUE has: saves.h)
     settings_save();
-    setenv("LARECOMP_PLAY_SAVE", g_settings.save_slot, 1);  // (--play would take the most recent one)
+    setenv("LARECOMP_PLAY_SAVE", g_settings.online_save, 1);  // (--play would take the most recent one)
     // A loaded game library cannot be swapped: the same process only when none is loaded yet or the verified version is the
     // one already running (a different one needs a new process).
     if ((!g_game_booted || same) && !getenv("LARECOMP_ONLINE_RESTART")) {
@@ -407,6 +413,22 @@ static void online_launch() {
 
 // Once per frame on the home page: moves the state on and fills what the column shows. `files`: "" when the game files are
 // there and are the right version, else why not (the launcher's check: it needs the exact 2.0.2 build).
+// The online save the column names (looked up every couple of seconds, not every frame)
+static const char *online_save_name() {
+    static char name[SAVE_NAME_MAX + 1];
+    static double at = -10;
+    double now = ImGui::GetTime();
+    if (now - at > 2.0) {
+        at = now;
+        name[0] = 0;
+        SaveSlot all[SAVE_SLOTS_MAX];
+        int n = saves_list(all, SAVE_SLOTS_MAX);
+        for (int i = 0; i < n; i++)
+            if (all[i].online && !strcmp(all[i].id, g_settings.online_save)) snprintf(name, sizeof name, "%s", all[i].name);
+    }
+    return name;
+}
+
 static void online_view(const std::string &files, bool busy, OnlineView *v) {
     static char headline[192], line[512], build[128], button[192];
     *v = {headline, line, build, false, false, false, button, false, -1.0f};
@@ -502,7 +524,10 @@ static void online_view(const std::string &files, bool busy, OnlineView *v) {
         } else {
             snprintf(headline, sizeof headline, g_ou_note.empty() ? "Service ready" : "Could not start");
             if (!g_ou_note.empty()) snprintf(line, sizeof line, "%s", g_ou_note.c_str()), v->bad = true;
-            else v->good = true;
+            else {
+                v->good = true;
+                if (online_save_name()[0]) snprintf(line, sizeof line, ui_tr("Online save: %s"), online_save_name());
+            }
             v->on = true;
         }
         break;
@@ -554,6 +579,21 @@ static void online_proceed() {
     if (g_ou == OU_ERROR) g_ou_note = "Could not start the online setup.";
 }
 
+// After the consent: the online save. The one chosen before, else the online save played last; with none, the player chooses
+// (online_pick_popup: a new online game, or one of their saves made the online one).
+static void online_continue() {
+    SaveSlot slots[SAVE_SLOTS_MAX];
+    int n = saves_list(slots, SAVE_SLOTS_MAX), pick = -1;
+    for (int i = 0; i < n; i++)
+        if (slots[i].online && !strcmp(slots[i].id, g_settings.online_save)) pick = i;
+    for (int i = 0; pick < 0 && i < n; i++)
+        if (slots[i].online && (pick < 0 || slots[i].played > slots[pick].played)) pick = i;
+    if (pick >= 0) {
+        snprintf(g_settings.online_save, sizeof g_settings.online_save, "%s", slots[pick].id);
+        online_proceed();
+    } else g_ou_pick_open = true;
+}
+
 static void online_click() {
     if (getenv("LARECOMP_ONLINE_STATE_TEST")) return;
     if (g_ou != OU_READY && g_ou != OU_NEEDS && g_ou != OU_ERROR) return;
@@ -561,7 +601,7 @@ static void online_click() {
     if (online_outdated(NULL, &pending) || pending) return;  // (the column says why)
     if (pack_gate(&pending) || pending) return;
     g_ou_note.clear();
-    if (online_consent_given()) online_proceed();
+    if (online_consent_given()) online_continue();
     else g_ou_consent_open = true;
 }
 #endif
@@ -1448,8 +1488,181 @@ static void online_consent_popup(float s) {
     ImGui::EndPopup();
     if (go) {
         if (FILE *f = fopen(online_marker().c_str(), "w")) { fputs("accepted\n", f); fclose(f); }
-        online_proceed();
+        online_continue();
     }
+}
+
+// A line cut to `room` with an ellipsis (whole UTF-8 characters)
+static const char *online_fit(ImFont *font, float size, const char *text, float room, char *out, size_t n) {
+    snprintf(out, n, "%s", text);
+    if (font->CalcTextSizeA(size, FLT_MAX, 0, out).x <= room) return out;
+    size_t len = strlen(out);
+    while (len > 1) {
+        do len--; while (len > 1 && (out[len] & 0xC0) == 0x80);
+        snprintf(out + len, n - len, "\xe2\x80\xa6");
+        if (font->CalcTextSizeA(size, FLT_MAX, 0, out).x <= room) break;
+    }
+    return out;
+}
+
+// One save of the choice: its name, the trainer, play time, money, when it was played and the team
+void ui_check(ImDrawList *dl, ImVec2 c, float r, ImU32 col);  // runtime/ui/saves_ui.mm
+static void online_pick_row(const SaveSlot &sl, ImVec2 a, ImVec2 b, float s, bool selected, bool hovered) {
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    if (selected || hovered) {  // (the choice must be plain to see: a tint, an outline, a bar and a check mark on the chosen one)
+        dl->AddRectFilled(a, b, selected ? IM_COL32(72, 214, 255, 44) : IM_COL32(72, 214, 255, 18), 10 * s);
+        if (selected) {
+            dl->AddRect(a, b, IM_COL32(72, 214, 255, 255), 10 * s, 0, 2 * s);
+            dl->AddRectFilled(ImVec2(a.x + 2 * s, a.y + 8 * s), ImVec2(a.x + 6 * s, b.y - 8 * s), IM_COL32(72, 214, 255, 255), 2 * s);
+            ImVec2 c(b.x - 22 * s, (a.y + b.y) * 0.5f + 8 * s);
+            dl->AddCircleFilled(c, 12 * s, IM_COL32(72, 214, 255, 255), 24);
+            ui_check(dl, c, 12 * s, IM_COL32(4, 12, 28, 255));
+        }
+    }
+    ImFont *font = ImGui::GetFont();
+    const float fs = ImGui::GetFontSize(), big = fs * 1.12f, small = fs * 0.88f;
+    const ImU32 white = IM_COL32(236, 242, 255, 255), sub = IM_COL32(176, 196, 226, 230), accent = IM_COL32(72, 214, 255, 255),
+                gold = IM_COL32(244, 194, 72, 255);
+    const SaveInfo *si = save_info(sl.path);
+    float x = a.x + 14 * s, right = b.x - 14 * s, y = a.y + 7 * s;
+    char cut[160], line[192], when[96];
+    dl->PushClipRect(a, b, true);
+    // when it was last written (the Saves page's wording)
+    time_t t = (time_t)sl.played;
+    char date[48];
+    strftime(date, sizeof date, "%Y-%m-%d %H:%M", localtime(&t));
+    long d = (long)(difftime(time(NULL), t) / 86400);
+    char ago[64];
+    if (d <= 0) snprintf(ago, sizeof ago, "%s", ui_tr("today"));
+    else if (d == 1) snprintf(ago, sizeof ago, "%s", ui_tr("yesterday"));
+    else snprintf(ago, sizeof ago, ui_tr("%ld days ago"), d);
+    snprintf(when, sizeof when, "%s  \xc2\xb7  %s", date, ago);
+    float ww = font->CalcTextSizeA(small, FLT_MAX, 0, when).x;
+    dl->AddText(font, small, ImVec2(right - ww, y + (big - small) * 0.5f), sub, when);
+    dl->AddText(font, big, ImVec2(x, y), white, online_fit(font, big, sl.name, right - x - ww - 16 * s, cut, sizeof cut));
+    y += big + 5 * s;
+    if (si) {
+        char money[24], digits[16];
+        int k = snprintf(digits, sizeof digits, "%u", si->money), w = 0;
+        for (int i = 0; i < k && w + 2 < (int)sizeof money; i++) {
+            if (i && (k - i) % 3 == 0) money[w++] = ' ';
+            money[w++] = digits[i];
+        }
+        money[w] = 0;
+        int hours = (int)(si->played / 3600), mins = ((int)si->played % 3600) / 60;
+        snprintf(line, sizeof line, "%s %s  \xc2\xb7  ID %06u  \xc2\xb7  %s %dh %02dm  \xc2\xb7  %s %s", ui_tr("Trainer"),
+                 si->trainer[0] ? si->trainer : "-", si->id, ui_tr("Play time"), hours, mins, ui_tr("Money"), money);
+        dl->AddText(font, small, ImVec2(x, y), accent, online_fit(font, small, line, right - x, cut, sizeof cut));
+        y += small + 4 * s;
+        if (si->party_n) {
+            std::string team = std::string(ui_tr("Team")) + ": ";
+            for (int k = 0; k < si->party_n; k++) {
+                char one[64];
+                snprintf(one, sizeof one, "%s%s Lv. %u", k ? "  \xc2\xb7  " : "", si->party[k].egg ? ui_tr("Egg") : si->party[k].name,
+                         si->party[k].level);
+                team += one;
+            }
+            dl->AddText(font, small, ImVec2(x, y), gold, online_fit(font, small, team.c_str(), right - x, cut, sizeof cut));
+        } else dl->AddText(font, small, ImVec2(x, y), sub, ui_tr("No Pokémon yet"));
+    }
+    dl->PopClipRect();
+}
+
+// The online save is chosen once: a new online game (recommended), or one of the player's saves made the online one. Nothing
+// is converted without this choice and the warning in it: Lumiose Online checks a save for anything done to it outside online
+// play, and the save is only ever started online from then on (saves.h).
+static void online_pick_popup(float s) {
+    static SaveSlot slots[SAVE_SLOTS_MAX];  // the saves that can become the online one (offline, with progress)
+    static int n, mode, pick;               // mode 0: a new online game, 1: one of them
+    ImVec2 ds = ImGui::GetIO().DisplaySize;
+    if (g_ou_pick_open) {
+        SaveSlot all[SAVE_SLOTS_MAX];
+        int total = saves_list(all, SAVE_SLOTS_MAX);
+        n = 0;
+        for (int i = 0; i < total; i++)
+            if (!all[i].online && all[i].played) slots[n++] = all[i];
+        mode = 0, pick = n ? 0 : -1;
+        ImGui::OpenPopup("##online_pick");
+        g_ou_pick_open = false;
+    }
+    ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(fminf(ds.x * 0.94f, 760 * s), fminf(ds.y * 0.94f, 700 * s)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(28 * s, 24 * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 16 * s);
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.04f, 0.07f, 0.14f, 1));
+    bool open = ImGui::BeginPopupModal("##online_pick", NULL, ImGuiWindowFlags_NoTitleBar |
+                                       ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+    if (!open) return;
+    ImGui::PushFont(g_font_small);
+    ImGui::SetWindowFontScale(0.82f);
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1, 1), "%s", ui_tr("Choose your online save"));
+    ImGui::Dummy(ImVec2(0, 10 * s));
+    if (ImGui::RadioButton(ui_tr("New online game (recommended)"), mode == 0)) mode = 0;
+    ImGui::BeginDisabled(!n);
+    if (ImGui::RadioButton(ui_tr("Use one of my saves as the online save"), mode == 1)) mode = 1;
+    ImGui::EndDisabled();
+    if (mode == 1) {
+        float rowh = ImGui::GetFontSize() * 4.5f;
+        ImGui::BeginChild("##online_pick_list", ImVec2(0, fminf(rowh * 3.3f, ImGui::GetContentRegionAvail().y * 0.55f)), true);
+        for (int i = 0; i < n; i++) {
+            ImGui::PushID(i);
+            ImVec2 a = ImGui::GetCursorScreenPos();
+            float w = ImGui::GetContentRegionAvail().x;
+            if (ImGui::Selectable("##slot", false, 0, ImVec2(w, rowh - 4 * s))) pick = i;
+            online_pick_row(slots[i], a, ImVec2(a.x + w, a.y + rowh - 4 * s), s, pick == i, ImGui::IsItemHovered());
+            ImGui::PopID();
+        }
+        ImGui::EndChild();
+    } else ImGui::Dummy(ImVec2(0, 8 * s));
+    ImGui::Dummy(ImVec2(0, 6 * s));
+    ImGui::BeginChild("##online_pick_text", ImVec2(0, -60 * s), false);
+    ImGui::PushTextWrapPos(0);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.72f, 0.25f, 1));
+    ImGui::TextWrapped("%s", ui_tr("WARNING: once this save is used online, it can no longer be played offline!"));
+    ImGui::Dummy(ImVec2(0, 8 * s));
+    ImGui::TextWrapped("%s", ui_tr("Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!"));
+    ImGui::Dummy(ImVec2(0, 8 * s));
+    ImGui::TextWrapped("%s", ui_tr("The save will be checked: any tampering with it will get you banned from Lumiose Online!"));
+    ImGui::PopStyleColor();
+    ImGui::PopTextWrapPos();
+    ImGui::EndChild();
+    ImGui::Dummy(ImVec2(0, 10 * s));
+    float bw = 200 * s, gap = 16 * s;
+    ImGui::SetCursorPosX((ImGui::GetWindowWidth() - 2 * bw - gap) * 0.5f);
+    bool back = ui_button(ui_tr("Cancel"), ImVec2(bw, 38 * s)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+                ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false);
+    ImGui::SameLine(0, gap);
+    bool go = ui_button(mode == 1 ? ui_tr("Use as online save") : ui_tr("Play online"), ImVec2(bw, 38 * s)) && (mode == 0 || pick >= 0);
+    ImGui::PopFont();
+    if (back || go) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    if (!go) return;
+    char id[SAVE_NAME_MAX + 1] = "";
+    bool ok = false;
+    if (mode == 0) {
+        for (int k = 1; k <= 9 && !ok; k++) {  // (a free name: "Online game", "Online game 2", ...)
+            char name[48];
+            if (k == 1) snprintf(name, sizeof name, "Online game"); else snprintf(name, sizeof name, "Online game %d", k);
+            ok = saves_create_online(name, id);
+        }
+    } else {
+        snprintf(id, sizeof id, "%s", slots[pick].id);
+        if (!id[0]) {  // (the original save/ moves into a slot of its own first: an empty id would mean "none chosen")
+            for (int k = 1; k <= 9 && !ok; k++) {
+                char name[48];
+                if (k == 1) snprintf(name, sizeof name, "Main save online"); else snprintf(name, sizeof name, "Main save online %d", k);
+                ok = saves_rename("", name, id);
+            }
+        } else ok = true;
+        ok = ok && saves_set_online(id);
+    }
+    if (!ok) { g_ou_note = "Could not make the online save."; return; }
+    snprintf(g_settings.online_save, sizeof g_settings.online_save, "%s", id);
+    if (!strcmp(g_settings.save_slot, id) || mode == 1) g_settings.save_slot[0] = 0;  // (the offline CONTINUE picks another one)
+    settings_save();
+    online_proceed();
 }
 #endif
 
@@ -2325,6 +2538,7 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
                     online_view(status, busy, &ov);
                     if (saves_online_draw(g_font_small, BANNER_TEXID, g_banner_h ? 1400.0f / g_banner_h : 0, ov, x0 + lw + gap, top, cw - lw - gap, ch)) online_click();
                     online_consent_popup(s);
+                    online_pick_popup(s);
 #else
                     float cw = fminf(ds.x - 2 * pad, 835 * s);
                     int col = saves_home_draw(g_font_small, ready, !ready || busy, !g_play_focused, true, (ds.x - cw) * 0.5f, top, cw, ch);

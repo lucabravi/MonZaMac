@@ -60,16 +60,26 @@ void saves_screen_open(void) {
 // The save last played (most recent write), or NULL when none has progress
 static const SaveSlot *latest(void) {
     const SaveSlot *l = NULL;
-    for (int i = 0; i < g_n; i++)
-        if (g_slots[i].played && (!l || g_slots[i].played > l->played)) l = &g_slots[i];
+    for (int i = 0; i < g_n; i++)  // (online saves are not CONTINUE's: they are played from Play online)
+        if (!g_slots[i].online && g_slots[i].played && (!l || g_slots[i].played > l->played)) l = &g_slots[i];
     return l;
 }
 
 // The save the home page shows and CONTINUE plays: the one chosen on the Saves page (when it has progress), else the latest.
 static const SaveSlot *chosen(void) {
     for (int i = 0; i < g_n; i++)
-        if (!strcmp(g_slots[i].id, g_settings.save_slot)) return &g_slots[i];  // (a save with no progress yet too: the one just made and picked)
+        if (!g_slots[i].online && !strcmp(g_slots[i].id, g_settings.save_slot)) return &g_slots[i];  // (a save with no progress yet too: the one just made and picked)
     return latest();
+}
+
+// Copy the selected save (an online one can't be copied: a copy would be a second save of the same player)
+static void ask_copy(const SaveSlot &s) {
+    if (s.online) {
+        snprintf(g_msg, sizeof g_msg, "%s", ui_tr("An online save can't be copied."));
+        g_msg_bad = true;
+        return;
+    }
+    g_ask = COPY, g_err[0] = 0;
 }
 
 // Delete the selected save: a save with no progress holds nothing to lose, so it goes at once; one with progress asks first.
@@ -756,13 +766,28 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
                 cl->AddText(small_, u * 0.8f, ImVec2(cr - lw, cy - u * 0.4f), pal::sub, lv);
             }
         }
+        float badge_right = q.x - pad;
+        if (s.online) {  // (the ONLINE badge, on the right: this save is only played online)
+            const char *on = ui_tr("ONLINE");
+            ImVec2 zs = small_->CalcTextSizeA(small_->FontSize, FLT_MAX, 0, on);
+            ImVec2 a(badge_right - zs.x - 24 * sc, bc.y - zs.y * 0.5f - 8 * sc), b(badge_right, bc.y + zs.y * 0.5f + 8 * sc);
+            cl->AddRectFilled(a, b, IM_COL32(255, 184, 64, 34), (b.y - a.y) * 0.5f);
+            cl->AddRect(a, b, IM_COL32(255, 184, 64, 255), (b.y - a.y) * 0.5f, 0, 1.5f * sc);
+            cl->AddText(small_, small_->FontSize, ImVec2(a.x + 12 * sc, bc.y - zs.y * 0.5f), IM_COL32(255, 184, 64, 255), on);
+            badge_right = a.x - 12 * sc;
+        }
         if (!s.played) {  // (a slot with no progress: the NEW GAME badge, on the right)
             const char *nw = ui_tr("NEW GAME");
             ImVec2 zs = small_->CalcTextSizeA(small_->FontSize, FLT_MAX, 0, nw);
-            ImVec2 a(q.x - pad - zs.x - 24 * sc, bc.y - zs.y * 0.5f - 8 * sc), b(q.x - pad, bc.y + zs.y * 0.5f + 8 * sc);
+            ImVec2 a(badge_right - zs.x - 24 * sc, bc.y - zs.y * 0.5f - 8 * sc), b(badge_right, bc.y + zs.y * 0.5f + 8 * sc);
             cl->AddRectFilled(a, b, IM_COL32(120, 255, 200, 30), (b.y - a.y) * 0.5f);
             cl->AddRect(a, b, pal::accent2, (b.y - a.y) * 0.5f, 0, 1.5f * sc);
             cl->AddText(small_, small_->FontSize, ImVec2(a.x + 12 * sc, bc.y - zs.y * 0.5f), pal::accent2, ui_tr(nw));
+        }
+        if (play && s.online) {  // (an online save is only started online)
+            snprintf(g_msg, sizeof g_msg, "%s", ui_tr("This save is for Lumiose Online only: start it with Play online."));
+            g_msg_bad = false;
+            play = false;
         }
         if (play) {
             saves_select(s.id);
@@ -791,7 +816,7 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
         float bx = x0 + pad, by2 = cy0 + pad;
         bool one = g_n < SAVE_SLOTS_MAX;
         ImGui::BeginDisabled(!one || !sel_slot().played);
-        if (tool_button("cp", "Copy", IC_COPY, ImVec2(bx, by2), wid("Copy"), bh, small_, fs, 0)) g_ask = COPY, g_err[0] = 0;
+        if (tool_button("cp", "Copy", IC_COPY, ImVec2(bx, by2), wid("Copy"), bh, small_, fs, 0)) ask_copy(sel_slot());
         ImGui::EndDisabled();
         bx += wid("Copy") + 6 * sc;
         ImGui::BeginDisabled(!g_n || !sel_slot().played);
@@ -819,7 +844,7 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
     ImGui::EndDisabled();
     ImGui::SameLine(0, bgap * 2.5f);
     ImGui::BeginDisabled(!one || !sel_slot().played);
-    if (bar_button("Copy", bwid("Copy"), bar_h, small_)) g_ask = COPY, g_err[0] = 0;
+    if (bar_button("Copy", bwid("Copy"), bar_h, small_)) ask_copy(sel_slot());
     ImGui::EndDisabled();
     ImGui::SameLine(0, bgap);
     ImGui::BeginDisabled(!g_n || !sel_slot().played);
@@ -1212,9 +1237,11 @@ static bool action_window(float sc, int cur, ImFont *body, ImFont *small_) {
         if (bar_button("Cancel", hw, bh, small_) || back) g_act_confirm = false;
     } else {
         if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+        ImGui::BeginDisabled(s.online != (getenv("LUMIOSE_TEST_MODULE") != NULL));  // (online saves are played online only, the others offline)
         if (bar_button(now ? "Reload this save" : "Play this save", bw, bh, small_)) g_act_confirm = true;
+        ImGui::EndDisabled();
         bool one = g_n < SAVE_SLOTS_MAX;
-        ImGui::BeginDisabled(!one || !s.played);
+        ImGui::BeginDisabled(!one || !s.played || s.online);
         if (bar_button("Copy", bw, bh, small_)) g_sel = g_act, g_ask = COPY, g_err[0] = 0, close();
         ImGui::EndDisabled();
         ImGui::BeginDisabled(!s.played);

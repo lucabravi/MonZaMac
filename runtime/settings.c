@@ -205,6 +205,7 @@ void settings_load(void) {
         }
         else if (!strcmp(key, "menu_tip_seen")) g_settings.menu_tip_seen = atoi(val) != 0, tip_key = true;
         else if (!strcmp(key, "save_slot")) snprintf(g_settings.save_slot, sizeof g_settings.save_slot, "%s", val);
+        else if (!strcmp(key, "online_save")) snprintf(g_settings.online_save, sizeof g_settings.online_save, "%s", val);
         else if (!strcmp(key, "aspect_asked")) g_settings.aspect_asked = atoi(val) != 0, aspect_key = true;
         else bind_settings_load(key, val);  // bind_pad_* / bind_key_*: runtime/hle/bindings.c
     }
@@ -282,6 +283,7 @@ void settings_save(void) {
     fprintf(f, "aspect_asked = %d\n", g_settings.aspect_asked);
     fprintf(f, "menu_tip_seen = %d\n", g_settings.menu_tip_seen);
     fprintf(f, "save_slot = %s\n", g_settings.save_slot);
+    fprintf(f, "online_save = %s\n", g_settings.online_save);
     bind_settings_save(f);
     fclose(f);
 }

@@ -36,8 +36,10 @@ All files	Todos os arquivos
 All shaders	Todos os shaders
 Always (cursor held in the window)	Sempre (cursor preso na janela)
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	Crie um salvamento vazio com o nome escolhido. Antes de reiniciar o jogo para começar uma nova partida, será solicitada uma confirmação.
+An online save can't be copied.	Um salvamento online não pode ser copiado.
 Anisotropic filtering	Filtragem anisotrópica
 Anti-aliasing	Antisserrilhamento
+Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	Qualquer ação usada para contornar o bloqueio e progredir no jogo offline pode resultar em banimento do Lumiose Online!
 Any button	Qualquer botão
 Application language	Idioma do aplicativo
 Are you sure?	Tem certeza?
@@ -83,6 +85,7 @@ Choose the folder that holds the game files.	Escolha a pasta que contém os arqu
 Choose the game's .nup file before setup.	Antes de começar, selecione o arquivo .nup do jogo.
 Choose these two files. They are read on this Mac only to add the DLC, and the game code is not rebuilt.	Escolha estes dois arquivos. Eles são lidos apenas neste Mac para adicionar o DLC, sem recompilar o código do jogo.
 Choose your base game, update and prod.keys before setup.	Antes de começar, selecione o jogo base, a atualização e prod.keys.
+Choose your online save	Escolha seu salvamento online
 Choose...	Escolher...
 Chosen:\s	Selecionado:\s
 Close	Fechar
@@ -304,6 +307,7 @@ Neither MonZaMac nor this application is affiliated with, endorsed by, sponsored
 Never	Nunca
 New game	Novo jogo
 New game in a new save	Novo jogo em um novo salvamento
+New online game (recommended)	Novo jogo online (recomendado)
 New save	Novo salvamento
 Nintendo font (imported)	Fonte Nintendo (importada)
 No Pokémon yet	Nenhum Pokémon ainda
@@ -330,12 +334,14 @@ Not published yet	Ainda não publicado
 Nothing is uploaded. It starts the game, which does this, then comes back here. Redo it when MonZaMac, macOS, your GPU or the game files change: the badge turns yellow then.	Nada é enviado. O jogo compila os shaders e volta aqui. Repita quando MonZaMac, macOS, GPU ou arquivos do jogo mudarem: o indicador ficará amarelo.
 Nothing pressed: %s unchanged.	Nenhuma tecla pressionada: %s inalterado.
 OK	OK
+ONLINE	ONLINE
 Off	Desativado
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	Catálogo oficial de receitas de shaders: %s.%s Nenhum dado do jogo é enviado. A compilação ocorre na inicialização ou ao registrar shaders.
 Offline play	Jogo offline
 On	Ativado
 Online play	Jogo online
 Online play (Lumiose Online)	Jogo online (Lumiose Online)
+Online save: %s	Salvamento online: %s
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	Online, onde o cursor aparece no jogo (a interface do Lumiose é clicada com ele): ele some quando o mouse não se move nem clica por esse tempo e volta assim que isso acontece (arrastar com dois dedos não conta).
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	Somente hashes de shaders e parâmetros gráficos numéricos. Sem código do jogo, chaves, jogos salvos ou dados pessoais. Nada é enviado automaticamente.
 Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	Abrir/fechar menu: F1, Esc, botão Home / Xbox / PlayStation do controle ou Back + Start
@@ -459,6 +465,7 @@ Switch keys	Chaves criptográficas do Switch
 Switch tabs	Alternar abas
 Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	Trocar aba: L / R (Q / E)      Voltar: B (Esc)
 System default	Padrão do sistema
+Team	Equipe
 Tests	Testes
 Text: %s    Button icons: %s	Texto: %s    Ícones dos botões: %s
 Text: imported	Texto: fonte importada
@@ -489,6 +496,7 @@ The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter e
 The online version could not be prepared.	Não foi possível preparar a versão online.
 The save couldn't be copied.	Não foi possível copiar o salvamento.
 The save in use ("%s", as the game last saved it) is copied into routes/ first (it does not show in the save list), then the pad is recorded until you stop.	O salvamento em uso ("%s", conforme o último registro no jogo) é primeiro copiado para routes/ (sem aparecer na lista); depois, as ações do controle são gravadas até você parar.
+The save will be checked: any tampering with it will get you banned from Lumiose Online!	O salvamento será verificado: qualquer adulteração resultará em banimento do Lumiose Online!
 The sharpest the dynamic resolution goes: the game's own %s, %s (1.5x), or your display's own resolution.\n\nIt's lowered from there while your GPU can't keep the frame rate.	O máximo da resolução dinâmica: a do próprio jogo (%s), %s (1,5x) ou a da sua tela.\n\nA partir daí ela é reduzida enquanto a GPU não mantiver a taxa de quadros.
 The size of the map the sun's shadows are drawn from (the game's: 1024 x 1024).\n\nHigher: smoother shadow edges, without the stair steps, for a little GPU time and more GPU memory (4x: about 240 MB, 2x: 60 MB). Applies at once.	O tamanho do mapa a partir do qual as sombras do sol são desenhadas (o do jogo: 1024 x 1024).\n\nMais alto: bordas de sombra mais suaves, sem degraus, por um pouco de tempo de GPU e mais memória de GPU (4x: cerca de 240 MB, 2x: 60 MB). Aplica na hora.
 The trackpad's two-finger scroll turns the camera, as the mouse does.	O gesto com dois dedos no trackpad gira a câmera como o mouse.
@@ -500,6 +508,7 @@ This file is a 7z archive despite its .nsp name. Choose an uncompressed NSP or X
 This file isn't a valid Switch 2 Edition .nup package.	Este arquivo não é um pacote .nup Switch 2 Edition válido.
 This is usually a damaged download of the update, and the game crashes when it loads the damaged part. Get the update again, from your own Switch or another download, then delete the game files and set them up again. Saves, mods and settings are kept.	Geralmente é um download danificado da atualização, e o jogo fecha ao carregar a parte danificada. Obtenha a atualização de novo, do seu próprio Switch ou de outro download, depois exclua os arquivos do jogo e configure-os novamente. Saves, mods e configurações são mantidos.
 This only needs to be done once and may take a while.	Isso só precisa ser feito uma vez e pode demorar um pouco.
+This save is for Lumiose Online only: start it with Play online.	Este salvamento é só para o Lumiose Online: inicie com Jogar online.
 This version of MonZaMac precompiles more than the last one did.	Esta versão do MonZaMac pré-compila mais do que a anterior.
 Those files can't be used	Esses arquivos não podem ser usados
 Time: several minutes (about 5 on a 10-core M5, longer elsewhere), using every CPU core: the Mac gets warm. You can stop any time; what was compiled is kept.	Tempo: vários minutos (cerca de 5 em um M5 de 10 núcleos, mais em outros), usando todos os núcleos da CPU. O Mac aquece. Você pode interromper; o que já foi compilado permanece.
@@ -531,6 +540,8 @@ Updating the online version	Atualizando a versão online
 Updating...	Atualizando...
 Upscaler	Upscaler
 Upscaling and AA	Upscaling e antisserrilhamento
+Use as online save	Usar como salvamento online
+Use one of my saves as the online save	Usar um dos meus salvamentos como salvamento online
 Use substitute font	Usar fonte substituta
 Uses the save selected offline	Usa o salvamento selecionado offline
 Version %s is out. Update to play online.	A versão %s foi lançada. Atualize para jogar online.
@@ -538,6 +549,7 @@ Video	Vídeo
 View + Menu	Exibir + Menu
 Voice chat	Chat de voz
 Volume	Volume
+WARNING: once this save is used online, it can no longer be played offline!	ATENÇÃO: depois de usado online, este salvamento não poderá mais ser jogado offline!
 Wait for shaders	Aguardar shaders
 Warning	Aviso
 While holding a button	Enquanto um botão estiver pressionado
