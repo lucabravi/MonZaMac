@@ -518,6 +518,7 @@ Up to date.	已是最新版本。
 Up to match display	最高为显示器分辨率
 Up to match display (%dp)	最高为显示器分辨率 (%dp)
 Update (2.0.2)	更新包 (2.0.2)
+Update MonZaMac first	请先更新 MonZaMac
 Update available	有可用更新
 Update available!\s\s	有可用更新！\s\s
 Update failed	更新失败
@@ -530,6 +531,7 @@ Upscaler	图像放大算法
 Upscaling and AA	画面放大与抗锯齿
 Use substitute font	使用替代字体
 Uses the save selected offline	使用离线模式所选的存档
+Version %s is out. Update to play online.	版本 %s 已发布。请更新后再在线游玩。
 Video	视频
 View + Menu	视图 + 菜单
 Voice chat	语音聊天
