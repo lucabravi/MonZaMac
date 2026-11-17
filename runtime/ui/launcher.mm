@@ -102,6 +102,7 @@ static const uint8_t BUILD_ID[8] = {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x
 // it): v<major>.<minor>.<patch>, 0.x until 1.0.
 #define LARECOMP_VERSION "v0.3.1"
 
+#include "online_env.h"
 #include "menu.h"
 
 // ------------------------------------------------------------------ update check
@@ -372,7 +373,12 @@ static bool online_outdated(std::string *newer, bool *pending) {
     return !tag.empty();
 }
 
+static bool pack_gate(bool *pending);  // (the file check, below)
+
 static void online_launch() {
+    {   bool pending;
+        if (pack_gate(&pending) || pending) { g_ou_note = "The game files are not the original ones: online play stays off."; return; }
+    }
     if (online_outdated(NULL, NULL)) { g_ou_note = "A newer version of MonZaMac is out: update it to play online."; return; }
     if (g_ou_status.endpoint[0] == 0) {
         g_ou_note = "Could not find the Lumiose Online server. Check your connection.";
@@ -390,11 +396,12 @@ static void online_launch() {
     settings_save();
     setenv("LARECOMP_PLAY_SAVE", g_settings.save_slot, 1);  // (--play would take the most recent one)
     if (g_game_booted != 1 && !getenv("LARECOMP_ONLINE_RESTART")) {  // (none loaded yet, or the online one already: same process)  // first game of this process: the game library and the module load now, no restart needed (after a game it is the old way)
+        rt_online_env_sanitize();  // (the game starts in this process: the debug variables are off online)
         g_play_request = true;
         return;
     }
     setenv("LARECOMP_LOADING_COVER", "1", 1);  // (the new process covers its window while the game starts)
-    char *argv[] = {exe, (char *)g_root.c_str(), (char *)"--play", NULL};  // (LARECOMP_ONLINE_RESTART=1: the old way, a new process)
+    char *argv[] = {exe, (char *)g_root.c_str(), (char *)"--play", NULL};  // (LARECOMP_ONLINE_RESTART=1: the old way, a new process; it switches them off itself)
     exec_under_cover(ui_window(), argv);
     g_ou_note = "Could not restart the game for online play.";
 }
@@ -430,6 +437,19 @@ static void online_view(const std::string &files, bool busy, OnlineView *v) {
         if (online_outdated(&newer, &pending)) {
             snprintf(headline, sizeof headline, "Update MonZaMac first");
             snprintf(line, sizeof line, ui_tr("Version %s is out. Update to play online."), tag_label(newer, false).c_str());
+            v->bad = true;
+            return;
+        }
+        if (pending) {
+            snprintf(headline, sizeof headline, "Checking...");
+            return;
+        }
+    }
+    {   // the game data must be the original 2.0.2 (the start screen's pack check): changed or damaged packs keep it off
+        bool pending;
+        if (pack_gate(&pending)) {  // (the count of damaged packs is in the notice the start screen shows for them)
+            snprintf(headline, sizeof headline, "Game files changed");
+            snprintf(line, sizeof line, "The game data is not the original of version 2.0.2.");
             v->bad = true;
             return;
         }
@@ -536,6 +556,7 @@ static void online_click() {
     if (g_ou != OU_READY && g_ou != OU_NEEDS && g_ou != OU_ERROR) return;
     bool pending;
     if (online_outdated(NULL, &pending) || pending) return;  // (the column says why)
+    if (pack_gate(&pending) || pending) return;
     g_ou_note.clear();
     if (online_consent_given()) online_proceed();
     else g_ou_consent_open = true;
@@ -1853,6 +1874,16 @@ static void pack_check_kick() {  // (every frame while the game is ready: only t
     if (pthread_create(&t, NULL, pack_check_thread, NULL) == 0) pthread_detach(t);
     else g_pack_state = 2;
 }
+#ifdef LUMIOSE_ONLINE
+// Online play needs the game data checked and the original: true when it is not (packs differ, or the file is not a known
+// version at all); `pending`: the check has not finished.
+static bool pack_gate(bool *pending) {
+    int state = g_pack_state;
+    *pending = state != 2;
+    if (state != 2) return false;
+    return !g_pack.known || g_pack.damaged != 0;
+}
+#endif
 static void pack_check_reset() {  // (other game files: setup finished, or they were deleted)
     int done = 2;
     if (g_pack_state == 1) g_pack_redo = true;
@@ -2109,6 +2140,7 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
             static const char *const online_env[] = {"LUMIOSE_TEST_MODULE", "LUMIOSE_TEST_LIBRARY", "LUMIOSE_TEST_NETWORK",
                                                      "LUMIOSE_TEST_SERVER", "LARECOMP_GAME_LIB"};
             for (const char *e : online_env) unsetenv(e);
+            rt_online_env_restore();  // (the debug variables switched off for the online game: an offline one follows)
             setenv("LARECOMP_LOADING_COVER", "1", 1);
             setenv("LARECOMP_PLAY_SAVE", g_settings.save_slot, 1);
             char exe[4096];

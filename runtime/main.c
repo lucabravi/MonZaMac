@@ -16,6 +16,7 @@
 #include "hle.h"
 #include "kernel.h"
 #include "gamecheck.h"
+#include "online_env.h"
 
 const char *g_romfs_dir;
 
@@ -194,6 +195,7 @@ uint8_t g_game_build[8];  // the exefs/main build ID read at start (all zero whe
 
 extern int g_saves_first;  // runtime/ui/launcher.mm: the start screen opens on the save picker
 int main(int argc, char **argv) {
+    rt_online_env_sanitize();  // (an online start, restarted by the start screen: before anything reads the variables)
     plat_init();
 #ifdef _WIN32
     setvbuf(stderr, NULL, _IONBF, 0);  // the Windows CRT treats _IOLBF as full buffering
@@ -288,6 +290,7 @@ int main(int argc, char **argv) {
         teardown();
         title = kind == RT_REBOOT_TITLE;
         if (title && getenv("LUMIOSE_TEST_MODULE")) {
+            rt_online_env_restore();  // (the debug variables of an offline game that follows)
             // Back to the start screen from an online session: the game library with the Lumiose module is loaded once per
             // process, so a start without the module needs a fresh one (Play offline, or Play online again, as the player
             // chooses). The start screen opens (no --play).
