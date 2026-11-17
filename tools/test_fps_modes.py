@@ -64,7 +64,7 @@ with tempfile.TemporaryDirectory(prefix='fps-modes-') as tmp:
                 enabled = fps != 0
                 on = enabled if override is None else override == '60'
                 env = {k:v for k,v in os.environ.items() if not k.startswith('LARECOMP_')}
-                env.update(LARECOMP_SETTINGS=str(ini), LARECOMP_FPS_STEADY='0')
+                env.update(LARECOMP_SETTINGS=str(ini))
                 if override is not None:
                     env['LARECOMP_FPS'] = override
                 result = subprocess.run([str(tmp/'check'), str(int(enabled)), str(int(on))], env=env,

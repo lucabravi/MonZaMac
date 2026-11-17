@@ -60,7 +60,7 @@ Z-A v2.0.2 uses larger NPC appearance budgets (64 active / 64 selection candidat
 while walking through crowded areas. Launch with `LARECOMP_NPC_CAPACITY_FIX=0` to retain the original 20/25 budgets.
 The change keeps the game's distance and priority rules; higher population budgets can increase CPU/GPU and memory use.
 
-Debug aids: `LARECOMP_*` environment variables (see `runtime/nvn/renderer.m`); `touch build/dumpframe` captures a frame.
+Debug aids: `LARECOMP_*` environment variables (the supported ones are in [environment.md](environment.md); the rest are described where the code reads them, `grep 'getenv("LARECOMP_'`); `touch build/dumpframe` captures a frame.
 
 Developer → Experimental → **Uncapped FPS (benchmark)** removes presentation pacing and Metal display sync.
 It is off by default and overrides the normal frame-rate selection while enabled. The FPS overlay marks benchmark

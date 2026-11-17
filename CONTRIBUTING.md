@@ -51,7 +51,9 @@ See the README. In short: `tools/build_nstool.sh`, then `tools/extract_game.sh b
   window, saves...), with the project's Python from `tools/venv`; the system Python lacks `unicorn` and `lz4`.
 - Test in the game and look at the result: a graphics fix isn't verified until you've seen it on screen. Say what you
   tested and what you could not.
-- Debug hooks are `LARECOMP_*` environment variables, documented where they are defined (grep `getenv("LARECOMP_`).
+- Debug hooks are `LARECOMP_*` environment variables, documented where they are defined (grep `getenv("LARECOMP_`). The few
+  that players and bug reports use are in [docs/environment.md](docs/environment.md): a variable goes there only when it
+  keeps its name and meaning, and `gmake test-tools` checks that every name in the docs is still read by the code.
 
 ## Code style
 

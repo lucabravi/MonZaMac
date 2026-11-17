@@ -184,7 +184,7 @@ typedef struct {
     bool presented;      // has been shown by backend_present (a swapchain image)
     uint64_t touched_frame;  // last frame it was written (cleared at the first write of a frame when reshaped)
     uint32_t level_gen;      // g_level_gen when last used as a render target
-    uint64_t frame_cleared;  // LARECOMP_FRAME_CLEAR: frame it was last cleared at first use
+    uint64_t frame_cleared;  // frame it was last cleared at first use
     float sx, sy;        // allocation scale relative to the guest's size
     float shadow_k;      // a shadow map drawn at shadow_k times the game's size (tex_shadow_scale): 0 / 1 = as is
     bool shadow_cand;    // one of the shadow maps (tex_shadow_candidate): remade when the scale changes
