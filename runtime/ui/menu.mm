@@ -1217,7 +1217,9 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
             do i = (i + step + ntabs) % ntabs; while (!tabs[i].on);
             g_tab_request = tabs[i].id;
             // the cursor on the tab bar goes along (left behind, A on it switched straight back; user 2026-10-11)
-            if (focused_tab != -99) g_focus_tab = tabs[i].id, g_focus_frames = 0;
+            // From inside the page too: its rows go away with it, and ImGui then put the cursor on the window's first
+            // item - on the start screen that is the header's logo (user 2026-11-18)
+            if (focused_tab != -99 || ImGui::GetCurrentContext()->NavCursorVisible) g_focus_tab = tabs[i].id, g_focus_frames = 0;
         }
     }
     // Down with the cursor on the tab bar: the page's first row (option rows; other pages keep ImGui's own pick)
