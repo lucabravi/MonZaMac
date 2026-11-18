@@ -5,6 +5,9 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+### Start screen
+- With a controller, Down from **CONTINUE** goes to **NEW GAME** and Right goes to **PLAY ONLINE** (Down used to jump to PLAY ONLINE).
+- In Settings, switching tabs with L1/R1 while the cursor is on a row no longer moves the cursor up to the MonZaMac logo: it goes to the new tab (the in-game menu too).
 ### Lumiose Online
 - **Play online works again for players with no online save yet** (new players, or players who only played offline). In 0.4.1 the hidden start-up check that runs before a new online version is used stopped at once on the save-kind check, so the start screen said "not activated, the start-up log reports an error". The check now plays a fresh online save of its own, in a scratch folder.
 

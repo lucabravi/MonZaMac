@@ -963,6 +963,7 @@ static bool wide_button(ImDrawList *dl, const char *label, ImVec2 p, float w, fl
 // card and the buttons. 1 CONTINUE, 2 NEW GAME, 3 SAVES, 5 SET UP GAME FILES; 0 nothing yet. (The title, SETTINGS and
 // QUIT are in the header, runtime/ui/launcher.mm home_chrome.)
 extern ImFont *g_font_column_title;  // runtime/ui/launcher.mm
+static bool g_continue_right;  // Right was pressed on CONTINUE: PLAY ONLINE takes the cursor
 static float g_home_u;  // the home page's unit, as saves_home_draw fitted it (the online column uses the same)
 int saves_home_draw(ImFont *small_, bool ready, bool show_setup, bool focus_first, bool local_chip, float rx, float ry, float rw, float rh) {
     static int age = 1000;
@@ -1059,10 +1060,18 @@ int saves_home_draw(ImFont *small_, bool ready, bool show_setup, bool focus_firs
         {"Set up game files", true, 5, x, w, 2}};  // (keys of the catalog; shown in capitals)
     int act = 0;
     bool first_focus = focus_first;
+    // From CONTINUE the controller goes down to NEW GAME and right to PLAY ONLINE. ImGui's own pick by distance took the
+    // big PLAY ONLINE button for Down too (user 2026-11-18): the move is taken over here.
+    ImGuiContext &g = *ImGui::GetCurrentContext();
+    bool down_from_continue = false;
     for (int i = 0; i < n; i++) {
-        bool f = first_focus && items[i].on;
-        if (f) first_focus = false;
+        bool f = (first_focus || down_from_continue) && items[i].on;
+        if (f) first_focus = down_from_continue = false;
         if (wide_button(dl, items[i].label, ImVec2(items[i].x, by + step * items[i].row), items[i].w, bh, small_, u * 0.95f, items[i].on, f)) act = items[i].act;
+        if (i == 0 && ImGui::IsItemFocused() && g.NavMoveScoringItems) {
+            if (g.NavMoveDir == ImGuiDir_Down) ImGui::NavMoveRequestCancel(), down_from_continue = true;
+            else if (g.NavMoveDir == ImGuiDir_Right) ImGui::NavMoveRequestCancel(), g_continue_right = true;
+        }
     }
     return act;
 }
@@ -1185,6 +1194,10 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
     ImGui::PushStyleColor(ImGuiCol_NavCursor, ImVec4(0, 0, 0, 0));
     ImGui::BeginDisabled(!v.on);
     bool clicked = ImGui::InvisibleButton("##play-online", ImVec2(w, q.y - p.y), ImGuiButtonFlags_EnableNav);
+    if (g_continue_right) {  // (Right from CONTINUE: saves_home_draw)
+        g_continue_right = false;
+        if (v.on) ImGui::SetFocusID(ImGui::GetItemID(), ImGui::GetCurrentWindow()), ImGui::SetNavCursorVisible(true);
+    }
     bool hot = v.on && (ImGui::IsItemHovered() || ImGui::IsItemFocused());
     ImGui::EndDisabled();
     ImGui::PopStyleColor();
