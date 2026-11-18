@@ -151,6 +151,7 @@ Display	ディスプレイ
 Docked (1080p)	TVモード (1080p)
 Download	ダウンロード
 Download a metadata catalog from official MonZaMac GitHub releases and verify it against your own game files. Nothing is uploaded. Your previous catalog is kept if verification fails. Applies on the next game start.	MonZaMac公式のGitHubリリースからメタデータカタログをダウンロードし、お手持ちのゲームファイルで検証します。何もアップロードされません。検証に失敗した場合は、以前のカタログが保持されます。次回のゲーム起動時に反映されます。
+Drawing the button icons for your controller...	コントローラーのボタンアイコンを描画中...
 Drop prod.keys here or choose it. Read locally for setup; not copied or uploaded.	prod.keysをここにドラッグするか選択してください。設定のためにMac上で読み取るだけで、コピーやアップロードは行いません。
 Drop the base game, update, prod.keys, or extracted folder on its row.	本編、アップデート、prod.keys、または展開済みフォルダーを、それぞれ対応する行にドラッグしてください。
 Drop the item onto its matching field.	項目を対応する欄にドロップしてください。

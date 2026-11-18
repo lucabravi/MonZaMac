@@ -161,6 +161,7 @@ app:
 	@[ -f build/deps/lib/libSDL3.0.dylib ] || { echo "make deps first"; exit 1; }
 	MACOS_MIN=$(APP_MIN) tools/build_nstool.sh
 	$(MAKE) gen-helper
+	$(MAKE) prompts-helper
 	tools/fetch_zig.sh
 	$(MAKE) B=$(APP_B) MACOS_MIN=$(APP_MIN) DEPS=$(CURDIR)/build/deps $(APP_B)/monzamac
 	MACOS_MIN=$(APP_MIN) tools/bundle_macos.sh $(APP_B)/monzamac
@@ -179,12 +180,23 @@ gen-helper: build/helper-venv/.ok build/shader-decode/release/monzamac-shader-de
 	    --lock tools/shader_decode/Cargo.lock --manifest tools/shader_decode/Cargo.toml --output build/helper/lasgen/shader-decoder-licenses
 	@du -sh build/helper/lasgen
 
+# The button icon maker (tools/za/prompt_textures.py, tools/zaprompts.spec): build/helper/zaprompts/, shipped in
+# Contents/Resources. The start screen runs it on the player's own game files (runtime/ui/launcher.mm make_prompts).
+prompts-helper: build/prompts-venv/.ok build/shader-decode/release/monzamac-shader-decode
+	build/prompts-venv/bin/python -m PyInstaller --noconfirm --clean --log-level WARN --distpath build/helper \
+	    --workpath build/pyinstaller-prompts tools/zaprompts.spec
+
+build/prompts-venv/.ok:
+	$(or $(firstword $(wildcard build/deps/python/bin/python3.12)),python3.12) -m venv build/prompts-venv
+	build/prompts-venv/bin/python -m pip install -q pyinstaller==6.22.3 pillow==13.0.0 numpy==2.5.4 fonttools==4.67.0 cffsubr==0.4.0
+	touch $@
+
 build/helper-venv/.ok:
 	$(or $(firstword $(wildcard build/deps/python/bin/python3.12)),python3.12) -m venv build/helper-venv
 	build/helper-venv/bin/python -m pip install -q pyinstaller==6.22.3 capstone==5.0.9 unicorn==2.1.4 lz4==4.4.5 zstandard==0.25.0
 	touch $@
 
-.PHONY: dmg all gen gen-helper gen-objs runtime-objs deps app
+.PHONY: dmg all gen gen-helper prompts-helper gen-objs runtime-objs deps app
 
 build/test_shaders: tools/test_shaders.m runtime/nvn/maxwell/translate.c runtime/nvn/maxwell/shader.h
 	clang -O1 -fobjc-arc -framework Metal -framework Foundation -o $@ tools/test_shaders.m runtime/nvn/maxwell/translate.c

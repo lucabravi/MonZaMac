@@ -5,6 +5,9 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+### Controls
+- **Button icons now follow your controller:** keyboard keys, Xbox (A B X Y, LB RB LT RT, Menu View) or PlayStation (cross circle square triangle, L1 R1 L2 R2, Options Share), chosen in F1 > Controls > Button icons (Auto follows the controller). Before, that setting did nothing on a new installation. The icons are drawn from your own game files once, at the setup or the next time the start screen opens (about a minute, in the background), and drawn again after you change a binding, so each icon names the key or button you press. For now this covers the icons inside the game's text; the HUD and menu icons stay Nintendo's.
+
 ### Lumiose Online
 - The current online module (from 17 November) locks its decimal conversions again through a shared lock function, which the preparation no longer recognized, so MonZaMac added its own lock on top. Two locks taken in opposite orders could hang the game. The preparation now recognizes the new form and leaves its own lock off; Play online prepares the module again once.
 

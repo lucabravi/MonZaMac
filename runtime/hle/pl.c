@@ -158,29 +158,35 @@ static void load_fonts(void) {
     // with the bound keys' names (tools/za/keyboard_font.py, from the settings' bind_key_* lines)
     const char *pl_prompt_set(void);
     const char *set = pl_prompt_set();
-    LOG("[pl] button prompts: %s\n", set ? set : "Nintendo");
     char path[64];
     snprintf(path, sizeof path, "fonts/nintendo_ext_003_%s.ttf", set ? set : "");
     if (!(set && load_one(path, &fonts[1])) && !load_one("fonts/nintendo_ext_003.bfttf", &fonts[1]))
         load_one("fonts/nintendo_ext_003.ttf", &fonts[1]);
 }
 
-// The prompts' style, chosen once at boot: "keyboard", "xbox" (controls by position: A/B and X/Y traded - the
-// Switch's A on the east button), "xboxlabel" (by letter, A on the Xbox pad's A: the letters stay; both name the
-// shoulders / triggers / menu buttons LB RB LT RT Menu View) or NULL (the game's own). Names both the button glyph
-// font (fonts/nintendo_ext_003_<set>.ttf: tools/za/keyboard_font.py, xbox_font.py) and the game's own UI icons
-// relabelled (textures/prompts/<set>: tools/za/prompt_textures.py, runtime/nvn/vulkan/textures.c).
+// The prompts' style, chosen once at boot: "keyboard", "xbox", "playstation", "nintendo" (a controller SDL names no
+// family for: only inputs moved off their own button relabelled) or NULL (the game's own: Nintendo chosen). Each set
+// names, for every input, the key or button it is bound to now - in that pad's own words (A B X Y LB RB LT RT Menu
+// View; cross circle square triangle L1 R1 L2 R2 Options Share). Names the button glyph font
+// (fonts/nintendo_ext_003_<set>.ttf, if present) and the game's own icon fonts relabelled
+// (textures/prompts/<set>/romfs.patch: tools/za/prompt_textures.py, made by runtime/ui/launcher.mm).
 const char *pl_prompt_set(void) {
     static int done;
     static const char *set;
     if (done) return set;
     done = 1;
-    extern int input_pad_family(void);
-    extern int16_t g_bind_pad[];
+    // (bind_label_family, not input_pad_family: runtime/services/fs.c asks this before runtime/hle/input.c has opened
+    // the controller - SDL knows the pad's type already)
+    extern int bind_label_family(void);
     bool pad = SDL_HasGamepad();
-    bool xbox = g_settings.prompts == PROMPTS_XBOX || (g_settings.prompts == PROMPTS_AUTO && pad && input_pad_family() == 1);
+    int fam = pad ? bind_label_family() : 0;
+    bool xbox = g_settings.prompts == PROMPTS_XBOX || (g_settings.prompts == PROMPTS_AUTO && fam == 1);
+    bool ps = g_settings.prompts == PROMPTS_PLAYSTATION || (g_settings.prompts == PROMPTS_AUTO && fam == 2);
     bool keys = g_settings.prompts == PROMPTS_KEYBOARD || (g_settings.prompts == PROMPTS_AUTO && !pad);
-    set = keys ? "keyboard" : !xbox ? NULL : g_bind_pad[0] == SDL_GAMEPAD_BUTTON_EAST ? "xbox" : "xboxlabel";
+    // (each set is made for the current bindings: runtime/ui/launcher.mm remakes them when those change)
+    set = keys ? "keyboard" : xbox ? "xbox" : ps ? "playstation" : pad ? "nintendo" : NULL;
+    LOG("[pl] button prompts: %s (setting %d, controller %s, family %d)\n", set ? set : "the game's own",
+        g_settings.prompts, pad ? "connected" : "none", fam);
     return set;
 }
 

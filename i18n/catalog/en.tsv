@@ -151,6 +151,7 @@ Display	Display
 Docked (1080p)	Docked (1080p)
 Download	Download
 Download a metadata catalog from official MonZaMac GitHub releases and verify it against your own game files. Nothing is uploaded. Your previous catalog is kept if verification fails. Applies on the next game start.	Download a metadata catalog from official MonZaMac GitHub releases and verify it against your own game files. Nothing is uploaded. Your previous catalog is kept if verification fails. Applies on the next game start.
+Drawing the button icons for your controller...	Drawing the button icons for your controller...
 Drop prod.keys here or choose it. Read locally for setup; not copied or uploaded.	Drop prod.keys here or choose it. Read locally for setup; not copied or uploaded.
 Drop the base game, update, prod.keys, or extracted folder on its row.	Drop the base game, update, prod.keys, or extracted folder on its row.
 Drop the item onto its matching field.	Drop the item onto its matching field.

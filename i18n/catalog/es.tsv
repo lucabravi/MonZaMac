@@ -151,6 +151,7 @@ Display	Pantalla
 Docked (1080p)	Modo TV (1080p)
 Download	Descargar
 Download a metadata catalog from official MonZaMac GitHub releases and verify it against your own game files. Nothing is uploaded. Your previous catalog is kept if verification fails. Applies on the next game start.	Descarga un catálogo de metadatos de las versiones oficiales de MonZaMac en GitHub y lo verifica con tus propios archivos del juego. No se sube nada. Si la verificación falla, se conserva tu catálogo anterior. Se aplica en el próximo inicio del juego.
+Drawing the button icons for your controller...	Dibujando los iconos de los botones para tu mando...
 Drop prod.keys here or choose it. Read locally for setup; not copied or uploaded.	Arrastra aquí prod.keys o selecciónalo. Se lee localmente para configurar; no se copia ni se sube a internet.
 Drop the base game, update, prod.keys, or extracted folder on its row.	Arrastra el juego base, la actualización, prod.keys o la carpeta extraída a su fila correspondiente.
 Drop the item onto its matching field.	Suelta el elemento en el campo que le corresponde.

@@ -151,6 +151,7 @@ Display	顯示
 Docked (1080p)	TV 模式 (1080p)
 Download	下載
 Download a metadata catalog from official MonZaMac GitHub releases and verify it against your own game files. Nothing is uploaded. Your previous catalog is kept if verification fails. Applies on the next game start.	從 MonZaMac 官方 GitHub 發行版下載中繼資料目錄，並用你自己的遊戲檔案驗證。不會上傳任何內容。驗證失敗時會保留先前的目錄。下次啟動遊戲時生效。
+Drawing the button icons for your controller...	正在繪製控制器的按鍵圖示...
 Drop prod.keys here or choose it. Read locally for setup; not copied or uploaded.	將 prod.keys 拖到此處或手動選擇。只會在本機讀取以完成設定，不會複製或上傳。
 Drop the base game, update, prod.keys, or extracted folder on its row.	將遊戲本體、更新檔、prod.keys 或擷取後的資料夾拖到對應列。
 Drop the item onto its matching field.	請將該項目拖到對應的欄位上。
