@@ -5,6 +5,9 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+### Lumiose Online
+- **Play online works again for players with no online save yet** (new players, or players who only played offline). In 0.4.1 the hidden start-up check that runs before a new online version is used stopped at once on the save-kind check, so the start screen said "not activated, the start-up log reports an error". The check now plays a fresh online save of its own, in a scratch folder.
+
 ### Developer tools
 - The translation table (`i18n/translations.tsv`) no longer holds 31 sentences that the interface stopped using (for example the old help lines, the game-language prompt and the fullscreen hint), so the 11 catalogs are smaller and a translator does not spend time on text nobody sees.
 - The applet test (`tools/test_am_applet.c`) builds again after 0.4.1 (it needed a stub for the game's build ID) and now also checks the game version the game is told (1.0.0, 2.0.0 or 2.0.2).
