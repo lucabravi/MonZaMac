@@ -5,6 +5,9 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+### Lumiose Online
+- The current online module (from 17 November) locks its decimal conversions again through a shared lock function, which the preparation no longer recognized, so MonZaMac added its own lock on top. Two locks taken in opposite orders could hang the game. The preparation now recognizes the new form and leaves its own lock off; Play online prepares the module again once.
+
 ## 0.4.3
 
 The 0.4.2 disk images shipped without its Lumiose Online fix. This release carries it. No shader preparation is needed.
