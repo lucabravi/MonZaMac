@@ -5,6 +5,13 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+## 0.4.3
+
+The 0.4.2 disk images shipped without its Lumiose Online fix. This release carries it. No shader preparation is needed.
+
+### Lumiose Online
+- **Play online works for players with no online save yet** (new players, or players who only played offline). 0.4.2 described this fix, but its app still held the previous online helper, so the start screen kept saying "not activated, the start-up log reports an error".
+
 ## 0.4.2
 
 A fix for Play online with no online save yet, and smoother controller moves on the start screen. No shader preparation is needed.
