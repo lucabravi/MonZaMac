@@ -150,7 +150,13 @@ def smoke(directory, runtime, game, seconds=90, settle=20):
     extra, argv = command(directory, runtime, game)
     with tempfile.TemporaryDirectory(prefix='lumiose-smoke-') as scratch:
         log = Path(scratch) / 'run.log'
-        env.update(extra, LARECOMP_HIDDEN='1', LARECOMP_NO_UPDATE_CHECK='1', LARECOMP_SAVE_DIR=str(Path(scratch) / 'save'))
+        # The online edition ignores LARECOMP_SAVE_DIR and refuses a save of the other kind, so the check plays a fresh
+        # online slot in a scratch data folder (a player with no online save yet would otherwise fail it).
+        data = Path(scratch) / 'data'
+        (data / 'saves' / 'check').mkdir(parents=True)
+        (data / 'saves' / 'check' / '.online').touch()
+        env.update(extra, LARECOMP_HIDDEN='1', LARECOMP_NO_UPDATE_CHECK='1', LARECOMP_SAVE_DIR=str(Path(scratch) / 'save'),
+                   LARECOMP_DATA_ROOT=str(data), LARECOMP_PLAY_SAVE='check')
         with log.open('w') as f:
             p = subprocess.Popen(argv, env=env, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
             try:

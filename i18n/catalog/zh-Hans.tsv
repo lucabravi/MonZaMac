@@ -38,11 +38,9 @@ Always (cursor held in the window)	始终（光标限制在窗口内）
 An empty save with a name of your own, ready to play: you're asked before the game restarts with it.	创建自定义名称的空存档。重新启动游戏并使用该存档开始新游戏前，会要求你确认。
 An online save can't be copied.	在线存档无法复制。
 An online save can't be deleted.	在线存档无法删除。
-Anisotropic filtering	各向异性过滤
 Anti-aliasing	抗锯齿
 Any action used to get around the block and make progress in the game offline may get you banned from Lumiose Online!	任何绕过限制并在离线模式下推进游戏进度的行为，都可能导致在 Lumiose Online 中被封禁！
 Any button	任意按键
-Application language	应用语言
 Are you sure?	确定吗？
 Asks for a name, copies the save in use (as the game last saved it: save first) to routes/<name>, then records everything you press until you stop. The copy keeps the starting point; it is kept in routes/<name>, not in the save list. To play it back: LARECOMP_ROUTE=<name> (a fresh copy of the starting save each time; LARECOMP_INPUT_REPLAY_AT=<frame> starts it later).	输入名称后，将当前使用的存档（游戏上次保存的状态；请先在游戏内保存）复制到 routes/<name>，随后录制所有操作直到手动停止。副本保留起始状态，存放在 routes/<name>，不会显示在存档列表中。回放方式：LARECOMP_ROUTE=<name>（每次使用新的初始副本；LARECOMP_INPUT_REPLAY_AT=<frame> 可延后开始）。
 Audio	音频
@@ -68,10 +66,8 @@ Cancel	取消
 Cancelled: %s unchanged.	已取消：%s 未更改。
 Catalog and contributions	目录与贡献
 Catalog verified and installed. Applies at the next game start.	目录已验证并安装。将在下次启动游戏时生效。
-Change the game's text language too?	是否同时更改游戏文本语言？
 Changes the MonZaMac interface, not the game's text or the Lumiose Online mod.	仅更改 MonZaMac 的界面语言，不影响游戏文本或 Lumiose Online 模组。
 Characters and Pokémon away from the camera animate every frame, as those close by do, instead of in visible steps.\n\nCosts a little CPU in crowded places. Off: the game's own. Game version 2.0.2 only.	远离镜头的角色和宝可梦会像近处的一样每帧都播放动画，而不是出现明显的分步卡顿。\n\n在人多的地方会多占一点 CPU。关：使用游戏原本的方式。仅适用于游戏版本 2.0.2。
-Check for updates	检查更新
 Check free disk space and retry.	请检查磁盘可用空间后重试。
 Check now	立即检查
 Check your connection and try again.	请检查网络连接并重试。
@@ -166,12 +162,10 @@ English	English
 Enter  confirm      Esc  cancel      (%d / %d)	Enter 确认   Esc 取消   (%d / %d)
 Enter text	输入文本
 Enter your name	请输入姓名
-Error	错误
 Experimental	实验性功能
 Exploring Lumiose	正在探索密阿雷市
 Export	导出
 Export a save	导出存档
-Export save	导出存档
 Export shader recipes	导出着色器配方
 Exported %s. Nothing was uploaded.	已导出 %s。未上传任何内容。
 Exported to %s	已导出到 %s
@@ -192,7 +186,6 @@ Free space for the game files, data image and compilation, then retry.	请为游
 Frees the space MonZaMac's copy of the game files takes. Saves, seeds and settings are kept, and your own game files aren't touched: you can set the game files up again from them.	释放 MonZaMac 所保存的游戏文件副本占用的空间。存档、种子和设置会保留，你自己的游戏文件不会被改动：之后可以用它们重新设置游戏文件。
 French	Français
 Fullscreen	全屏
-Fullscreen:  F11 / Alt+Enter	全屏：F11 / Alt+Enter
 GPU timing log	GPU 耗时日志
 Game	游戏
 Game FXAA	游戏 FXAA
@@ -213,8 +206,6 @@ Game font	游戏字体
 Game mode	游戏模式
 Game packages	游戏安装包
 Game packages: choose your base NSP/XCI, update NSP and prod.keys. Extracted folder: use exefs/romfs prepared elsewhere. Switch 2 Edition: one .nup container with base, update and DLC; no keys.	游戏包：选择基础 NSP/XCI、更新 NSP 和 prod.keys。已解压文件夹：使用在别处准备好的 exefs/romfs。Switch 2 Edition：一个包含基础游戏、更新和 DLC 的 .nup 容器；无需密钥。
-Game text language	游戏文本语言
-Game update	游戏更新
 Game's	游戏默认
 Game-file preparation didn't finish	游戏文件准备未完成
 German	Deutsch
@@ -264,14 +255,12 @@ Korean	한국어
 Language	语言
 Last played\s\s	上次游玩\s\s
 Last saved	最后保存
-Latest save	最近的存档
 Leaves the game and goes back to the MonZaMac start screen.	退出游戏并返回 MonZaMac 开始界面。
 Left button	左键
 Left stick	左摇杆
 Legal notice	法律声明
 Legal notice & responsible use	法律声明与负责任使用
 Letters, numbers, space, - and _ (up to %d).	字母、数字、空格、- 和 _（最多 %d 个）。
-Loading...	正在加载...
 Local only	仅限本地
 Locally records only new graphics pipeline recipes missing from the prepared catalog. Metadata is deduplicated and saved in the background; game code, keys and saves are not included. Nothing is uploaded. New shader programs are collected from the next game start.	仅在本地记录已准备目录中缺少的新图形管线配方。元数据会去重并在后台保存；不包含游戏代码、密钥和存档。不会上传任何内容。新的着色器程序将从下次启动游戏时开始收集。
 Looking for the game files...	正在查找游戏文件...
@@ -303,7 +292,6 @@ Name	名称
 Name for the copy of "%s"	“%s”的副本名称
 Native	原生
 Native: uses the rendering resolution for generated frames.\nPerformance: caps only generated frames at 1920 pixels wide (1080p at 16:9) to reduce GPU cost. Real frames keep the selected rendering resolution. Intermediate images may look softer.\n\nApplies immediately.	原生：生成帧也使用渲染分辨率。\n性能：仅将生成帧限制在 1920 像素宽（16:9 下为 1080p）以降低 GPU 开销。真实帧仍使用所选渲染分辨率。中间画面可能略显柔和。\n\n立即生效。
-Need game files to play	需要游戏文件才能游玩
 Needs game version 2.0.2	需要游戏版本 2.0.2
 Neither MonZaMac nor this application is affiliated with, endorsed by, sponsored by or approved by Nintendo, GAME FREAK, Creatures Inc. or The Pokémon Company.	MonZaMac 及本应用与 Nintendo、GAME FREAK、Creatures Inc. 或 The Pokémon Company 没有关联，也未获得其认可、赞助或批准。
 Never	从不
@@ -311,7 +299,6 @@ New game	新游戏
 New game in a new save	在新存档中开始游戏
 New online game (recommended)	新的在线游戏（推荐）
 New save	新建存档
-Nintendo font (imported)	Nintendo 字体（已导入）
 No Pokémon yet	尚无宝可梦
 No controller connected	未连接手柄
 No controller connected  (%s button names shown)	未连接控制器（%s 按键名称）
@@ -330,7 +317,6 @@ Not checked	未检查
 Not chosen	未选择
 Not done yet.	尚未完成。
 Not enough free space	可用空间不足
-Not now	暂不
 Not prepared yet	尚未准备
 Not published yet	尚未发布
 Nothing is uploaded. It starts the game, which does this, then comes back here. Redo it when MonZaMac, macOS, your GPU or the game files change: the badge turns yellow then.	不会上传任何内容。游戏将编译着色器后返回此处。如果 MonZaMac、macOS、GPU 或游戏文件发生变化，请再次运行：标记会变黄。
@@ -339,13 +325,11 @@ OK	确定
 ONLINE	在线
 Off	关
 Official shader recipe catalog: %s.%s No game data is uploaded. Compilation runs at game start or when shaders are registered.	官方着色器配方目录：%s.%s 不上传任何游戏数据。着色器在游戏启动或注册时编译。
-Offline play	离线游玩
 On	开
 Online play	在线游玩
 Online play (Lumiose Online)	在线游玩（Lumiose Online）
 Online, where the cursor shows in game (the Lumiose interface is clicked with it): it hides when the mouse has not moved or clicked for this long, and comes back as soon as it does (a two-finger drag does not count).	在线时，游戏内会显示光标（Lumiose 界面需用它点击）：鼠标在此时长内未移动或点击时会隐藏，一有操作便立即重新显示（双指拖动不计入）。
 Only shader hashes and numeric graphics state. No game code, keys, saves or personal information. Nothing is uploaded automatically.	仅包含着色器哈希值及数字化图形状态，不含游戏代码、密钥、存档或个人信息。不会自动上传。
-Open / close this menu:  F1, Esc, the controller's Home / Xbox / PlayStation button, or Back + Start	打开/关闭菜单：F1、Esc、控制器 Home / Xbox / PlayStation 按钮或 Back + Start
 Open folder	打开文件夹
 Open form	打开表单
 Open it in game with F1 or Esc, or on a controller with the %s (or %s together).	游戏中按 F1 或 Esc，或使用控制器上的 %s（或同时按 %s）打开。
@@ -380,11 +364,9 @@ Press a button	请按下按钮
 Press a key	请按任意键
 Privacy	隐私
 Progress since your last save is lost.	上次存档之后的进度将丢失。
-Push to talk	按键通话
 Quit	退出
 Quit to Desktop	退出 MonZaMac
 Quit to Start Screen	返回开始界面
-Quit to start screen	返回开始画面
 Ready	已就绪
 Ready · %s	就绪 · %s
 Recompiling the game	正在重新编译游戏
@@ -402,16 +384,12 @@ Reset controller to defaults	重置手柄按键
 Reset keyboard to defaults	重置键盘按键
 Resolution	分辨率
 Resolution mode	分辨率模式
-Restart and switch	重新启动并切换
-Retry	重试
 Right button	右键
 Right stick	右摇杆
 Right stick snap	右摇杆方向吸附
 Rights and trademarks	权利与商标
 Russian	Русский
 SELECT A SAVE	选择存档
-SET UP GAME FILES	配置游戏文件
-Same as offline	与离线模式相同
 Save a metadata-only JSON contribution for manual review and sharing. Export does not submit it anywhere. Recipes with unknown source locations still need investigation.	保存仅含元数据的 JSON 贡献文件，供手动审核和分享。导出不会将其提交到任何地方。来源位置未知的配方仍需进一步调查。
 Save in the game first: then it can be copied and exported here.	请先在游戏中保存，之后才能在这里复制或导出存档。
 Saves	存档
@@ -421,7 +399,6 @@ Selected	已选择
 Selected save	已选存档
 Server not found	找不到服务器
 Service ready	服务已就绪
-Service unavailable	服务不可用
 Set up	配置
 Set up game files	配置游戏文件
 Set up on first play	首次游玩时配置
@@ -463,11 +440,9 @@ Switch 2 Edition package	Switch 2 Edition 包
 Switch fonts	Switch 字体
 Switch keys	Switch 加密密钥
 Switch tabs	切换标签页
-Switch tabs:  L / R  (Q / E)        Back:  B  (Esc)	切换标签：L / R（Q / E）      返回：B（Esc）
 System default	系统默认
 Team	队伍
 Tests	测试
-Text: %s    Button icons: %s	文字：%s  按键图标：%s
 Text: imported	文本：已导入
 Text: substitute	文本：替代字体
 Textures stay sharp on ground and walls seen at a slant, and (macOS 26 or later) farther away too. Off: the game's own.	斜视的地面和墙壁上的纹理保持清晰，在 macOS 26 或更高版本中，更远处也一样。关：使用游戏原本的方式。
@@ -484,12 +459,10 @@ The game code build for online play could not be kept.	无法保留在线游玩�
 The game code didn't build	游戏代码构建失败
 The game data is not the original of version 2.0.2.	游戏数据不是 2.0.2 版本的原始数据。
 The game files changed.	游戏文件已更改。
-The game restarts to switch its text to %s. Progress since your last save is lost.	游戏将重新启动，文本切换为 %s。上次存档之后的进度将丢失。
 The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.	模糊镜头焦点以外的区域。关闭后整个画面保持清晰。
 The game's glow around bright light. Off: no glow, a plainer image.	为明亮光源添加光晕。关闭后画面更自然。
 The game's own anti-aliasing, a light blur over the whole image.\n\nOff: sharper, with more jagged edges (SMAA above can smooth them instead).	游戏自带的抗锯齿，会对整个画面轻微模糊。\n\n关：更清晰，但锯齿边缘更明显（可改用上方的 SMAA 来平滑）。
 The game's own resolution scaling, which lowers the picture when it thinks the GPU is slow.\n\nOff: it stays at full (a window in the background no longer makes it blurry for a while). Separate from Internal resolution > Dynamic.	游戏自带的分辨率缩放，在它认为 GPU 较慢时会降低画面分辨率。\n\n关：始终保持完整分辨率（窗口在后台时不再让画面模糊一阵）。与“内部分辨率 > 动态”相互独立。
-The game's text language, as its own system setting. Applies when the game restarts: Quit -> Title screen, then Play.	设置游戏内文本所用的模拟主机系统语言。重启游戏后生效：退出 > 标题画面 > 游玩。
 The game's volume. 100% is the game's own level; above it, louder.	游戏音量。100% 为原始音量，提高后声音会更响。
 The microphone the game listens to. System default follows the Mac's choice in System Settings > Sound.	游戏使用的麦克风。“系统默认”遵循 Mac 的“系统设置 > 声音”。
 The mode the game believes it runs in.\n\nHandheld: it draws 720p with lighter effects, as on the Switch's own screen - far less work for the GPU, for slower Macs.\nDocked: 1080p.\n\nAlso Cmd+Ctrl+H. If the picture does not follow at once, restart the game.	游戏认为自己运行的模式。\n\n掌机模式：以 720p 绘制并使用较轻的特效，与 Switch 自带屏幕一致 - GPU 负担小得多，适合较慢的 Mac。\n主机模式：1080p。\n\n也可使用 Cmd+Ctrl+H。若画面没有立即跟随，请重新启动游戏。
@@ -547,15 +520,12 @@ Use substitute font	使用替代字体
 Version %s is out. Update to play online.	版本 %s 已发布。请更新后再在线游玩。
 Video	视频
 View + Menu	视图 + 菜单
-Voice chat	语音聊天
 Volume	音量
 WARNING: once this save is used online, it can no longer be played offline!	注意：此存档一旦在线使用，之后将无法再离线游玩！
 Wait for shaders	等待着色器编译
-Warning	警告
 While holding a button	按住按键时
 While holding a button: the mouse turns the camera while the chosen button is held. Always: the camera follows the mouse all the time, and the cursor is held inside the window (the menus free it).	按住按钮时：仅在按住所选按钮时使用鼠标旋转镜头。始终：镜头始终跟随鼠标，光标限制在窗口内（进入菜单时解除限制）。
 Wider view	扩大视野
-Windowed	窗口模式
 With MetalFX temporal, frame generation uses the reconstructed output resolution. Performance is inactive in this combination.\n\nYour saved quality choice is restored when temporal is off.	使用 MetalFX 时域时，帧生成使用重建后的输出分辨率。此组合下“性能”不可用。\n\n关闭时域后，会恢复你保存的画质选择。
 Working...	处理中...
 Wrong game version	游戏版本不正确
@@ -584,7 +554,6 @@ not done yet	尚未完成
 out of date	已过期
 precompiled	已预编译
 substitute	替代
-substitute (Hiragino Sans)	替代字体（Hiragino Sans）
 this game	当前游戏
 today	今天
 yesterday	昨天

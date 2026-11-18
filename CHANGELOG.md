@@ -3,6 +3,23 @@
 Versions follow `v<major>.<minor>.<patch>` (0.x until a stable 1.0). The version shows on the start screen and in
 the in-game menu; the start screen also offers a newer release from GitHub when there is one.
 
+## Unreleased
+
+## 0.4.2
+
+A fix for Play online with no online save yet, and smoother controller moves on the start screen. No shader preparation is needed.
+
+### Start screen
+- With a controller, Down from **CONTINUE** goes to **NEW GAME** and Right goes to **PLAY ONLINE** (Down used to jump to PLAY ONLINE).
+- In Settings, switching tabs with L1/R1 while the cursor is on a row no longer moves the cursor up to the MonZaMac logo: it goes to the new tab (the in-game menu too).
+
+### Lumiose Online
+- **Play online works again for players with no online save yet** (new players, or players who only played offline). In 0.4.1 the hidden start-up check that runs before a new online version is used stopped at once on the save-kind check, so the start screen said "not activated, the start-up log reports an error". The check now plays a fresh online save of its own, in a scratch folder.
+
+### Developer tools
+- The translation table (`i18n/translations.tsv`) no longer holds 31 sentences that the interface stopped using (for example the old help lines, the game-language prompt and the fullscreen hint), so the 11 catalogs are smaller and a translator does not spend time on text nobody sees.
+- The applet test (`tools/test_am_applet.c`) builds again after 0.4.1 (it needed a stub for the game's build ID) and now also checks the game version the game is told (1.0.0, 2.0.0 or 2.0.2).
+
 ## 0.4.1
 
 A few follow-ups to 0.4.0: a save of the wrong kind now stops the game, a GPU program built to fit is found again at the next start, and the game version that mods read follows the game files. No shader preparation is needed.
