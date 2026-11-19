@@ -1084,10 +1084,12 @@ static void tab_about(void) {
     ImGui::Spacing();
     header("Button prompts");
     {
+        // Auto names what it picks now (runtime/hle/pl.c pl_prompt_pick): the keys with no controller connected
         static const char *const fam[] = {"Nintendo", "Xbox", "PlayStation"};
+        extern int bind_label_family(void);
         char autol[64];
-        snprintf(autol, sizeof autol, ui_tr("Auto (%s)"), fam[input_pad_family() % 3]);
-        const char *names[] = {autol, "Nintendo", "Xbox", "PlayStation", "Keyboard"};  // (Keyboard: Z-A, from the next boot)
+        snprintf(autol, sizeof autol, ui_tr("Auto (%s)"), SDL_HasGamepad() ? fam[bind_label_family() % 3] : ui_tr("Keyboard"));
+        const char *names[] = {autol, "Nintendo", "Xbox", "PlayStation", "Keyboard"};
         choice("Button icons", &g_settings.prompts, names, 5);
     }
     ImGui::Spacing();
