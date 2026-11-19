@@ -5,14 +5,16 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
-### Lumiose Online
-- The start-up check of a new online version runs hidden again. Since 0.4.2 it plays an empty online save of its own, and its window showed what looked like a new game; closing it made the preparation fail with "the game exited".
+## 0.4.4
+
+Button icons for the keyboard, Xbox and PlayStation controllers, and two fixes for Lumiose Online. **The first start after updating builds the game code again** (a few minutes, once): the tools that make it changed. Play online then prepares the online version again too. No shader preparation is needed.
 
 ### Controls
 - **Button icons now follow your controller:** keyboard keys, Xbox (A B X Y, LB RB LT RT, Menu View) or PlayStation (cross circle square triangle, L1 R1 L2 R2, Options Share), chosen in F1 > Controls > Button icons (Auto follows the controller, and shows the keys when none is connected). Before, that setting did nothing on a new installation. The icons are drawn from your own game files once, at the setup or the next time the start screen opens (about a minute, in the background), and drawn again after you change a binding, so each icon names the key or button you press. They cover the HUD, the menus' key guides and the icons inside the game's text. A change in F1 shows at once on the HUD and in the menus; the icons inside text follow at the next start.
 
 ### Lumiose Online
-- The current online module (from 17 November) locks its decimal conversions again through a shared lock function, which the preparation no longer recognized, so MonZaMac added its own lock on top. Two locks taken in opposite orders could hang the game. The preparation now recognizes the new form and leaves its own lock off; Play online prepares the module again once.
+- The start-up check of a new online version runs hidden again. Since 0.4.2 it plays an empty online save of its own, and its window showed what looked like a new game; closing it made the preparation fail with "the game exited".
+- The current online module (from 17 November) locks its decimal conversions again through a shared lock function, which the preparation no longer recognized, so MonZaMac added its own lock on top. Two locks taken in opposite orders could hang the game. The preparation now recognizes the new form and leaves its own lock off.
 
 ## 0.4.3
 
