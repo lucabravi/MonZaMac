@@ -164,17 +164,14 @@ static void load_fonts(void) {
         load_one("fonts/nintendo_ext_003.ttf", &fonts[1]);
 }
 
-// The prompts' style, chosen once at boot: "keyboard", "xbox", "playstation", "nintendo" (a controller SDL names no
+// The prompts' style: "keyboard", "xbox", "playstation", "nintendo" (a controller SDL names no
 // family for: only inputs moved off their own button relabelled) or NULL (the game's own: Nintendo chosen). Each set
 // names, for every input, the key or button it is bound to now - in that pad's own words (A B X Y LB RB LT RT Menu
 // View; cross circle square triangle L1 R1 L2 R2 Options Share). Names the button glyph font
 // (fonts/nintendo_ext_003_<set>.ttf, if present) and the game's own icon fonts relabelled
 // (textures/prompts/<set>/romfs.patch: tools/za/prompt_textures.py, made by runtime/ui/launcher.mm).
-const char *pl_prompt_set(void) {
-    static int done;
-    static const char *set;
-    if (done) return set;
-    done = 1;
+// The style for the settings and controller now (runtime/nvn/metal.m follows it while playing: the icon textures)
+const char *pl_prompt_pick(int *setting, bool *pad_out, int *fam_out) {
     // (bind_label_family, not input_pad_family: runtime/services/fs.c asks this before runtime/hle/input.c has opened
     // the controller - SDL knows the pad's type already)
     extern int bind_label_family(void);
@@ -183,10 +180,24 @@ const char *pl_prompt_set(void) {
     bool xbox = g_settings.prompts == PROMPTS_XBOX || (g_settings.prompts == PROMPTS_AUTO && fam == 1);
     bool ps = g_settings.prompts == PROMPTS_PLAYSTATION || (g_settings.prompts == PROMPTS_AUTO && fam == 2);
     bool keys = g_settings.prompts == PROMPTS_KEYBOARD || (g_settings.prompts == PROMPTS_AUTO && !pad);
+    if (setting) *setting = g_settings.prompts;
+    if (pad_out) *pad_out = pad;
+    if (fam_out) *fam_out = fam;
     // (each set is made for the current bindings: runtime/ui/launcher.mm remakes them when those change)
-    set = keys ? "keyboard" : xbox ? "xbox" : ps ? "playstation" : pad ? "nintendo" : NULL;
-    LOG("[pl] button prompts: %s (setting %d, controller %s, family %d)\n", set ? set : "the game's own",
-        g_settings.prompts, pad ? "connected" : "none", fam);
+    return keys ? "keyboard" : xbox ? "xbox" : ps ? "playstation" : pad ? "nintendo" : NULL;
+}
+
+// The fonts' style: chosen once at boot (the game reads its icon fonts once)
+const char *pl_prompt_set(void) {
+    static int done;
+    static const char *set;
+    if (done) return set;
+    done = 1;
+    int setting, fam;
+    bool pad;
+    set = pl_prompt_pick(&setting, &pad, &fam);
+    LOG("[pl] button prompts: %s (setting %d, controller %s, family %d)\n", set ? set : "the game's own", setting,
+        pad ? "connected" : "none", fam);
     return set;
 }
 

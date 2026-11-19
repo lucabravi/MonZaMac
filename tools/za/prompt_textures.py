@@ -15,8 +15,8 @@
 # way, in their pack rebuilt, they go to textures/prompts/<style>/romfs.patch, which runtime/services/fs.c lays over
 # the game's data.trpfs.
 #
-# MonZaMac: only romfs.patch is read (runtime/services/fs.c prompt_patch); the Metal renderer has no texture-pack loader
-# yet, so the PNGs are made but nobody draws them.
+# MonZaMac: runtime/nvn/metal.m (icon_levels) brings each PNG back to the game's size and BC5, into the same texture,
+# and follows the set while playing; romfs.patch is read at boot (runtime/services/fs.c prompt_patch).
 #
 # The textures are read from your own game files (extracted/romfs/arc/data.trpfs, or romfs.bin: Oodle-compressed
 # packs), decoded by libmonzamac_ooz.dylib (tools/shader_decode: oozextract, MIT; in the app's zaprompts/, else
