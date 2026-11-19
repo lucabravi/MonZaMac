@@ -5,6 +5,9 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+### Lumiose Online
+- The start-up check of a new online version runs hidden again. Since 0.4.2 it plays an empty online save of its own, and its window showed what looked like a new game; closing it made the preparation fail with "the game exited".
+
 ### Controls
 - **Button icons now follow your controller:** keyboard keys, Xbox (A B X Y, LB RB LT RT, Menu View) or PlayStation (cross circle square triangle, L1 R1 L2 R2, Options Share), chosen in F1 > Controls > Button icons (Auto follows the controller). Before, that setting did nothing on a new installation. The icons are drawn from your own game files once, at the setup or the next time the start screen opens (about a minute, in the background), and drawn again after you change a binding, so each icon names the key or button you press. For now this covers the icons inside the game's text; the HUD and menu icons stay Nintendo's.
 
