@@ -77,7 +77,7 @@ typedef struct {
     bool mirror_mode;    // the world mirrored left to right (Gameplay tab): renderers + runtime/hle/input.c
     int ui_language;     // UI_LANG_AUTO or a UI_LANG_* code; independent of the game text language
     int language;        // LANG_AUTO or an index into g_language_codes: the game's text language
-    int prompts;         // PROMPTS_*: button glyphs (auto = follow the controller SDL reports): runtime/nvn/texpatch.c
+    int prompts;         // PROMPTS_*: button icons (auto = follow the controller SDL reports): runtime/hle/pl.c
     bool aspect_asked;   // the start screen's one-time "authentic 16:9 or unlocked?" question was answered
     bool menu_tip_seen;  // the start screen's one-time "how to open the menu" note was shown (first PLAY ever)
     char save_slot[41];  // (SAVE_NAME_MAX + 1) the save slot played last (its id; empty = the original `save/`)

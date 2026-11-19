@@ -4,6 +4,7 @@
 #include "ui/menu.h"
 // Metal renderer for the NVN layer: window, textures, command execution, presentation.
 #include <sys/stat.h>
+#include <dirent.h>
 #import <AppKit/AppKit.h>
 #import <Metal/Metal.h>
 #import <MetalFX/MetalFX.h>
@@ -189,6 +190,8 @@ typedef struct {
     float shadow_k;      // a shadow map drawn at shadow_k times the game's size (tex_shadow_scale): 0 / 1 = as is
     bool shadow_cand;    // one of the shadow maps (tex_shadow_candidate): remade when the scale changes
     int reg;             // slot in g_reg (live textures, for the "largest textures" dump) + 1
+    bool icon_cand;      // may be a button icon (icon_levels): uploaded again when the icon set changes
+    uint32_t icon_gen;   // icon_gen it was uploaded under
 } TexBackend;
 
 // Live textures (diagnostics: the overworld slowdown at 32:9 - the same textures used 870 MB and 4x the GPU time
@@ -525,11 +528,157 @@ static uint64_t fnv_sample(const uint8_t *p, uint64_t n) {
     return (h[0] ^ (h[1] * 3) ^ (h[2] * 5) ^ (h[3] * 7)) ^ n;
 }
 
+// ================================================================== button prompt icons
+// The game's own button icons (icon_key_a_00, ...: BC5 masks, red = white with the label cut out, green = the shape)
+// relabelled for the prompts' style: textures/prompts/<set>/<hash>.png (tools/za/prompt_textures.py, made by the start
+// screen: runtime/ui/launcher.mm; set chosen by runtime/hle/pl.c pl_prompt_set). The PNG, at 4x the game's size, is
+// brought back to the texture's own size and BC5 here, so it goes into the same texture: no new format, size or view.
+// <hash> is the Windows renderer's hash_full of the texture's bytes as the game wrote them (the tool's hash_full).
+static uint64_t icon_hash(const uint8_t *p, uint64_t n) {
+    uint64_t h0 = 0x9E3779B97F4A7C15ull ^ n, h1 = 0xC2B2AE3D27D4EB4Full, h2 = 0x165667B19E3779F9ull, h3 = 0x27D4EB2F165667C5ull;
+    uint64_t i = 0;
+    for (; i + 32 <= n; i += 32) {
+        uint64_t v[4];
+        memcpy(v, p + i, 32);
+        h0 = (h0 ^ v[0]) * 0x100000001B3ull; h0 ^= h0 >> 29;
+        h1 = (h1 ^ v[1]) * 0x100000001B3ull; h1 ^= h1 >> 29;
+        h2 = (h2 ^ v[2]) * 0x100000001B3ull; h2 ^= h2 >> 29;
+        h3 = (h3 ^ v[3]) * 0x100000001B3ull; h3 ^= h3 >> 29;
+    }
+    uint64_t h = h0 ^ (h1 * 0x9E3779B97F4A7C15ull) ^ (h2 * 0xC2B2AE3D27D4EB4Full) ^ (h3 * 0x165667B19E3779F9ull);
+    for (; i < n; i++) h = (h ^ p[i]) * 0x100000001B3ull;
+    return h ^ (h >> 31);
+}
+
+static uint64_t *icon_h;  // sorted hashes of the set's PNGs
+static int icon_n = -1;
+static char icon_dir[64], icon_made[64];
+static uint32_t icon_gen = 1;  // bumped when the set changes while playing (F1 > Controls, another controller, a rebind)
+static uint64_t icon_checked;
+static int u64_cmp(const void *a, const void *b) { uint64_t x = *(const uint64_t *)a, y = *(const uint64_t *)b; return x < y ? -1 : x > y; }
+
+// the set is chosen again at each boot (back to the start screen: runtime/hle.h RT_ON_RESET's section)
+static void icon_reset(void) { icon_n = -1; icon_gen++; }
+__attribute__((used, section("__DATA,__rt_reset"))) static void (*const icon_reset_entry)(void) = icon_reset;
+
+static void icon_scan(void) {
+    if (icon_n >= 0) return;
+    icon_n = 0;
+    extern const char *pl_prompt_pick(int *setting, bool *pad, int *fam);
+    const char *set = pl_prompt_pick(NULL, NULL, NULL);
+    snprintf(icon_dir, sizeof icon_dir, "textures/prompts/%s", set ? set : "");
+    FILE *m = fopen("textures/prompts/.made", "r");  // (the start screen's stamp: new sets after a rebind)
+    icon_made[0] = 0;
+    if (m) { if (!fgets(icon_made, sizeof icon_made, m)) icon_made[0] = 0; fclose(m); }
+    if (!set) return;
+    DIR *d = opendir(icon_dir);
+    if (!d) return;
+    int cap = 0;
+    for (struct dirent *de; (de = readdir(d));) {
+        unsigned long long h;
+        char ext[8] = "";
+        if (strlen(de->d_name) != 20 || sscanf(de->d_name, "%16llx.%4s", &h, ext) != 2 || strcmp(ext, "png")) continue;
+        if (icon_n == cap) icon_h = realloc(icon_h, (cap = cap ? cap * 2 : 64) * sizeof *icon_h);
+        icon_h[icon_n++] = h;
+    }
+    closedir(d);
+    if (icon_n) qsort(icon_h, icon_n, sizeof *icon_h, u64_cmp);
+    LOG("[tex] button icons: %d in %s\n", icon_n, icon_dir);
+}
+
+// About twice a second: the set the settings and controller pick now, and the sets' stamp. A change: the icons
+// uploaded again (the fonts' icons stay the boot's set until the next start: the game reads its fonts once).
+static void icon_refresh(void) {
+    if (icon_n < 0 || g_frame_counter - icon_checked < 30) return;
+    icon_checked = g_frame_counter;
+    extern const char *pl_prompt_pick(int *setting, bool *pad, int *fam);
+    const char *set = pl_prompt_pick(NULL, NULL, NULL);
+    char dir[64], made[64] = "";
+    snprintf(dir, sizeof dir, "textures/prompts/%s", set ? set : "");
+    FILE *m = fopen("textures/prompts/.made", "r");
+    if (m) { if (!fgets(made, sizeof made, m)) made[0] = 0; fclose(m); }
+    if (!strcmp(dir, icon_dir) && !strcmp(made, icon_made)) return;
+    LOG("[tex] button icons: now %s\n", set ? set : "the game's own");
+    icon_n = -1;
+    icon_gen++;
+    icon_scan();
+}
+
+// One BC4 block of 16 values: 8-value mode (e0 = max > e1 = min), each value's nearest step
+static void bc4_block(const uint8_t v[16], uint8_t out[8]) {
+    uint8_t lo = 255, hi = 0;
+    for (int i = 0; i < 16; i++) { if (v[i] < lo) lo = v[i]; if (v[i] > hi) hi = v[i]; }
+    uint64_t bits = 0;
+    if (hi > lo)
+        for (int i = 0; i < 16; i++) {
+            int p = ((v[i] - lo) * 7 + (hi - lo) / 2) / (hi - lo);  // 0 = e1 (min) .. 7 = e0 (max)
+            uint64_t idx = p == 7 ? 0 : p == 0 ? 1 : (uint64_t)(8 - p);
+            bits |= idx << (3 * i);
+        }
+    out[0] = hi, out[1] = lo;
+    for (int k = 0; k < 6; k++) out[2 + k] = (uint8_t)(bits >> (8 * k));
+}
+
+// The replacement's linear BC5 blocks for each level (NULL: not a button icon); free with icon_free
+static uint8_t **icon_levels(NvnTexture *t, const uint8_t *mem, uint64_t total) {
+    icon_scan();
+    if (!icon_n) return NULL;
+    uint64_t h = icon_hash(mem, total);
+    static int dbg = -1, ndbg;  // LARECOMP_LOG_ICONS: the small BC5 textures' hashes (one found in no set: a new game version?)
+    if (dbg < 0) dbg = getenv("LARECOMP_LOG_ICONS") != NULL;
+    if (dbg && ndbg++ < 400) LOG("[tex] BC5 %ux%u %u levels, %llu bytes: %016llx\n", t->width, t->height, t->layout.levels,
+                                 (unsigned long long)total, (unsigned long long)h);
+    if (!bsearch(&h, icon_h, icon_n, sizeof h, u64_cmp)) return NULL;
+    char path[128];
+    snprintf(path, sizeof path, "%s/%016llx.png", icon_dir, (unsigned long long)h);
+    SDL_Surface *s0 = SDL_LoadPNG(path);
+    SDL_Surface *s = s0 ? SDL_ConvertSurface(s0, SDL_PIXELFORMAT_ABGR8888) : NULL;  // (R, G, B, A bytes)
+    if (s0) SDL_DestroySurface(s0);
+    if (!s) { LOG("[tex] %s: %s\n", path, SDL_GetError()); return NULL; }
+    uint32_t levels = t->layout.levels;
+    uint8_t **out = calloc(levels, sizeof *out);
+    for (uint32_t lv = 0; lv < levels; lv++) {
+        LevelLayout l = tegra_level(&t->layout, lv);
+        uint8_t *blk = out[lv] = calloc((uint64_t)l.wb * l.hb, 16);
+        for (uint32_t by = 0; by < l.hb; by++)
+            for (uint32_t bx = 0; bx < l.wb; bx++) {
+                uint8_t ch[2][16];
+                for (int i = 0; i < 16; i++) {
+                    uint32_t x = bx * 4 + (i & 3), y = by * 4 + (i >> 2);
+                    if (x >= l.w) x = l.w - 1;
+                    if (y >= l.h) y = l.h - 1;
+                    // the PNG's pixels under this texel, averaged
+                    uint32_t x0 = (uint64_t)x * s->w / l.w, x1 = (uint64_t)(x + 1) * s->w / l.w;
+                    uint32_t y0 = (uint64_t)y * s->h / l.h, y1 = (uint64_t)(y + 1) * s->h / l.h;
+                    if (x1 <= x0) x1 = x0 + 1;
+                    if (y1 <= y0) y1 = y0 + 1;
+                    uint32_t r = 0, g = 0, n = 0;
+                    for (uint32_t yy = y0; yy < y1 && yy < (uint32_t)s->h; yy++)
+                        for (uint32_t xx = x0; xx < x1 && xx < (uint32_t)s->w; xx++, n++) {
+                            const uint8_t *px = (const uint8_t *)s->pixels + (uint64_t)yy * s->pitch + xx * 4;
+                            r += px[0], g += px[1];
+                        }
+                    ch[0][i] = n ? (uint8_t)((r + n / 2) / n) : 0;
+                    ch[1][i] = n ? (uint8_t)((g + n / 2) / n) : 0;
+                }
+                bc4_block(ch[0], blk + ((uint64_t)by * l.wb + bx) * 16);
+                bc4_block(ch[1], blk + ((uint64_t)by * l.wb + bx) * 16 + 8);
+            }
+    }
+    static int nlog;
+    if (nlog++ < 40) LOG("[tex] button icon %016llx: %s (%ux%u, %u levels)\n", (unsigned long long)h, path, t->width, t->height, levels);
+    SDL_DestroySurface(s);
+    return out;
+}
+
 // Upload all levels/layers from block-linear guest memory.
 static void upload_texture(NvnTexture *t, TexBackend *b, id<MTLBlitCommandEncoder> blit) {
     if (!t->addr || t->target == 10) return;
+    icon_refresh();
+    bool icon_stale = b->icon_cand && b->icon_gen != icon_gen;  // (a button icon under another set: again)
+    if (icon_stale) b->checked_frame = ~0ull, b->sample_hash = 0;
     if (b->uploaded && b->checked_frame == g_frame_counter) return;  // (fast exits before any layout math)
-    if (b->uploaded && !b->dynamic && ((g_frame_counter + ((uintptr_t)b >> 6)) & 7)) return;
+    if (b->uploaded && !b->dynamic && !icon_stale && ((g_frame_counter + ((uintptr_t)b >> 6)) & 7)) return;
     const FormatInfo *fi = t->layout.fmt;
     MtlFormat mf = mtl_format(t->format);
     uint64_t total = tegra_total_size(&t->layout);
@@ -539,7 +688,7 @@ static void upload_texture(NvnTexture *t, TexBackend *b, id<MTLBlitCommandEncode
     if (b->uploaded && b->checked_frame == g_frame_counter) return;
     // Textures that have never changed since upload (almost all: loaded from files) are re-checked every 8th
     // frame, staggered per texture; ones seen changing (glyph caches, video...) every frame.
-    if (b->uploaded && !b->dynamic && ((g_frame_counter + ((uintptr_t)b >> 6)) & 7)) return;
+    if (b->uploaded && !b->dynamic && !icon_stale && ((g_frame_counter + ((uintptr_t)b >> 6)) & 7)) return;
     b->checked_frame = g_frame_counter;
     // linear textures are the CPU-written kind (the font glyph cache, 1024x2048 R8, video): checked in full every
     // frame from the start - a strided sample missed newly rasterized glyphs, so characters of new text popped in
@@ -549,7 +698,7 @@ static void upload_texture(NvnTexture *t, TexBackend *b, id<MTLBlitCommandEncode
     const uint8_t *mem = (const uint8_t *)(uintptr_t)t->addr;
     static int always_full = -1;
     if (always_full < 0) always_full = getenv("LARECOMP_TEX_FULLHASH") ? 1 : 0;
-    bool full = b->dynamic || !b->uploaded || always_full;
+    bool full = b->dynamic || !b->uploaded || always_full || icon_stale;
     if (!full && g_frame_counter - b->full_frame >= 120 && full_hash_budget >= total) { full = true; full_hash_budget -= total; }
     if (!full) {
         uint64_t sh = fnv_sample(mem, total);
@@ -558,10 +707,11 @@ static void upload_texture(NvnTexture *t, TexBackend *b, id<MTLBlitCommandEncode
     uint64_t h = hash_full(mem, total);
     b->full_frame = g_frame_counter;
     // Unchanged full contents already have a matching sample hash.
-    if (b->uploaded && h == b->data_hash) return;
+    if (b->uploaded && h == b->data_hash && !icon_stale) return;
     b->sample_hash = fnv_sample(mem, total);
     if (b->uploaded && h != b->data_hash) b->dynamic = true;
     b->data_hash = h;
+    b->icon_gen = icon_gen;
     b->uploaded = true;
     // callers without an encoder get a private upload command buffer, created only when needed
     id<MTLCommandBuffer> own_cb = nil;
@@ -569,6 +719,9 @@ static void upload_texture(NvnTexture *t, TexBackend *b, id<MTLBlitCommandEncode
     uint32_t layers = t->layout.layers ? t->layout.layers : 1;
     uint64_t layer_size = tegra_layer_size(&t->layout);
     bool linear = (t->flags & 0x10) != 0;
+    // (BC5 unorm, 2D, block-linear, small: the button icons' kind; each such upload costs one more hash)
+    b->icon_cand = t->format == 0x4B && layers == 1 && t->layout.depth <= 1 && !linear && total <= (1u << 20);
+    uint8_t **icon = b->icon_cand ? icon_levels(t, mem, total) : NULL;
     for (uint32_t layer = 0; layer < layers; layer++) {
         for (uint32_t lv = 0; lv < t->layout.levels; lv++) {
             LevelLayout l = tegra_level(&t->layout, lv);
@@ -576,7 +729,10 @@ static void upload_texture(NvnTexture *t, TexBackend *b, id<MTLBlitCommandEncode
             uint64_t sz = (uint64_t)row * l.hb * l.d;
             uint8_t *lin = malloc(sz);
             const uint8_t *src = (const uint8_t *)(uintptr_t)t->addr + layer * layer_size + l.offset;
-            if (linear) {
+            if (icon) {
+                memcpy(lin, icon[lv], sz);
+                free(icon[lv]);
+            } else if (linear) {
                 for (uint32_t y = 0; y < l.hb; y++) memcpy(lin + (uint64_t)y * row, src + y * t->stride, row);
             } else {
                 tegra_deswizzle(src, lin, l.wb, l.hb, l.d, fi->bpb, l.block_height_log2, l.block_depth_log2);
@@ -616,6 +772,7 @@ static void upload_texture(NvnTexture *t, TexBackend *b, id<MTLBlitCommandEncode
                     destinationSlice:slice destinationLevel:lv destinationOrigin:MTLOriginMake(0, 0, 0)];
         }
     }
+    free(icon);
     if (own_cb) {
         [blit endEncoding];
         RendererGpuTimingToken *timing = renderer_gpu_timing_submit(total_frames + 1, "upload");

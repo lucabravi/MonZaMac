@@ -101,7 +101,7 @@ static void save_png(id<MTLTexture> tex, const char *path) {
 static const uint8_t BUILD_ID[8] = {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a};  // Pokémon Legends: Z-A v2.0.2 main
 // The release tag this build is (also names the release files; Makefile / tools/bundle_macos.sh / make_dmg.sh read
 // it): v<major>.<minor>.<patch>, 0.x until 1.0.
-#define LARECOMP_VERSION "v0.4.3"
+#define LARECOMP_VERSION "v0.4.4"
 
 #include "online_env.h"
 #include "menu.h"
@@ -203,6 +203,88 @@ static std::string g_root;  // extracted game: <root>/exefs, <root>/romfs
 static bool file_exists(const std::string &p) {
     struct stat st;
     return stat(p.c_str(), &st) == 0;
+}
+
+// Pokémon Z-A's button icons redrawn for the keyboard and the controllers (textures/prompts/<style>/romfs.patch, the
+// one runtime/hle/pl.c picks at boot: runtime/services/fs.c lays it over the game's icon fonts) from the player's own
+// game files by zaprompts (tools/za/prompt_textures.py frozen: tools/zaprompts.spec). Each icon names the key or button
+// bound to its input, so they are made for one set of bindings: textures/prompts/.made holds the stamp they were made
+// for (PROMPTS_VERSION + a hash of the bindings), and they are made again when it differs - at the setup (waited for:
+// the first boot has them), when the start screen opens and right after a rebind in the Controls tab (both in the
+// background: from the next start). zaprompts --install draws them into textures/prompts.new and swaps that in whole
+// itself (a game never sees half a set). Up to 3 tries per stamp (textures/prompts.tried): failing leaves the game's
+// own icons. Log: textures/prompts.log.
+#define PROMPTS_VERSION "2"
+static std::atomic<bool> g_prompts_busy{false};
+static PlatProc g_prompts_proc;  // (the one left running: a newer rebind ends it and starts over)
+static std::string prompts_stamp(void) {
+    uint64_t h = 0xcbf29ce484222325ull;
+    auto mix = [&](const void *p, size_t n) {
+        for (size_t i = 0; i < n; i++) h = (h ^ ((const uint8_t *)p)[i]) * 0x100000001b3ull;
+    };
+    mix(g_bind_pad, sizeof g_bind_pad);
+    mix(g_bind_key, sizeof g_bind_key);
+    char s[48];
+    snprintf(s, sizeof s, "%s-%016llx", PROMPTS_VERSION, (unsigned long long)h);
+    return s;
+}
+// a marker file holding this stamp, and (textures/prompts.tried: "<stamp> <tries>") its count
+static bool prompts_marked(const char *path, int *tries = NULL) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return false;
+    char v[48] = "";
+    int n = 0;
+    bool ok = fscanf(f, "%47s %d", v, &n) >= 1 && prompts_stamp() == v;
+    fclose(f);
+    if (tries) *tries = ok ? n : 0;
+    return ok;
+}
+static bool prompts_tool(char *tool, size_t n) {
+    return rt_resource("zaprompts/zaprompts", "build/helper/zaprompts/zaprompts", tool, n);
+}
+// (3 tries: a game closed before zaprompts is done may end it with the process)
+static bool prompts_wanted(void) {
+    char tool[1100];
+    int tries = 0;
+    prompts_marked("textures/prompts.tried", &tries);
+    return prompts_tool(tool, sizeof tool) && file_exists(g_root + "/romfs.bin") &&
+           !prompts_marked("textures/prompts/.made") && tries < 3;
+}
+// wait: until made (the setup), else started and left running (the start screen, a rebind)
+static bool make_prompts(bool wait) {
+    char tool[1100];
+    if (g_prompts_busy.exchange(true)) return false;
+    if (!prompts_tool(tool, sizeof tool)) {
+        g_prompts_busy = false;
+        return false;
+    }
+    if (g_prompts_proc && plat_proc_wait(g_prompts_proc, false) < 0) plat_proc_kill(g_prompts_proc);  // (made for old bindings)
+    g_prompts_proc = 0;
+    mkdir("textures", 0755);
+    std::string stamp = prompts_stamp();
+    int tries = 0;
+    prompts_marked("textures/prompts.tried", &tries);
+    if (FILE *f = fopen("textures/prompts.tried", "wb")) fprintf(f, "%s %d", stamp.c_str(), tries + 1), fclose(f);
+    std::string romfs = g_root + "/romfs.bin";
+    const char *ini = getenv("LARECOMP_SETTINGS");  // (as runtime/settings.c: the bindings the icons name)
+    if (!ini || !*ini) ini = "larecomp.ini";
+    const char *argv[] = {tool, "--romfs", romfs.c_str(), "--settings", ini, "--mods", "mods", "--out", "textures/prompts",
+                          "--install", stamp.c_str(), NULL};
+    PlatProc p = plat_spawn(argv, "textures/prompts.log", false);
+    if (!wait || !p) {
+        fprintf(stderr, "[launcher] button icons: %s\n", p ? "being made (zaprompts, textures/prompts.log)" : "zaprompts didn't start");
+        g_prompts_proc = p;
+        g_prompts_busy = false;
+        return p != 0;
+    }
+    int r = plat_proc_wait(p, true);
+    fprintf(stderr, "[launcher] button icons: %s (zaprompts exit %d; textures/prompts.log)\n", r == 0 ? "made" : "not made", r);
+    g_prompts_busy = false;
+    return r == 0;
+}
+// runtime/ui/controls_ui.mm, a binding changed (larecomp.ini saved): the icons made again for it, from the next start
+extern "C" void launcher_prompts_refresh(void) {
+    if (!g_root.empty() && prompts_wanted()) make_prompts(false);
 }
 
 // The copied game files alone ("" = there), without the game code built from them
@@ -827,6 +909,10 @@ static void *extract_thread(void *) {
 check:
     {
         std::string checked = check_game_files(g_root);
+        if (checked.empty() && prompts_wanted()) {
+            set_job("Drawing the button icons for your controller...");
+            make_prompts(true);
+        }
         if (checked.empty()) set_job("Game files ready.");
         else set_failure(checked.find("version") != std::string::npos ? FAIL_VERSION : FAIL_MISSING);
     }
@@ -2255,6 +2341,7 @@ extern "C" bool launcher_run(const char *root, void (*boot_fn)(const char *)) {
     std::string status = check_game_files(g_root);
     if (!status.empty() && check_copied_files(g_root).empty()) g_import_mode = 1;
     if (status.empty()) load_background(dev);
+    if (status.empty() && prompts_wanted()) make_prompts(false);  // (never made, or made for other bindings: aside, for the next start)
     Page page = status.empty() ? MAIN : SETUP;
     g_saves_first = 0;
     bool play = false;

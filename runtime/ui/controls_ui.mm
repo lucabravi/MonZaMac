@@ -11,6 +11,7 @@
 extern "C" {
 #include "../input_bind.h"
 #include "../settings.h"
+void launcher_prompts_refresh(void);  // runtime/ui/launcher.mm
 }
 
 static void cell(int dev, int slot, int fam, int cap_dev, int cap_slot, int ms_left) {
@@ -71,7 +72,10 @@ extern "C" void controls_bindings_draw(float scale) {
                      bind_input_name(rother), rdev == BIND_DEV_PAD ? bind_pad_label(g_bind_pad[rother], fam) : bind_key_label(g_bind_key[rother]));
         else if (kind == 3) snprintf(msg, sizeof msg, ui_tr("Cancelled: %s unchanged."), bind_input_name(rslot));
         else if (kind == 4) snprintf(msg, sizeof msg, ui_tr("Nothing pressed: %s unchanged."), bind_input_name(rslot));
-        if (kind == 1 || kind == 2 || kind == 5) settings_save();
+        if (kind == 1 || kind == 2 || kind == 5) {
+            settings_save();
+            launcher_prompts_refresh();  // (the game's button icons drawn again for the new bindings: runtime/ui/launcher.mm)
+        }
     }
     if (msg[0]) ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "%s", msg);
 

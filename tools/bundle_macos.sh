@@ -21,6 +21,8 @@ ZIG=build/zig
 [ -x "$EXE" ] || { echo "no $EXE"; exit 1; }
 build/helper-venv/bin/python tools/shader_decoder_notices.py --verify "$GEN_HELPER/shader-decoder-licenses"
 [ -x "$GEN_HELPER/lasgen" ] || { echo "no $GEN_HELPER (make gen-helper)"; exit 1; }
+PROMPTS_HELPER=build/helper/zaprompts
+[ -x "$PROMPTS_HELPER/zaprompts" ] || { echo "no $PROMPTS_HELPER (make prompts-helper)"; exit 1; }
 [ -x "$ZIG/zig" ] || { echo "no $ZIG (tools/fetch_zig.sh)"; exit 1; }
 NSTOOL=tools/nstool
 [ -x "$NSTOOL/bin/nstool" ] || { echo "no nstool (tools/build_nstool.sh)"; exit 1; }
@@ -34,6 +36,8 @@ mkdir -p "$C/MacOS" "$C/Frameworks" "$C/Resources"
 cp "$EXE" "$C/MacOS/monzamac"
 strip -S "$C/MacOS/monzamac"  # (debug-map entries only: the symbols crash reports name functions by stay)
 cp -R "$GEN_HELPER" "$C/Resources/lasgen"
+cp -R "$PROMPTS_HELPER" "$C/Resources/zaprompts"  # (the button icons: runtime/ui/launcher.mm make_prompts)
+cp -R "$GEN_HELPER/shader-decoder-licenses" "$C/Resources/zaprompts/decoder-licenses"  # (the same decoder, as a library)
 # Explicit opt-in: generated catalogs stay outside source control. Never copy an input cache.
 if [ -n "${SHADER_CATALOG:-}" ]; then
     "$GEN_HELPER/lasgen" shader-catalog check --for-distribution "$SHADER_CATALOG"

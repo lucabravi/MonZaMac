@@ -90,18 +90,28 @@ def _branch_target(gen, i):
     return gen.lo + 4 * i + (((w & 0x3ffffff) ^ 0x2000000) - 0x2000000) * 4 if (w & 0x7c000000) == 0x14000000 else None
 
 
+def _spin_lock(words):
+    return 0xd503203f in words and any(w & 0xffffffe0 == 0xd53bd040 for w in words)  # yield, mrs xN, tpidr_el0
+
+
 def _own_float_lock(gen, sites):
     """True when the mod locks its float conversions itself (from 1.5.2: Newlib's _dtoa_r and _strtod_r wrapped with a
     spin lock that reads TPIDR_EL0 and yields). Ours on top would take the two locks in opposite orders (formatter, then
-    its _dtoa_r; their _strtod_r, then our serialized call inside it) and could hang two threads, so it stays off."""
+    its _dtoa_r; their _strtod_r, then our serialized call inside it) and could hang two threads, so it stays off.
+    The lock is inline in the wrapper, or (from the 2026-11-17 module) a function the wrapper calls just before."""
     near = [s - 0x100 for s in sites]
     for i in range(len(gen.words)):
         t = _branch_target(gen, i)
         if t is None or not any(n <= t <= n + 0x100 for n in near):
             continue
         before = gen.words[max(0, i - 40):i]
-        if 0xd503203f in before and any(w & 0xffffffe0 == 0xd53bd040 for w in before):  # yield, mrs xN, tpidr_el0
+        if _spin_lock(before):
             return True
+        for j in range(max(0, i - 40), i):  # a bl to the lock function: its first 64 words hold the spin
+            callee = _branch_target(gen, j) if gen.words[j] & 0xfc000000 == 0x94000000 else None
+            k = (callee - gen.lo) // 4 if callee is not None else -1
+            if 0 <= k < len(gen.words) and _spin_lock(gen.words[k:k + 64]):
+                return True
     return False
 
 
