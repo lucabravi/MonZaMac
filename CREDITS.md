@@ -15,6 +15,11 @@ MonZaMac and are not listed.
 - The first Mega Dimension mission's battle crash (a game getter reading an object that is gone gets zeros), after their
   diagnosis and fix
 - Checking the game files part by part against a clean copy, for a damaged download of the 2.0.2 update, after their check
+- Button icons for the keyboard, Xbox and PlayStation drawn from the player's own game files and following the
+  bindings (`tools/za/prompt_textures.py` and the start screen's part), from their
+  [caee8a4](https://github.com/Hexveil404/PokeZ-ARecomp/commit/caee8a4) and
+  [d2fa4a9](https://github.com/Hexveil404/PokeZ-ARecomp/commit/d2fa4a9); here the packs are decoded by the same
+  oozextract library as the shader preparation
 
 **Lumiose Online** - the multiplayer mod behind the online edition, its server and its community are the work of the
 [Lumiose Online](https://lumioseonline.site) team; their PC integration is
@@ -119,3 +124,5 @@ including the required Unicode notice, and Rust standard-library notices are
 packaged in the app's `Contents/Resources/lasgen/shader-decoder-licenses/` folder.
 The generated inventory records the exact dependency versions and checksums.
 This component decodes the user's own local files; no game data is included.
+The button icon helper (`Contents/Resources/zaprompts/`) loads the same decoder as a library
+(`tools/shader_decode/src/lib.rs`); its notices are in `zaprompts/decoder-licenses/`.

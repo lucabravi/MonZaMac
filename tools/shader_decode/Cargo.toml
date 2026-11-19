@@ -7,3 +7,13 @@ publish = false
 
 [dependencies]
 oozextract = { version = "=0.5.7", default-features = false }
+
+# (also a library: tools/za/prompt_textures.py loads it to decode thousands of packs in-process)
+[lib]
+name = "monzamac_ooz"
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[[bin]]
+name = "monzamac-shader-decode"
+path = "src/main.rs"

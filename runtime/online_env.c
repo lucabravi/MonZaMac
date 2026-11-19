@@ -7,11 +7,12 @@
 extern char **environ;
 
 // What stays: the variables docs/environment.md supports, and what the start screen and the restart pass on to the
-// game (the library and the save chosen there, the loading cover).
+// game (the library and the save chosen there, the loading cover), and LARECOMP_HIDDEN: the start-up check of a new
+// online version (tools/lumiose/activate.py smoke) plays an empty save of its own, which shown looks like a new game.
 static const char *const kept[] = {
     "LARECOMP_DATA_ROOT", "LARECOMP_SETTINGS", "LARECOMP_NO_UPDATE_CHECK", "LARECOMP_NULL_GETTER", "LARECOMP_NPC_CAPACITY_FIX",
     "LARECOMP_GPU_OVERLAP", "LARECOMP_XFB_END_BARRIER", "LARECOMP_DEVLOG", "LARECOMP_PERF_LOG", "LARECOMP_UNCAPPED_FPS",
-    "LARECOMP_GAME_LIB", "LARECOMP_PLAY_SAVE", "LARECOMP_LOADING_COVER",
+    "LARECOMP_GAME_LIB", "LARECOMP_PLAY_SAVE", "LARECOMP_LOADING_COVER", "LARECOMP_HIDDEN",
 };
 
 #define MAX_REMOVED 512
