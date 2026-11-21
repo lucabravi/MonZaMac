@@ -9,37 +9,6 @@
 
 int menu_keyboard_run(const char *title, const char *initial, int max_len, char *out, int cap);  // runtime/ui/menu.mm
 
-// The Lumiose Online mod (1.4.4 and later) keeps a chat state block in its data, "VMPCHAT\0" on a 16-byte boundary: u32
-// version (1, 2) at +8, u32 size at +0xc, u32 state at +0x10 (2 = the chat focused, 32 = a window's field being edited),
-// and from version 2 the edited field at +0xe4. It opens the keyboard with no maximum: each field's own length, in UTF-8
-// bytes, comes from which one it is (1 the chat: 120, its text buffer; 2, 3, 7, 13: 24; 4, 5, 6, 9, 12: 8; 10: 60;
-// 8 and 11: 120). 0: not the mod's (no block, or two: never guess).
-static int lumiose_field_max(void) {
-    const Module *m = NULL;
-    for (int i = 0; i < g_nmodules; i++) if (g_modules[i].name && !strcmp(g_modules[i].name, "subsdk9")) m = &g_modules[i];
-    if (!m || !m->base || m->data_off > m->size || m->data_size > m->size - m->data_off || m->data_size < 0x100) return 0;
-    const uint8_t *d = (const uint8_t *)(uintptr_t)(m->base + m->data_off), *b = NULL;
-    for (uint64_t i = (16 - ((uintptr_t)d & 15)) & 15; i + 0xe8 <= m->data_size; i += 16) {
-        if (memcmp(d + i, "VMPCHAT\0", 8)) continue;
-        uint32_t ver, len;
-        memcpy(&ver, d + i + 8, 4), memcpy(&len, d + i + 12, 4);
-        if ((ver != 1 && ver != 2) || len < (ver == 2 ? 0xe8u : 0xe4u) || len > m->data_size - i) continue;
-        if (b) return 0;
-        b = d + i;
-    }
-    if (!b) return 0;
-    uint32_t ver, state;
-    memcpy(&ver, b + 8, 4), memcpy(&state, b + 0x10, 4);
-    int field = ver == 2 && (state & 32) ? __atomic_load_n(b + 0xe4, __ATOMIC_ACQUIRE) : (state & 2) ? 1 : 0;
-    switch (field) {
-    case 2: case 3: case 7: case 13: return 24;
-    case 4: case 5: case 6: case 9: case 12: return 8;
-    case 10: return 60;
-    case 1: case 8: case 11: return 120;
-    default: return 0;
-    }
-}
-
 // nn::swkbd::ShowKeyboard(nn::swkbd::String *out, const nn::swkbd::ShowKeyboardArg &arg) -> nn::Result
 // String = {void *ptr; size_t bufSize}
 // ShowKeyboardArg (probed 2026-10-08, naming Link): +0x24 header text (UTF-16, 65), +0x3ac text max length, +0x3b0 min length, +0x3c0 / +0x3c4
@@ -50,10 +19,10 @@ HLE_FUNC("_ZN2nn5swkbd12ShowKeyboardEPNS0_6StringERKNS0_15ShowKeyboardArgE", swk
     int max_len = (int)*(const int32_t *)(uintptr_t)(arg + 0x3ac);
     uint32_t off = *(const uint32_t *)(uintptr_t)(arg + 0x3c0), n = *(const uint32_t *)(uintptr_t)(arg + 0x3c4);
     uint64_t wb = LD64(arg + 0x4d0);
-    // No max (0: the Lumiose Online mod sets none; the overlay used to fall back to 8): the mod's field's own length, else
-    // 120 bytes; never more than the answer's buffer holds (UTF-16, a NUL left)
-    int field_max = max_len <= 0 ? lumiose_field_max() : 0;
-    if (max_len <= 0) max_len = field_max ? field_max : 120;
+    // No max (0: the Lumiose Online mod sets none; the overlay used to fall back to 8): 120 bytes of UTF-8, the mod's chat
+    // text length (its other fields are shorter, but which one asks is not known here: the mod's chat state block names the
+    // field under the cursor, a step late, not the one being typed); never more than the answer's buffer holds
+    if (max_len <= 0) max_len = 120;
     if (size >= 4 && (uint64_t)max_len > size / 2 - 1) max_len = (int)(size / 2 - 1);
     char initial[512] = "";
     for (uint32_t i = 0; wb && i < n && i < sizeof initial - 1; i++) {
@@ -70,7 +39,7 @@ HLE_FUNC("_ZN2nn5swkbd12ShowKeyboardEPNS0_6StringERKNS0_15ShowKeyboardArgE", swk
         else title[o++] = (char)(0xe0 | ch >> 12), title[o++] = (char)(0x80 | (ch >> 6 & 0x3f)), title[o++] = (char)(0x80 | (ch & 0x3f));
     }
     char text[512];
-    LOG("[swkbd] name entry: waiting for host input (max %d%s, title \"%s\", initial \"%s\")\n", max_len, field_max ? " from the Lumiose field" : "", title, initial);
+    LOG("[swkbd] name entry: waiting for host input (max %d, title \"%s\", initial \"%s\")\n", max_len, title, initial);
     int ok = menu_keyboard_run(title, initial, max_len, text, sizeof text);
     if (!ok) snprintf(text, sizeof text, "%s", initial);  // cancelled: keep what was there
     LOG("[swkbd] name entry (max %d, initial \"%s\"): %s \"%s\"\n", max_len, initial, ok ? "entered" : "cancelled", text);
@@ -87,5 +56,7 @@ HLE_FUNC("_ZN2nn5swkbd12ShowKeyboardEPNS0_6StringERKNS0_15ShowKeyboardArgE", swk
             else w[n++] = (uint16_t)cp;
         }
     }
-    c->x[0] = 0;
+    // cancelled: nn::swkbd's "canceled" result (module 159, 1), as on the Switch. An empty success made the Lumiose Online
+    // mod's Market fields open the keyboard again at once, so it could not be closed
+    c->x[0] = ok ? 0 : MAKE_RESULT(159, 1);
 }
