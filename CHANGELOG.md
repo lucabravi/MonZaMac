@@ -5,6 +5,9 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+### Start screen
+- **Lumiose Online's column has the Lumiose Online art**, its logo as the title; the button and the online loading ball are in the logo's green. When the service is ready a green check sits by the team (its words on hover) instead of the state lines, and the team's levels read "Lv. 9".
+
 ## 0.4.4
 
 Button icons for the keyboard, Xbox and PlayStation controllers, and two fixes for Lumiose Online. **The first start after updating builds the game code again** (a few minutes, once): the tools that make it changed. Play online then prepares the online version again too. No shader preparation is needed.
