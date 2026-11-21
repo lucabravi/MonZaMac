@@ -1091,7 +1091,7 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
         // The Lumiose Online art (docs/icon/lumiose_banner.jpg), placed so its logo is the column's title, centred: the
         // logo spans x 0.24..0.74, y 0.30..0.68 of the picture. As large as lets the logo end above the card.
         float bh = ph - u * 5.3f + lift, dh = fmaxf(rw / bg_aspect, fminf(u * 5.4f / 0.38f, (u * 6.65f + lift) / 0.68f)), dw = dh * bg_aspect;
-        float ox = rx + (rw - dw) * 0.5f, oy = ry - u * 0.6f;  // (the logo centred, a little up: clear of the card)
+        float ox = rx + (rw - dw) * 0.5f, oy = fminf(ry - u * 0.6f, ry + u * 6.75f + lift - 0.68f * dh);  // (the logo centred, up: clear of the card)
         float u0 = (rx - ox) / dw, u1 = fminf(1.0f, (rx + rw - ox) / dw), v0 = (ry - oy) / dh, v1 = fminf(1.0f, (ry + bh - oy) / dh);
         float right = ox + u1 * dw, bottom = oy + v1 * dh;
         dl->AddImageRounded(bg, ImVec2(rx, ry), ImVec2(right, bottom), ImVec2(u0, v0), ImVec2(u1, v1), IM_COL32_WHITE, r, ImDrawFlags_RoundCornersTop);
