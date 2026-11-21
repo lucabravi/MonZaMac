@@ -7,11 +7,11 @@
 
 #include "../hle.h"
 
-int menu_keyboard_run(const char *initial, int max_len, char *out, int cap);  // runtime/ui/menu.mm
+int menu_keyboard_run(const char *title, const char *initial, int max_len, char *out, int cap);  // runtime/ui/menu.mm
 
 // nn::swkbd::ShowKeyboard(nn::swkbd::String *out, const nn::swkbd::ShowKeyboardArg &arg) -> nn::Result
 // String = {void *ptr; size_t bufSize}
-// ShowKeyboardArg (probed 2026-10-08, naming Link): +0x3ac text max length, +0x3b0 min length, +0x3c0 / +0x3c4
+// ShowKeyboardArg (probed 2026-10-08, naming Link): +0x24 header text (UTF-16, 65), +0x3ac text max length, +0x3b0 min length, +0x3c0 / +0x3c4
 // initial text offset / length (UTF-16) in the work buffer at +0x4d0. The game reads the answer as UTF-8.
 HLE_FUNC("_ZN2nn5swkbd12ShowKeyboardEPNS0_6StringERKNS0_15ShowKeyboardArgE", swkbd_show) {
     uint64_t out = c->x[0], arg = c->x[1];
@@ -19,14 +19,26 @@ HLE_FUNC("_ZN2nn5swkbd12ShowKeyboardEPNS0_6StringERKNS0_15ShowKeyboardArgE", swk
     int max_len = (int)*(const int32_t *)(uintptr_t)(arg + 0x3ac);
     uint32_t off = *(const uint32_t *)(uintptr_t)(arg + 0x3c0), n = *(const uint32_t *)(uintptr_t)(arg + 0x3c4);
     uint64_t wb = LD64(arg + 0x4d0);
-    char initial[96] = "";
+    // No max (0: the Lumiose Online chat sets none): as much as the answer's buffer holds (UTF-16, a NUL left), up to the
+    // overlay's 127 (the overlay used to fall back to 8)
+    if (max_len <= 0) max_len = size >= 4 ? (int)(size / 2 - 1 < 127 ? size / 2 - 1 : 127) : 127;
+    char initial[512] = "";
     for (uint32_t i = 0; wb && i < n && i < sizeof initial - 1; i++) {
         uint16_t ch = *(const uint16_t *)(uintptr_t)(wb + off + 2 * i);
         initial[i] = ch < 0x80 ? (char)ch : '?';
     }
-    char text[96];
-    LOG("[swkbd] name entry: waiting for host input (max %d, initial \"%s\")\n", max_len, initial);
-    int ok = menu_keyboard_run(initial, max_len, text, sizeof text);
+    // the dialog's title: the caller's header (the Lumiose Online chat: "Chat"), else the overlay's "Enter your name"
+    char title[200] = "";
+    for (int i = 0, o = 0; i < 64; i++) {
+        uint16_t ch = *(const uint16_t *)(uintptr_t)(arg + 0x24 + 2 * i);
+        if (!ch || o > (int)sizeof title - 4) break;
+        if (ch < 0x80) title[o++] = (char)ch;
+        else if (ch < 0x800) title[o++] = (char)(0xc0 | ch >> 6), title[o++] = (char)(0x80 | (ch & 0x3f));
+        else title[o++] = (char)(0xe0 | ch >> 12), title[o++] = (char)(0x80 | (ch >> 6 & 0x3f)), title[o++] = (char)(0x80 | (ch & 0x3f));
+    }
+    char text[512];
+    LOG("[swkbd] name entry: waiting for host input (max %d, title \"%s\", initial \"%s\")\n", max_len, title, initial);
+    int ok = menu_keyboard_run(title, initial, max_len, text, sizeof text);
     if (!ok) snprintf(text, sizeof text, "%s", initial);  // cancelled: keep what was there
     LOG("[swkbd] name entry (max %d, initial \"%s\"): %s \"%s\"\n", max_len, initial, ok ? "entered" : "cancelled", text);
     if (ptr && size) {  // Pokémon Legends Z-A reads the answer as UTF-16 (UTF-8 bytes came out as CJK: "rh" -> U+6872)
