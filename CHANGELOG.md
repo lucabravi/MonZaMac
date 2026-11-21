@@ -6,7 +6,7 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 ## Unreleased
 
 ### Lumiose Online
-- **Chat messages are no longer cut to 8 characters.** The mod opens the keyboard with no maximum, which MonZaMac read as 8; it now takes 120 bytes, the chat's own length (an accented letter counts 2). The keyboard shows the field's own title ("Chat", "Pokémon name"...) instead of "Enter your name", and cancelling it in the Market's filters closes it (it opened again at once).
+- **Chat messages are no longer cut to 8 characters.** The mod opens the keyboard with no maximum, which MonZaMac read as 8; each field now takes its own length: 120 bytes for the chat (an accented letter counts 2), 24 for the Market's Pokémon name and the Mail message, 8 for prices and Mail money. The keyboard shows the field's own title ("Chat", "Pokémon name"...) instead of "Enter your name". Cancelling it closes it: in the Market's filters it opened again at once, round and round (the button that closed it reached the game).
 
 ## 0.4.5
 
