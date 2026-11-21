@@ -1097,6 +1097,7 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
         dl->AddImageRounded(bg, ImVec2(rx, ry), ImVec2(right, bottom), ImVec2(u0, v0), ImVec2(u1, v1), IM_COL32_WHITE, r, ImDrawFlags_RoundCornersTop);
         dl->AddRectFilledMultiColor(ImVec2(rx + 1, bottom - u * 8.5f), ImVec2(rx + rw - 1, bottom), IM_COL32(8, 12, 36, 0), IM_COL32(8, 12, 36, 0),
                                     IM_COL32(8, 12, 36, 255), IM_COL32(8, 12, 36, 255));  // (fading out: the card's text sits on its darker half)
+        dl->AddRectFilled(ImVec2(rx + 1, bottom - 1), ImVec2(rx + rw - 1, bottom + 3), IM_COL32(8, 12, 36, 255));  // (the image's antialiased edge: a light line)
     }
     dl->AddRect(ImVec2(rx, ry), ImVec2(rx + rw, ry + ph), purple, r, 0, 1.5f);
     {   // the online save's trainer card, like the offline one (who, play time, money, team; not the save's own name). No panel:
