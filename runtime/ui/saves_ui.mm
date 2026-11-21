@@ -1086,7 +1086,7 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
     float ph = rh;  // (as tall as the offline column's panel)
     const ImU32 purple = IM_COL32(150, 110, 255, 170);
     dl->AddRectFilled(ImVec2(rx, ry), ImVec2(rx + rw, ry + ph), IM_COL32(8, 12, 36, 255), r);
-    const float lift = v.good ? u * 2.8f : 0;  // (all well: no state lines above the button, the art and the card move down)
+    const float lift = u * 2.8f;  // (the state is in the card, not above the button: the art and the card never move)
     if (bg && bg_aspect > 0) {
         // The Lumiose Online art (docs/icon/lumiose_banner.jpg), placed so its logo is the column's title, centred: the
         // logo spans x 0.24..0.74, y 0.30..0.68 of the picture. As large as lets the logo end above the card.
@@ -1137,7 +1137,7 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
             shade(small_, vfs, ImVec2(tx + u * 0.95f, r1 + u * 0.85f), pal::text, pl);
             label(tx2, r1, "Money");
             money_row(dl, small_, ImVec2(tx2, r1 + u * 0.85f), u, si->money);
-            team_row(dl, small_, ImVec2(tx + u * 0.1f, cbot - u * 1.7f), u, si);  // (on the card's bottom edge, as the offline one)
+            if (v.good) team_row(dl, small_, ImVec2(tx + u * 0.1f, cbot - u * 1.7f), u, si);  // (on the card's bottom edge, as the offline one; else the state is there)
         } else if (v.save_path && v.save_path[0]) {  // (an online game made, not played yet)
             shade(small_, u * 1.0f, ImVec2(tx, ctop + u * 1.6f), pal::text, ui_tr("No progress yet"));
         } else {
@@ -1155,13 +1155,15 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
         ui_check(dl, ic, u * 0.5f, dark);
         if (ImGui::IsMouseHoveringRect(ImVec2(ic.x - u * 0.7f, ic.y - u * 0.7f), ImVec2(ic.x + u * 0.7f, ic.y + u * 0.7f)))
             ImGui::SetTooltip("%s\n%s", ui_tr(v.headline), ui_tr(v.line));
-    } else {
-        ImVec2 ic(x + u * 0.7f, cy + u * 0.95f);
+    } else {  // in the card's team row: a dot, the headline and one line
+        float sy = ry + u * (6.4f + 7.9f - 2.25f) + lift;
+        ImVec2 ic(x + u * 1.6f, sy + u * 0.6f);
         dl->AddCircleFilled(ic, u * 0.6f, v.bad ? IM_COL32(255, 170, 90, 255) : IM_COL32(150, 172, 210, 255), 24);
         dl->AddText(small_, u * 0.8f, ImVec2(ic.x - u * (v.bad ? 0.07f : 0.09f), ic.y - u * 0.45f), dark, v.bad ? "!" : "i");  // ("!" a problem, "i" otherwise)
         char fit_line[96];
-        dl->AddText(small_, u * 0.95f, ImVec2(x + u * 1.8f, cy), v.bad ? pal::warn : pal::text, ui_tr(v.headline));
-        dl->AddText(small_, u * 0.72f, ImVec2(x + u * 1.8f, cy + u * 1.15f), pal::sub, fit(small_, u * 0.72f, ui_tr(v.line), w - u * 1.8f, fit_line, sizeof fit_line));
+        float lx = ic.x + u * 1.1f;
+        dl->AddText(small_, u * 0.95f, ImVec2(lx, sy - u * 0.1f), v.bad ? pal::warn : pal::text, ui_tr(v.headline));
+        dl->AddText(small_, u * 0.72f, ImVec2(lx, sy + u * 1.05f), pal::sub, fit(small_, u * 0.72f, ui_tr(v.line), x + w - u * 0.9f - lx, fit_line, sizeof fit_line));
     }
     // PLAY ONLINE (in the lime of the Lumiose Online logo)
     ImVec2 p(x, cy + ch + u * 0.9f), q(x + w, p.y + u * 2.05f);
