@@ -210,7 +210,7 @@ static std::atomic<int> g_kbd{0};  // 1 open, 2 confirmed, 3 cancelled
 static std::atomic<bool> g_kbd_enter{false};  // Enter pressed: confirmed by the render thread once the typed text is in the field
 static std::atomic<bool> g_last_pad{false};
 static char g_kbd_title[200];  // (the caller's header; empty: "Enter your name")
-static char g_kbd_text[512];  // (127 characters of up to 4 UTF-8 bytes)
+static char g_kbd_text[512];
 static int g_kbd_max = 8;
 static bool capturing() { return g_open.load() || g_kbd.load() == 1; }
 // The game gets no input while this is true (runtime/hle/input.c): menu or name entry up.
@@ -1136,7 +1136,11 @@ static void keyboard_draw(ImGuiIO &io, float scale) {
                          ImGuiInputTextFlags_CallbackCharFilter,
                          [](ImGuiInputTextCallbackData *d) -> int { return d->EventChar < 0x20 ? 1 : 0; });
         ImGui::PopFont();
-        if ((int)strlen(g_kbd_text) > g_kbd_max) g_kbd_text[g_kbd_max] = 0;
+        if ((int)strlen(g_kbd_text) > g_kbd_max) {  // (cut at a character's start: never half of an accented letter)
+            int k = g_kbd_max;
+            while (k > 0 && (g_kbd_text[k] & 0xc0) == 0x80) k--;
+            g_kbd_text[k] = 0;
+        }
         if (g_kbd_enter.load()) {  // confirm only once every queued character has reached the field
             pthread_mutex_lock(&q_lock);
             bool drained = q_events.empty();

@@ -6,7 +6,7 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 ## Unreleased
 
 ### Lumiose Online
-- **Chat messages are no longer cut to 8 characters.** The chat opens the keyboard with no maximum, which MonZaMac read as 8; it now takes up to 127 characters. The keyboard also shows the chat's own title ("Chat") instead of "Enter your name".
+- **Chat messages are no longer cut to 8 characters.** The chat opens the keyboard with no maximum, which MonZaMac read as 8; it now takes up to 120 bytes (120 plain letters; an accented letter counts 2), the chat's own length. The keyboard also shows the chat's own title ("Chat") instead of "Enter your name".
 
 ## 0.4.5
 

@@ -19,9 +19,9 @@ HLE_FUNC("_ZN2nn5swkbd12ShowKeyboardEPNS0_6StringERKNS0_15ShowKeyboardArgE", swk
     int max_len = (int)*(const int32_t *)(uintptr_t)(arg + 0x3ac);
     uint32_t off = *(const uint32_t *)(uintptr_t)(arg + 0x3c0), n = *(const uint32_t *)(uintptr_t)(arg + 0x3c4);
     uint64_t wb = LD64(arg + 0x4d0);
-    // No max (0: the Lumiose Online chat sets none): as much as the answer's buffer holds (UTF-16, a NUL left), up to the
-    // overlay's 127 (the overlay used to fall back to 8)
-    if (max_len <= 0) max_len = size >= 4 ? (int)(size / 2 - 1 < 127 ? size / 2 - 1 : 127) : 127;
+    // No max (0: the Lumiose Online chat sets none; the overlay used to fall back to 8): 120 bytes of UTF-8, the length the
+    // Lumiose chat's native input allows, or less when the answer's buffer (UTF-16, a NUL left) is smaller
+    if (max_len <= 0) max_len = size >= 4 && size / 2 - 1 < 120 ? (int)(size / 2 - 1) : 120;
     char initial[512] = "";
     for (uint32_t i = 0; wb && i < n && i < sizeof initial - 1; i++) {
         uint16_t ch = *(const uint16_t *)(uintptr_t)(wb + off + 2 * i);
