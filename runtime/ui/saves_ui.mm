@@ -185,7 +185,7 @@ static void team_row(ImDrawList *dl, ImFont *small_, ImVec2 at, float u, const S
         ball(dl, c, r, on, on && si->party[i].shiny);
         if (!on) continue;
         char lv[8];
-        snprintf(lv, sizeof lv, "%u", si->party[i].level);
+        snprintf(lv, sizeof lv, "Lv. %u", si->party[i].level);
         float w = small_->CalcTextSizeA(u * 0.62f, FLT_MAX, 0, lv).x;
         dl->AddText(small_, u * 0.62f, ImVec2(c.x - w * 0.5f, c.y + r + u * 0.10f), pal::sub, lv);
     }
@@ -1086,53 +1086,24 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
     float ph = rh;  // (as tall as the offline column's panel)
     const ImU32 purple = IM_COL32(150, 110, 255, 170);
     dl->AddRectFilled(ImVec2(rx, ry), ImVec2(rx + rw, ry + ph), IM_COL32(8, 12, 36, 255), r);
-    if (bg && bg_aspect > 0) {  // the picture across the top, as wide as the column; cropped from above to the banner's height
-        float bh = ph - u * 5.3f, full = rw / bg_aspect, vis = fminf(1.0f, bh / full), v0 = 0.0f, v1 = vis;  // (down to where the state begins, fading out)
-        float u0 = 0, u1 = 1;
-        if (vis >= 1.0f) {  // (a banner taller than the picture: crop its sides instead)
-            float wv = rw / (bh * bg_aspect);
-            u0 = fmaxf(0.0f, fminf(1 - wv, 0.84f - wv * 0.5f)), u1 = u0 + wv, v0 = 0, v1 = 1;
-        }
-        dl->AddImageRounded(bg, ImVec2(rx, ry), ImVec2(rx + rw, ry + bh), ImVec2(u0, v0), ImVec2(u1, v1), IM_COL32_WHITE, r, ImDrawFlags_RoundCornersTop);
-        dl->AddRectFilledMultiColor(ImVec2(rx + 1, ry + bh - u * 8.5f), ImVec2(rx + rw - 1, ry + bh), IM_COL32(8, 12, 36, 0), IM_COL32(8, 12, 36, 0),
-                                    IM_COL32(8, 12, 36, 255), IM_COL32(8, 12, 36, 255));  // (the card's text sits on its darker half: no panel behind it)
+    const float lift = u * 2.8f;  // (the state is in the card, not above the button: the art and the card never move)
+    if (bg && bg_aspect > 0) {
+        // The Lumiose Online art (docs/icon/lumiose_banner.jpg), placed so its logo is the column's title, centred: the
+        // logo spans x 0.24..0.74, y 0.30..0.68 of the picture. As large as lets the logo end above the card.
+        float bh = ph - u * 5.3f + lift, dh = fmaxf(rw / bg_aspect, fminf(u * 5.4f / 0.38f, (u * 6.65f + lift) / 0.68f)), dw = dh * bg_aspect;
+        float ox = rx + (rw - dw) * 0.5f, oy = fminf(ry - u * 0.6f, ry + u * 6.75f + lift - 0.68f * dh);  // (the logo centred, up: clear of the card)
+        float u0 = (rx - ox) / dw, u1 = fminf(1.0f, (rx + rw - ox) / dw), v0 = (ry - oy) / dh, v1 = fminf(1.0f, (ry + bh - oy) / dh);
+        float right = ox + u1 * dw, bottom = oy + v1 * dh;
+        dl->AddImageRounded(bg, ImVec2(rx, ry), ImVec2(right, bottom), ImVec2(u0, v0), ImVec2(u1, v1), IM_COL32_WHITE, r, ImDrawFlags_RoundCornersTop);
+        dl->AddRectFilledMultiColor(ImVec2(rx + 1, bottom - u * 8.5f), ImVec2(rx + rw - 1, bottom), IM_COL32(8, 12, 36, 0), IM_COL32(8, 12, 36, 0),
+                                    IM_COL32(8, 12, 36, 255), IM_COL32(8, 12, 36, 255));  // (fading out: the card's text sits on its darker half)
+        dl->AddRectFilled(ImVec2(rx + 1, bottom - 1), ImVec2(rx + rw - 1, bottom + 3), IM_COL32(8, 12, 36, 255));  // (the image's antialiased edge: a light line)
     }
     dl->AddRect(ImVec2(rx, ry), ImVec2(rx + rw, ry + ph), purple, r, 0, 1.5f);
-    // the mark: an arc over a bar with a ring in the middle (a ball, opened), and the name
-    {
-        const ImU32 gold = IM_COL32(250, 198, 84, 255);
-        ImVec2 c(x + u * 1.9f, ry + u * 3.1f);
-        float R = u * 1.55f, ring = u * 0.55f, th = u * 0.22f;
-        dl->PathArcTo(c, R, 3.14159f, 6.28318f, 28);
-        dl->PathStroke(gold, 0, th);
-        dl->AddLine(ImVec2(c.x - R, c.y), ImVec2(c.x - ring, c.y), gold, th);
-        dl->AddLine(ImVec2(c.x + ring, c.y), ImVec2(c.x + R, c.y), gold, th);
-        dl->AddCircle(c, ring, gold, 24, th);
-        // the arcs go on below the middle (about 70 degrees) and fade out, thinner towards the bottom
-        const int n = 14;
-        const float span = 1.22f;
-        for (int side = -1; side <= 1; side += 2)
-            for (int i = 0; i < n; i++) {
-                float t0 = span * i / n, t1 = span * (i + 1) / n, f = 1.0f - (float)(i + 1) / n;
-                ImVec2 a0(c.x + side * R * cosf(t0), c.y + R * sinf(t0)), a1(c.x + side * R * cosf(t1), c.y + R * sinf(t1));
-                ImU32 col = IM_COL32(250, 198, 84, (int)(255 * f));
-                float w = th * (0.35f + 0.65f * f);
-                dl->AddLine(a0, a1, col, w);
-                dl->AddCircleFilled(a0, i == 0 ? th * 0.5f : th * (0.35f + 0.65f * (1.0f - (float)i / n)) * 0.5f, i == 0 ? IM_COL32(250, 198, 84, 255) : col);  // (round joints: no gaps between segments, nor at the join with the top arc)
-            }
-    }
-    {   // "Lumiose" in the gold of the mark, the rest white
-        ImFont *tf = g_font_column_title ? g_font_column_title : small_;
-        const char *name = ui_tr("Lumiose Online"), *sp = strchr(name, ' ');
-        ImVec2 tp(x + u * 4.2f, ry + u * 1.3f);
-        float tw = sp ? tf->CalcTextSizeA(u * 1.75f, FLT_MAX, 0, name, sp).x : 0;
-        dl->AddText(tf, u * 1.75f, tp, sp ? IM_COL32(250, 198, 84, 255) : IM_COL32(255, 255, 255, 255), name, sp);
-        if (sp) dl->AddText(tf, u * 1.75f, ImVec2(tp.x + tw, tp.y), IM_COL32(255, 255, 255, 255), sp);
-    }
     {   // the online save's trainer card, like the offline one (who, play time, money, team; not the save's own name). No panel:
         // the picture fades darker under it and each text has a soft shadow, so the art stays visible.
         const SaveInfo *si = v.save_path && v.save_path[0] ? save_info(v.save_path) : NULL;
-        float ctop = ry + u * 6.4f, cwid = w, chgt = u * 7.9f;
+        float ctop = ry + u * 7.05f + lift, cwid = w, chgt = u * 7.25f;  // (the ID on the name's line: a shorter card, more art)
         float cbot = ctop + chgt;
         {   // a light glass panel: the picture shows through, the texts stay readable
             dl->AddRectFilled(ImVec2(x, ctop), ImVec2(x + w, cbot), IM_COL32(6, 12, 34, 135), u * 0.5f);
@@ -1151,11 +1122,11 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
             char idb[16];
             snprintf(idb, sizeof idb, "ID %06u", si->id);
             float iw = small_->CalcTextSizeA(u * 0.72f, FLT_MAX, 0, idb).x;
-            label(rr - iw, ctop + u * 0.55f, idb);
-            shade(small_, u * 1.45f, ImVec2(tx, ctop + u * 1.2f), pal::text,
+            label(rr - iw, ctop + u * 1.1f, idb);
+            shade(small_, u * 1.45f, ImVec2(tx, ctop + u * 0.55f), pal::text,
                   fit(small_, u * 1.45f, si->trainer[0] ? si->trainer : ui_tr("Trainer"), rr - tx, cut, sizeof cut));
-            dl->AddLine(ImVec2(tx, ctop + u * 2.8f), ImVec2(rr, ctop + u * 2.8f), IM_COL32(120, 150, 200, 130), 1.0f);
-            float r1 = ctop + u * 3.05f, vfs = u * 1.0f;
+            dl->AddLine(ImVec2(tx, ctop + u * 2.15f), ImVec2(rr, ctop + u * 2.15f), IM_COL32(120, 150, 200, 130), 1.0f);
+            float r1 = ctop + u * 2.4f, vfs = u * 1.0f;
             label(tx, r1, "Play time");
             char pl[16];
             fmt_played(si->played, pl, sizeof pl);
@@ -1166,7 +1137,7 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
             shade(small_, vfs, ImVec2(tx + u * 0.95f, r1 + u * 0.85f), pal::text, pl);
             label(tx2, r1, "Money");
             money_row(dl, small_, ImVec2(tx2, r1 + u * 0.85f), u, si->money);
-            team_row(dl, small_, ImVec2(tx + u * 0.1f, cbot - u * 1.7f), u, si);  // (on the card's bottom edge, as the offline one)
+            if (v.good) team_row(dl, small_, ImVec2(tx + u * 0.1f, cbot - u * 1.7f), u, si);  // (on the card's bottom edge, as the offline one; else the state is there)
         } else if (v.save_path && v.save_path[0]) {  // (an online game made, not played yet)
             shade(small_, u * 1.0f, ImVec2(tx, ctop + u * 1.6f), pal::text, ui_tr("No progress yet"));
         } else {
@@ -1174,21 +1145,27 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
             dl->AddText(small_, u * 0.85f, ImVec2(tx, ctop + u * 1.6f), faint, ui_tr("Chosen the first time you press Play online."), NULL, rr - tx);
         }
     }
-    // the state: small, a dot, the headline and one line, right above the button
+    // the state: all well, a check at the right end of the card's team row (its words on hover); else a dot, the headline and one line,
+    // right above the button
     float ch = u * 1.9f, cy = ry + ph - u * 0.6f - u * 2.05f - u * 0.9f - ch;
-    ImVec2 ic(x + u * 0.7f, cy + u * 0.95f);
-    const ImU32 dot = v.good ? IM_COL32(70, 214, 110, 255) : v.bad ? IM_COL32(255, 170, 90, 255) : IM_COL32(150, 172, 210, 255);
     const ImU32 dark = IM_COL32(8, 18, 35, 255);
-    dl->AddCircleFilled(ic, u * 0.6f, dot, 24);
     if (v.good) {
-        ui_check(dl, ic, u * 0.6f, dark);
-    } else {  // "!" for a problem, "i" otherwise
-        dl->AddText(small_, u * 0.8f, ImVec2(ic.x - u * (v.bad ? 0.07f : 0.09f), ic.y - u * 0.45f), dark, v.bad ? "!" : "i");
+        ImVec2 ic(x + w - u * 1.6f, ry + u * (6.4f + 7.9f - 1.67f) + lift);  // (the card: ctop + chgt; level with the balls)
+        dl->AddCircleFilled(ic, u * 0.5f, IM_COL32(70, 214, 110, 255), 24);
+        ui_check(dl, ic, u * 0.5f, dark);
+        if (ImGui::IsMouseHoveringRect(ImVec2(ic.x - u * 0.7f, ic.y - u * 0.7f), ImVec2(ic.x + u * 0.7f, ic.y + u * 0.7f)))
+            ImGui::SetTooltip("%s\n%s", ui_tr(v.headline), ui_tr(v.line));
+    } else {  // in the card's team row: a dot, the headline and one line
+        float sy = ry + u * (6.4f + 7.9f - 2.25f) + lift;
+        ImVec2 ic(x + u * 1.6f, sy + u * 0.6f);
+        dl->AddCircleFilled(ic, u * 0.6f, v.bad ? IM_COL32(255, 170, 90, 255) : IM_COL32(150, 172, 210, 255), 24);
+        dl->AddText(small_, u * 0.8f, ImVec2(ic.x - u * (v.bad ? 0.07f : 0.09f), ic.y - u * 0.45f), dark, v.bad ? "!" : "i");  // ("!" a problem, "i" otherwise)
+        char fit_line[96];
+        float lx = ic.x + u * 1.1f;
+        dl->AddText(small_, u * 0.95f, ImVec2(lx, sy - u * 0.1f), v.bad ? pal::warn : pal::text, ui_tr(v.headline));
+        dl->AddText(small_, u * 0.72f, ImVec2(lx, sy + u * 1.05f), pal::sub, fit(small_, u * 0.72f, ui_tr(v.line), x + w - u * 0.9f - lx, fit_line, sizeof fit_line));
     }
-    char fit_line[96];
-    dl->AddText(small_, u * 0.95f, ImVec2(x + u * 1.8f, cy + u * 0.0f), v.good ? pal::accent2 : v.bad ? pal::warn : pal::text, ui_tr(v.headline));
-    dl->AddText(small_, u * 0.72f, ImVec2(x + u * 1.8f, cy + u * 1.15f), pal::sub, fit(small_, u * 0.72f, ui_tr(v.line), w - u * 1.8f, fit_line, sizeof fit_line));
-    // PLAY ONLINE
+    // PLAY ONLINE (in the lime of the Lumiose Online logo)
     ImVec2 p(x, cy + ch + u * 0.9f), q(x + w, p.y + u * 2.05f);
     ImGui::SetCursorScreenPos(p);
     ImGui::PushStyleColor(ImGuiCol_NavCursor, ImVec4(0, 0, 0, 0));
@@ -1201,15 +1178,15 @@ int saves_online_draw(ImFont *small_, ImTextureID bg, float bg_aspect, const Onl
     bool hot = v.on && (ImGui::IsItemHovered() || ImGui::IsItemFocused());
     ImGui::EndDisabled();
     ImGui::PopStyleColor();
-    if (hot) dl->AddRectFilled(ImVec2(p.x - 3, p.y - 3), ImVec2(q.x + 3, q.y + 3), IM_COL32(250, 198, 84, 55), u * 0.7f);
+    if (hot) dl->AddRectFilled(ImVec2(p.x - 3, p.y - 3), ImVec2(q.x + 3, q.y + 3), IM_COL32(178, 222, 39, 55), u * 0.7f);
     const ImU32 ink = v.on ? IM_COL32(6, 20, 44, 255) : IM_COL32(150, 172, 210, 255);
     if (v.progress >= 0) {  // preparing: the button fills as it goes
-        dl->AddRectFilled(p, q, IM_COL32(58, 46, 20, 255), u * 0.55f);
+        dl->AddRectFilled(p, q, IM_COL32(36, 50, 10, 255), u * 0.55f);
         dl->PushClipRect(p, ImVec2(p.x + (q.x - p.x) * fminf(1.0f, v.progress), q.y), true);
-        dl->AddRectFilled(p, q, IM_COL32(190, 140, 40, 255), u * 0.55f);
+        dl->AddRectFilled(p, q, IM_COL32(120, 160, 20, 255), u * 0.55f);
         dl->PopClipRect();
     } else {
-        dl->AddRectFilled(p, q, !v.on ? IM_COL32(22, 36, 64, 255) : hot ? IM_COL32(255, 218, 125, 255) : IM_COL32(250, 198, 84, 255), u * 0.55f);
+        dl->AddRectFilled(p, q, !v.on ? IM_COL32(22, 36, 64, 255) : hot ? IM_COL32(205, 240, 95, 255) : IM_COL32(178, 222, 39, 255), u * 0.55f);
     }
     ImVec2 ts = small_->CalcTextSizeA(u * 1.2f, FLT_MAX, 0, ui_tr(v.button));
     float tx0 = p.x + (w - ts.x - u * 1.8f) * 0.5f + u * 1.8f, my = (p.y + q.y) * 0.5f;
