@@ -263,7 +263,7 @@ static bool load_picture(unsigned sp, unsigned form, unsigned female, unsigned s
 }
 // The item card's picture (the mod's ItemDetailUv): type 0x4c560000 | the game's item number, the game's own item_<n> icon
 static bool lumiose_item_picture(uint64_t type) {
-    if (type == pic_type) return pic_ok;
+    if (type == pic_type && pic_ok) return true;  // (a miss is tried again: the pictures may be made while playing)
     pic_type = type;
     char path[64];
     snprintf(path, sizeof path, "textures/lumiose/item_%u.png", (unsigned)(type & 0xffff));
@@ -273,7 +273,7 @@ static bool lumiose_item_picture(uint64_t type) {
     return pic_ok;
 }
 static bool lumiose_picture(uint64_t type) {
-    if (type == pic_type) return pic_ok;
+    if (type == pic_type && pic_ok) return true;
     pic_type = type, pic_ok = false;
     int n;
     const uint8_t *t = icon_index(&n);
