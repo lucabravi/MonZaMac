@@ -216,7 +216,7 @@ static const Font *font_for(uint64_t type) {
 // icon cell; its table (kIconIndex: u16 species, u8 form, u8 gender, u16 cell, from Bulbasaur = cell 0) is read from the
 // loaded module, so a mod that renumbers its cells still gets the right Pokemon. The pictures are the game's own icons,
 // made from the player's files by the start screen (tools/za/prompt_textures.py --pictures: textures/lumiose).
-enum { PIC_TYPE = 0x4c570000, PIC_SIZE = 160 * 160 * 4 };
+enum { PIC_TYPE = 0x4c570000, ITEM_PIC_TYPE = 0x4c560000, PIC_SIZE = 160 * 160 * 4 };
 static const uint8_t *icon_index(int *count) {
     static const uint8_t *t;
     static int n = -1;
@@ -243,9 +243,7 @@ static const uint8_t *icon_index(int *count) {
     *count = n;
     return t;
 }
-static bool load_picture(unsigned sp, unsigned form, unsigned female, unsigned shiny) {
-    char path[96];
-    snprintf(path, sizeof path, "textures/lumiose/pm%u_%u_%u_%u.png", sp, form, female, shiny);
+static bool load_png(const char *path) {
     SDL_Surface *s0 = SDL_LoadPNG(path);
     SDL_Surface *s = s0 ? SDL_ConvertSurface(s0, SDL_PIXELFORMAT_ABGR8888) : NULL;  // (R, G, B, A bytes)
     if (s0) SDL_DestroySurface(s0);
@@ -258,8 +256,24 @@ static bool load_picture(unsigned sp, unsigned form, unsigned female, unsigned s
     SDL_DestroySurface(s);
     return ok;
 }
+static bool load_picture(unsigned sp, unsigned form, unsigned female, unsigned shiny) {
+    char path[96];
+    snprintf(path, sizeof path, "textures/lumiose/pm%u_%u_%u_%u.png", sp, form, female, shiny);
+    return load_png(path);
+}
+// The item card's picture (the mod's ItemDetailUv): type 0x4c560000 | the game's item number, the game's own item_<n> icon
+static bool lumiose_item_picture(uint64_t type) {
+    if (type == pic_type && pic_ok) return true;  // (a miss is tried again: the pictures may be made while playing)
+    pic_type = type;
+    char path[64];
+    snprintf(path, sizeof path, "textures/lumiose/item_%u.png", (unsigned)(type & 0xffff));
+    pic_ok = load_png(path);
+    static int nlog;
+    if (nlog++ < 20) LOG("[pl] Lumiose Online item picture %u: %s\n", (unsigned)(type & 0xffff), pic_ok ? "given" : "none in textures/lumiose");
+    return pic_ok;
+}
 static bool lumiose_picture(uint64_t type) {
-    if (type == pic_type) return pic_ok;
+    if (type == pic_type && pic_ok) return true;
     pic_type = type, pic_ok = false;
     int n;
     const uint8_t *t = icon_index(&n);
@@ -293,12 +307,14 @@ HLE_FUNC("_ZN2nn2pl20GetSharedFontAddressENS0_14SharedFontTypeE", pl_get_address
         if (n++ < 30) LOG("[pl] GetSharedFontAddress(%#llx)\n", (unsigned long long)type);
     }
     if ((type & 0xffff0000u) == PIC_TYPE) { c->x[0] = lumiose_picture(type) ? pic_buf : 0; return; }
+    if ((type & 0xffff0000u) == ITEM_PIC_TYPE) { c->x[0] = lumiose_item_picture(type) ? pic_buf : 0; return; }
     c->x[0] = font_for(type)->addr;
     pl_trace("GetSharedFontAddress", type, c->x[0]);
 }
 HLE_FUNC("_ZN2nn2pl17GetSharedFontSizeENS0_14SharedFontTypeE", pl_get_size) {
     uint64_t type = c->x[0];
     if ((type & 0xffff0000u) == PIC_TYPE) { c->x[0] = lumiose_picture(type) ? PIC_SIZE : 0; return; }
+    if ((type & 0xffff0000u) == ITEM_PIC_TYPE) { c->x[0] = lumiose_item_picture(type) ? PIC_SIZE : 0; return; }
     c->x[0] = font_for(type)->size;
     pl_trace("GetSharedFontSize", type, c->x[0]);
 }
