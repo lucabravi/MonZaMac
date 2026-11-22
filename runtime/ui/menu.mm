@@ -209,7 +209,8 @@ static ImGuiKey key_from_pad(Uint8 b) {
 static std::atomic<int> g_kbd{0};  // 1 open, 2 confirmed, 3 cancelled
 static std::atomic<bool> g_kbd_enter{false};  // Enter pressed: confirmed by the render thread once the typed text is in the field
 static std::atomic<bool> g_last_pad{false};
-static char g_kbd_text[96];
+static char g_kbd_title[200];  // (the caller's header; empty: "Enter your name")
+static char g_kbd_text[1024];  // (255 characters of up to 4 UTF-8 bytes: the Mail message is 200 bytes)
 static int g_kbd_max = 8;
 static bool capturing() { return g_open.load() || g_kbd.load() == 1; }
 // The game gets no input while this is true (runtime/hle/input.c): menu or name entry up.
@@ -1122,7 +1123,7 @@ static void keyboard_draw(ImGuiIO &io, float scale) {
     ImGui::Begin("##kbd", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                                     ImGuiWindowFlags_AlwaysAutoResize);
     ImGui::PushFont(g_font_big);
-    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "%s", ui_tr("Enter your name"));
+    ImGui::TextColored(ImVec4(0.28f, 0.84f, 1.0f, 1), "%s", g_kbd_title[0] ? g_kbd_title : ui_tr("Enter your name"));
     ImGui::PopFont();
     static bool was_open, was_pad;
     bool pad = g_last_pad.load(), appearing = !was_open || pad != was_pad;  // (switching device: focus the new one)
@@ -1135,7 +1136,11 @@ static void keyboard_draw(ImGuiIO &io, float scale) {
                          ImGuiInputTextFlags_CallbackCharFilter,
                          [](ImGuiInputTextCallbackData *d) -> int { return d->EventChar < 0x20 ? 1 : 0; });
         ImGui::PopFont();
-        if ((int)strlen(g_kbd_text) > g_kbd_max) g_kbd_text[g_kbd_max] = 0;
+        if ((int)strlen(g_kbd_text) > g_kbd_max) {  // (cut at a character's start: never half of an accented letter)
+            int k = g_kbd_max;
+            while (k > 0 && (g_kbd_text[k] & 0xc0) == 0x80) k--;
+            g_kbd_text[k] = 0;
+        }
         if (g_kbd_enter.load()) {  // confirm only once every queued character has reached the field
             pthread_mutex_lock(&q_lock);
             bool drained = q_events.empty();
@@ -1153,10 +1158,11 @@ static void keyboard_draw(ImGuiIO &io, float scale) {
 
 // Game thread (runtime/hle/swkbd.c): show the dialog, re-present the last frame until it's answered.
 // Returns 1 confirmed (out = text, UTF-8), 0 cancelled.
-extern "C" int menu_keyboard_run(const char *initial, int max_len, char *out, int cap) {
+extern "C" int menu_keyboard_run(const char *title, const char *initial, int max_len, char *out, int cap) {
+    snprintf(g_kbd_title, sizeof g_kbd_title, "%s", title ? title : "");
     extern void backend_represent(void);
     snprintf(g_kbd_text, sizeof g_kbd_text, "%s", initial ? initial : "");
-    g_kbd_max = max_len > 0 && max_len < (int)sizeof g_kbd_text / 4 ? max_len : 8;
+    g_kbd_max = max_len <= 0 ? 8 : max_len < (int)sizeof g_kbd_text / 4 ? max_len : (int)sizeof g_kbd_text / 4 - 1;
     input_reset();
     g_kbd_enter = false;
     g_kbd = 1;
