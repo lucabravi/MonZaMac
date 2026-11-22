@@ -21,6 +21,7 @@ int menu_keyboard_run(const char *title, const char *initial, int max_len, char 
 // turns it off and the byte trails a field behind. The mod also logs "swkbd: requested for field N" right before it opens
 // the keyboard (runtime/kernel.c debug_string keeps that N): used then. 0: neither (or two blocks: never guess).
 _Atomic int g_lumiose_kbd_field;
+_Atomic int g_lumiose_kbd_field_last;  // the field of the request being answered (0: not the mod's, or not known)
 static int lumiose_field_max(void) {
     const Module *m = NULL;
     for (int i = 0; i < g_nmodules; i++) if (g_modules[i].name && !strcmp(g_modules[i].name, "subsdk9")) m = &g_modules[i];
@@ -39,6 +40,7 @@ static int lumiose_field_max(void) {
     uint32_t ver, state;
     memcpy(&ver, b + 8, 4), memcpy(&state, b + 0x10, 4);
     int field = ver == 2 && (state & 32) ? __atomic_load_n(b + 0xe4, __ATOMIC_ACQUIRE) : logged ? logged : (state & 2) ? 1 : 0;
+    g_lumiose_kbd_field_last = field;  // (a field this table doesn't know yet still gets typed in place, at 120)
     switch (field) {
     case 2: case 3: case 7: case 13: case 15: case 16: return 24;
     case 4: case 5: case 6: case 9: case 12: return 8;
@@ -62,6 +64,7 @@ HLE_FUNC("_ZN2nn5swkbd12ShowKeyboardEPNS0_6StringERKNS0_15ShowKeyboardArgE", swk
     uint64_t wb = LD64(arg + 0x4d0);
     // No max (0: the Lumiose Online mod sets none; the overlay used to fall back to 8): the mod's field's own length, else
     // 120 bytes; never more than the answer's buffer holds (UTF-16, a NUL left)
+    g_lumiose_kbd_field_last = 0;
     int field_max = max_len <= 0 ? lumiose_field_max() : 0;
     if (max_len <= 0) max_len = field_max ? field_max : 120;
     if (size >= 4 && (uint64_t)max_len > size / 2 - 1) max_len = (int)(size / 2 - 1);
@@ -78,6 +81,14 @@ HLE_FUNC("_ZN2nn5swkbd12ShowKeyboardEPNS0_6StringERKNS0_15ShowKeyboardArgE", swk
         if (ch < 0x80) title[o++] = (char)ch;
         else if (ch < 0x800) title[o++] = (char)(0xc0 | ch >> 6), title[o++] = (char)(0x80 | (ch & 0x3f));
         else title[o++] = (char)(0xe0 | ch >> 12), title[o++] = (char)(0x80 | (ch >> 6 & 0x3f)), title[o++] = (char)(0x80 | (ch & 0x3f));
+    }
+    if (g_lumiose_kbd_field_last > 0) {  // a Lumiose Online field, with a keyboard and mouse: typed in place (runtime/hle/lumiose_type.c)
+        extern bool lumiose_type_take_keyboard(int field);
+        if (lumiose_type_take_keyboard(g_lumiose_kbd_field_last)) {
+            LOG("[swkbd] Lumiose field %d: typed in place, no keyboard window\n", g_lumiose_kbd_field_last);
+            c->x[0] = MAKE_RESULT(159, 1);  // (as cancelled: the mod leaves the field as it was)
+            return;
+        }
     }
     char text[512];
     LOG("[swkbd] name entry: waiting for host input (max %d%s, title \"%s\", initial \"%s\")\n", max_len, field_max ? " from the Lumiose field" : "", title, initial);
