@@ -22,7 +22,7 @@
 # packs), decoded by libmonzamac_ooz.dylib (tools/shader_decode: oozextract, MIT; in the app's zaprompts/, else
 # build/shader-decode/release/) or --ooz. Needs Pillow, numpy and fontTools (and cffsubr, to make the fonts fit). Made for every player by the start screen (runtime/ui/launcher.mm make_prompts, the frozen zaprompts).
 # usage (from the repository root): python tools/za/prompt_textures.py [--settings larecomp.ini]
-import argparse, ctypes, mmap, os, re, struct, sys
+import argparse, contextlib, ctypes, mmap, os, re, struct, sys
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -1034,4 +1034,7 @@ if args.install:  # the finished sets in place of the old ones, in one move
     with open(os.path.join(args.out, '.made'), 'w') as f: f.write(args.install)
     shutil.rmtree(FINAL, ignore_errors=True)
     os.replace(args.out, FINAL)
+    # a whole run: the start screen's count of tries for it starts again (runtime/ui/launcher.mm: textures/prompts.tried
+    # beside the sets; a later reason to run, such as a missing picture, gets its own tries)
+    with contextlib.suppress(OSError): os.remove(os.path.join(os.path.dirname(FINAL.rstrip('/\\')) or '.', 'prompts.tried'))
     print('installed', FINAL)
