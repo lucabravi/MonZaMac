@@ -750,12 +750,16 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
         const char *shown_name = fit(body, nh, s.name, title_room, tcut, sizeof tcut);
         float title_w = body->CalcTextSizeA(nh, FLT_MAX, 0, shown_name).x;
         cl->AddText(body, nh, ImVec2(tx, ty), pal::text, shown_name);
-        if (si) {  // (the team on the title's right; the games show their sprites, the launcher ships none)
+        if (si) {  // (the team on the title's right: each one's picture from the player's files, else its ball)
             if (si->party_n) {
                 float rr = u * 0.30f, st = u * 0.95f, tw = st * (SAVE_PARTY_MAX - 1) + rr * 2;
-                for (int k = 0; k < SAVE_PARTY_MAX; k++)
-                    ball(cl, ImVec2(q.x - pad - tw + rr + st * k, ty + nh * 0.5f), rr, k < si->party_n,
-                         k < si->party_n && si->party[k].shiny);
+                for (int k = 0; k < SAVE_PARTY_MAX; k++) {
+                    ImVec2 c(q.x - pad - tw + rr + st * k, ty + nh * 0.5f);
+                    const SaveMon &m = si->party[k];
+                    ImTextureID pic = k < si->party_n && !m.egg ? launcher_mon_picture(m.species, m.form, m.shiny) : (ImTextureID)0;
+                    if (pic) cl->AddImage(pic, ImVec2(c.x - rr * 1.5f, c.y - rr * 1.5f), ImVec2(c.x + rr * 1.5f, c.y + rr * 1.5f));
+                    else ball(cl, c, rr, k < si->party_n, k < si->party_n && m.shiny);
+                }
             } else {
                 const char *none = ui_tr("No Pokémon yet");
                 ImVec2 ws = small_->CalcTextSizeA(u * 0.8f, FLT_MAX, 0, none);
