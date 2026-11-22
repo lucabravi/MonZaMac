@@ -291,6 +291,32 @@ static bool lumiose_picture(uint64_t type) {
     return pic_ok;
 }
 
+// The Lumiose Online mod's windows ask for type 'LUMI' (0x4c554d49): "the game's own UI font", else they draw with the
+// system font we hand for type 0. The game's UniversNextPro-Cond, decoded from the player's files by the start screen
+// (tools/za/prompt_textures.py --pictures: textures/lumiose-ui.otf); without it, the standard font as before.
+enum { UI_FONT_TYPE = 0x4c554d49 };
+static Font ui_f;
+static bool ui_tried;
+RT_ON_RESET(pl_ui_font_reset) { memset(&ui_f, 0, sizeof ui_f); ui_tried = false; }  // (it was in the HLE heap)
+static const Font *ui_font(void) {
+    Font *f = &ui_f;
+    if (!f->addr && !ui_tried) {
+        ui_tried = true;
+        size_t len;
+        uint8_t *d = read_file("textures/lumiose-ui.otf", &len);
+        if (d && len > 12 && (!memcmp(d, "OTTO", 4) || !memcmp(d, "\0\1\0\0", 4))) {
+            void *p = hle_alloc(len + 16);
+            memcpy(p, d, len);
+            f->addr = (uint64_t)p, f->size = len;
+            LOG("[pl] Lumiose Online UI font: textures/lumiose-ui.otf (%zu bytes)\n", len);
+        } else {
+            LOG("[pl] Lumiose Online UI font: none in textures/lumiose (the standard font)\n");
+        }
+        free(d);
+    }
+    return f->addr ? f : font_for(0);
+}
+
 static void pl_trace(const char *what, uint64_t type, uint64_t got) {
     static int n;
     if (n++ < 24) LOG("[pl] %s(%llu) -> %llx\n", what, (unsigned long long)type, (unsigned long long)got);
@@ -308,6 +334,7 @@ HLE_FUNC("_ZN2nn2pl20GetSharedFontAddressENS0_14SharedFontTypeE", pl_get_address
     }
     if ((type & 0xffff0000u) == PIC_TYPE) { c->x[0] = lumiose_picture(type) ? pic_buf : 0; return; }
     if ((type & 0xffff0000u) == ITEM_PIC_TYPE) { c->x[0] = lumiose_item_picture(type) ? pic_buf : 0; return; }
+    if (type == UI_FONT_TYPE) { c->x[0] = ui_font()->addr; return; }
     c->x[0] = font_for(type)->addr;
     pl_trace("GetSharedFontAddress", type, c->x[0]);
 }
@@ -315,6 +342,7 @@ HLE_FUNC("_ZN2nn2pl17GetSharedFontSizeENS0_14SharedFontTypeE", pl_get_size) {
     uint64_t type = c->x[0];
     if ((type & 0xffff0000u) == PIC_TYPE) { c->x[0] = lumiose_picture(type) ? PIC_SIZE : 0; return; }
     if ((type & 0xffff0000u) == ITEM_PIC_TYPE) { c->x[0] = lumiose_item_picture(type) ? PIC_SIZE : 0; return; }
+    if (type == UI_FONT_TYPE) { c->x[0] = ui_font()->size; return; }
     c->x[0] = font_for(type)->size;
     pl_trace("GetSharedFontSize", type, c->x[0]);
 }

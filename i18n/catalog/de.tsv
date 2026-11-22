@@ -460,6 +460,7 @@ The game code build for online play could not be kept.	Der Spielcode-Build für 
 The game code didn't build	Der Spielcode konnte nicht kompiliert werden
 The game data is not the original of version 2.0.2.	Die Spieldaten sind nicht die Originaldaten der Version 2.0.2.
 The game files changed.	Die Spieldateien haben sich geändert.
+The game font for the online windows...	Die Spielschrift für die Online-Fenster...
 The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.	Unschärfe für Bereiche außerhalb des Kamerafokus. Aus: Das gesamte Bild bleibt scharf.
 The game's glow around bright light. Off: no glow, a plainer image.	Leuchten um helle Lichtquellen. Aus: Das Bild wirkt schlichter.
 The game's own anti-aliasing, a light blur over the whole image.\n\nOff: sharper, with more jagged edges (SMAA above can smooth them instead).	Die eigene Kantenglättung des Spiels, ein leichter Weichzeichner über das ganze Bild.\n\nAus: schärfer, mit mehr gezackten Kanten (SMAA oben kann sie stattdessen glätten).

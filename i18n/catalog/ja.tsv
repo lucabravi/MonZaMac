@@ -460,6 +460,7 @@ The game code build for online play could not be kept.	オンラインプレイ�
 The game code didn't build	ゲームコードのビルドに失敗しました
 The game data is not the original of version 2.0.2.	ゲームデータがバージョン2.0.2のオリジナルではありません。
 The game files changed.	ゲームファイルが変更されました。
+The game font for the online windows...	オンライン画面用のゲームフォントを作成中...
 The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.	カメラの焦点から離れた部分をぼかします。オフにすると画面全体が鮮明になります。
 The game's glow around bright light. Off: no glow, a plainer image.	明るい光の周囲に輝きを加えます。オフにすると落ち着いた画面になります。
 The game's own anti-aliasing, a light blur over the whole image.\n\nOff: sharper, with more jagged edges (SMAA above can smooth them instead).	ゲーム自体のアンチエイリアスで、映像全体を軽くぼかします。\n\nオフ：より鮮明になりますが、エッジのギザギザが目立ちます（上のSMAAで滑らかにできます）。

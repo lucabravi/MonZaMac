@@ -460,6 +460,7 @@ The game code build for online play could not be kept.	Não foi possível manter
 The game code didn't build	Não foi possível compilar o código do jogo
 The game data is not the original of version 2.0.2.	Os dados do jogo não são os originais da versão 2.0.2.
 The game files changed.	Os arquivos do jogo mudaram.
+The game font for the online windows...	A fonte do jogo para as janelas online...
 The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.	Desfoque dos elementos fora do foco da câmera. Desativado: toda a imagem permanece nítida.
 The game's glow around bright light. Off: no glow, a plainer image.	Brilho ao redor de fontes de luz intensas. Desativado: imagem mais neutra.
 The game's own anti-aliasing, a light blur over the whole image.\n\nOff: sharper, with more jagged edges (SMAA above can smooth them instead).	O antisserrilhado do próprio jogo, um leve desfoque sobre toda a imagem.\n\nDesligado: mais nítido, com bordas mais serrilhadas (o SMAA acima pode suavizá-las).
