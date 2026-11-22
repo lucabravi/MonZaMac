@@ -253,7 +253,7 @@ static bool prompts_tool(char *tool, size_t n) {
 static bool pictures_wanted(void) {
     char v[8] = "";
     if (FILE *f = fopen("textures/lumiose/.made", "rb")) { if (!fgets(v, sizeof v, f)) v[0] = 0; fclose(f); }
-    return strcmp(v, "3") != 0;
+    return strcmp(v, "3") != 0 || !file_exists("textures/lumiose-ui.otf");  // (the font sits beside the folder)
 }
 #else
 static bool pictures_wanted(void) { return false; }
