@@ -139,6 +139,55 @@ def game_files(m):
                             pack_off=off, slot=(fb.u64(op + 8 * i + 8) if i + 1 < n else len(m)) - off, index=j)
 
 
+def archive_file(trpfs, trpfd, path): return archive_file_hash(trpfs, trpfd, fnv64(path.encode()))
+
+
+def archive_file_hash(trpfs, trpfd, h):
+    """a file of the archive by its path's FNV-1a 64 hash (data.trpfd: sorted path hashes, each file's pack; the pack's own
+    sorted hashes and entries), decompressed; None when not there"""
+    import bisect
+    fd = FB(trpfd)
+    rt = fd.table(fd.u32(0))
+    n, hp = fd.vec(rt[0])
+    i = bisect.bisect_left(range(n), h, key=lambda k: fd.u64(hp + 8 * k))
+    if i >= n or fd.u64(hp + 8 * i) != h: return None
+    _, pp = fd.vec(rt[2])
+    e = pp + 4 * i
+    pk = fd.u64(fd.table(e + fd.u32(e))[0])
+    _, np_ = fd.vec(rt[1])
+    sa = np_ + 4 * pk
+    sa += fd.u32(sa)
+    name = bytes(trpfd[sa + 4:sa + 4 + fd.u32(sa)])
+    fs = FB(trpfs)
+    root = fs.u64(8)
+    ft = fs.table(root + fs.u32(root))
+    pn, php = fs.vec(ft[0])
+    hn = fnv64(name)
+    j = bisect.bisect_left(range(pn), hn, key=lambda k: fs.u64(php + 8 * k))
+    if j >= pn or fs.u64(php + 8 * j) != hn: return None
+    _, op = fs.vec(ft[1])
+    base = fs.u64(op + 8 * j)
+    pt = fs.table(base + fs.u32(base))
+    en, ehp = fs.vec(pt[0])
+    k = bisect.bisect_left(range(en), h, key=lambda q: fs.u64(ehp + 8 * q))
+    if k >= en or fs.u64(ehp + 8 * k) != h: return None
+    _, ep = fs.vec(pt[1])
+    e = ep + 4 * k
+    et = fs.table(e + fs.u32(e))
+    comp = trpfs[et[1]] if len(et) > 1 and et[1] else 0xFF
+    size = fs.u64(et[3]) if len(et) > 3 and et[3] else 0
+    dn, dp = fs.vec(et[4])
+    return unpack(comp, size, trpfs[dp:dp + dn])
+
+
+def fnv64(b):  # FNV-1a 64 (runtime/services/fs.c checks the bytes a patch replaces with it)
+    h = 0xCBF29CE484222645
+    for x in b: h = ((h ^ x) * 0x100000001B3) & M64
+    return h
+
+
+
+
 def sarc_files(d):
     sfat = struct.unpack_from('<H', d, 4)[0]
     doff = struct.unpack_from('<I', d, 0x0C)[0]
@@ -806,6 +855,32 @@ def scan_sarc(d):
             if fmt == 0x1c01: bc3.add(hh)
 
 
+# The game's UI font for the Lumiose Online mod's windows (it asks nn::pl for 'LUMI' once, when the game starts:
+# runtime/hle/pl.c): UniversNextPro-Cond, the file whose path hashes to this, read straight from the archive before
+# anything else, next to the pictures' folder (<DIR>-ui.otf); Play online waits only for it (runtime/ui/launcher.mm).
+# Not found that way (other game files): picked up in the pass over every pack below, as the button icons' fonts are.
+UI_FONT_HASH = int(os.environ.get('ZAPROMPTS_UI_FONT_HASH', '06a846f4e17cc3ea'), 16)  # (the variable: tests, the fallback)
+ui_font_done = False
+
+
+def write_ui_font(ttf):
+    global ui_font_done
+    font = args.pictures.rstrip('/\\') + '-ui.otf'
+    with open(font + '.new', 'wb') as f: f.write(ttf)
+    os.replace(font + '.new', font)
+    print(f'{font}: the UI font', flush=True)
+    ui_font_done = True
+
+
+if args.pictures:
+    _trpfs, _trpfd = open_game(args.romfs[0])
+    _d = archive_file_hash(_trpfs, _trpfd, UI_FONT_HASH)
+    if _d is not None and _d[:4] == b'6\xf8\x1a\x1e' and b'UniversNextPro-Cond' in bfttf_decode(_d).replace(b'\0', b''):
+        write_ui_font(bfttf_decode(_d))
+    else:
+        print('the UI font is not where it is in version 2.0.2: looked for in every pack', flush=True)
+
+
 item_icons = {}  # item number -> its icon's BNTX (a file of its own: one 160 x 160 BC7 texture "item_<n>"; for --pictures)
 icon_fonts = {}  # game files folder -> [(Entry, magic, decoded TTF) of or_font / or_font_eng]
 trpfds = {}  # game files -> data.trpfd's bytes
@@ -822,6 +897,8 @@ for romfs in args.romfs:
         if size < 0x20000 and d[:4] == b'6\xf8\x1a\x1e':  # (a small .bfttf: the icon fonts, the UI's bold condensed)
             ttf = bfttf_decode(d)
             if b'or_font' in ttf.replace(b'\0', b''): icon_fonts[romfs].append((ent, d[:4], ttf))
+            elif args.pictures and not ui_font_done and b'UniversNextPro-Cond' in ttf.replace(b'\0', b''):
+                write_ui_font(ttf)
             elif b'UniversNextPro-BoldCond' in ttf.replace(b'\0', b''):
                 import io
                 from fontTools.ttLib import TTFont
@@ -840,12 +917,6 @@ for root, _, names in os.walk(args.mods):
             with open(os.path.join(root, nm), 'rb') as f: scan_sarc(f.read())
 print(len(found), 'icon textures,', sum(len(v) for v in icon_fonts.values()), 'icon fonts')
 print('labels:', {b: key(b) for b in ('a', 'b', 'x', 'y', 'l', 'r', 'zl', 'zr', 'plus', 'minus')})
-
-
-def fnv64(b):  # FNV-1a 64 (runtime/services/fs.c checks the bytes a patch replaces with it)
-    h = 0xCBF29CE484222645
-    for x in b: h = ((h ^ x) * 0x100000001B3) & M64
-    return h
 
 
 def record(path, off, orig, data):
@@ -910,44 +981,6 @@ for style in args.styles.split(','):
 # (species, form, female look) and colour, <DIR>/pm<species>_<form>_<female>_<shiny>.png (not per bindings: made once). The route is the mod's own
 # (gameicons_pack.cpp): the poke_resource catalog gives each row its model folder pmSSSS/pmSSSS_FF_TT, whose
 # icon/pmSSSS_FF_TT_00_<shiny>.bntx is one BC7 texture.
-def archive_file(trpfs, trpfd, path):
-    """a file of the archive by its path (data.trpfd: sorted FNV-1a 64 path hashes, each file's pack; the pack's own
-    sorted hashes and entries), decompressed; None when not there"""
-    h = fnv64(path.encode())
-    fd = FB(trpfd)
-    rt = fd.table(fd.u32(0))
-    n, hp = fd.vec(rt[0])
-    i = bisect.bisect_left(range(n), h, key=lambda k: fd.u64(hp + 8 * k))
-    if i >= n or fd.u64(hp + 8 * i) != h: return None
-    _, pp = fd.vec(rt[2])
-    e = pp + 4 * i
-    pk = fd.u64(fd.table(e + fd.u32(e))[0])
-    _, np_ = fd.vec(rt[1])
-    sa = np_ + 4 * pk
-    sa += fd.u32(sa)
-    name = bytes(trpfd[sa + 4:sa + 4 + fd.u32(sa)])
-    fs = FB(trpfs)
-    root = fs.u64(8)
-    ft = fs.table(root + fs.u32(root))
-    pn, php = fs.vec(ft[0])
-    hn = fnv64(name)
-    j = bisect.bisect_left(range(pn), hn, key=lambda k: fs.u64(php + 8 * k))
-    if j >= pn or fs.u64(php + 8 * j) != hn: return None
-    _, op = fs.vec(ft[1])
-    base = fs.u64(op + 8 * j)
-    pt = fs.table(base + fs.u32(base))
-    en, ehp = fs.vec(pt[0])
-    k = bisect.bisect_left(range(en), h, key=lambda q: fs.u64(ehp + 8 * q))
-    if k >= en or fs.u64(ehp + 8 * k) != h: return None
-    _, ep = fs.vec(pt[1])
-    e = ep + 4 * k
-    et = fs.table(e + fs.u32(e))
-    comp = trpfs[et[1]] if len(et) > 1 and et[1] else 0xFF
-    size = fs.u64(et[3]) if len(et) > 3 and et[3] else 0
-    dn, dp = fs.vec(et[4])
-    return unpack(comp, size, trpfs[dp:dp + dn])
-
-
 def mon_pictures(trpfs, trpfd, out):
     cat = archive_file(trpfs, trpfd, 'ik_pokemon/catalog/catalog/poke_resource_table.trpmcatalog')
     if cat is None: print('pictures: no Pokemon catalog in the game files'); return
@@ -989,11 +1022,11 @@ def bntx_png(d, path):  # a BNTX's first texture, BC7, as a 160 x 160 PNG; 1 whe
 
 
 if args.pictures:
-    import bisect, shutil
+    import shutil
     tmp = args.pictures.rstrip('/\\') + '.new'
     shutil.rmtree(tmp, ignore_errors=True)
     mon_pictures(*open_game(args.romfs[0]), tmp)
-    with open(os.path.join(tmp, '.made'), 'w') as f: f.write('2')  # (2: the items too; runtime/ui/launcher.mm asks for it)
+    with open(os.path.join(tmp, '.made'), 'w') as f: f.write('3')  # (2: the items, 3: the UI font too; runtime/ui/launcher.mm asks for it)
     shutil.rmtree(args.pictures, ignore_errors=True)
     os.replace(tmp, args.pictures)
 
