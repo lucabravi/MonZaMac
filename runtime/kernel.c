@@ -927,6 +927,16 @@ out:
 // ------------------------------------------------------------------ debug output
 static void debug_string(uint64_t p, uint64_t len) {
     fprintf(stderr, "[guest] %.*s", (int)len, (const char *)(uintptr_t)p);
+    {   // the Lumiose Online mod names the text field it opens the keyboard for (runtime/hle/swkbd.c lumiose_field_max)
+        extern _Atomic int g_lumiose_kbd_field;
+        static const char key[] = "swkbd: requested for field ";
+        const char *s = (const char *)(uintptr_t)p, *hit = len < 200 ? memmem(s, len, key, sizeof key - 1) : NULL;
+        if (hit) {
+            int f = 0;
+            for (const char *q = hit + sizeof key - 1; q < s + len && *q >= '0' && *q <= '9' && f < 100; q++) f = f * 10 + (*q - '0');
+            g_lumiose_kbd_field = f;
+        }
+    }
     if (len && ((const char *)(uintptr_t)p)[len - 1] != '\n') fputc('\n', stderr);
 }
 
