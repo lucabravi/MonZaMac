@@ -173,6 +173,7 @@ static void ball(ImDrawList *dl, ImVec2 c, float r, bool filled, bool shiny) {
 }
 
 // The party as a row of balls with each level under it (the games show their sprites, which aren't shipped)
+ImTextureID launcher_mon_picture(unsigned species, unsigned form, bool shiny);  // runtime/ui/launcher.mm
 static void team_row(ImDrawList *dl, ImFont *small_, ImVec2 at, float u, const SaveInfo *si) {
     if (!si->party_n) {
         dl->AddText(small_, u * 0.8f, ImVec2(at.x, at.y - u * 0.4f), pal::sub, ui_tr("No Pokémon yet"));
@@ -182,7 +183,15 @@ static void team_row(ImDrawList *dl, ImFont *small_, ImVec2 at, float u, const S
     for (int i = 0; i < SAVE_PARTY_MAX; i++) {
         bool on = i < si->party_n;
         ImVec2 c(at.x + r + step * i, at.y);
-        ball(dl, c, r, on, on && si->party[i].shiny);
+        // the Pokemon's own picture (made from the player's game files: runtime/ui/launcher.mm), else its ball
+        const SaveMon &m = si->party[i];
+        ImTextureID pic = on && !m.egg ? launcher_mon_picture(m.species, m.form, m.shiny) : (ImTextureID)0;
+        if (pic) {
+            float h = r * 1.35f;
+            dl->AddImage(pic, ImVec2(c.x - h, c.y - h), ImVec2(c.x + h, c.y + h));
+        } else {
+            ball(dl, c, r, on, on && m.shiny);
+        }
         if (!on) continue;
         char lv[8];
         snprintf(lv, sizeof lv, "Lv. %u", si->party[i].level);
@@ -778,7 +787,9 @@ int saves_screen_draw(float sc, ImFont *body, ImFont *small_, float top_y, float
             for (int k = 0; k < si->party_n; k++) {
                 const SaveMon &m = si->party[k];
                 float cx = tx + (k % 2) * colw, cy = y0 + u * 0.2f + rp * (k / 2) + rp * 0.5f;
-                ball(cl, ImVec2(cx + r0, cy), r0, true, m.shiny);
+                ImTextureID pic = m.egg ? (ImTextureID)0 : launcher_mon_picture(m.species, m.form, m.shiny);
+                if (pic) cl->AddImage(pic, ImVec2(cx + r0 - r0 * 1.35f, cy - r0 * 1.35f), ImVec2(cx + r0 + r0 * 1.35f, cy + r0 * 1.35f));
+                else ball(cl, ImVec2(cx + r0, cy), r0, true, m.shiny);  // (an egg, or no picture yet)
                 char lv[16], nm[16];
                 snprintf(lv, sizeof lv, "Lv. %u", m.level);
                 float lw = small_->CalcTextSizeA(u * 0.8f, FLT_MAX, 0, lv).x, nx = cx + r0 * 2 + u * 0.5f, cr = cx + colw - u * 0.6f;

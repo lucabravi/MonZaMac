@@ -19,6 +19,7 @@
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <unistd.h>
+#include <map>
 #include <vector>
 #include <algorithm>
 #include <atomic>
@@ -247,17 +248,13 @@ static bool prompts_tool(char *tool, size_t n) {
     return rt_resource("zaprompts/zaprompts", "build/helper/zaprompts/zaprompts", tool, n);
 }
 // (3 tries: a game closed before zaprompts is done may end it with the process)
-// Online also the Lumiose Online mod's 160 px Pokemon and item pictures and the game's UI font for its windows
-// (runtime/hle/pl.c), once: textures/lumiose/.made says "3" (1: before the items, 2: before the font)
-#ifdef LUMIOSE_ONLINE
+// Also the 160 px Pokemon and item pictures (the saves' team rows; the Lumiose Online mod's cards: runtime/hle/pl.c) and
+// the game's UI font (the mod's windows), once: textures/lumiose/.made says "3" (1: before the items, 2: before the font)
 static bool pictures_wanted(void) {
     char v[8] = "";
     if (FILE *f = fopen("textures/lumiose/.made", "rb")) { if (!fgets(v, sizeof v, f)) v[0] = 0; fclose(f); }
     return strcmp(v, "3") != 0 || !file_exists("textures/lumiose-ui.otf");  // (the font sits beside the folder)
 }
-#else
-static bool pictures_wanted(void) { return false; }
-#endif
 static bool prompts_wanted(void) {
     char tool[1100];
     int tries = 0;
@@ -1182,13 +1179,57 @@ static id<MTLTexture> load_tex(id<MTLDevice> dev, const char *name, const char *
     if (src) CFRelease(src);
     return tex;
 }
+// A Pokemon's 160 px picture made from the player's own game files (textures/lumiose: tools/za/prompt_textures.py
+// --pictures, as for the Lumiose Online mod), for the saves' team rows (runtime/ui/saves_ui.mm). 0: none (yet): the
+// row draws its ball. Kept once loaded; a missing one is looked for again after a few seconds (they may be in the making).
+static id<MTLDevice> g_ui_dev;
+ImTextureID launcher_mon_picture(unsigned species, unsigned form, bool shiny) {
+    static std::map<uint32_t, id<MTLTexture>> have;
+    static std::map<uint32_t, Uint64> missed;
+    if (!g_ui_dev || !species) return (ImTextureID)0;
+    uint32_t key = species | form << 16 | (shiny ? 1u << 31 : 0);
+    auto it = have.find(key);
+    if (it != have.end()) return (ImTextureID)(__bridge void *)it->second;
+    Uint64 now = SDL_GetTicks();
+    auto m = missed.find(key);
+    if (m != missed.end() && now - m->second < 5000) return (ImTextureID)0;
+    char p[96];
+    snprintf(p, sizeof p, "textures/lumiose/pm%u_%u_0_%d.png", species, form, shiny ? 1 : 0);
+    if (!file_exists(p) && form) snprintf(p, sizeof p, "textures/lumiose/pm%u_0_0_%d.png", species, shiny ? 1 : 0);  // (the base form)
+    id<MTLTexture> tex = nil;
+    if (file_exists(p)) {
+        CGImageSourceRef src = CGImageSourceCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:@(p)], NULL);
+        CGImageRef img = src ? CGImageSourceCreateImageAtIndex(src, 0, NULL) : NULL;
+        if (img) {
+            const size_t w = 160, h = 160;
+            std::vector<uint8_t> px(w * h * 4);
+            CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+            CGContextRef cg = CGBitmapContextCreate(px.data(), w, h, 8, w * 4, cs, kCGImageAlphaPremultipliedLast);
+            CGContextSetInterpolationQuality(cg, kCGInterpolationHigh);
+            CGContextDrawImage(cg, CGRectMake(0, 0, w, h), img);
+            CGContextRelease(cg);
+            CGColorSpaceRelease(cs);
+            MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                                                                          width:w height:h mipmapped:NO];
+            tex = [g_ui_dev newTextureWithDescriptor:td];
+            [tex replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0 withBytes:px.data() bytesPerRow:w * 4];
+            CGImageRelease(img);
+        }
+        if (src) CFRelease(src);
+    }
+    if (!tex) { missed[key] = now; return (ImTextureID)0; }
+    have[key] = tex;
+    return (ImTextureID)(__bridge void *)tex;
+}
 static void load_logo(id<MTLDevice> dev) {
+    g_ui_dev = dev;
     if (!g_logo) g_logo = load_tex(dev, "icon.png", "docs/icon/icon_1024.png", 256, NULL);  // (the 1024 px icon, scaled down once)
 #ifdef LUMIOSE_ONLINE
     if (!g_banner) g_banner = load_tex(dev, "lumiose_banner.jpg", "docs/icon/lumiose_banner.jpg", 1400, &g_banner_h);
 #endif
 }
 #else
+ImTextureID launcher_mon_picture(unsigned, unsigned, bool) { return (ImTextureID)0; }  // (Apple only for now: the ball)
 #define LOGO_TEXID ((ImTextureID)0)
 #define BANNER_TEXID ((ImTextureID)0)
 static size_t g_banner_h;
