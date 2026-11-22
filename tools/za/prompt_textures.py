@@ -37,6 +37,8 @@ ap.add_argument('--settings', default=None, help='settings file with bind_key_* 
 ap.add_argument('--out', default='textures/prompts')
 ap.add_argument('--scale', type=int, default=4)
 ap.add_argument('--font', default=None, help='bold TrueType font for the labels')
+ap.add_argument('--pictures', metavar='DIR', help='also DIR: the 160 px Pokemon pictures the Lumiose Online mod asks the '
+                'launcher for (runtime/hle/pl.c); made into DIR.new, then DIR/.made and swapped in')
 ap.add_argument('--mods', default='mods', help="mods folder (runtime/services/fs.c): their UI archives' icons too")
 args = ap.parse_args()
 args.romfs = args.romfs or ['extracted/romfs' if os.path.isdir('extracted/romfs') else 'extracted/romfs.bin']
@@ -895,6 +897,92 @@ for style in args.styles.split(','):
     if recs:
         open(patch, 'wb').write(b'ZAROMFS2' + struct.pack('<I', len(recs)) + b''.join(recs))
         print(f'{patch}: icon fonts for {len(recs) // 2} game version(s)')
+
+# ------------------------------------------------------------------ the Lumiose Online mod's detail pictures
+# The mod's Market and trade cards draw a Pokemon at about 220 px; in a launcher it asks for the game's own 160 x 160 icon
+# through nn::pl (runtime/hle/pl.c), else it enlarges its 32 px cell. Made here from your files: one PNG per catalog row
+# (species, form, female look) and colour, <DIR>/pm<species>_<form>_<female>_<shiny>.png (not per bindings: made once). The route is the mod's own
+# (gameicons_pack.cpp): the poke_resource catalog gives each row its model folder pmSSSS/pmSSSS_FF_TT, whose
+# icon/pmSSSS_FF_TT_00_<shiny>.bntx is one BC7 texture.
+def archive_file(trpfs, trpfd, path):
+    """a file of the archive by its path (data.trpfd: sorted FNV-1a 64 path hashes, each file's pack; the pack's own
+    sorted hashes and entries), decompressed; None when not there"""
+    h = fnv64(path.encode())
+    fd = FB(trpfd)
+    rt = fd.table(fd.u32(0))
+    n, hp = fd.vec(rt[0])
+    i = bisect.bisect_left(range(n), h, key=lambda k: fd.u64(hp + 8 * k))
+    if i >= n or fd.u64(hp + 8 * i) != h: return None
+    _, pp = fd.vec(rt[2])
+    e = pp + 4 * i
+    pk = fd.u64(fd.table(e + fd.u32(e))[0])
+    _, np_ = fd.vec(rt[1])
+    sa = np_ + 4 * pk
+    sa += fd.u32(sa)
+    name = bytes(trpfd[sa + 4:sa + 4 + fd.u32(sa)])
+    fs = FB(trpfs)
+    root = fs.u64(8)
+    ft = fs.table(root + fs.u32(root))
+    pn, php = fs.vec(ft[0])
+    hn = fnv64(name)
+    j = bisect.bisect_left(range(pn), hn, key=lambda k: fs.u64(php + 8 * k))
+    if j >= pn or fs.u64(php + 8 * j) != hn: return None
+    _, op = fs.vec(ft[1])
+    base = fs.u64(op + 8 * j)
+    pt = fs.table(base + fs.u32(base))
+    en, ehp = fs.vec(pt[0])
+    k = bisect.bisect_left(range(en), h, key=lambda q: fs.u64(ehp + 8 * q))
+    if k >= en or fs.u64(ehp + 8 * k) != h: return None
+    _, ep = fs.vec(pt[1])
+    e = ep + 4 * k
+    et = fs.table(e + fs.u32(e))
+    comp = trpfs[et[1]] if len(et) > 1 and et[1] else 0xFF
+    size = fs.u64(et[3]) if len(et) > 3 and et[3] else 0
+    dn, dp = fs.vec(et[4])
+    return unpack(comp, size, trpfs[dp:dp + dn])
+
+
+def mon_pictures(trpfs, trpfd, out):
+    cat = archive_file(trpfs, trpfd, 'ik_pokemon/catalog/catalog/poke_resource_table.trpmcatalog')
+    if cat is None: print('pictures: no Pokemon catalog in the game files'); return
+    fb = FB(cat)
+    rows, rp = fb.vec(fb.table(fb.u32(0))[1])
+    os.makedirs(out, exist_ok=True)
+    made = 0
+    for i in range(rows):
+        e = rp + 4 * i
+        t = fb.table(e + fb.u32(e))
+        if len(t) < 2 or not t[0] or not t[1]: continue
+        key = fb.table(t[0] + fb.u32(t[0]))
+        get = lambda j, w: (struct.unpack_from('<H', cat, key[j])[0] if w == 2 else cat[key[j]]) if len(key) > j and key[j] else 0
+        sp, form, female = get(0, 2), get(1, 2), get(2, 1) & 1
+        sa = t[1] + fb.u32(t[1])
+        folder = bytes(cat[sa + 4:sa + 4 + fb.u32(sa)]).decode('ascii', 'replace')
+        m = re.match(r'pm(\d{4})/pm\1_(\d\d)_(\d\d)/', folder)
+        if not m or not 0 < sp < 9999: continue
+        fsp, ff, tt = m.group(1), m.group(2), m.group(3)
+        for shiny in (0, 1):
+            d = archive_file(trpfs, trpfd, f'ik_pokemon/data/pm{fsp}/pm{fsp}_{ff}_{tt}/icon/pm{fsp}_{ff}_{tt}_00_{shiny}.bntx')
+            if d is None or d[:4] != b'BNTX': continue
+            for name, w, h, fmt, bh, data in bntx_textures(d):
+                if fmt not in (0x2001, 0x2006): break  # (BC7, unorm / sRGB)
+                lin = deswizzle(data, (w + 3) // 4, (h + 3) // 4, 16, bh)
+                img = Image.frombytes('RGBA', ((w + 3) // 4 * 4, (h + 3) // 4 * 4), bytes(lin), 'bcn', 7).crop((0, 0, w, h))
+                if img.size != (160, 160): img = img.resize((160, 160), Image.LANCZOS)
+                img.save(os.path.join(out, f'pm{sp}_{form}_{female}_{shiny}.png'), optimize=False)
+                made += 1
+                break
+    print(f'{out}: {made} Pokemon pictures from {rows} catalog rows')
+
+
+if args.pictures:
+    import bisect, shutil
+    tmp = args.pictures.rstrip('/\\') + '.new'
+    shutil.rmtree(tmp, ignore_errors=True)
+    mon_pictures(*open_game(args.romfs[0]), tmp)
+    with open(os.path.join(tmp, '.made'), 'w') as f: f.write('1')
+    shutil.rmtree(args.pictures, ignore_errors=True)
+    os.replace(tmp, args.pictures)
 
 if args.install:  # the finished sets in place of the old ones, in one move
     with open(os.path.join(args.out, '.made'), 'w') as f: f.write(args.install)
