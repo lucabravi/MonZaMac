@@ -13,6 +13,8 @@
 #include "temporal_upscale.h"
 #include "frame_generation_present.h"
 #include "frame_generation_display.h"
+bool lumiose_type_event(const SDL_Event *e);  // runtime/hle/lumiose_type.c
+void lumiose_type_tick(SDL_Window *w);
 #include "../devlog.h"
 #import <QuartzCore/CAMetalLayer.h>
 #import <QuartzCore/QuartzCore.h>
@@ -1936,8 +1938,10 @@ int ui_run(void) {
             }
             if (input_user_blocked(&e)) continue;  // scripted test runs: the real keyboard / mouse / pads do nothing
             if (menu_handle_event(&e)) continue;
+            if (lumiose_type_event(&e)) continue;  // (typing into the Lumiose Online mod's field: runtime/hle/lumiose_type.c)
             input_handle_event(&e);
         }
+        if (!ui_preparation_update()) lumiose_type_tick(window);
         if (!ui_preparation_update()) input_mouse_update(window);  // (Mouse camera "No button": the cursor held in the window)
         menu_apply_window_requests(window);
         static long fg_resize_at=-1;static int fg_old_w,fg_old_h;static bool fg_resize_done,fg_restore_done;
