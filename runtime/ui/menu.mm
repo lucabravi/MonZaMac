@@ -210,7 +210,7 @@ static std::atomic<int> g_kbd{0};  // 1 open, 2 confirmed, 3 cancelled
 static std::atomic<bool> g_kbd_enter{false};  // Enter pressed: confirmed by the render thread once the typed text is in the field
 static std::atomic<bool> g_last_pad{false};
 static char g_kbd_title[200];  // (the caller's header; empty: "Enter your name")
-static char g_kbd_text[512];
+static char g_kbd_text[1024];  // (255 characters of up to 4 UTF-8 bytes: the Mail message is 200 bytes)
 static int g_kbd_max = 8;
 static bool capturing() { return g_open.load() || g_kbd.load() == 1; }
 // The game gets no input while this is true (runtime/hle/input.c): menu or name entry up.

@@ -14,8 +14,10 @@ int menu_keyboard_run(const char *title, const char *initial, int max_len, char 
 // The Lumiose Online mod (1.4.4 and later) keeps a chat state block in its data, "VMPCHAT\0" on a 16-byte boundary: u32
 // version (1, 2) at +8, u32 size at +0xc, u32 state at +0x10 (2 = the chat focused, 32 = a window's field being edited),
 // and from version 2 the edited field at +0xe4. It opens the keyboard with no maximum: each field's own length, in UTF-8
-// bytes, comes from which one it is (1 the chat: 120, its text buffer; 2, 3, 7, 13: 24; 4, 5, 6, 9, 12: 8; 10: 60;
-// 8 and 11: 120). The block names the field only while its field-edit bit is on: once a keyboard was cancelled the mod
+// bytes, comes from which one it is: the mod's own field list and lengths (its ui/textfield.hpp ids, the maxBytes each
+// window opens its field with): 1 chat 120, 2 Market search 24, 3 Market move 24, 4 / 5 prices 8, 6 sell price 8, 7 Mail
+// to 24, 8 Mail message 200, 9 Mail money 8, 10 friend status 60, 11 player note 120, 12 trade money 8, 13 guild name 24,
+// 14 Mystery Gift code 32, 15 staff find 24, 16 outfit name 24. The block names the field only while its field-edit bit is on: once a keyboard was cancelled the mod
 // turns it off and the byte trails a field behind. The mod also logs "swkbd: requested for field N" right before it opens
 // the keyboard (runtime/kernel.c debug_string keeps that N): used then. 0: neither (or two blocks: never guess).
 _Atomic int g_lumiose_kbd_field;
@@ -38,10 +40,12 @@ static int lumiose_field_max(void) {
     memcpy(&ver, b + 8, 4), memcpy(&state, b + 0x10, 4);
     int field = ver == 2 && (state & 32) ? __atomic_load_n(b + 0xe4, __ATOMIC_ACQUIRE) : logged ? logged : (state & 2) ? 1 : 0;
     switch (field) {
-    case 2: case 3: case 7: case 13: return 24;
+    case 2: case 3: case 7: case 13: case 15: case 16: return 24;
     case 4: case 5: case 6: case 9: case 12: return 8;
     case 10: return 60;
-    case 1: case 8: case 11: return 120;
+    case 14: return 32;
+    case 1: case 11: return 120;
+    case 8: return 200;
     default: return 0;
     }
 }
