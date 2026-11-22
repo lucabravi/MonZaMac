@@ -460,6 +460,7 @@ The game code build for online play could not be kept.	온라인 플레이용 �
 The game code didn't build	게임 코드를 빌드하지 못했습니다
 The game data is not the original of version 2.0.2.	게임 데이터가 버전 2.0.2의 원본이 아닙니다.
 The game files changed.	게임 파일이 변경되었습니다.
+The game font for the online windows...	온라인 창에 쓸 게임 글꼴을 준비하는 중...
 The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.	카메라 초점에서 벗어난 부분을 흐리게 합니다. 끄면 화면 전체가 선명해집니다.
 The game's glow around bright light. Off: no glow, a plainer image.	밝은 광원 주위에 빛 번짐을 추가합니다. 끄면 화면이 더 담백해집니다.
 The game's own anti-aliasing, a light blur over the whole image.\n\nOff: sharper, with more jagged edges (SMAA above can smooth them instead).	게임 자체의 안티앨리어싱으로, 화면 전체를 살짝 흐리게 합니다.\n\n끔: 더 선명하지만 가장자리가 더 울퉁불퉁해집니다(위의 SMAA로 대신 부드럽게 할 수 있습니다).

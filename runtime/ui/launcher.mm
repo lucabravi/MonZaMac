@@ -19,6 +19,7 @@
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <unistd.h>
+#include <map>
 #include <vector>
 #include <algorithm>
 #include <atomic>
@@ -101,7 +102,7 @@ static void save_png(id<MTLTexture> tex, const char *path) {
 static const uint8_t BUILD_ID[8] = {0xb1, 0xf1, 0x2f, 0xd9, 0x19, 0xea, 0xe8, 0x6a};  // Pokémon Legends: Z-A v2.0.2 main
 // The release tag this build is (also names the release files; Makefile / tools/bundle_macos.sh / make_dmg.sh read
 // it): v<major>.<minor>.<patch>, 0.x until 1.0.
-#define LARECOMP_VERSION "v0.4.5"
+#define LARECOMP_VERSION "v0.4.6"
 
 #include "online_env.h"
 #include "menu.h"
@@ -229,12 +230,16 @@ static std::string prompts_stamp(void) {
     return s;
 }
 // a marker file holding this stamp, and (textures/prompts.tried: "<stamp> <tries>") its count
+static bool pictures_wanted(void);
+// the tries' stamp: the sets' own, and a run for the online pictures counts apart (they are wanted again on their own when
+// their version moves on, and the made sets' runs must not use up their tries)
+static std::string tried_stamp(void) { return prompts_stamp() + (pictures_wanted() ? "+pictures" : ""); }
 static bool prompts_marked(const char *path, int *tries = NULL) {
     FILE *f = fopen(path, "rb");
     if (!f) return false;
     char v[48] = "";
     int n = 0;
-    bool ok = fscanf(f, "%47s %d", v, &n) >= 1 && prompts_stamp() == v;
+    bool ok = fscanf(f, "%47s %d", v, &n) >= 1 && (tries ? tried_stamp() : prompts_stamp()) == v;
     fclose(f);
     if (tries) *tries = ok ? n : 0;
     return ok;
@@ -243,12 +248,26 @@ static bool prompts_tool(char *tool, size_t n) {
     return rt_resource("zaprompts/zaprompts", "build/helper/zaprompts/zaprompts", tool, n);
 }
 // (3 tries: a game closed before zaprompts is done may end it with the process)
+// Also the 160 px Pokemon and item pictures (the saves' team rows; the Lumiose Online mod's cards: runtime/hle/pl.c) and
+// the game's UI font (the mod's windows), once: textures/lumiose/.made says "3" (1: before the items, 2: before the font)
+static bool pictures_wanted(void) {
+    char v[8] = "";
+    if (FILE *f = fopen("textures/lumiose/.made", "rb")) { if (!fgets(v, sizeof v, f)) v[0] = 0; fclose(f); }
+    return strcmp(v, "3") != 0 || !file_exists("textures/lumiose-ui.otf");  // (the font sits beside the folder)
+}
 static bool prompts_wanted(void) {
     char tool[1100];
     int tries = 0;
     prompts_marked("textures/prompts.tried", &tries);
     return prompts_tool(tool, sizeof tool) && file_exists(g_root + "/romfs.bin") &&
-           !prompts_marked("textures/prompts/.made") && tries < 3;
+           (!prompts_marked("textures/prompts/.made") || pictures_wanted()) && tries < 3;
+}
+// zaprompts still running (started by the start screen, a rebind): reaped when it has ended
+static bool prompts_running(void) {
+    if (!g_prompts_proc) return false;
+    if (plat_proc_wait(g_prompts_proc, false) < 0) return true;
+    g_prompts_proc = 0;
+    return false;
 }
 // wait: until made (the setup), else started and left running (the start screen, a rebind)
 static bool make_prompts(bool wait) {
@@ -264,12 +283,12 @@ static bool make_prompts(bool wait) {
     std::string stamp = prompts_stamp();
     int tries = 0;
     prompts_marked("textures/prompts.tried", &tries);
-    if (FILE *f = fopen("textures/prompts.tried", "wb")) fprintf(f, "%s %d", stamp.c_str(), tries + 1), fclose(f);
+    if (FILE *f = fopen("textures/prompts.tried", "wb")) fprintf(f, "%s %d", tried_stamp().c_str(), tries + 1), fclose(f);
     std::string romfs = g_root + "/romfs.bin";
     const char *ini = getenv("LARECOMP_SETTINGS");  // (as runtime/settings.c: the bindings the icons name)
     if (!ini || !*ini) ini = "larecomp.ini";
     const char *argv[] = {tool, "--romfs", romfs.c_str(), "--settings", ini, "--mods", "mods", "--out", "textures/prompts",
-                          "--install", stamp.c_str(), NULL};
+                          "--install", stamp.c_str(), pictures_wanted() ? "--pictures" : NULL, "textures/lumiose", NULL};
     PlatProc p = plat_spawn(argv, "textures/prompts.log", false);
     if (!wait || !p) {
         fprintf(stderr, "[launcher] button icons: %s\n", p ? "being made (zaprompts, textures/prompts.log)" : "zaprompts didn't start");
@@ -561,6 +580,13 @@ static void online_view(const std::string &files, bool busy, OnlineView *v) {
             return;
         }
     }
+    // the game's UI font for the mod being made: the mod reads it once, when the game starts, so Play online waits for it
+    // (the pictures come later, asked for while playing; a run that keeps failing leaves the mod on its own fallbacks)
+    if (!file_exists("textures/lumiose-ui.otf") && pictures_wanted() && prompts_running()) {
+        snprintf(headline, sizeof headline, "Preparing the online version");
+        snprintf(line, sizeof line, "The game font for the online windows...");
+        return;
+    }
     if (g_ou == OU_START) {
         if (!online_find_tools()) g_ou = OU_OFF;
         else g_ou = online_query() ? OU_QUERY : OU_NEEDS;
@@ -679,6 +705,7 @@ static void online_click() {
     bool pending;
     if (online_outdated(NULL, &pending) || pending) return;  // (the column says why)
     if (pack_gate(&pending) || pending) return;
+    if (!file_exists("textures/lumiose-ui.otf") && pictures_wanted() && prompts_running()) return;  // (online_view says why)
     g_ou_note.clear();
     if (online_consent_given()) online_continue();
     else g_ou_consent_open = true;
@@ -1152,13 +1179,57 @@ static id<MTLTexture> load_tex(id<MTLDevice> dev, const char *name, const char *
     if (src) CFRelease(src);
     return tex;
 }
+// A Pokemon's 160 px picture made from the player's own game files (textures/lumiose: tools/za/prompt_textures.py
+// --pictures, as for the Lumiose Online mod), for the saves' team rows (runtime/ui/saves_ui.mm). 0: none (yet): the
+// row draws its ball. Kept once loaded; a missing one is looked for again after a few seconds (they may be in the making).
+static id<MTLDevice> g_ui_dev;
+ImTextureID launcher_mon_picture(unsigned species, unsigned form, bool shiny) {
+    static std::map<uint32_t, id<MTLTexture>> have;
+    static std::map<uint32_t, Uint64> missed;
+    if (!g_ui_dev || !species) return (ImTextureID)0;
+    uint32_t key = species | form << 16 | (shiny ? 1u << 31 : 0);
+    auto it = have.find(key);
+    if (it != have.end()) return (ImTextureID)(__bridge void *)it->second;
+    Uint64 now = SDL_GetTicks();
+    auto m = missed.find(key);
+    if (m != missed.end() && now - m->second < 5000) return (ImTextureID)0;
+    char p[96];
+    snprintf(p, sizeof p, "textures/lumiose/pm%u_%u_0_%d.png", species, form, shiny ? 1 : 0);
+    if (!file_exists(p) && form) snprintf(p, sizeof p, "textures/lumiose/pm%u_0_0_%d.png", species, shiny ? 1 : 0);  // (the base form)
+    id<MTLTexture> tex = nil;
+    if (file_exists(p)) {
+        CGImageSourceRef src = CGImageSourceCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:@(p)], NULL);
+        CGImageRef img = src ? CGImageSourceCreateImageAtIndex(src, 0, NULL) : NULL;
+        if (img) {
+            const size_t w = 160, h = 160;
+            std::vector<uint8_t> px(w * h * 4);
+            CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+            CGContextRef cg = CGBitmapContextCreate(px.data(), w, h, 8, w * 4, cs, kCGImageAlphaPremultipliedLast);
+            CGContextSetInterpolationQuality(cg, kCGInterpolationHigh);
+            CGContextDrawImage(cg, CGRectMake(0, 0, w, h), img);
+            CGContextRelease(cg);
+            CGColorSpaceRelease(cs);
+            MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                                                                          width:w height:h mipmapped:NO];
+            tex = [g_ui_dev newTextureWithDescriptor:td];
+            [tex replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0 withBytes:px.data() bytesPerRow:w * 4];
+            CGImageRelease(img);
+        }
+        if (src) CFRelease(src);
+    }
+    if (!tex) { missed[key] = now; return (ImTextureID)0; }
+    have[key] = tex;
+    return (ImTextureID)(__bridge void *)tex;
+}
 static void load_logo(id<MTLDevice> dev) {
+    g_ui_dev = dev;
     if (!g_logo) g_logo = load_tex(dev, "icon.png", "docs/icon/icon_1024.png", 256, NULL);  // (the 1024 px icon, scaled down once)
 #ifdef LUMIOSE_ONLINE
     if (!g_banner) g_banner = load_tex(dev, "lumiose_banner.jpg", "docs/icon/lumiose_banner.jpg", 1400, &g_banner_h);
 #endif
 }
 #else
+ImTextureID launcher_mon_picture(unsigned, unsigned, bool) { return (ImTextureID)0; }  // (Apple only for now: the ball)
 #define LOGO_TEXID ((ImTextureID)0)
 #define BANNER_TEXID ((ImTextureID)0)
 static size_t g_banner_h;

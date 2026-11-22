@@ -460,6 +460,7 @@ The game code build for online play could not be kept.	Не удалось со�
 The game code didn't build	Не удалось собрать код игры
 The game data is not the original of version 2.0.2.	Данные игры не являются оригинальными данными версии 2.0.2.
 The game files changed.	Игровые файлы изменились.
+The game font for the online windows...	Шрифт игры для онлайн-окон...
 The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.	Размытие областей вне фокуса камеры. Выключено: вся сцена остаётся чёткой.
 The game's glow around bright light. Off: no glow, a plainer image.	Добавляет свечение вокруг ярких источников света. Выключено: изображение более спокойное.
 The game's own anti-aliasing, a light blur over the whole image.\n\nOff: sharper, with more jagged edges (SMAA above can smooth them instead).	Собственное сглаживание игры: лёгкое размытие всего изображения.\n\nВыкл.: чётче, но края более зубчатые (вместо этого их может сгладить SMAA выше).

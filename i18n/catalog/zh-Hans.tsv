@@ -460,6 +460,7 @@ The game code build for online play could not be kept.	无法保留在线游玩�
 The game code didn't build	游戏代码构建失败
 The game data is not the original of version 2.0.2.	游戏数据不是 2.0.2 版本的原始数据。
 The game files changed.	游戏文件已更改。
+The game font for the online windows...	正在为在线窗口准备游戏字体...
 The game's blur of what is far from the camera's focus. Off: the whole view stays sharp.	模糊镜头焦点以外的区域。关闭后整个画面保持清晰。
 The game's glow around bright light. Off: no glow, a plainer image.	为明亮光源添加光晕。关闭后画面更自然。
 The game's own anti-aliasing, a light blur over the whole image.\n\nOff: sharper, with more jagged edges (SMAA above can smooth them instead).	游戏自带的抗锯齿，会对整个画面轻微模糊。\n\n关：更清晰，但锯齿边缘更明显（可改用上方的 SMAA 来平滑）。

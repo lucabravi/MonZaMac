@@ -5,6 +5,18 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+## 0.4.6
+
+Lumiose Online, closer to the PC launcher the mod was made for: typing in place, sharp Market pictures, the game's font in the mod's windows, and text fields that keep their own length. On the first start MonZaMac makes the Pokémon pictures (and, online, the font) from your game files (about a minute in the background; Play online waits only for the font), and Play online prepares the online version again once. No game code rebuild and no shader preparation are needed.
+
+### Start screen
+- **Your team shows its Pokémon**, not Poké Balls: the saves' team rows (both columns and the saves list) draw each Pokémon's picture, shiny looks included, made from your game files the first time (about a minute in the background; until then, and for eggs, the balls). In the standard edition too.
+
+### Lumiose Online
+- **Type straight into the chat and the online windows' fields with your Mac's keyboard**, without the keyboard window: in the chat (opened with the chat button) and in a field you click (Mail, Market search...), the keys write the text, Return sends or confirms, Escape closes. A controller still gets the keyboard window.
+- **Chat messages are no longer cut to 8 characters.** The mod opens the keyboard with no maximum, which MonZaMac read as 8; each field now takes its own length: 120 bytes for the chat (an accented letter counts 2), 200 for a Mail message, 60 for the friend status, 32 for a Mystery Gift code, 24 for the Market search, Mail recipient, guild and outfit names, 8 for prices and money. The keyboard shows the field's own title ("Chat", "Pokémon name"...) instead of "Enter your name". Cancelling it closes it: in the Market's filters it opened again at once, round and round (the button that closed it reached the game).
+- **The Market's Pokémon pictures are sharp.** The mod asks the launcher for the game's own 160 px picture of each Pokémon and enlarged its 32 px icon when there was none. MonZaMac now makes those pictures from your game files once (about a minute in the background on the first start, 35 MB) and hands them over, shiny looks included. The item cards get the game's own item pictures the same way. The mod's own windows (chat, Market, Mail) use the game's UI font, also made from your files; the first Play online waits the few seconds it takes.
+
 ## 0.4.5
 
 A new look for Lumiose Online on the start screen. No game code rebuild and no shader preparation are needed.

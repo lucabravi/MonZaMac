@@ -60,6 +60,10 @@ static void recompute_keyboard(void) {
     key_ry = (held_key(g_bind_key[BIND_RS_UP]) - held_key(g_bind_key[BIND_RS_DOWN])) * 32767;
 }
 
+// Controller buttons held when an overlay (the menu, the keyboard) let go: not the game's until released. The button that
+// closed the text keyboard (A on its Cancel / OK) reached the Lumiose Online mod's Market field as "write" and opened
+// the keyboard again, round and round.
+static _Atomic uint32_t pad_hold;
 // Controller buttons (and the triggers as buttons) -> Switch buttons through g_bind_pad; the sticks stay the sticks.
 static void recompute_pad(void) {
     uint32_t host = test_pad;
@@ -69,6 +73,9 @@ static void recompute_pad(void) {
         if (SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 16000) host |= 1u << PADB_LTRIGGER;
         if (SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 16000) host |= 1u << PADB_RTRIGGER;
     }
+    uint32_t hold = pad_hold & host;  // (released: the game's again)
+    pad_hold = hold;
+    host &= ~hold;
     uint64_t b = 0;
     for (int i = 0; i < BIND_PAD_COUNT; i++)
         if (g_bind_pad[i] >= 0 && g_bind_pad[i] < PADB_HOST_COUNT && (host >> g_bind_pad[i] & 1)) b |= 1ull << i;
@@ -84,6 +91,12 @@ static void recompute_pad(void) {
 void input_reset(void) {
     memset(keys_down, 0, sizeof keys_down);
     recompute_keyboard();
+    uint32_t held = 0;
+    if (pad && !host_test)
+        for (int i = 0; i < SDL_GAMEPAD_BUTTON_COUNT; i++)
+            if (SDL_GetGamepadButton(pad, (SDL_GamepadButton)i)) held |= 1u << i;
+    pad_hold = held;
+    recompute_pad();
 }
 
 volatile int g_debug_frame_request;  // F9 (LARECOMP_DEVTOOLS only): dump the next frame's passes (build/pass_*.png) + draw log

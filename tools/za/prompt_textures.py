@@ -22,7 +22,7 @@
 # packs), decoded by libmonzamac_ooz.dylib (tools/shader_decode: oozextract, MIT; in the app's zaprompts/, else
 # build/shader-decode/release/) or --ooz. Needs Pillow, numpy and fontTools (and cffsubr, to make the fonts fit). Made for every player by the start screen (runtime/ui/launcher.mm make_prompts, the frozen zaprompts).
 # usage (from the repository root): python tools/za/prompt_textures.py [--settings larecomp.ini]
-import argparse, ctypes, mmap, os, re, struct, sys
+import argparse, contextlib, ctypes, mmap, os, re, struct, sys
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -37,6 +37,8 @@ ap.add_argument('--settings', default=None, help='settings file with bind_key_* 
 ap.add_argument('--out', default='textures/prompts')
 ap.add_argument('--scale', type=int, default=4)
 ap.add_argument('--font', default=None, help='bold TrueType font for the labels')
+ap.add_argument('--pictures', metavar='DIR', help='also DIR: the 160 px Pokemon pictures the Lumiose Online mod asks the '
+                'launcher for (runtime/hle/pl.c); made into DIR.new, then DIR/.made and swapped in')
 ap.add_argument('--mods', default='mods', help="mods folder (runtime/services/fs.c): their UI archives' icons too")
 args = ap.parse_args()
 args.romfs = args.romfs or ['extracted/romfs' if os.path.isdir('extracted/romfs') else 'extracted/romfs.bin']
@@ -135,6 +137,55 @@ def game_files(m):
             if size < 64 << 20 and magic != b'BNTX' and (comp != 0xFF or magic == b'SARC'):
                 yield Entry(comp=comp, size=size, raw=m[dp:dp + dn], m=m, pack=i, pack_hash=fb.u64(hp + 8 * i),
                             pack_off=off, slot=(fb.u64(op + 8 * i + 8) if i + 1 < n else len(m)) - off, index=j)
+
+
+def archive_file(trpfs, trpfd, path): return archive_file_hash(trpfs, trpfd, fnv64(path.encode()))
+
+
+def archive_file_hash(trpfs, trpfd, h):
+    """a file of the archive by its path's FNV-1a 64 hash (data.trpfd: sorted path hashes, each file's pack; the pack's own
+    sorted hashes and entries), decompressed; None when not there"""
+    import bisect
+    fd = FB(trpfd)
+    rt = fd.table(fd.u32(0))
+    n, hp = fd.vec(rt[0])
+    i = bisect.bisect_left(range(n), h, key=lambda k: fd.u64(hp + 8 * k))
+    if i >= n or fd.u64(hp + 8 * i) != h: return None
+    _, pp = fd.vec(rt[2])
+    e = pp + 4 * i
+    pk = fd.u64(fd.table(e + fd.u32(e))[0])
+    _, np_ = fd.vec(rt[1])
+    sa = np_ + 4 * pk
+    sa += fd.u32(sa)
+    name = bytes(trpfd[sa + 4:sa + 4 + fd.u32(sa)])
+    fs = FB(trpfs)
+    root = fs.u64(8)
+    ft = fs.table(root + fs.u32(root))
+    pn, php = fs.vec(ft[0])
+    hn = fnv64(name)
+    j = bisect.bisect_left(range(pn), hn, key=lambda k: fs.u64(php + 8 * k))
+    if j >= pn or fs.u64(php + 8 * j) != hn: return None
+    _, op = fs.vec(ft[1])
+    base = fs.u64(op + 8 * j)
+    pt = fs.table(base + fs.u32(base))
+    en, ehp = fs.vec(pt[0])
+    k = bisect.bisect_left(range(en), h, key=lambda q: fs.u64(ehp + 8 * q))
+    if k >= en or fs.u64(ehp + 8 * k) != h: return None
+    _, ep = fs.vec(pt[1])
+    e = ep + 4 * k
+    et = fs.table(e + fs.u32(e))
+    comp = trpfs[et[1]] if len(et) > 1 and et[1] else 0xFF
+    size = fs.u64(et[3]) if len(et) > 3 and et[3] else 0
+    dn, dp = fs.vec(et[4])
+    return unpack(comp, size, trpfs[dp:dp + dn])
+
+
+def fnv64(b):  # FNV-1a 64 (runtime/services/fs.c checks the bytes a patch replaces with it)
+    h = 0xCBF29CE484222645
+    for x in b: h = ((h ^ x) * 0x100000001B3) & M64
+    return h
+
+
 
 
 def sarc_files(d):
@@ -804,6 +855,33 @@ def scan_sarc(d):
             if fmt == 0x1c01: bc3.add(hh)
 
 
+# The game's UI font for the Lumiose Online mod's windows (it asks nn::pl for 'LUMI' once, when the game starts:
+# runtime/hle/pl.c): UniversNextPro-Cond, the file whose path hashes to this, read straight from the archive before
+# anything else, next to the pictures' folder (<DIR>-ui.otf); Play online waits only for it (runtime/ui/launcher.mm).
+# Not found that way (other game files): picked up in the pass over every pack below, as the button icons' fonts are.
+UI_FONT_HASH = int(os.environ.get('ZAPROMPTS_UI_FONT_HASH', '06a846f4e17cc3ea'), 16)  # (the variable: tests, the fallback)
+ui_font_done = False
+
+
+def write_ui_font(ttf):
+    global ui_font_done
+    font = args.pictures.rstrip('/\\') + '-ui.otf'
+    with open(font + '.new', 'wb') as f: f.write(ttf)
+    os.replace(font + '.new', font)
+    print(f'{font}: the UI font', flush=True)
+    ui_font_done = True
+
+
+if args.pictures:
+    _trpfs, _trpfd = open_game(args.romfs[0])
+    _d = archive_file_hash(_trpfs, _trpfd, UI_FONT_HASH)
+    if _d is not None and _d[:4] == b'6\xf8\x1a\x1e' and b'UniversNextPro-Cond' in bfttf_decode(_d).replace(b'\0', b''):
+        write_ui_font(bfttf_decode(_d))
+    else:
+        print('the UI font is not where it is in version 2.0.2: looked for in every pack', flush=True)
+
+
+item_icons = {}  # item number -> its icon's BNTX (a file of its own: one 160 x 160 BC7 texture "item_<n>"; for --pictures)
 icon_fonts = {}  # game files folder -> [(Entry, magic, decoded TTF) of or_font / or_font_eng]
 trpfds = {}  # game files -> data.trpfd's bytes
 for romfs in args.romfs:
@@ -819,10 +897,17 @@ for romfs in args.romfs:
         if size < 0x20000 and d[:4] == b'6\xf8\x1a\x1e':  # (a small .bfttf: the icon fonts, the UI's bold condensed)
             ttf = bfttf_decode(d)
             if b'or_font' in ttf.replace(b'\0', b''): icon_fonts[romfs].append((ent, d[:4], ttf))
+            elif args.pictures and not ui_font_done and b'UniversNextPro-Cond' in ttf.replace(b'\0', b''):
+                write_ui_font(ttf)
             elif b'UniversNextPro-BoldCond' in ttf.replace(b'\0', b''):
                 import io
                 from fontTools.ttLib import TTFont
                 LABEL_FONT = TTFont(io.BytesIO(ttf))  # (the game's own letters for the font glyphs' labels)
+            continue
+        if args.pictures and d[:4] == b'BNTX' and size < 0x40000:
+            for name, w, h, fmt, bh, data in bntx_textures(d):
+                if (m := re.fullmatch(r'item_(\d{1,5})', name)) and w == h == 160: item_icons.setdefault(int(m.group(1)), d)
+                break
             continue
         scan_sarc(d)
 # the mods' UI archives (a translation's title screen has its own "PRESS (A)")
@@ -832,12 +917,6 @@ for root, _, names in os.walk(args.mods):
             with open(os.path.join(root, nm), 'rb') as f: scan_sarc(f.read())
 print(len(found), 'icon textures,', sum(len(v) for v in icon_fonts.values()), 'icon fonts')
 print('labels:', {b: key(b) for b in ('a', 'b', 'x', 'y', 'l', 'r', 'zl', 'zr', 'plus', 'minus')})
-
-
-def fnv64(b):  # FNV-1a 64 (runtime/services/fs.c checks the bytes a patch replaces with it)
-    h = 0xCBF29CE484222645
-    for x in b: h = ((h ^ x) * 0x100000001B3) & M64
-    return h
 
 
 def record(path, off, orig, data):
@@ -896,8 +975,66 @@ for style in args.styles.split(','):
         open(patch, 'wb').write(b'ZAROMFS2' + struct.pack('<I', len(recs)) + b''.join(recs))
         print(f'{patch}: icon fonts for {len(recs) // 2} game version(s)')
 
+# ------------------------------------------------------------------ the Lumiose Online mod's detail pictures
+# The mod's Market and trade cards draw a Pokemon at about 220 px; in a launcher it asks for the game's own 160 x 160 icon
+# through nn::pl (runtime/hle/pl.c), else it enlarges its 32 px cell. Made here from your files: one PNG per catalog row
+# (species, form, female look) and colour, <DIR>/pm<species>_<form>_<female>_<shiny>.png (not per bindings: made once). The route is the mod's own
+# (gameicons_pack.cpp): the poke_resource catalog gives each row its model folder pmSSSS/pmSSSS_FF_TT, whose
+# icon/pmSSSS_FF_TT_00_<shiny>.bntx is one BC7 texture.
+def mon_pictures(trpfs, trpfd, out):
+    cat = archive_file(trpfs, trpfd, 'ik_pokemon/catalog/catalog/poke_resource_table.trpmcatalog')
+    if cat is None: print('pictures: no Pokemon catalog in the game files'); return
+    fb = FB(cat)
+    rows, rp = fb.vec(fb.table(fb.u32(0))[1])
+    os.makedirs(out, exist_ok=True)
+    made = 0
+    for i in range(rows):
+        e = rp + 4 * i
+        t = fb.table(e + fb.u32(e))
+        if len(t) < 2 or not t[0] or not t[1]: continue
+        key = fb.table(t[0] + fb.u32(t[0]))
+        get = lambda j, w: (struct.unpack_from('<H', cat, key[j])[0] if w == 2 else cat[key[j]]) if len(key) > j and key[j] else 0
+        sp, form, female = get(0, 2), get(1, 2), get(2, 1) & 1
+        sa = t[1] + fb.u32(t[1])
+        folder = bytes(cat[sa + 4:sa + 4 + fb.u32(sa)]).decode('ascii', 'replace')
+        m = re.match(r'pm(\d{4})/pm\1_(\d\d)_(\d\d)/', folder)
+        if not m or not 0 < sp < 9999: continue
+        fsp, ff, tt = m.group(1), m.group(2), m.group(3)
+        for shiny in (0, 1):
+            d = archive_file(trpfs, trpfd, f'ik_pokemon/data/pm{fsp}/pm{fsp}_{ff}_{tt}/icon/pm{fsp}_{ff}_{tt}_00_{shiny}.bntx')
+            if d is None or d[:4] != b'BNTX': continue
+            made += bntx_png(d, os.path.join(out, f'pm{sp}_{form}_{female}_{shiny}.png'))
+    print(f'{out}: {made} Pokemon pictures from {rows} catalog rows')
+    # the items (the mod's item card): the game's own item_<n> icons, by their number
+    made = sum(bntx_png(d, os.path.join(out, f'item_{n}.png')) for n, d in sorted(item_icons.items()))
+    print(f'{out}: {made} item pictures')
+
+
+def bntx_png(d, path):  # a BNTX's first texture, BC7, as a 160 x 160 PNG; 1 when made
+    for name, w, h, fmt, bh, data in bntx_textures(d):
+        if fmt not in (0x2001, 0x2006): return 0  # (BC7, unorm / sRGB)
+        lin = deswizzle(data, (w + 3) // 4, (h + 3) // 4, 16, bh)
+        img = Image.frombytes('RGBA', ((w + 3) // 4 * 4, (h + 3) // 4 * 4), bytes(lin), 'bcn', 7).crop((0, 0, w, h))
+        if img.size != (160, 160): img = img.resize((160, 160), Image.LANCZOS)
+        img.save(path, optimize=False)
+        return 1
+    return 0
+
+
+if args.pictures:
+    import shutil
+    tmp = args.pictures.rstrip('/\\') + '.new'
+    shutil.rmtree(tmp, ignore_errors=True)
+    mon_pictures(*open_game(args.romfs[0]), tmp)
+    with open(os.path.join(tmp, '.made'), 'w') as f: f.write('3')  # (2: the items, 3: the UI font too; runtime/ui/launcher.mm asks for it)
+    shutil.rmtree(args.pictures, ignore_errors=True)
+    os.replace(tmp, args.pictures)
+
 if args.install:  # the finished sets in place of the old ones, in one move
     with open(os.path.join(args.out, '.made'), 'w') as f: f.write(args.install)
     shutil.rmtree(FINAL, ignore_errors=True)
     os.replace(args.out, FINAL)
+    # a whole run: the start screen's count of tries for it starts again (runtime/ui/launcher.mm: textures/prompts.tried
+    # beside the sets; a later reason to run, such as a missing picture, gets its own tries)
+    with contextlib.suppress(OSError): os.remove(os.path.join(os.path.dirname(FINAL.rstrip('/\\')) or '.', 'prompts.tried'))
     print('installed', FINAL)
