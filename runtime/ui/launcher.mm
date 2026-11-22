@@ -243,9 +243,14 @@ static bool prompts_tool(char *tool, size_t n) {
     return rt_resource("zaprompts/zaprompts", "build/helper/zaprompts/zaprompts", tool, n);
 }
 // (3 tries: a game closed before zaprompts is done may end it with the process)
-// Online also the Lumiose Online mod's 160 px Pokemon pictures (runtime/hle/pl.c), once: textures/lumiose/.made
+// Online also the Lumiose Online mod's 160 px Pokemon and item pictures (runtime/hle/pl.c), once: textures/lumiose/.made
+// says "2" (1: made before the items)
 #ifdef LUMIOSE_ONLINE
-static bool pictures_wanted(void) { return !file_exists("textures/lumiose/.made"); }
+static bool pictures_wanted(void) {
+    char v[8] = "";
+    if (FILE *f = fopen("textures/lumiose/.made", "rb")) { if (!fgets(v, sizeof v, f)) v[0] = 0; fclose(f); }
+    return strcmp(v, "2") != 0;
+}
 #else
 static bool pictures_wanted(void) { return false; }
 #endif

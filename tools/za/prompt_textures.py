@@ -806,6 +806,7 @@ def scan_sarc(d):
             if fmt == 0x1c01: bc3.add(hh)
 
 
+item_icons = {}  # item number -> its icon's BNTX (a file of its own: one 160 x 160 BC7 texture "item_<n>"; for --pictures)
 icon_fonts = {}  # game files folder -> [(Entry, magic, decoded TTF) of or_font / or_font_eng]
 trpfds = {}  # game files -> data.trpfd's bytes
 for romfs in args.romfs:
@@ -825,6 +826,11 @@ for romfs in args.romfs:
                 import io
                 from fontTools.ttLib import TTFont
                 LABEL_FONT = TTFont(io.BytesIO(ttf))  # (the game's own letters for the font glyphs' labels)
+            continue
+        if args.pictures and d[:4] == b'BNTX' and size < 0x40000:
+            for name, w, h, fmt, bh, data in bntx_textures(d):
+                if (m := re.fullmatch(r'item_(\d{1,5})', name)) and w == h == 160: item_icons.setdefault(int(m.group(1)), d)
+                break
             continue
         scan_sarc(d)
 # the mods' UI archives (a translation's title screen has its own "PRESS (A)")
@@ -964,15 +970,22 @@ def mon_pictures(trpfs, trpfd, out):
         for shiny in (0, 1):
             d = archive_file(trpfs, trpfd, f'ik_pokemon/data/pm{fsp}/pm{fsp}_{ff}_{tt}/icon/pm{fsp}_{ff}_{tt}_00_{shiny}.bntx')
             if d is None or d[:4] != b'BNTX': continue
-            for name, w, h, fmt, bh, data in bntx_textures(d):
-                if fmt not in (0x2001, 0x2006): break  # (BC7, unorm / sRGB)
-                lin = deswizzle(data, (w + 3) // 4, (h + 3) // 4, 16, bh)
-                img = Image.frombytes('RGBA', ((w + 3) // 4 * 4, (h + 3) // 4 * 4), bytes(lin), 'bcn', 7).crop((0, 0, w, h))
-                if img.size != (160, 160): img = img.resize((160, 160), Image.LANCZOS)
-                img.save(os.path.join(out, f'pm{sp}_{form}_{female}_{shiny}.png'), optimize=False)
-                made += 1
-                break
+            made += bntx_png(d, os.path.join(out, f'pm{sp}_{form}_{female}_{shiny}.png'))
     print(f'{out}: {made} Pokemon pictures from {rows} catalog rows')
+    # the items (the mod's item card): the game's own item_<n> icons, by their number
+    made = sum(bntx_png(d, os.path.join(out, f'item_{n}.png')) for n, d in sorted(item_icons.items()))
+    print(f'{out}: {made} item pictures')
+
+
+def bntx_png(d, path):  # a BNTX's first texture, BC7, as a 160 x 160 PNG; 1 when made
+    for name, w, h, fmt, bh, data in bntx_textures(d):
+        if fmt not in (0x2001, 0x2006): return 0  # (BC7, unorm / sRGB)
+        lin = deswizzle(data, (w + 3) // 4, (h + 3) // 4, 16, bh)
+        img = Image.frombytes('RGBA', ((w + 3) // 4 * 4, (h + 3) // 4 * 4), bytes(lin), 'bcn', 7).crop((0, 0, w, h))
+        if img.size != (160, 160): img = img.resize((160, 160), Image.LANCZOS)
+        img.save(path, optimize=False)
+        return 1
+    return 0
 
 
 if args.pictures:
@@ -980,7 +993,7 @@ if args.pictures:
     tmp = args.pictures.rstrip('/\\') + '.new'
     shutil.rmtree(tmp, ignore_errors=True)
     mon_pictures(*open_game(args.romfs[0]), tmp)
-    with open(os.path.join(tmp, '.made'), 'w') as f: f.write('1')
+    with open(os.path.join(tmp, '.made'), 'w') as f: f.write('2')  # (2: the items too; runtime/ui/launcher.mm asks for it)
     shutil.rmtree(args.pictures, ignore_errors=True)
     os.replace(tmp, args.pictures)
 
