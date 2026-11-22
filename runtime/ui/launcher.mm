@@ -243,12 +243,18 @@ static bool prompts_tool(char *tool, size_t n) {
     return rt_resource("zaprompts/zaprompts", "build/helper/zaprompts/zaprompts", tool, n);
 }
 // (3 tries: a game closed before zaprompts is done may end it with the process)
+// Online also the Lumiose Online mod's 160 px Pokemon pictures (runtime/hle/pl.c), once: textures/lumiose/.made
+#ifdef LUMIOSE_ONLINE
+static bool pictures_wanted(void) { return !file_exists("textures/lumiose/.made"); }
+#else
+static bool pictures_wanted(void) { return false; }
+#endif
 static bool prompts_wanted(void) {
     char tool[1100];
     int tries = 0;
     prompts_marked("textures/prompts.tried", &tries);
     return prompts_tool(tool, sizeof tool) && file_exists(g_root + "/romfs.bin") &&
-           !prompts_marked("textures/prompts/.made") && tries < 3;
+           (!prompts_marked("textures/prompts/.made") || pictures_wanted()) && tries < 3;
 }
 // wait: until made (the setup), else started and left running (the start screen, a rebind)
 static bool make_prompts(bool wait) {
@@ -269,7 +275,7 @@ static bool make_prompts(bool wait) {
     const char *ini = getenv("LARECOMP_SETTINGS");  // (as runtime/settings.c: the bindings the icons name)
     if (!ini || !*ini) ini = "larecomp.ini";
     const char *argv[] = {tool, "--romfs", romfs.c_str(), "--settings", ini, "--mods", "mods", "--out", "textures/prompts",
-                          "--install", stamp.c_str(), NULL};
+                          "--install", stamp.c_str(), pictures_wanted() ? "--pictures" : NULL, "textures/lumiose", NULL};
     PlatProc p = plat_spawn(argv, "textures/prompts.log", false);
     if (!wait || !p) {
         fprintf(stderr, "[launcher] button icons: %s\n", p ? "being made (zaprompts, textures/prompts.log)" : "zaprompts didn't start");

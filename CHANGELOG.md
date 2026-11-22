@@ -5,6 +5,9 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+### Lumiose Online
+- **The Market's Pokémon pictures are sharp.** The mod asks the launcher for the game's own 160 px picture of each Pokémon and enlarged its 32 px icon when there was none. MonZaMac now makes those pictures from your game files once (about a minute in the background on the first start, 35 MB) and hands them over, shiny looks included.
+
 ## 0.4.5
 
 A new look for Lumiose Online on the start screen. No game code rebuild and no shader preparation are needed.
