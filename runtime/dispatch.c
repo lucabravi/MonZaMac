@@ -235,14 +235,32 @@ GuestFn dispatch_lookup(uint64_t addr) {
 #define DCACHE 32768
 static __thread struct { uint64_t addr; GuestFn fn; } dcache[DCACHE];
 
-// Guest setjmp sites of this thread (cpu.h RtJmp): one per guest jmp_buf, the oldest replaced when full
-#define NJMP 32
+// Guest setjmp sites of this thread (cpu.h RtJmp): one per guest jmp_buf. A site whose function has returned is never
+// told to us, so the table fills with dead ones. Replacing them in turn, the oldest first, dropped the outermost try,
+// still live (the game's Lua error handler near the top of the main thread's stack): a script error thrown back to it
+// found no site, "no function at ..." (its setjmp's return). So a free or dead site goes first (same stack - its Cpu,
+// each fiber has its own - and deeper than where this setjmp is called from), else the deepest of this stack (the
+// likeliest to end soon), never the outermost. A longjmp also drops the sites it jumps past.
+#define NJMP 64
 static __thread RtJmp jmps[NJMP];
+static __thread Cpu *jmp_cpu[NJMP];  // (beside the table: cpu.h's RtJmp is part of the game code's id)
 static __thread unsigned jmp_next;
 RtJmp *rt_setjmp_site(Cpu *c, uint64_t ret) {
     RtJmp *j = NULL;
     for (int i = 0; i < NJMP && !j; i++) if (jmps[i].buf == c->x[0]) j = &jmps[i];
-    if (!j) j = &jmps[jmp_next++ % NJMP];
+    for (int i = 0; i < NJMP && !j; i++)
+        if (!jmps[i].buf || (jmp_cpu[i] == c && jmps[i].sp < c->sp)) j = &jmps[i];
+    if (!j) {
+        int deep = -1;
+        for (int i = 0; i < NJMP; i++)
+            if (jmp_cpu[i] == c && (deep < 0 || jmps[i].sp < jmps[deep].sp)) deep = i;
+        j = deep >= 0 ? &jmps[deep] : &jmps[jmp_next++ % NJMP];
+        static _Atomic int nlog;
+        if (nlog++ < 5)
+            LOG("[setjmp] %d live sites on this thread: replaced the one for %llx (sp %llx)\n", NJMP,
+                (unsigned long long)j->ret, (unsigned long long)j->sp);
+    }
+    jmp_cpu[j - jmps] = c;
     j->buf = c->x[0], j->ret = ret, j->sp = c->sp;
     return j;
 }
@@ -284,7 +302,15 @@ retry:
     GuestFn f = dispatch_lookup(pc);
     if (!f) {
         for (int i = 0; i < NJMP; i++)  // a guest longjmp returning to its setjmp
-            if (jmps[i].buf && jmps[i].ret == pc && jmps[i].sp == c->sp) longjmp(jmps[i].host, 1);
+            if (jmps[i].buf && jmps[i].ret == pc && jmps[i].sp == c->sp) {
+                for (int k = 0; k < NJMP; k++)  // (the sites it jumps past are dead: deeper on this stack)
+                    if (jmp_cpu[k] == c && jmps[k].buf && jmps[k].sp < c->sp) jmps[k].buf = 0;
+                longjmp(jmps[i].host, 1);
+            }
+        for (int i = 0; i < NJMP; i++)  // (a setjmp's return without its site: say which part didn't match)
+            if (jmps[i].buf && jmps[i].ret == pc)
+                LOG("[setjmp] a site for %llx: sp %llx, this jump's %llx, %s\n", (unsigned long long)pc,
+                    (unsigned long long)jmps[i].sp, (unsigned long long)c->sp, jmp_cpu[i] == c ? "same stack" : "another stack");
         uint64_t off;
         const char *s = loader_symbol_at(c->x[30], &off);
         FATAL("no function at %llx (lr=%llx %s+%llx)\n", pc, c->x[30], s ? s : "?", off);
