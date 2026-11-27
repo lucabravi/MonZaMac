@@ -6,6 +6,7 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 ## Unreleased
 
 ### Fixes
+- **No more crash when the game asks for your name** (or any text) on a first start: if the game paused drawing for a moment while the keyboard window was open, two threads drew the window at once and the app stopped ("Already initialized a renderer backend!").
 - **No more rare crash after a long session** with "no function at ..." in the log: when a game script failed, the game's own error handler could have been forgotten after many others had been set up, so the game had nowhere to go back to. The oldest handler, still in use, is no longer the one dropped.
 
 ## 0.4.6
