@@ -5,6 +5,17 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+## 0.4.7
+
+Wired Xbox controllers that macOS has no driver for now work, and two crashes are gone. No game code rebuild and no shader preparation are needed.
+
+### Controllers
+- **Wired Xbox controllers that macOS doesn't recognise now work**: Xbox One and Series pads macOS has no driver for (other brands' licensed pads, older Microsoft models) and wired Xbox 360 pads are read over USB by MonZaMac itself, in the game and on the start screen, with Xbox button prompts. Rumble is not sent to them yet.
+
+### Fixes
+- **No more crash when the game asks for your name** (or any text) on a first start: if the game paused drawing for a moment while the keyboard window was open, two threads drew the window at once and the app stopped ("Already initialized a renderer backend!").
+- **No more rare crash after a long session** with "no function at ..." in the log: when a game script failed, the game's own error handler could have been forgotten after many others had been set up, so the game had nowhere to go back to. The oldest handler, still in use, is no longer the one dropped.
+
 ## 0.4.6
 
 Lumiose Online, closer to the PC launcher the mod was made for: typing in place, sharp Market pictures, the game's font in the mod's windows, and text fields that keep their own length. On the first start MonZaMac makes the Pokémon pictures (and, online, the font) from your game files (about a minute in the background; Play online waits only for the font), and Play online prepares the online version again once. No game code rebuild and no shader preparation are needed.
