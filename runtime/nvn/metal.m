@@ -5,6 +5,7 @@
 // Metal renderer for the NVN layer: window, textures, command execution, presentation.
 #include <sys/stat.h>
 #include <dirent.h>
+#include <pthread.h>
 #import <AppKit/AppKit.h>
 #import <Metal/Metal.h>
 #import <MetalFX/MetalFX.h>
@@ -1273,12 +1274,24 @@ void renderer_save_texture(id<MTLTexture> tex, const char *path) { save_texture_
 
 static double last_fps_time;
 
-void backend_present(NvnTexture *t);
+static void present_frame(NvnTexture *t);
+// One thread in here at a time: the game's render thread, and the game thread re-presenting while it waits in a host
+// dialog (below) when the render thread was quiet for a moment and then presents again. Two at once ran the overlay's
+// first frame twice (ImGui's context is one for the process): "Already initialized a renderer backend!" (issue #314).
+static pthread_mutex_t present_lock = PTHREAD_MUTEX_INITIALIZER;
+void backend_present(NvnTexture *t) {
+    pthread_mutex_lock(&present_lock);
+    present_frame(t);
+    pthread_mutex_unlock(&present_lock);
+}
 // Present the last frame again (the game thread waits in a host dialog, e.g. the software keyboard): the overlay
 // keeps drawing and taking input.
 void backend_represent(void) {
-    if (g_last_presented) backend_present(g_last_presented);
-    else SDL_Delay(16);
+    pthread_mutex_lock(&present_lock);
+    NvnTexture *t = g_last_presented;
+    if (t) present_frame(t);
+    pthread_mutex_unlock(&present_lock);
+    if (!t) SDL_Delay(16);
 }
 
 static _Atomic int fg_screen_hz;
@@ -1336,7 +1349,7 @@ static void fg_draw_present(id<MTLCommandBuffer> cb,id<MTLTexture> target,id<MTL
 }
 
 double g_stat_cpu_ms, g_stat_gpu_ms;  // smoothed per presented frame (Developer: F3 in ui/menu.mm)
-void backend_present(NvnTexture *t) {
+static void present_frame(NvnTexture *t) {
     static bool was_uncapped, saved_display_sync;
     bool uncapped = settings_uncapped_fps();
     if (uncapped != was_uncapped) {
