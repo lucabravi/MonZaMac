@@ -5,6 +5,10 @@ the in-game menu; the start screen also offers a newer release from GitHub when 
 
 ## Unreleased
 
+## 0.4.7
+
+Wired Xbox controllers that macOS has no driver for now work, and two crashes are gone. No game code rebuild and no shader preparation are needed.
+
 ### Controllers
 - **Wired Xbox controllers that macOS doesn't recognise now work**: Xbox One and Series pads macOS has no driver for (other brands' licensed pads, older Microsoft models) and wired Xbox 360 pads are read over USB by MonZaMac itself, in the game and on the start screen, with Xbox button prompts. Rumble is not sent to them yet.
 
